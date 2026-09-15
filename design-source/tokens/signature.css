@@ -8,8 +8,10 @@
   --eg-navy-900: #0b1a3a;
   --eg-navy-800: #12265a;
   --eg-navy-700: #1b3576;
-  --eg-mist-50: #f3f5fc;  /* the "pitch" — light ground below the horizon */
-  --eg-mist-100: #e9eefa;
+  --eg-blue-700: #2549a8;   /* sky ramp, lower */
+  --eg-blue-600: #2b57c9;   /* sky ramp, horizon — one step from the logo blue */
+  --eg-mist-50: #eef3fe;  /* the "pitch" — light ground below the horizon, blue-cast */
+  --eg-mist-100: #e4ecfb;
 
   /* Signature corner: three soft corners, one cut (bottom-right) — echoes the bar of the "e" mark */
   --eg-corner: 22px 22px 8px 22px;       /* @kind radius */
@@ -20,9 +22,9 @@
   /* Glass surfaces */
   --eg-glass-bg: rgba(255, 255, 255, 0.74);
   --eg-glass-bg-strong: rgba(255, 255, 255, 0.88);
-  --eg-glass-border: rgba(255, 255, 255, 0.7);
-  --eg-glass-dark-bg: rgba(11, 26, 58, 0.72);
-  --eg-glass-dark-border: rgba(255, 255, 255, 0.14);
+  --eg-glass-border: rgba(255, 255, 255, 0.78);
+  --eg-glass-dark-bg: rgba(18, 38, 90, 0.66);
+  --eg-glass-dark-border: rgba(255, 255, 255, 0.2);
   --eg-glass-blur: blur(18px) saturate(1.4); /* @kind other */
   --eg-hairline: rgba(11, 26, 58, 0.08);
   --eg-hairline-strong: rgba(11, 26, 58, 0.14);
@@ -43,10 +45,10 @@
   --eg-grad-destructive: linear-gradient(135deg, #f87171 0%, #ef4444 55%, #b91c1c 100%); /* @kind color */
   --eg-grad-navy: linear-gradient(160deg, #1b3576 0%, #0b1a3a 100%); /* @kind color */
   --eg-grad-match: linear-gradient(135deg, #fb923c 0%, #f97316 55%, #c2410c 100%); /* @kind color */
-  --eg-grad-sky: linear-gradient(180deg, #07122b 0%, #0b1a3a 55%, #12265a 100%); /* @kind color */
-  --eg-floodlight-a: radial-gradient(70% 55% at 12% -10%, rgba(59, 130, 246, 0.65), transparent 70%); /* @kind color */
-  --eg-floodlight-b: radial-gradient(55% 45% at 95% 10%, rgba(53, 51, 205, 0.6), transparent 70%); /* @kind color */
-  --eg-pitch-lines: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 28px); /* @kind color */
+  --eg-grad-sky: linear-gradient(180deg, #12265a 0%, #1b3576 38%, #2549a8 76%, #2b57c9 100%); /* @kind color */
+  --eg-floodlight-a: radial-gradient(70% 55% at 12% -10%, rgba(96, 165, 250, 0.55), transparent 70%); /* @kind color */
+  --eg-floodlight-b: radial-gradient(55% 45% at 95% 8%, rgba(83, 80, 229, 0.5), transparent 70%); /* @kind color */
+  --eg-pitch-lines: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 1px, transparent 1px 28px); /* @kind color */
 
   /* Eyebrow / tech label */
   --eg-text-eyebrow: 700 11px/16px var(--eg-font-brand);
@@ -100,4 +102,52 @@
   /* Accessibility: the visible focus ring for keyboard / switch-control users */
   --eg-focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.5);
   --eg-focus-ring-on-dark: 0 0 0 3px rgba(255, 255, 255, 0.7);
+  /* ── v3.0 additions ─────────────────────────────────────────────── */
+
+  /* Full-page blue ground — auth, account and blocking system screens.
+     These screens have NO horizon and NO mist band: the ramp runs edge to edge. */
+  --eg-grad-page: linear-gradient(180deg, #12265a 0%, #1b3576 38%, #2549a8 74%, #2b57c9 100%); /* @kind color */
+  --eg-watermark-opacity: 0.05; /* @kind other */  /* the "e" mark, ~460px, bleeding off bottom-right */
+  --eg-court-arc: rgba(255, 255, 255, 0.1);        /* 1px concentric court circles */
+  --eg-baseline-rule: rgba(255, 255, 255, 0.12);   /* 1px baseline across the screen */
+  --eg-baseline-tick: rgba(255, 255, 255, 0.18);   /* 22px vertical tick at the left inset */
+
+  /* Actions on the sky — the action gradient is BANNED on a blue ground.
+     Primary inverts to white-on-navy; secondary is a white-outlined ghost. */
+  --eg-action-on-sky-bg: #ffffff;
+  --eg-action-on-sky-ink: #12265a;
+  --eg-ghost-on-sky-bg: rgba(255, 255, 255, 0.08);
+  --eg-ghost-on-sky-border: rgba(255, 255, 255, 0.45);
+
+  /* Dock, compact (v3: 68 → 56) */
+  --eg-dock-height: 56px;
+  --eg-dock-puck: 46px;
+  --eg-dock-glyph: 20px;
+  --eg-dock-inactive: rgba(255, 255, 255, 0.62);
+
+  /* Status pill ramp — solid fills with white labels, ≥4.5:1 on any ground.
+     Replaces the v2 tint-on-glass pills. */
+  --eg-pill-ink-on-fill: #ffffff;
+  --eg-pill-success-bg: #15803d;
+  --eg-pill-info-bg: #1d4ed8;
+  --eg-pill-warning-bg: #b45309;
+  --eg-pill-danger-bg: #b91c1c;
+  --eg-pill-match-bg: #9a3412;
+  --eg-pill-neutral-bg: rgba(11, 26, 58, 0.09);
+  --eg-pill-neutral-border: rgba(11, 26, 58, 0.18);
+  --eg-pill-neutral-ink: #0b1a3a;
+  --eg-pill-outline-bg: #ffffff;
+  --eg-pill-outline-border-w: 1.5px; /* @kind other */
+  --eg-pill-outline-ink-warning: #8a4708;
+  --eg-pill-outline-ink-info: #1e40af;
+
+  /* Attendance / call-up mark — a ring, never a filled row */
+  --eg-mark-size: 30px;
+  --eg-mark-border: 1.5px; /* @kind other */
+  --eg-mark-tint: 0.12; /* @kind other */
+
+  /* Motion */
+  --eg-ease-sheet: cubic-bezier(0.2, 0.9, 0.25, 1); /* @kind other */
+  --eg-press-scale-control: 0.97; /* @kind other */
+  --eg-press-scale-surface: 0.985; /* @kind other */
 }

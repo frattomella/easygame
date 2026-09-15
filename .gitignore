@@ -94,3 +94,7 @@ design-source/*.html
 design-source/_ds_bundle.js
 design-source/.thumbnail
 design-source/_adherence.oxlintrc.json
+!design-source/web/
+!design-source/web/**
+!design-source/templates/
+!design-source/templates/**

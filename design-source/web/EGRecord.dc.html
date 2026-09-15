@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/easygame-design-system-84532636-540e-4f5d-91bf-75957af5e007/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/easygame-design-system-84532636-540e-4f5d-91bf-75957af5e007/styles.css">
+<style>body{margin:0;font-family:Poppins,system-ui,sans-serif;color:#0b1a3a}</style>
+</helmet>
+
+<div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
+
+  <div style="flex:none;display:flex;align-items:center;gap:16px;padding:14px 24px 12px;border-bottom:1px solid rgba(11,26,58,.08)">
+    <div style="display:flex;align-items:center;gap:4px">
+      <span style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid rgba(11,26,58,.14);border-radius:9px 9px 3px 9px"><span style="width:12px;height:12px;background:rgba(11,26,58,.6);mask:url(icons/chevron-forward-outline.svg) center/contain no-repeat;transform:rotate(180deg)"></span></span>
+      <span style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid rgba(11,26,58,.14);border-radius:9px 9px 3px 9px"><span style="width:12px;height:12px;background:rgba(11,26,58,.6);mask:url(icons/chevron-forward-outline.svg) center/contain no-repeat"></span></span>
+      <span style="margin-left:6px;font:500 11px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.5)">14 di 33<br>Aquilotti</span>
+    </div>
+    <span style="width:1px;height:34px;background:rgba(11,26,58,.1)"></span>
+    <div style="width:46px;height:46px;flex:none;background:linear-gradient(160deg,#0b1a3a,#1b3576);border-radius:15px 15px 5px 15px;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 1px 0 rgba(255,255,255,.22)"><span style="font:800 17px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#fff">14</span></div>
+    <div style="min-width:0">
+      <div style="display:flex;align-items:center;gap:9px"><h1 style="margin:0;font:800 20px/1.1 Poppins,sans-serif;letter-spacing:-.02em">Izzo Aldo</h1><span style="display:inline-flex;align-items:center;gap:6px;padding:3px 8px;background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.28);border-radius:10px 10px 4px 10px;font:700 9px/1 Poppins,sans-serif;letter-spacing:.08em;color:#1d4ed8">AQUILOTTI</span><span style="display:inline-flex;align-items:center;gap:5px;padding:3px 8px;background:rgba(21,128,61,.1);border:1px solid rgba(21,128,61,.3);border-radius:10px 10px 4px 10px;font:700 9px/1 Poppins,sans-serif;letter-spacing:.08em;color:#15803d"><span style="width:4px;height:4px;border-radius:999px;background:#15803d"></span>ATTIVO</span></div>
+      <div style="margin-top:5px;font:400 11px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.55)">1 gen 2016 · Scauri · tesserato FIPAV 1284-2026</div>
+    </div>
+    <div style="margin-left:auto;display:inline-flex;align-items:center;gap:2px;padding:4px;background:#e9eef9;border:1px solid rgba(11,26,58,.1);border-radius:14px 14px 5px 14px">
+      <sc-if value="{{ isProfilo }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;align-items:center;height:32px;padding:0 15px;background:#fff;border-radius:11px 11px 4px 11px;box-shadow:0 2px 5px rgba(11,26,58,.14);font:700 12.5px/1 Poppins,sans-serif;color:#12265a">Profilo</span></sc-if>
+      <sc-if value="{{ notProfilo }}"><span style="display:inline-flex;align-items:center;height:32px;padding:0 15px;font:500 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Profilo</span></sc-if>
+      <sc-if value="{{ isAttivita }}"><span style="display:inline-flex;align-items:center;height:32px;padding:0 15px;background:#fff;border-radius:11px 11px 4px 11px;box-shadow:0 2px 5px rgba(11,26,58,.14);font:700 12.5px/1 Poppins,sans-serif;color:#12265a">Attività sportiva</span></sc-if>
+      <sc-if value="{{ notAttivita }}"><span style="display:inline-flex;align-items:center;height:32px;padding:0 15px;font:500 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Attività sportiva</span></sc-if>
+      <sc-if value="{{ isAmmin }}"><span style="display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 15px;background:#fff;border-radius:11px 11px 4px 11px;box-shadow:0 2px 5px rgba(11,26,58,.14);font:700 12.5px/1 Poppins,sans-serif;color:#12265a">Amministrazione<span style="padding:2px 6px;background:#b91c1c;border-radius:999px;font:800 9px/1.4 Poppins,sans-serif;color:#fff">2</span></span></sc-if>
+      <sc-if value="{{ notAmmin }}"><span style="display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 15px;font:500 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Amministrazione<span style="padding:2px 6px;background:#b91c1c;border-radius:999px;font:800 9px/1.4 Poppins,sans-serif;color:#fff">2</span></span></sc-if>
+    </div>
+  </div>
+
+  <div style="flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 316px">
+    <div style="min-width:0;min-height:0;overflow:hidden;padding:16px 20px 20px;display:flex;flex-direction:column;gap:12px">{{ kids }}</div>
+
+    <aside style="min-height:0;overflow:hidden;padding:14px 20px 14px 0;display:flex;flex-direction:column;gap:10px">
+
+      <sc-if value="{{ showAlerts }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:none;display:flex;flex-direction:column;background:#fff;border:1px solid rgba(185,28,28,.28);border-radius:18px 18px 6px 18px;box-shadow:inset 0 1px 0 #fff,0 10px 26px -18px rgba(11,26,58,.3);overflow:hidden">
+        <div style="display:flex;align-items:center;gap:9px;padding:11px 13px;background:rgba(185,28,28,.07);border-bottom:1px solid rgba(185,28,28,.2)"><span style="font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.12em;color:#b91c1c">RICHIEDE ATTENZIONE</span><span style="margin-left:auto;padding:2px 7px;background:#b91c1c;border-radius:999px;font:800 9.5px/1.4 Poppins,sans-serif;color:#fff">2</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 13px;border-bottom:1px solid rgba(11,26,58,.06)">
+          <span style="width:28px;height:28px;flex:none;background:rgba(185,28,28,.1);border:1px solid rgba(185,28,28,.26);border-radius:10px 10px 3px 10px;display:flex;align-items:center;justify-content:center"><span style="width:14px;height:14px;background:#b91c1c;mask:url(icons/shield-outline.svg) center/contain no-repeat"></span></span>
+          <div style="min-width:0;flex:1"><div style="font:700 11.5px/1.2 Poppins,sans-serif">Certificato scaduto</div><div style="margin-top:3px;font:400 10px/1 Poppins,sans-serif;color:rgba(11,26,58,.55)">il 9 set · non pu&#242; allenarsi</div></div>
+          <span style="flex:none;display:inline-flex;align-items:center;height:28px;padding:0 10px;background:#b91c1c;border-radius:9px 9px 3px 9px;font:700 11px/1 Poppins,sans-serif;color:#fff;white-space:nowrap">Registra</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 13px">
+          <span style="width:28px;height:28px;flex:none;background:rgba(217,119,6,.12);border:1px solid rgba(217,119,6,.3);border-radius:10px 10px 3px 10px;display:flex;align-items:center;justify-content:center"><span style="width:14px;height:14px;background:#b45309;mask:url(icons/people-outline.svg) center/contain no-repeat"></span></span>
+          <div style="min-width:0;flex:1"><div style="font:700 11.5px/1.2 Poppins,sans-serif">Nessun genitore collegato</div><div style="margin-top:3px;font:400 10px/1 Poppins,sans-serif;color:rgba(11,26,58,.55)">la famiglia non riceve nulla</div></div>
+          <span style="flex:none;display:inline-flex;align-items:center;height:28px;padding:0 10px;background:#fff;border:1px solid rgba(11,26,58,.16);border-radius:9px 9px 3px 9px;font:600 11px/1 Poppins,sans-serif;color:#0b1a3a;white-space:nowrap">Aggiungi</span>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ showAccesso }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:none;display:flex;flex-direction:column;background:#fff;border:1px solid rgba(37,99,235,.35);border-radius:18px 18px 6px 18px;box-shadow:inset 0 1px 0 #fff,0 14px 34px -18px rgba(37,99,235,.5);overflow:hidden">
+        <div style="padding:12px 14px;background:linear-gradient(150deg,#3b82f6,#2563eb 46%,#3533cd)">
+          <div style="display:flex;align-items:center;gap:9px"><span style="width:26px;height:26px;flex:none;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.32);border-radius:9px 9px 3px 9px;display:flex;align-items:center;justify-content:center"><span style="width:14px;height:14px;background:#fff;mask:url(icons/lock-closed-outline.svg) center/contain no-repeat"></span></span><span style="flex:none;white-space:nowrap;font:800 13.5px/1.1 Poppins,sans-serif;color:#fff">Accesso EasyGame</span></div>
+          <div style="margin-top:9px"><span style="display:inline-flex;align-items:center;flex:none;white-space:nowrap;padding:3px 7px;background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);border-radius:9px 9px 3px 9px;font:700 8.5px/1.3 Poppins,sans-serif;letter-spacing:.08em;color:#fff">NESSUN ACCOUNT</span></div>
+          <div style="margin-top:8px;font:400 10.5px/1.45 Poppins,sans-serif;color:rgba(255,255,255,.82)">L'atleta riceve un link personale e sceglie da s&#233; la password. Nessuno del club la vede.</div>
+        </div>
+        <div style="padding:12px 14px 14px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;flex-direction:column;gap:6px"><span style="font:700 9px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">EMAIL DELL'ATLETA</span><span style="display:flex;align-items:center;gap:8px;height:34px;padding:0 10px;background:#fff;border:1px solid rgba(11,26,58,.16);border-radius:11px 11px 4px 11px;font:500 11.5px/1 Poppins,sans-serif;color:#0b1a3a"><span style="width:14px;height:14px;background:rgba(11,26,58,.42);mask:url(icons/mail-outline.svg) center/contain no-repeat"></span>aldo.izzo@esempio.it</span></div>
+          <div style="display:flex;align-items:flex-start;gap:9px;padding:10px;background:rgba(217,119,6,.08);border:1px solid rgba(217,119,6,.3);border-radius:13px 13px 4px 13px">
+            <span style="width:15px;height:15px;flex:none;margin-top:1px;background:linear-gradient(135deg,#3b82f6,#2563eb 48%,#3533cd);border-radius:5px 5px 2px 5px;display:flex;align-items:center;justify-content:center"><span style="width:9px;height:9px;background:#fff;mask:url(icons/checkmark.svg) center/contain no-repeat"></span></span>
+            <span style="font:400 10.5px/1.45 Poppins,sans-serif;color:#7c2d12">Atleta <strong style="font-weight:700">minorenne</strong>: confermo che chi ne ha la responsabilit&#224; genitoriale ha autorizzato l'accesso.</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button style="flex:none;white-space:nowrap;height:36px;padding:0 13px;background:linear-gradient(135deg,#3b82f6,#2563eb 48%,#3533cd);border:1px solid rgba(255,255,255,.28);border-radius:12px 12px 4px 12px;box-shadow:0 12px 24px -14px rgba(37,99,235,.7),inset 0 1px 0 rgba(255,255,255,.35);font:700 12px/1 Poppins,sans-serif;color:#fff;cursor:pointer">Invita l'atleta</button>
+            <span style="font:500 11px/1 Poppins,sans-serif;color:rgba(11,26,58,.5)">Annulla</span>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <div style="flex:none;display:flex;flex-direction:column;background:#fff;border:1px solid rgba(11,26,58,.1);border-radius:18px 18px 6px 18px;box-shadow:inset 0 1px 0 #fff,0 10px 26px -18px rgba(11,26,58,.3);overflow:hidden">
+        <div style="padding:11px 13px 9px;border-bottom:1px solid rgba(11,26,58,.07)"><span style="font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">AZIONI FREQUENTI</span></div>
+        <div style="display:flex;align-items:center;gap:10px;height:38px;padding:0 13px;border-bottom:1px solid rgba(11,26,58,.05)"><span style="width:15px;height:15px;background:rgba(11,26,58,.55);mask:url(icons/server-outline.svg) center/contain no-repeat"></span><span style="font:500 11.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.8)">Registra pagamento quota</span></div>
+        <div style="display:flex;align-items:center;gap:10px;height:38px;padding:0 13px;border-bottom:1px solid rgba(11,26,58,.05)"><span style="width:15px;height:15px;background:rgba(11,26,58,.55);mask:url(icons/mail-outline.svg) center/contain no-repeat"></span><span style="font:500 11.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.8)">Scrivi alla famiglia</span></div>
+        <div style="display:flex;align-items:center;gap:10px;height:38px;padding:0 13px;border-bottom:1px solid rgba(11,26,58,.05)"><span style="width:15px;height:15px;background:rgba(11,26,58,.55);mask:url(icons/lock-closed-outline.svg) center/contain no-repeat"></span><span style="font:500 11.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.8)">Apri accesso EasyGame</span></div>
+        <div style="display:flex;align-items:center;gap:10px;height:38px;padding:0 13px"><span style="width:15px;height:15px;background:rgba(11,26,58,.55);mask:url(icons/arrow-forward.svg) center/contain no-repeat"></span><span style="font:500 11.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.8)">Sposta di categoria</span></div>
+      </div>
+
+      <sc-if value="{{ showAlerts }}">
+      <div style="flex:none;padding:13px;background:#fff;border:1px solid rgba(11,26,58,.1);border-radius:18px 18px 6px 18px;box-shadow:inset 0 1px 0 #fff,0 10px 26px -18px rgba(11,26,58,.3)">
+        <div style="display:flex;align-items:baseline;gap:8px"><span style="font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">SCHEDA COMPLETA AL</span><span style="margin-left:auto;font:800 14px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#b45309">62%</span></div>
+        <div style="margin-top:9px;height:6px;border-radius:999px;background:rgba(11,26,58,.08);overflow:hidden"><div style="width:62%;height:100%;border-radius:999px;background:linear-gradient(90deg,#3b82f6,#2563eb 48%,#3533cd)"></div></div>
+        <div style="margin-top:9px;font:400 10.5px/1.45 Poppins,sans-serif;color:rgba(11,26,58,.6)">Mancano codice fiscale, comune di nascita, sesso, taglie.</div>
+      </div>
+
+      <div style="flex:1;min-height:0;display:flex;flex-direction:column;background:#fff;border:1px solid rgba(11,26,58,.1);border-radius:18px 18px 6px 18px;box-shadow:inset 0 1px 0 #fff,0 10px 26px -18px rgba(11,26,58,.3);overflow:hidden">
+        <div style="padding:11px 13px 9px;border-bottom:1px solid rgba(11,26,58,.07)"><span style="font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">ULTIMA ATTIVIT&#192;</span></div>
+        <div style="padding:9px 13px;display:flex;flex-direction:column;gap:9px;overflow:hidden">
+          <div style="display:flex;gap:9px"><span style="width:6px;height:6px;flex:none;margin-top:5px;border-radius:999px;background:#15803d"></span><div><div style="font:600 11px/1.3 Poppins,sans-serif">Presente · allenamento 16 set</div><div style="margin-top:2px;font:400 9.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.5)">registrato da Coach Rinaldi</div></div></div>
+          <div style="display:flex;gap:9px"><span style="width:6px;height:6px;flex:none;margin-top:5px;border-radius:999px;background:#2563eb"></span><div><div style="font:600 11px/1.3 Poppins,sans-serif">Convocato · Virtus Gaeta</div><div style="margin-top:2px;font:400 9.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.5)">6 set 2026</div></div></div>
+          <div style="display:flex;gap:9px"><span style="width:6px;height:6px;flex:none;margin-top:5px;border-radius:999px;background:rgba(11,26,58,.3)"></span><div><div style="font:600 11px/1.3 Poppins,sans-serif">Tesseramento FIPAV caricato</div><div style="margin-top:2px;font:400 9.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.5)">2 set 2026 · Francesca M.</div></div></div>
+        </div>
+      </div>
+      </sc-if>
+
+      <div style="flex:none;display:flex;align-items:center;gap:9px;padding:9px 12px;border:1px dashed rgba(185,28,28,.3);border-radius:14px 14px 5px 14px">
+        <span style="width:14px;height:14px;background:#b91c1c;mask:url(icons/close-circle-outline.svg) center/contain no-repeat"></span>
+        <span style="font:600 11px/1 Poppins,sans-serif;color:#b91c1c">Sospendi</span>
+        <span style="width:1px;height:14px;background:rgba(185,28,28,.25)"></span>
+        <span style="font:600 11px/1 Poppins,sans-serif;color:#b91c1c">Elimina atleta</span>
+      </div>
+    </aside>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1104,&quot;height&quot;:793},&quot;area&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;profilo&quot;,&quot;attivita&quot;,&quot;amministrazione&quot;],&quot;default&quot;:&quot;profilo&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;panel&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;alerts&quot;,&quot;accesso&quot;],&quot;default&quot;:&quot;alerts&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const a = this.props.area ?? "profilo";
+    const p = this.props.panel ?? "alerts";
+    return {
+      kids: this.props.children,
+      isProfilo: a === "profilo", notProfilo: a !== "profilo",
+      isAttivita: a === "attivita", notAttivita: a !== "attivita",
+      isAmmin: a === "amministrazione", notAmmin: a !== "amministrazione",
+      showAlerts: p === "alerts", showAccesso: p === "accesso"
+    };
+  }
+}
+</script>
+</body>
+</html>

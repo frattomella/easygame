@@ -1,0 +1,68 @@
+<!-- @dsCard group="Web" viewport="1160x480" name="Avvisi operativi e stati vuoti" subtitle="Conteggio · gravità · conseguenza · verbo che risolve" -->
+<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css"><style>body{margin:0;padding:20px;background:var(--egw-page);font-family:Poppins,system-ui,sans-serif;color:var(--egw-ink)}a{color:var(--egw-blue)}a:hover{color:var(--egw-indigo)}.eb{font:var(--egw-t-eyebrow);letter-spacing:var(--egw-track-eyebrow);color:var(--egw-ink-42);text-transform:uppercase}.pn{background:#fff;border:1px solid var(--egw-panel-border);border-radius:var(--egw-r-panel);box-shadow:var(--egw-plane-1);padding:20px 22px}.al{display:flex;align-items:flex-start;gap:11px;padding:14px 16px;border-radius:var(--egw-r-field)}.ai{width:17px;height:17px;flex:none;margin-top:1px;mask-size:contain;mask-position:center;mask-repeat:no-repeat;-webkit-mask-size:contain;-webkit-mask-position:center;-webkit-mask-repeat:no-repeat}.at{font:600 13px/1.35 Poppins,sans-serif}.ad{margin-top:4px;font:400 12.5px/1.5 Poppins,sans-serif;color:var(--egw-ink-72)}.btn{height:34px;padding:0 13px;display:inline-flex;align-items:center;border-radius:var(--egw-r-control);font:600 12.5px/1 Poppins,sans-serif;white-space:nowrap}.tile{width:30px;height:30px;flex:none;background:var(--egw-grad-navy);border-radius:var(--egw-r-chip);display:flex;align-items:center;justify-content:center;font:800 12px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#fff}.note{margin:14px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:var(--egw-ink-62)}</style></head><body>
+<div style="display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:18px;align-items:start">
+
+<div style="display:flex;flex-direction:column;gap:18px">
+<div class="pn" style="display:flex;flex-direction:column;gap:12px">
+<div class="eb">Avvisi in pagina</div>
+<div class="al" style="background:var(--egw-tint-red);border:1px solid var(--egw-tint-red-bd)">
+  <span class="ai" style="background:var(--egw-red);mask-image:url(../assets/icons/close-circle-outline.svg);-webkit-mask-image:url(../assets/icons/close-circle-outline.svg)"></span>
+  <div style="flex:1;min-width:0"><div class="at">7 certificati medici scaduti o mancanti</div><div class="ad">Questi atleti non possono essere convocati.</div></div>
+  <span class="btn" style="background:#fff;border:1px solid rgba(185,28,28,.35);color:var(--egw-red)">Registra certificato</span>
+  <span class="btn" style="background:transparent;color:var(--egw-ink-62)">Invia promemoria</span>
+</div>
+<div class="al" style="background:var(--egw-tint-amber);border:1px solid var(--egw-tint-amber-bd)">
+  <span class="ai" style="background:var(--egw-amber);mask-image:url(../assets/icons/help-circle-outline.svg);-webkit-mask-image:url(../assets/icons/help-circle-outline.svg)"></span>
+  <div style="flex:1;min-width:0"><div class="at">Nessun conto finanziario configurato</div><div class="ad">Senza un conto un movimento non può dire dove il denaro si è mosso.</div></div>
+  <span class="btn" style="background:#fff;border:1px solid var(--egw-tint-amber-bd);color:var(--egw-amber-ink)">Configura conto</span>
+</div>
+<div class="al" style="background:var(--egw-tint-blue);border:1px solid var(--egw-tint-blue-bd);align-items:center">
+  <span class="ai" style="margin-top:0;background:var(--egw-blue-700);mask-image:url(../assets/icons/notifications-outline.svg);-webkit-mask-image:url(../assets/icons/notifications-outline.svg)"></span>
+  <div style="flex:1;min-width:0"><div class="at">Stagione 2024/2025 chiusa: la scheda è in sola lettura.</div></div>
+  <span class="btn" style="background:transparent;color:var(--egw-blue)">Nascondi</span>
+</div>
+<div class="al" style="background:var(--egw-tint-green);border:1px solid var(--egw-tint-green-bd);align-items:center">
+  <span class="ai" style="margin-top:0;background:var(--egw-green);mask-image:url(../assets/icons/checkmark-circle.svg);-webkit-mask-image:url(../assets/icons/checkmark-circle.svg)"></span>
+  <div class="at">Presenze salvate · 14/16</div>
+</div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px">
+<div class="pn" style="display:flex;flex-direction:column;align-items:flex-start;gap:11px">
+<div class="eb">Vuoto</div>
+<div style="width:44px;height:44px;background:var(--egw-tint-blue);border:1px solid rgba(37,99,235,.25);border-radius:var(--egw-r-field);box-shadow:inset 0 1px 0 rgba(255,255,255,.8);display:flex;align-items:center;justify-content:center"><span class="ai" style="margin-top:0;width:20px;height:20px;background:var(--egw-blue-800);mask-image:url(../assets/icons/server-outline.svg);-webkit-mask-image:url(../assets/icons/server-outline.svg)"></span></div>
+<div style="font:var(--egw-t-panel-title)">Nessun movimento nel periodo</div>
+<p style="margin:0;font:400 12.5px/1.6 Poppins,sans-serif;color:var(--egw-ink-62)">Registra il primo movimento oppure allarga l'intervallo di date.</p>
+<span class="btn" style="height:38px;background:var(--egw-grad-action);border:1px solid rgba(255,255,255,.28);box-shadow:var(--egw-glow-action);color:#fff">Registra movimento</span>
+</div>
+<div class="pn" style="display:flex;flex-direction:column;align-items:flex-start;gap:11px">
+<div class="eb">Vuoto per filtri</div>
+<div style="width:44px;height:44px;background:var(--egw-page-100);border:1px solid var(--egw-hairline);border-radius:var(--egw-r-field);display:flex;align-items:center;justify-content:center"><span class="ai" style="margin-top:0;width:20px;height:20px;background:var(--egw-ink-42);mask-image:url(../assets/icons/search-outline.svg);-webkit-mask-image:url(../assets/icons/search-outline.svg)"></span></div>
+<div style="font:var(--egw-t-panel-title)">Nessun risultato con questi filtri</div>
+<p style="margin:0;font:400 12.5px/1.6 Poppins,sans-serif;color:var(--egw-ink-62)">Prova a togliere un filtro o allarga il periodo.</p>
+<div style="display:flex;gap:10px"><span class="btn" style="height:38px;background:var(--egw-navy-800);color:#fff">Azzera i filtri</span><span class="btn" style="height:38px;background:#fff;border:1px solid var(--egw-field-border);color:var(--egw-ink)">Modifica filtri</span></div>
+</div>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:18px">
+<div class="pn">
+<div class="eb">Da sistemare</div>
+<div style="margin-top:10px;display:flex;align-items:baseline;gap:8px"><span style="font:800 26px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:var(--egw-track-num);color:var(--egw-red)">7</span><span style="font:700 16px/1.2 Poppins,sans-serif">certificati medici</span></div>
+<p style="margin:8px 0 0;font:400 12.5px/1.55 Poppins,sans-serif;color:var(--egw-ink-62)">Questi atleti non possono essere convocati.</p>
+<div style="margin-top:14px;display:flex;flex-direction:column;gap:8px">
+  <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;background:var(--egw-page-100);border-radius:var(--egw-r-field)"><div class="tile">14</div><div style="min-width:0;flex:1"><div style="font:600 12.5px/1.2 Poppins,sans-serif">Marco Ferretti</div><div style="margin-top:2px;font:400 10.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.5)">Under 15 · scaduto il 2 ago</div></div><span style="padding:3px 9px;background:var(--egw-red);border-radius:var(--egw-r-pill);font:700 9.5px/1.4 Poppins,sans-serif;letter-spacing:var(--egw-track-pill);color:#fff">SCADUTO</span></div>
+  <div style="display:flex;align-items:center;gap:11px;padding:9px 11px;background:var(--egw-page-100);border-radius:var(--egw-r-field)"><div class="tile">7</div><div style="min-width:0;flex:1"><div style="font:600 12.5px/1.2 Poppins,sans-serif">Agnese Pagano</div><div style="margin-top:2px;font:400 10.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.5)">Scoiattoli · mai registrato</div></div><span style="padding:3px 9px;background:var(--egw-red);border-radius:var(--egw-r-pill);font:700 9.5px/1.4 Poppins,sans-serif;letter-spacing:var(--egw-track-pill);color:#fff">MANCANTE</span></div>
+</div>
+<div style="margin-top:12px;display:flex;align-items:center;gap:12px;padding-top:12px;border-top:1px solid var(--egw-hairline)"><span class="btn" style="height:36px;background:var(--egw-navy-800);color:#fff">Registra certificato</span><a href="#" style="font:600 12.5px/1 Poppins,sans-serif;text-decoration:none">Vedi tutti (7)</a></div>
+</div>
+<div class="pn" style="padding:16px 18px">
+<div class="eb">Avanzamento operazione di massa</div>
+<div style="margin-top:12px;height:6px;background:rgba(11,26,58,.08);border-radius:var(--egw-r-pill);overflow:hidden"><div style="width:49%;height:100%;background:var(--egw-grad-action)"></div></div>
+<div style="margin-top:9px;display:flex;align-items:baseline;gap:8px"><span style="font:800 15px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:var(--egw-track-num)">18 di 37</span><span style="font:400 12px/1 Poppins,sans-serif;color:var(--egw-ink-62)">promemoria inviati</span><span style="margin-left:auto;font:600 12px/1 Poppins,sans-serif;color:var(--egw-ink-62)">Interrompi</span></div>
+</div>
+<p class="note" style="margin:0">Il conteggio si legge per primo e è sempre tabulare. La spiegazione dice la <strong style="font-weight:600;color:var(--egw-ink)">conseguenza</strong>, non il fatto. Si può chiudere solo un avviso informativo: uno bloccante si risolve. Conteggi dell'avviso, pastiglia in barra laterale e pannello notifiche leggono dalla stessa fonte e concordano sempre.</p>
+</div>
+
+</div>
+</body></html>

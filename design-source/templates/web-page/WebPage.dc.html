@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="Web · pagina operativa" description="Guscio EasyGame Web completo (barra laterale blu, topbar, filo di luce) con intestazione di pagina e DataGrid: il punto di partenza di ogni pagina web." -->
+<helmet><script src="./ds-base.js"></script>
+<style>body{margin:0;background:#e6eaf4;font-family:Poppins,system-ui,sans-serif;color:#0b1a3a}a{color:#2563eb;text-decoration:none}a:hover{color:#3533cd}</style>
+</helmet>
+
+<div style="width:1440px;height:900px;flex:none;display:flex;overflow:hidden;background:var(--egw-page,#eef3fe)">
+
+<sc-if value="{{ wide }}" hint-placeholder-val="{{ true }}">
+<aside style="width:256px;flex:none;position:relative;display:flex;flex-direction:column;background:var(--egw-grad-sidebar);box-shadow:inset -1px 0 0 rgba(255,255,255,.14),6px 0 24px -12px rgba(11,26,58,.45);z-index:2">
+  <div style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.1),rgba(255,255,255,0) 22%)"></div>
+  <div style="position:relative;flex:1;min-height:0;display:flex;flex-direction:column">
+    <div style="flex:none;padding:26px 20px 22px;display:flex;justify-content:center"><img src="../../assets/logo-white.png" alt="EasyGame" style="width:168px;height:auto;display:block"></div>
+    <div style="margin:0 14px 18px;padding:11px 12px;display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.26);border-radius:14px 14px 5px 14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.32)">
+      <div style="width:32px;height:32px;flex:none;border-radius:999px;background:linear-gradient(160deg,#0b1a3a,#12265a);border:1px solid rgba(255,255,255,.24);display:flex;align-items:center;justify-content:center;font:800 10px/1 Poppins,sans-serif;color:#fff">FS</div>
+      <div style="min-width:0;flex:1"><div style="font:700 12.5px/1.2 Poppins,sans-serif;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Fortitudo Scauri</div><div style="font:500 10px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.68)">Stagione 2026/2027</div></div>
+      <span style="width:13px;height:13px;flex:none;background:rgba(255,255,255,.7);mask:url(../../assets/icons/chevron-down-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/chevron-down-outline.svg) center/contain no-repeat"></span>
+    </div>
+    <div style="flex:1;min-height:0;padding:0 12px;display:flex;flex-direction:column;gap:17px;overflow:hidden">
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div style="font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(255,255,255,.58);padding:0 10px 8px">PANORAMICA</div>
+        <div style="display:flex;align-items:center;gap:11px;height:38px;padding:0 12px;border-radius:12px 12px 4px 12px"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/home.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/home.svg) center/contain no-repeat"></span><span style="font:500 13px/1 Poppins,sans-serif;color:#fff">Dashboard</span></div>
+        <div style="display:flex;align-items:center;gap:11px;height:38px;padding:0 12px;border-radius:12px 12px 4px 12px"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/eye-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/eye-outline.svg) center/contain no-repeat"></span><span style="font:500 13px/1 Poppins,sans-serif;color:#fff">Report</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div style="font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(255,255,255,.58);padding:0 10px 8px">PERSONE</div>
+        <div style="display:flex;align-items:center;gap:11px;height:40px;padding:0 12px;background:#fff;border-radius:13px 13px 4px 13px;box-shadow:0 10px 22px -12px rgba(7,18,43,.5)"><span style="width:17px;height:17px;background:#1d4ed8;mask:url(../../assets/icons/person-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/person-outline.svg) center/contain no-repeat"></span><span style="font:700 13px/1 Poppins,sans-serif;color:#12265a">Atleti</span><span style="margin-left:auto;font:700 11px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.5)">184</span></div>
+        <div style="display:flex;align-items:center;gap:11px;height:38px;padding:0 12px"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/people-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/people-outline.svg) center/contain no-repeat"></span><span style="font:500 13px/1 Poppins,sans-serif;color:#fff">Allenatori</span><span style="margin-left:auto;font:700 11px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.7)">14</span></div>
+        <div style="display:flex;align-items:center;gap:11px;height:38px;padding:0 12px"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/shield-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/shield-outline.svg) center/contain no-repeat"></span><span style="font:500 13px/1 Poppins,sans-serif;color:#fff">Certificati medici</span><span style="margin-left:auto;padding:2px 7px;background:#fff;border-radius:999px;font:800 10px/1.4 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#b91c1c">7</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div style="font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(255,255,255,.58);padding:0 10px 8px">ATTIVITÀ SPORTIVA</div>
+        <div style="display:flex;align-items:center;gap:11px;height:38px;padding:0 12px"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/barbell-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/barbell-outline.svg) center/contain no-repeat"></span><span style="font:500 13px/1 Poppins,sans-serif;color:#fff">Allenamenti</span></div>
+        <div style="display:flex;align-items:center;gap:11px;height:38px;padding:0 12px"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/football-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/football-outline.svg) center/contain no-repeat"></span><span style="font:500 13px/1 Poppins,sans-serif;color:#fff">Gare</span></div>
+        <div style="display:flex;align-items:center;gap:11px;height:38px;padding:0 12px"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/calendar-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/calendar-outline.svg) center/contain no-repeat"></span><span style="font:500 13px/1 Poppins,sans-serif;color:#fff">Calendario</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div style="font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(255,255,255,.58);padding:0 10px 8px">CASSA E AMMINISTRAZIONE</div>
+        <div style="display:flex;align-items:center;gap:11px;height:38px;padding:0 12px"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/server-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/server-outline.svg) center/contain no-repeat"></span><span style="font:500 13px/1 Poppins,sans-serif;color:#fff">Prima nota</span></div>
+        <div style="display:flex;align-items:center;gap:11px;height:38px;padding:0 12px"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/mail-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/mail-outline.svg) center/contain no-repeat"></span><span style="font:500 13px/1 Poppins,sans-serif;color:#fff">Iscrizioni</span><span style="margin-left:auto;font:700 11px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.7)">23</span></div>
+      </div>
+    </div>
+    <div style="flex:none;margin:14px;padding:12px 13px;display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);border-radius:14px 14px 5px 14px">
+      <span style="width:15px;height:15px;flex:none;background:rgba(255,255,255,.82);mask:url(../../assets/icons/help-circle-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/help-circle-outline.svg) center/contain no-repeat"></span>
+      <span style="font:500 12px/1.3 Poppins,sans-serif;color:rgba(255,255,255,.9)">Centro assistenza</span>
+      <span style="margin-left:auto;width:12px;height:12px;background:rgba(255,255,255,.62);mask:url(../../assets/icons/chevron-forward-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/chevron-forward-outline.svg) center/contain no-repeat"></span>
+    </div>
+  </div>
+</aside>
+</sc-if>
+
+<sc-if value="{{ narrow }}">
+<aside style="width:72px;flex:none;position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 0;background:var(--egw-grad-sidebar);box-shadow:inset -1px 0 0 rgba(255,255,255,.14),6px 0 24px -12px rgba(11,26,58,.45);z-index:2">
+  <img src="../../assets/icon-white.png" alt="EasyGame" style="width:30px;height:auto;display:block">
+  <div style="margin-top:14px;width:32px;height:32px;border-radius:999px;background:linear-gradient(160deg,#0b1a3a,#12265a);border:1px solid rgba(255,255,255,.24);display:flex;align-items:center;justify-content:center;font:800 10px/1 Poppins,sans-serif;color:#fff">FS</div>
+  <div style="margin:14px 0;width:12px;height:1px;background:rgba(255,255,255,.16)"></div>
+  <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/home.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/home.svg) center/contain no-repeat"></span></div>
+  <div style="width:44px;height:44px;background:#fff;border-radius:12px 12px 4px 12px;display:flex;align-items:center;justify-content:center"><span style="width:17px;height:17px;background:#1d4ed8;mask:url(../../assets/icons/person-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/person-outline.svg) center/contain no-repeat"></span></div>
+  <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/people-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/people-outline.svg) center/contain no-repeat"></span></div>
+  <div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/shield-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/shield-outline.svg) center/contain no-repeat"></span><span style="position:absolute;top:9px;right:9px;width:7px;height:7px;border-radius:999px;background:#fff"></span></div>
+  <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/barbell-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/barbell-outline.svg) center/contain no-repeat"></span></div>
+  <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center"><span style="width:17px;height:17px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/server-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/server-outline.svg) center/contain no-repeat"></span></div>
+  <div style="margin-top:auto;width:44px;height:44px;display:flex;align-items:center;justify-content:center"><span style="width:16px;height:16px;background:rgba(255,255,255,.82);mask:url(../../assets/icons/help-circle-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/help-circle-outline.svg) center/contain no-repeat"></span></div>
+</aside>
+</sc-if>
+
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden">
+
+  <header style="height:60px;flex:none;display:flex;align-items:center;gap:14px;padding:0 32px;background:#fff;box-shadow:0 1px 0 rgba(11,26,58,.09);position:relative;z-index:3">
+    <div style="display:flex;align-items:center;gap:8px;font:500 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.5)"><span>Fortitudo Scauri</span><span>/</span><span>Persone</span><span>/</span><span style="font-weight:700;color:#0b1a3a">Atleti</span></div>
+    <div style="margin-left:18px;flex:1;max-width:280px;display:flex;align-items:center;gap:9px;height:36px;padding:0 12px;background:#f4f7fd;border:1px solid rgba(11,26,58,.1);border-radius:12px 12px 4px 12px"><span style="width:15px;height:15px;background:rgba(11,26,58,.42);mask:url(../../assets/icons/search-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/search-outline.svg) center/contain no-repeat"></span><span style="font:400 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.42)">Cerca in tutto il club</span><span style="margin-left:auto;font:600 10px/1 ui-monospace,Menlo,monospace;color:rgba(11,26,58,.42)">⌘K</span></div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+      <span style="font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.1em;padding:7px 9px;background:#f4f7fd;border:1px solid rgba(11,26,58,.1);border-radius:10px 10px 4px 10px;color:rgba(11,26,58,.55)">STAGIONE <span style="font-variant-numeric:tabular-nums;letter-spacing:0;color:#0b1a3a">2026/2027</span></span>
+      <button style="height:38px;padding:0 14px 0 8px;display:inline-flex;align-items:center;gap:9px;background:linear-gradient(135deg,#3b82f6,#2563eb 48%,#3533cd);border:1px solid rgba(255,255,255,.28);border-radius:13px 13px 4px 13px;box-shadow:0 12px 24px -12px rgba(37,99,235,.7),inset 0 1px 0 rgba(255,255,255,.35);font:700 12px/1 Poppins,sans-serif;letter-spacing:.06em;color:#fff;cursor:pointer"><span style="width:24px;height:24px;background:rgba(255,255,255,.2);border-radius:8px 8px 3px 8px;display:flex;align-items:center;justify-content:center;font:800 15px/1 Poppins,sans-serif;color:#fff">+</span>AZIONI RAPIDE</button>
+      <span style="position:relative;width:38px;height:38px;display:inline-flex;align-items:center;justify-content:center;background:#f4f7fd;border:1px solid rgba(11,26,58,.1);border-radius:13px 13px 4px 13px"><span style="width:17px;height:17px;background:rgba(11,26,58,.6);mask:url(../../assets/icons/notifications-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/notifications-outline.svg) center/contain no-repeat"></span><span style="position:absolute;top:7px;right:8px;width:7px;height:7px;border-radius:999px;background:#f59e0b;box-shadow:0 0 0 2px #fff"></span></span>
+      <span style="display:inline-flex;align-items:center;gap:9px;height:38px;padding:0 11px 0 6px;background:#f4f7fd;border:1px solid rgba(11,26,58,.1);border-radius:13px 13px 4px 13px"><span style="width:27px;height:27px;border-radius:999px;background:linear-gradient(160deg,#0b1a3a,#12265a);display:flex;align-items:center;justify-content:center;font:700 9.5px/1 Poppins,sans-serif;color:#fff">FM</span><span style="font:600 12px/1 Poppins,sans-serif;color:#0b1a3a">Francesca</span><span style="width:12px;height:12px;background:rgba(11,26,58,.45);mask:url(../../assets/icons/chevron-down-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/chevron-down-outline.svg) center/contain no-repeat"></span></span>
+    </div>
+  </header>
+  <div style="flex:none;height:3px;background:linear-gradient(90deg,#3b82f6,#2563eb 48%,#3533cd);position:relative;z-index:3"></div>
+
+  <div style="flex:1;min-height:0;overflow:auto;padding:26px 32px 32px;display:flex;flex-direction:column;gap:18px">
+
+    <div style="flex:none;display:flex;align-items:flex-start;gap:20px">
+      <div style="min-width:0;flex:1">
+        <h1 style="margin:0;font:800 32px/1.08 Poppins,sans-serif;letter-spacing:-.02em">Atleti</h1>
+        <p style="margin:8px 0 0;max-width:88ch;font:400 13.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62);text-wrap:pretty">Gestisci gli atleti tesserati del tuo club.</p>
+      </div>
+      <div style="flex:none;display:flex;align-items:center;gap:10px;padding-top:6px">
+        <span style="display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 12px;background:#fff;border:1px solid rgba(11,26,58,.14);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif">Tutte le sedi<span style="width:12px;height:12px;background:rgba(11,26,58,.42);mask:url(../../assets/icons/chevron-down-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/chevron-down-outline.svg) center/contain no-repeat"></span></span>
+        <button style="height:40px;padding:0 16px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;box-shadow:0 1px 2px rgba(11,26,58,.05),inset 0 1px 0 rgba(255,255,255,.9);font:600 13px/1 Poppins,sans-serif;color:#0b1a3a;cursor:pointer">Importa atleti</button>
+        <button style="height:40px;padding:0 18px;display:inline-flex;align-items:center;gap:10px;background:linear-gradient(135deg,#3b82f6,#2563eb 48%,#3533cd);border:1px solid rgba(255,255,255,.28);border-radius:12px 12px 4px 12px;box-shadow:0 14px 28px -12px rgba(37,99,235,.75),inset 0 1px 0 rgba(255,255,255,.35);font:600 13px/1 Poppins,sans-serif;color:#fff;cursor:pointer">Nuovo atleta<span style="width:22px;height:22px;background:rgba(255,255,255,.18);border-radius:8px 8px 3px 8px;display:flex;align-items:center;justify-content:center;font:800 13px/1 Poppins,sans-serif">→</span></button>
+      </div>
+    </div>
+
+    <div style="flex:none;display:flex;align-items:flex-start;gap:11px;padding:14px 16px;background:rgba(185,28,28,.09);border:1px solid rgba(185,28,28,.3);border-radius:14px 14px 5px 14px">
+      <span style="width:17px;height:17px;flex:none;margin-top:1px;background:#b91c1c;mask:url(../../assets/icons/close-circle-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/close-circle-outline.svg) center/contain no-repeat"></span>
+      <div style="flex:1;min-width:0"><div style="font:600 13px/1.35 Poppins,sans-serif">7 certificati medici scaduti o mancanti</div><div style="margin-top:4px;font:400 12.5px/1.5 Poppins,sans-serif;color:rgba(11,26,58,.72)">Questi atleti non possono essere convocati.</div></div>
+      <span style="flex:none;height:34px;padding:0 13px;display:inline-flex;align-items:center;background:#fff;border:1px solid rgba(185,28,28,.35);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;color:#b91c1c">Registra certificato</span>
+      <span style="flex:none;height:34px;padding:0 13px;display:inline-flex;align-items:center;font:600 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Invia promemoria</span>
+    </div>
+
+    <div style="flex:none;display:flex;flex-direction:column;background:#fff;border:1px solid rgba(11,26,58,.1);border-radius:18px 18px 6px 18px;box-shadow:inset 0 1px 0 #fff,0 12px 30px -18px rgba(11,26,58,.32);overflow:hidden">
+
+      <div style="flex:none;display:flex;align-items:center;gap:8px;padding:11px 16px;border-bottom:1px solid rgba(11,26,58,.08)">
+        <span style="font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42);margin-right:2px">VISTE</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;background:#12265a;border-radius:11px 11px 4px 11px;font:600 12px/1 Poppins,sans-serif;color:#fff">Tutti<span style="font:700 11px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.7)">184</span></span>
+        <span style="display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;background:#f4f7fd;border:1px solid rgba(11,26,58,.1);border-radius:11px 11px 4px 11px;font:500 12px/1 Poppins,sans-serif;color:rgba(11,26,58,.72)">Under 15<span style="font:700 11px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.45)">22</span></span>
+        <span style="display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;background:#f4f7fd;border:1px solid rgba(11,26,58,.1);border-radius:11px 11px 4px 11px;font:500 12px/1 Poppins,sans-serif;color:rgba(11,26,58,.72)">Quote aperte<span style="font:700 11px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.45)">41</span></span>
+        <span style="display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;background:rgba(185,28,28,.07);border:1px solid rgba(185,28,28,.26);border-radius:11px 11px 4px 11px;font:500 12px/1 Poppins,sans-serif;color:#b91c1c">Certificato scaduto<span style="font:700 11px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums">3</span></span>
+        <span style="display:inline-flex;align-items:center;height:30px;padding:0 10px;border:1px dashed rgba(11,26,58,.22);border-radius:11px 11px 4px 11px;font:600 11.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.55)">+ Salva vista</span>
+        <span style="margin-left:auto;display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 11px;background:#f7f9fe;border:1px solid rgba(11,26,58,.12);border-radius:11px 11px 4px 11px;min-width:190px"><span style="width:14px;height:14px;background:rgba(11,26,58,.42);mask:url(../../assets/icons/search-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/search-outline.svg) center/contain no-repeat"></span><span style="font:400 12px/1 Poppins,sans-serif;color:rgba(11,26,58,.42)">Cerca nell'elenco</span></span>
+      </div>
+
+      <div style="flex:none;display:flex;align-items:center;gap:8px;padding:10px 16px;background:#fbfcfe;border-bottom:1px solid rgba(11,26,58,.08)">
+        <span style="display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 11px;background:#fff;border:1px solid rgba(11,26,58,.14);border-radius:11px 11px 4px 11px;font:600 12px/1 Poppins,sans-serif;color:#0b1a3a">Filtri<span style="padding:1px 6px;background:#12265a;border-radius:999px;font:700 9.5px/1.5 Poppins,sans-serif;color:#fff">2</span></span>
+        <span style="width:1px;height:22px;background:rgba(11,26,58,.1)"></span>
+        <span style="display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 9px;background:rgba(37,99,235,.08);border:1px solid rgba(37,99,235,.28);border-radius:10px 10px 4px 10px;font:500 11.5px/1 Poppins,sans-serif;color:#1d4ed8"><span style="font-weight:700">Categoria:</span>Under 15, Under 17<span style="width:12px;height:12px;background:#1d4ed8;mask:url(../../assets/icons/close-circle.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/close-circle.svg) center/contain no-repeat"></span></span>
+        <span style="display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 9px;background:rgba(37,99,235,.08);border:1px solid rgba(37,99,235,.28);border-radius:10px 10px 4px 10px;font:500 11.5px/1 Poppins,sans-serif;color:#1d4ed8"><span style="font-weight:700">Sede:</span>Scauri<span style="width:12px;height:12px;background:#1d4ed8;mask:url(../../assets/icons/close-circle.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/close-circle.svg) center/contain no-repeat"></span></span>
+        <span style="font:600 11.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.5)">Azzera tutto</span>
+        <span style="margin-left:auto;display:inline-flex;align-items:center;gap:8px">
+          <span style="display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;background:#fff;border:1px solid rgba(11,26,58,.14);border-radius:11px 11px 4px 11px;font:600 12px/1 Poppins,sans-serif;color:#0b1a3a"><span style="width:14px;height:14px;background:rgba(11,26,58,.5);mask:url(../../assets/icons/eye-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/eye-outline.svg) center/contain no-repeat"></span>Colonne<span style="font:500 11px/1 Poppins,sans-serif;color:rgba(11,26,58,.5)">7/11</span></span>
+          <span style="display:inline-flex;align-items:center;height:30px;padding:2px;gap:2px;background:#eef3fe;border:1px solid rgba(11,26,58,.1);border-radius:11px 11px 4px 11px"><span style="display:inline-flex;align-items:center;height:24px;padding:0 9px;font:500 11px/1 Poppins,sans-serif;color:rgba(11,26,58,.55)">Compatta</span><span style="display:inline-flex;align-items:center;height:24px;padding:0 9px;background:#fff;border-radius:8px 8px 3px 8px;box-shadow:0 1px 2px rgba(11,26,58,.12);font:700 11px/1 Poppins,sans-serif;color:#12265a">Media</span><span style="display:inline-flex;align-items:center;height:24px;padding:0 9px;font:500 11px/1 Poppins,sans-serif;color:rgba(11,26,58,.55)">Comoda</span></span>
+          <span style="display:inline-flex;align-items:center;height:30px;padding:0 11px;background:#fff;border:1px solid rgba(11,26,58,.14);border-radius:11px 11px 4px 11px;font:600 12px/1 Poppins,sans-serif;color:#0b1a3a">Esporta</span>
+        </span>
+      </div>
+
+      <sc-if value="{{ bulk }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:none;display:flex;align-items:center;gap:12px;padding:9px 16px;background:linear-gradient(135deg,rgba(59,130,246,.12),rgba(53,51,205,.12));border-bottom:1px solid rgba(37,99,235,.22)">
+        <span style="width:19px;height:19px;background:linear-gradient(135deg,#3b82f6,#2563eb 48%,#3533cd);border-radius:7px 7px 2px 7px;display:flex;align-items:center;justify-content:center"><span style="width:11px;height:11px;background:#fff;mask:url(../../assets/icons/checkmark.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/checkmark.svg) center/contain no-repeat"></span></span>
+        <span style="font:700 12.5px/1 Poppins,sans-serif;color:#12265a">3 selezionati</span>
+        <span style="font:500 11.5px/1 Poppins,sans-serif;color:rgba(37,99,235,.9);text-decoration:underline">seleziona tutti i 184</span>
+        <span style="width:1px;height:20px;background:rgba(37,99,235,.25)"></span>
+        <span style="display:inline-flex;align-items:center;height:28px;padding:0 10px;background:#fff;border:1px solid rgba(37,99,235,.3);border-radius:10px 10px 4px 10px;font:600 11.5px/1 Poppins,sans-serif;color:#1d4ed8">Sposta categoria</span>
+        <span style="display:inline-flex;align-items:center;height:28px;padding:0 10px;background:#fff;border:1px solid rgba(37,99,235,.3);border-radius:10px 10px 4px 10px;font:600 11.5px/1 Poppins,sans-serif;color:#1d4ed8">Promemoria quota</span>
+        <span style="display:inline-flex;align-items:center;height:28px;padding:0 10px;background:#fff;border:1px solid rgba(185,28,28,.3);border-radius:10px 10px 4px 10px;font:600 11.5px/1 Poppins,sans-serif;color:#b91c1c">Sospendi</span>
+        <span style="margin-left:auto;font:500 11.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.5)">Annulla selezione</span>
+      </div>
+      </sc-if>
+
+      <div style="flex:none;display:grid;grid-template-columns:38px 2fr 1.05fr .95fr 1.1fr 1.2fr .95fr 78px;align-items:center;gap:12px;padding:0 16px;height:40px;background:#f4f7fd;border-bottom:1px solid rgba(11,26,58,.1);font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.1em;color:rgba(11,26,58,.52)">
+        <span style="width:16px;height:16px;border:1.5px solid rgba(11,26,58,.3);border-radius:5px 5px 2px 5px"></span>
+        <span style="display:inline-flex;align-items:center;gap:6px;color:#12265a">ATLETA<span style="width:11px;height:11px;background:#1d4ed8;mask:url(../../assets/icons/chevron-up-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/chevron-up-outline.svg) center/contain no-repeat"></span></span>
+        <span>CATEGORIA</span><span>RUOLO</span><span>STATO</span><span>CERTIFICATO</span><span style="text-align:right">QUOTA</span><span style="text-align:right">AZIONI</span>
+      </div>
+
+      <sc-if value="{{ rows }}" hint-placeholder-val="{{ true }}">
+      <div>
+        <sc-for list="{{ list }}" as="r" hint-placeholder-count="6">
+        <div style="display:grid;grid-template-columns:38px 2fr 1.05fr .95fr 1.1fr 1.2fr .95fr 78px;align-items:center;gap:12px;padding:0 16px;height:44px;border-bottom:1px solid rgba(11,26,58,.06)">
+          <span style="width:16px;height:16px;border:1.5px solid rgba(11,26,58,.25);border-radius:5px 5px 2px 5px"></span>
+          <div style="display:flex;align-items:center;gap:11px;min-width:0">
+            <div style="width:32px;height:32px;flex:none;background:linear-gradient(160deg,#0b1a3a,#1b3576);border-radius:11px 11px 4px 11px;display:flex;align-items:center;justify-content:center;font:800 12.5px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#fff">{{ r.n }}</div>
+            <div style="min-width:0"><div style="font:600 12.5px/1.2 Poppins,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }}</div><div style="margin-top:2px;font:400 10px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.5)">{{ r.meta }}</div></div>
+          </div>
+          <span style="font:500 12px/1 Poppins,sans-serif;color:rgba(11,26,58,.75)">{{ r.cat }}</span>
+          <span style="font:500 12px/1 Poppins,sans-serif;color:rgba(11,26,58,.75)">{{ r.role }}</span>
+          <span>
+            <sc-if value="{{ r.sGreen }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;width:fit-content;border-radius:9999px;font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.08em;background:#15803d;color:#fff"><span style="width:5px;height:5px;border-radius:999px;background:#fff"></span>{{ r.state }}</span></sc-if>
+            <sc-if value="{{ r.sRed }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;width:fit-content;border-radius:9999px;font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.08em;background:#b91c1c;color:#fff"><span style="width:5px;height:5px;border-radius:999px;background:#fff"></span>{{ r.state }}</span></sc-if>
+            <sc-if value="{{ r.sQuiet }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;width:fit-content;border-radius:9999px;font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.08em;background:rgba(11,26,58,.07);border:1px solid rgba(11,26,58,.16);color:#0b1a3a"><span style="width:5px;height:5px;border-radius:999px;background:rgba(11,26,58,.42)"></span>{{ r.state }}</span></sc-if>
+          </span>
+          <span>
+            <sc-if value="{{ r.cGreen }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;width:fit-content;border-radius:9999px;font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.08em;background:#15803d;color:#fff"><span style="width:5px;height:5px;border-radius:999px;background:#fff"></span>{{ r.cert }}</span></sc-if>
+            <sc-if value="{{ r.cRed }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;width:fit-content;border-radius:9999px;font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.08em;background:#b91c1c;color:#fff"><span style="width:5px;height:5px;border-radius:999px;background:#fff"></span>{{ r.cert }}</span></sc-if>
+            <sc-if value="{{ r.cAmber }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;width:fit-content;border-radius:9999px;font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.08em;background:#b45309;color:#fff"><span style="width:5px;height:5px;border-radius:999px;background:#fff"></span>{{ r.cert }}</span></sc-if>
+            <sc-if value="{{ r.cOutline }}"><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;width:fit-content;border-radius:9999px;font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.08em;background:#fff;border:1.5px solid #b45309;color:#8a4708"><span style="width:5px;height:5px;border-radius:999px;background:#8a4708"></span>{{ r.cert }}</span></sc-if>
+          </span>
+          <span style="text-align:right">
+            <sc-if value="{{ r.feeGreen }}" hint-placeholder-val="{{ true }}"><span style="font:700 12px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#15803d">{{ r.amount }}</span></sc-if>
+            <sc-if value="{{ r.feeAmber }}"><span style="font:700 12px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#b45309">{{ r.amount }}</span></sc-if>
+            <sc-if value="{{ r.feeRed }}"><span style="font:700 12px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#b91c1c">{{ r.amount }}</span></sc-if>
+          </span>
+          <span style="justify-self:end;display:inline-flex;align-items:center;gap:4px">
+            <span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid rgba(11,26,58,.14);border-radius:9px 9px 3px 9px"><span style="width:13px;height:13px;background:rgba(11,26,58,.6);mask:url(../../assets/icons/eye-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/eye-outline.svg) center/contain no-repeat"></span></span>
+            <span style="width:26px;height:26px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid rgba(11,26,58,.14);border-radius:9px 9px 3px 9px;font:800 13px/1 Poppins,sans-serif;color:rgba(11,26,58,.6)">···</span>
+          </span>
+        </div>
+        </sc-for>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ empty }}">
+      <div style="padding:48px 24px;display:flex;flex-direction:column;align-items:center;gap:11px;text-align:center">
+        <div style="width:44px;height:44px;background:#f4f7fd;border:1px solid rgba(11,26,58,.08);border-radius:14px 14px 5px 14px;display:flex;align-items:center;justify-content:center"><span style="width:20px;height:20px;background:rgba(11,26,58,.42);mask:url(../../assets/icons/search-outline.svg) center/contain no-repeat;-webkit-mask:url(../../assets/icons/search-outline.svg) center/contain no-repeat"></span></div>
+        <div style="font:700 15px/1.3 Poppins,sans-serif">Nessun risultato con questi filtri</div>
+        <p style="margin:0;max-width:44ch;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Prova a togliere un filtro o allarga il periodo.</p>
+        <div style="margin-top:4px;display:flex;gap:10px"><span style="height:38px;padding:0 14px;display:inline-flex;align-items:center;background:#12265a;border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;color:#fff">Azzera i filtri</span><span style="height:38px;padding:0 14px;display:inline-flex;align-items:center;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif">Modifica filtri</span></div>
+      </div>
+      </sc-if>
+
+      <div style="flex:none;display:flex;align-items:center;gap:14px;padding:12px 16px;background:#f4f7fd;border-top:1px solid rgba(11,26,58,.08)">
+        <span style="font:400 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Righe <span style="font-weight:700;font-variant-numeric:tabular-nums;color:#0b1a3a">1–25</span> di <span style="font-weight:700;font-variant-numeric:tabular-nums;color:#0b1a3a">184</span></span>
+        <span style="display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:11px 11px 4px 11px;font:600 12px/1 Poppins,sans-serif">25 per pagina</span>
+        <span style="margin-left:auto;display:flex;align-items:center;gap:6px">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.42)">‹</span>
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:#0b1a3a;border-radius:12px 12px 4px 12px;font:700 12.5px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#fff">1</span>
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums">2</span>
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums">3</span>
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;font:600 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.42)">…</span>
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums">8</span>
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">›</span>
+        </span>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900},&quot;sidebar&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;expanded&quot;,&quot;collapsed&quot;],&quot;default&quot;:&quot;expanded&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Guscio&quot;},&quot;bulkBar&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;DataGrid&quot;},&quot;state&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;rows&quot;,&quot;empty&quot;],&quot;default&quot;:&quot;rows&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;DataGrid&quot;}}">
+// Weight keys map to the four status tiers in guidelines/09-web-patterns.md §9.4.
+// s = person lifecycle (green | red | quiet) · c = certificate (green | red | amber | outline)
+const DATA = [
+  { n: 14, name: "Marco Ferretti", meta: "14 mar 2011 · Scauri", cat: "Under 15", role: "Ala", s: "green", state: "ATTIVO", c: "red", cert: "SCADUTO", amount: "180,00 €", fee: "amber" },
+  { n: 7, name: "Giulia Sanna", meta: "2 giu 2013 · Minturno", cat: "Under 13", role: "Pivot", s: "green", state: "ATTIVO", c: "outline", cert: "4 GIORNI", amount: "saldata", fee: "green" },
+  { n: 23, name: "Davide Corsi", meta: "8 set 2009 · Scauri", cat: "Under 17", role: "Centrale", s: "quiet", state: "IN PRESTITO", c: "green", cert: "VALIDO", amount: "305,00 €", fee: "green" },
+  { n: 9, name: "Agnese Pagano", meta: "21 gen 2012 · S. Cosma", cat: "Scoiattoli", role: "Guardia", s: "green", state: "ATTIVO", c: "red", cert: "MANCANTE", amount: "0,00 €", fee: "red" },
+  { n: 4, name: "Alessandro Paparella", meta: "3 nov 2010 · Scauri", cat: "Under 15", role: "Ala", s: "red", state: "SOSPESO", c: "green", cert: "VALIDO", amount: "305,00 €", fee: "green" },
+  { n: 31, name: "Elena Richotti", meta: "17 mag 2013 · Minturno", cat: "Under 13", role: "Playmaker", s: "green", state: "ATTIVO", c: "amber", cert: "DA APPROVARE", amount: "150,00 €", fee: "amber" },
+  { n: 12, name: "Domenico Buonamano", meta: "29 ago 2011 · Scauri", cat: "Under 15", role: "Centrale", s: "green", state: "ATTIVO", c: "green", cert: "VALIDO", amount: "saldata", fee: "green" }
+];
+
+class Component extends DCLogic {
+  renderVals() {
+    const state = this.props.state ?? "rows";
+    const sidebar = this.props.sidebar ?? "expanded";
+    return {
+      wide: sidebar === "expanded",
+      narrow: sidebar === "collapsed",
+      bulk: this.props.bulkBar ?? false,
+      rows: state === "rows",
+      empty: state === "empty",
+      list: DATA.map((r) => ({
+        n: r.n, name: r.name, meta: r.meta, cat: r.cat, role: r.role,
+        state: r.state, sGreen: r.s === "green", sRed: r.s === "red", sQuiet: r.s === "quiet",
+        cert: r.cert, cGreen: r.c === "green", cRed: r.c === "red", cAmber: r.c === "amber", cOutline: r.c === "outline",
+        amount: r.amount, feeGreen: r.fee === "green", feeAmber: r.fee === "amber", feeRed: r.fee === "red"
+      }))
+    };
+  }
+}
+
+</script>
+</body>
+</html>

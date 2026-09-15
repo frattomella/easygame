@@ -1,6 +1,23 @@
 # EasyGame Design System
 
-**Revision: EGDS v2.3.0 · 2026-09-10 · "Real data" — CURRENT** — see `CHANGELOG.md`. Normative component specs live in `guidelines/component-specs.md`; navigation rules in `guidelines/navigation.md`; the Trainer reskin plan in `guidelines/trainer-migration.md`.
+**Revision: EGDS v3.1.0 · 2026-09-15 · "EasyGame blue · web" — CURRENT** — see `CHANGELOG.md`.
+
+The system covers **two platforms**, both fully defined: mobile (§04) and web/desktop (§05–§10).
+
+| | Document | Scope |
+| --- | --- | --- |
+| **01** | `guidelines/01-brand.md` | Product name, marks, EasyGame + club hierarchy, identity without the logotype, voice |
+| **02** | `guidelines/02-foundations.md` | Colour, contrast, typography, iconography, status system, motion, structural signature, spacing |
+| **03** | `guidelines/03-core-components.md` | Platform-independent component contracts |
+| **04** | `guidelines/04-mobile.md` | Navigation, AppBar, background transitions, BottomSheet, presenze, convocazioni, documenti, pagamenti, auth/system states, Parent components |
+| **05** | `guidelines/05-web-desktop.md` | **Web foundations** — three environments, colour, type, surfaces, grid, interaction states, motion, responsive, accessibility |
+| **06** | `guidelines/06-web-shell.md` | **Web shell** — sidebar (expanded + collapsed), topbars, account menu, Azioni rapide, overlay decision table |
+| **07** | `guidelines/07-web-datagrid.md` | **The DataGrid** — one grid for every list: views, filters, columns, selection, guided mass actions, states, keyboard, export/import |
+| **08** | `guidelines/08-web-forms.md` | **Web forms** — 24 primitives, layouts, long-form containers, inline editing, confirmations by risk |
+| **09** | `guidelines/09-web-patterns.md` | **Web patterns** — ten page patterns, page header, cards, status system, feedback, actionable alerts, dashboard, detail pages |
+| **10** | `guidelines/10-handoff.md` | **Implementation handoff** — the contract for Claude Code: authority, tokens, component inventory, review checklist, naming, definition of done |
+
+Also: `guidelines/deprecated.md` (what must not be used, and its replacement) and `guidelines/migration-v3.md` (implementation notes for the existing mobile app). The v2.3 specs are archived under `guidelines/archive/v2.3/` — still a valid reference for fine geometry where v3 is silent; **where they conflict, v3 wins.**
 
 Design system for the **EasyGame mobile app** — the coach-facing app of EasyGame, a sports club management platform for clubs, coaches, staff, athletes and families.
 
@@ -11,7 +28,7 @@ The MVP in scope is for **trainers/coaches**, in Italian, and does two jobs well
 
 Everything else in the app (dashboard, roster, profile) exists to get a coach into those two flows fast, on a pitch or in a gym, one-handed.
 
-**Scope note:** this system covers the mobile app only. The EasyGame web dashboard keeps its current UI and is deliberately out of scope for this phase — nothing here was derived from it, and no web UI is defined.
+**Scope note:** §01–§03 are platform-independent. §04 is the mobile app. §05–§10 are the web/desktop management app — a different product with a different UX: three environments, dense grids, persistent filters, drawers instead of sheets, hover states, and no glass. Mobile patterns do not port to web and web patterns do not port to mobile.
 
 ## Sources
 
@@ -23,7 +40,9 @@ Everything in this system was lifted from material the user supplied. No values 
 | `easygame/easygamemobile/assets/images/` | App icon, splash icon, favicon, default athlete/club avatars, four empty-state illustrations |
 | `uploads/palette-font.png` | Brand font (Poppins) and brand colours `#2563EB`, `#3533CD` |
 | `uploads/logotipo-b/w.png`, `icon-b/w.png`, `favicon.png`, `social.png` | Logo wordmark and mark, in blue and white |
+| `uploads/Extending EasyGame Design System/` | **The approved mobile design artifact (v3 source of truth).** The IA/Home design board and the clickable prototype: dock models, corrected chrome, the four-tier status hierarchy, full-page blue auth screens, the tri-state attendance row, document and payment states, sheet behaviour. Where it conflicted with the v2.3 written spec, it won. |
 | https://github.com/frattomella/easygame | Repo the attached codebase corresponds to (web app + `easygamemobile/`). Browse it for backend/domain context — event, attendance and convocation models live in `prisma/schema.prisma` and `src/`. |
+| `uploads/EasyGame Web redesign project/` | **The approved web design package (v3.1 source of truth).** The Iterazione 4 direction board (corrected shell, quick actions, unified data grid), the extracted `EGShell` / `EGRecord` / `EGAthlete` frames, the `v0.1 bozza` web system document, four screen overviews, and screenshots of the production web app. Conflicts inside the package are resolved in `05-web-desktop.md` §5.0 |
 | https://github.com/frattomella/easygame-mobile | Second, mobile-only repo listed on the account. **Not read** in this pass — worth exploring if it diverges from `easygamemobile/`. |
 
 Anyone extending this system should read those repositories directly: the screen code carries details (permission gating, empty-state copy, date formatting in Italian) that a design file cannot.
@@ -45,23 +64,23 @@ Anyone extending this system should read those repositories directly: the screen
 
 EasyGame must be recognisable with the logo hidden. The recognition comes from six things that appear on every screen and are never used one without the others:
 
-1. **The layered ground — "floodlit pitch".** Every screen stands on a fixed background: a navy night sky (`#07122B → #0B1A3A → #12265A`, 300px tall on a phone) lit by two floodlight pools (blue 500 at 65% top-left, indigo 600 at 60% top-right), striped with faint vertical pitch lines (1px white at 5%, every 28px, fading downwards), meeting a pale mist ground (`#F3F5FC`) across a soft 120px horizon. The header and the screen's headline live in the sky; content glass starts inside the sky and scrolls down onto the ground. Never an opaque white block in the sky; never a plain flat page background.
+1. **The layered ground — "floodlit pitch".** Every operational screen stands on a fixed background: the **brand blue ramp** (`#12265A → #1B3576 → #2549A8 → #2B57C9`, 300px tall on a phone) lit by two floodlight pools (blue 400 at 55% top-left, indigo at 50% top-right), striped with faint vertical pitch lines (1px white at 7%, every 28px), meeting a blue-cast mist ground (`#EEF3FE`) across a soft 120px horizon. The header and the screen's headline live in the sky; content glass starts inside the sky and scrolls down onto the ground. Auth and blocking screens use the same ramp at full height, with no horizon at all. Never an opaque white block in the sky; never a flat page background; never near-black.
 2. **Frosted glass, not white cards.** Content surfaces are white at 74% with an 18px blur and 1.4 saturation, a 1px translucent border (white 70%), a 1px **inner top highlight** (white 85%) and a layered navy shadow (`0 12px 32px -10px rgba(11,26,58,.28)` + `0 2px 6px 6%`). Dark glass (navy 72%) is used for the dock and for panels in the sky. The floodlights are visible through the glass — that depth is the point.
 3. **The signature corner.** Three soft corners and one cut: `22px 22px 8px 22px` on panels, `14 14 5 14` on controls and tiles, `10 10 4 10` on chips. The cut bottom-right corner echoes the horizontal bar of the "e" mark. It is applied to every rectangular surface — cards, buttons, inputs, number tiles, icon chips — so the silhouette alone identifies the product.
-4. **One controlled gradient for action.** `linear-gradient(135deg, #3B82F6, #2563EB 48%, #3533CD)` — blue into the brand indigo — is the only thing that means "act here / this is active": the primary button, the dock's active puck, a called-up athlete's tile, the trainings stripe. It always carries a 1px white-28% rim border, an inner highlight and a blue glow (`0 10px 26px -8px rgba(37,99,235,.65)`). Matches use the orange gradient, presence the green one; the navy gradient is for resting tiles. No other gradients exist.
+4. **One controlled gradient for action.** `linear-gradient(135deg, #3B82F6, #2563EB 48%, #3533CD)` — blue into the brand indigo — is the only thing that means "act here / this is active": the primary button on light grounds, the dock's active puck, the trainings stripe. It always carries a 1px white-28% rim border, an inner highlight and a blue glow. Matches use the orange gradient, the navy gradient is for resting tiles. No other gradients exist. **On the blue sky the gradient is banned for buttons** — the primary inverts to white-on-navy.
 5. **The module stripe + time rail.** Schedule content is an Event Card: a 3px module stripe along the top edge (inset 22px), and a left time rail with a big 22px/800 tabular time. The eye reads "when" before "what" — a coach's reading order.
 6. **Tracked eyebrow over tight display.** Every block opens with an 11px/700 uppercase eyebrow at +0.12em tracking, then a 24–26px/800 display line at −0.02em. Body copy is calm 400/500. This two-line opener is on the sky (white / white 72%) and inside panels (ink 42% / ink).
 
 Supporting rules:
 
-- **Colour.** Royal blue `#2563EB` stays the primary, now paired with the brand indigo `#3533CD` (gradient end) and a navy depth ramp `#07122B / #0B1A3A / #12265A / #1B3576`. Ink is navy-900 at 100 / 62 / 42% — never pure black or mid-grey. Three status hues (green, amber, red) and the orange match accent, each as a 10–13% tint with a 28–32% border. The old slate palette remains as tokens for compatibility but is no longer the look.
+- **Colour.** Royal blue `#2563EB` is the primary and the identity; the sky ramp ends one step from it. Brand indigo `#3533CD` closes the action gradient; navy `#07122B / #0B1A3A` is depth only, never the identity. Ink is navy-900 at 100 / 62 / 42% — never pure black or mid-grey. Three status hues (green, amber, red) and the orange match accent, each as a 10–13% tint with a 28–32% border. The old slate palette remains as tokens for compatibility but is no longer the look.
 - **Type.** Poppins 400/500/600/700/800. Numbers — times, jersey numbers, counts — are always tabular, 800, tracked −0.03em, and larger than the text beside them. Eyebrows are uppercase; nothing else is.
 - **Icons.** Ionicons, but never bare above 16px: any icon that is not inline metadata sits in an **Icon Chip** — a tinted tile (colour at 12%, border at 25%, inner highlight, cut corner). Metadata icons are 15px outline at ink 42%. The dock uses filled glyphs when active and outline glyphs when not.
 - **Identity glyph = jersey number.** Athletes are shown as a **Number Tile** (44px, navy gradient, 18px/800 numeral, optional 3-letter role) rather than initials or a face. Circular avatars are only for clubs and the coach.
 - **Spacing and rhythm.** 4px base; 16px gutter; 12px between panels; 8px between rows; stripes inset 22px; the dock floats 20px from the sides and 18px from the bottom. Screens are single-column.
-- **Motion.** Press = scale (0.97 controls, 0.985 panels) + 1px drop + brightness 1.08 on gradient surfaces, 120ms spring, no colour swap. The dock puck slides between tabs. Blur is static — no animated blur.
+- **Motion.** Press = scale (0.97 controls, 0.985 panels) + 1px drop + brightness 1.08 on gradient surfaces, 120ms, no colour swap, no bounce. Sheets 220ms in / 180ms out on `cubic-bezier(.2,.9,.25,1)`. Blur is static — never animated.
 - **Transparency and blur.** Glass at 74/88%, dark glass at 72%, scrim navy-950 at 55% with a 6px blur behind sheets. Text is never set at alpha below 42% ink.
-- **Sheets.** Attendance and call-ups open as a bottom sheet: strong glass, 28px top corners, grabber, eyebrow + h3, list, then a secondary "Annulla" beside a full-width primary Action Surface whose label carries the count ("Salva 14/18", "Convoca 11").
+- **Sheets.** Attendance and call-ups open as a bottom sheet: strong glass, 28px top corners, grabber, eyebrow + h3, list, then a full-width primary Action Surface whose label carries the count ("Salva 14/18", "Convoca 11"). Option sheets have no action bar at all — three natural dismissals are enough.
 - **Imagery.** Still none beyond the four blue empty-state illustrations; the layered ground does the atmospheric work.
 
 ## The five signature patterns
@@ -71,9 +90,9 @@ Each has a spec card in the Design System tab (group "Signature") with visual st
 | # | Pattern | Component | Tell |
 | --- | --- | --- | --- |
 | 1 | **Event Card** | `EventCard` | Glass panel, 3px module stripe on top, left time rail with 22px tabular time, pill, meta rows, action row. Cancelled = dashed border + struck time. |
-| 2 | **Athlete Row** | `SelectableAthleteRow` + `NumberTile` | Number tile → name/role/state → 28px ring toggle. Selection shown by tile tone, ring fill + halo, border tint and the word. |
-| 3 | **Status Pill** | `Badge` | Ring-dot + 10px tracked caps label on a tinted hairline pill. Hollow ring = taxonomy, filled ring = live status. |
-| 4 | **Floating Dock** | `TabBar` | 68px dark-glass pill; active tab is an action-gradient puck with the only visible label; inactive tabs are outline glyphs. |
+| 2 | **Athlete Row** | `SelectableAthleteRow` + `NumberTile` | Number tile (navy always) → name/role/state → 30px ring mark. State shown by the ring tint, the hairline and the word — never a coloured row. |
+| 3 | **Status Pill** | `Badge` | Ring-dot + 10px tracked caps label. Four tiers by weight: quiet · outline · solid · urgent. Solid fills, white labels, ≥4.5:1 everywhere. |
+| 4 | **Floating Dock** | `TabBar` | 56px dark-glass pill; active tab is an action-gradient puck with the only visible label; inactive tabs are outline glyphs at white 62%. |
 | 5 | **Action Surface** | `Button` | Gradient fill, rim border, inner highlight, glow, trailing arrow chip on the main CTA. Secondary = frosted glass. Disabled = flat ink 6%. |
 
 Rebrand test: swapping the logo and the primary hue would still leave the floodlit ground, the cut corner, the time rail, the number tiles, the ring pills and the dock puck — the interface stays EasyGame.
@@ -91,11 +110,12 @@ Rebrand test: swapping the logo and the primary hue would still leave the floodl
 Foundations and tokens
 
 - `styles.css` — the one file consumers link; `@import`s everything below.
+- `tokens/web.css` — the web/desktop layer (`--egw-*`): environments, geometry, densities, planes, web type ramp. Web only; mobile never reads it.
 - `tokens/signature.css` — the visual-signature layer (navy ramp, glass, cut corner, highlights, gradients, floodlight, eyebrow type). Plus `colors.css`, `semantic.css`, `typography.css`, `spacing.css`, `radius.css`, `elevation.css`, `motion.css`, `fonts.css`.
-- `guidelines/component-specs.md` — **normative** spec for every component (structure, surface, border, shadow, type, icons, spacing, all states) plus authentication/reset screens (Part E), system and release states (Part F) and push/deep-link states (Part G). Read this before building UI.
-- `guidelines/navigation.md` — the mobile navigation language: Trainer + Parent docks, hubs, secondary screens, sheets, child-switcher placement.
-- `guidelines/trainer-migration.md` — how to move Home / Allenamenti / Gare / Atleti onto the current language without changing functionality.
-- `guidelines/signature-*.card.html` — the six Signature cards (five patterns + layered ground / corner). `guidelines/*.card.html` — 21 foundation specimen cards (Colors, Type, Spacing, Brand).
+- `guidelines/01-brand.md` … `10-handoff.md` — the ten documents. **Read 01–04 before building mobile UI, 01–03 + 05–10 before building web UI.**
+- `guidelines/deprecated.md` — what must not be used, with replacements. `guidelines/migration-v3.md` — how to move the existing app onto v3.
+- `guidelines/archive/v2.3/` — the previous CURRENT revision's specs, kept as a detail reference.
+- `guidelines/signature-*.card.html` — the six Signature cards. `guidelines/web-*.card.html` — six Web cards (environments, shell, DataGrid, status, fields & overlays, alerts). `guidelines/*.card.html` — 21 foundation specimen cards (Colors, Type, Spacing, Brand).
 - `assets/` — logos, marks, app icons, default avatars, empty-state illustrations.
 
 Components (`window.EasyGameDesignSystem_845326`)
@@ -109,11 +129,14 @@ Each directory has one `@dsCard` HTML showing states; each component has a `.d.t
 
 UI kit
 
+- `templates/web-page/` — an operational list page on the real web shell: the starting point for every web page a consuming project builds.
 - `ui_kits/mobile_app/` — click-through recreation of the coach app: Login → Dashboard → Allenamenti (attendance sheet) → Gare (call-up sheet) → Atleti → Profilo. See its `README.md`.
 
 Parent area (specified, not yet built as components)
 
-- `ChildSwitcher`, `RSVPControl`, `PaymentCard`, `DocumentRow`/`DocumentCard`, `ConsentRow`, `NotificationRow`, `AppointmentCard`, `BookingCard`, `EnrollmentStatusCard`, `AccountAccessCard` — full visual specifications in `guidelines/component-specs.md`, Part C.
+- `ChildSwitcher`, `RSVPControl`, `PaymentCard`, `DocumentRow`/`DocumentCard`, `ConsentRow`, `NotificationRow`, `AppointmentCard`, `BookingCard`, `EnrollmentStatusCard`, `AccountAccessCard` — v3 rules in `guidelines/04-mobile.md` §4.11, fine detail in `guidelines/archive/v2.3/component-specs.md` Part C.
+
+New in v3, specified not yet built: `NavTile`, `HubList`, `BrandStateLayout`.
 
 Other
 

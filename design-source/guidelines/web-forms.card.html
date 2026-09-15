@@ -1,0 +1,68 @@
+<!-- @dsCard group="Web" viewport="1160x500" name="Fields, buttons, overlays" subtitle="46 in pagina · 42 in pannello · il pannello crea, la modale conferma" -->
+<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css"><style>body{margin:0;padding:20px;background:#fff;font-family:Poppins,system-ui,sans-serif;color:var(--egw-ink)}a{color:var(--egw-blue)}a:hover{color:var(--egw-indigo)}.eb{font:var(--egw-t-eyebrow);letter-spacing:var(--egw-track-eyebrow);color:var(--egw-ink-42);text-transform:uppercase}.lb{display:block;font:600 12px/1 Poppins,sans-serif;color:var(--egw-ink-62)}.f{margin-top:8px;display:flex;align-items:center;height:46px;padding:0 14px;border-radius:var(--egw-r-field);font:400 13.5px/1 Poppins,sans-serif}.rest{background:var(--egw-page-100);border:1px solid var(--egw-field-border);box-shadow:inset 0 1px 2px rgba(11,26,58,.05);color:var(--egw-ink-42)}.fill{background:#fff;border:1px solid rgba(11,26,58,.14)}.foc{background:#fff;border:1.5px solid var(--egw-focus-border);box-shadow:var(--egw-focus-ring)}.err{background:#fff;border:1.5px solid var(--egw-red)}.ro{background:var(--egw-page-100);border:none;color:var(--egw-ink-72)}.dis{background:rgba(11,26,58,.06);border:none;color:var(--egw-ink-42)}.hint{margin-top:7px;font:500 11.5px/1.3 Poppins,sans-serif}.btn{height:40px;padding:0 16px;display:inline-flex;align-items:center;gap:10px;border-radius:var(--egw-r-control);font:var(--egw-t-btn);cursor:pointer;border:none}.g4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}.hr{height:1px;background:var(--egw-hairline);margin:22px 0}.note{margin:14px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:var(--egw-ink-62)}</style></head><body>
+<div class="eb">Campi · sei stati obbligatori</div>
+<div class="g4" style="margin-top:14px">
+<div><span class="lb">A riposo</span><div class="f rest">Causale</div></div>
+<div><span class="lb">Compilato</span><div class="f fill">Quota associativa</div></div>
+<div><span class="lb">A fuoco</span><div class="f foc" style="font-variant-numeric:tabular-nums">305,00</div></div>
+<div><span class="lb">In errore</span><div class="f err" style="font-variant-numeric:tabular-nums">31/13/2026</div><div class="hint" style="color:var(--egw-red)">Data non valida</div></div>
+</div>
+<div class="g4" style="margin-top:18px">
+<div><span class="lb">In avviso</span><div class="f" style="background:#fff;border:1.5px solid var(--egw-amber)">Under 21</div><div class="hint" style="color:var(--egw-amber-ink)">Fuori dagli anni della categoria</div></div>
+<div><span class="lb">Verificato</span><div class="f" style="background:#fff;border:1.5px solid var(--egw-green)">RSSMRA11A01H501Z</div></div>
+<div><span class="lb">Sola lettura</span><div class="f ro">Fortitudo Scauri</div><div class="hint" style="color:var(--egw-ink-62)">Non modificabile con il tuo ruolo</div></div>
+<div><span class="lb">Disabilitato</span><div class="f dis">Seleziona prima la categoria</div></div>
+</div>
+
+<div class="hr"></div>
+<div class="eb">Comandi · su fondo chiaro</div>
+<div style="margin-top:14px;display:flex;flex-wrap:wrap;align-items:center;gap:12px">
+<span class="btn" style="background:var(--egw-grad-action);border:1px solid rgba(255,255,255,.28);box-shadow:var(--egw-glow-action);color:#fff;padding:0 18px">Registra movimento<span style="width:22px;height:22px;background:rgba(255,255,255,.18);border-radius:var(--egw-r-micro);display:flex;align-items:center;justify-content:center;font:800 13px/1 Poppins,sans-serif">→</span></span>
+<span class="btn" style="background:var(--egw-navy-800);color:#fff;box-shadow:0 10px 20px -12px rgba(7,18,43,.6)">Neutro forte</span>
+<span class="btn" style="background:#fff;border:1px solid var(--egw-field-border);box-shadow:0 1px 2px rgba(11,26,58,.05),inset 0 1px 0 rgba(255,255,255,.9);color:var(--egw-ink)">Secondario</span>
+<span class="btn" style="height:32px;padding:0 11px;background:#fff;border:1px solid rgba(37,99,235,.32);font-size:12px;color:var(--egw-blue-800)">Azione di riga</span>
+<span class="btn" style="background:transparent;color:var(--egw-blue)">Solo testo</span>
+<span class="btn" style="background:#fff;border:1px solid rgba(185,28,28,.35);color:var(--egw-red)">Elimina</span>
+<span class="btn" style="background:rgba(11,26,58,.06);color:var(--egw-ink-42);cursor:not-allowed">Disabilitato</span>
+</div>
+<div style="margin-top:16px;padding:18px;border-radius:var(--egw-r-field);background:radial-gradient(70% 55% at 10% -20%,rgba(96,165,250,.5),transparent 70%),linear-gradient(180deg,#1b3576,#2549a8);display:flex;flex-wrap:wrap;align-items:center;gap:12px">
+<span class="btn" style="background:#fff;box-shadow:0 14px 28px -14px rgba(7,18,43,.6);font-weight:700;color:#12265a;padding:0 18px">Primario invertito</span>
+<span class="btn" style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.45);color:#fff">Fantasma</span>
+<span style="font:400 12.5px/1.5 Poppins,sans-serif;color:rgba(255,255,255,.8)">Il gradiente d'azione è vietato sul blu: sparirebbe nel fondo.</span>
+</div>
+
+<div class="hr"></div>
+<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px">
+<div>
+<div class="eb">Pannello da destra · crea e modifica</div>
+<div style="margin-top:14px;border:1px solid rgba(11,26,58,.1);border-radius:var(--egw-r-field);overflow:hidden;box-shadow:var(--egw-plane-2)">
+  <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--egw-hairline)">
+    <div><div class="eb">NUOVO MOVIMENTO</div><div style="margin-top:6px;font:var(--egw-t-panel-title)">Entrata</div></div>
+    <span style="margin-left:auto;width:17px;height:17px;background:rgba(11,26,58,.5);mask:url(../assets/icons/close-circle.svg) center/contain no-repeat;-webkit-mask:url(../assets/icons/close-circle.svg) center/contain no-repeat"></span>
+  </div>
+  <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;align-items:center;height:42px;padding:0 13px;background:var(--egw-page-100);border:1px solid var(--egw-field-border);border-radius:var(--egw-r-control);font:400 13px/1 Poppins,sans-serif;color:var(--egw-ink-42)">Causale</div>
+    <div style="display:flex;gap:12px"><div style="flex:1;display:flex;align-items:center;height:42px;padding:0 13px;background:var(--egw-page-100);border:1px solid var(--egw-field-border);border-radius:var(--egw-r-control);font:400 13px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:var(--egw-ink-42)">gg/mm/aaaa</div><div style="flex:1;display:flex;align-items:center;height:42px;padding:0 13px;background:var(--egw-page-100);border:1px solid var(--egw-field-border);border-radius:var(--egw-r-control);font:400 13px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:var(--egw-ink-42)">0,00 €</div></div>
+  </div>
+  <div style="display:flex;gap:10px;padding:14px 16px;border-top:1px solid var(--egw-hairline);background:var(--egw-page-100)">
+    <span class="btn" style="flex:1;justify-content:center;background:var(--egw-grad-action);border:1px solid rgba(255,255,255,.28);box-shadow:var(--egw-glow-action);color:#fff">Registra</span>
+    <span class="btn" style="background:#fff;border:1px solid var(--egw-field-border);color:var(--egw-ink)">Annulla</span>
+  </div>
+</div>
+<p class="note">480px per creare e modificare, 392 per l'ispettore, 720 per un modulo a sezioni. L'elenco dietro resta leggibile e i filtri non si perdono.</p>
+</div>
+<div>
+<div class="eb">Modale · solo conferme</div>
+<div style="margin-top:14px;padding:20px;background:#fff;border:1px solid rgba(11,26,58,.1);border-radius:var(--egw-r-panel);box-shadow:var(--egw-plane-2)">
+  <div style="width:40px;height:40px;background:var(--egw-tint-red);border:1px solid var(--egw-tint-red-bd);border-radius:var(--egw-r-field);display:flex;align-items:center;justify-content:center;box-shadow:inset 0 1px 0 rgba(255,255,255,.8)"><span style="width:19px;height:19px;background:var(--egw-red);mask:url(../assets/icons/close-circle-outline.svg) center/contain no-repeat;-webkit-mask:url(../assets/icons/close-circle-outline.svg) center/contain no-repeat"></span></div>
+  <div style="margin-top:14px;font:700 16px/1.25 Poppins,sans-serif">Eliminare Marco Ferretti?</div>
+  <div style="margin-top:12px;padding:12px 14px;background:var(--egw-tint-red);border:1px solid var(--egw-tint-red-bd);border-radius:var(--egw-r-field);font:400 12.5px/1.6 Poppins,sans-serif;color:var(--egw-ink-72)">Con l'atleta spariscono <strong style="font-weight:600;color:var(--egw-ink)">3 anni di presenze</strong>, <strong style="font-weight:600;color:var(--egw-ink)">2 certificati</strong> e <strong style="font-weight:600;color:var(--egw-ink)">4 pagamenti registrati</strong>.</div>
+  <div style="margin-top:12px;font:600 12.5px/1.4 Poppins,sans-serif;color:var(--egw-red)">Questa operazione non è reversibile.</div>
+  <div style="margin-top:14px;font:400 12.5px/1 Poppins,sans-serif;color:var(--egw-ink-62)">Scrivi <strong style="font-weight:700;color:var(--egw-ink)">ELIMINA</strong> per confermare</div>
+  <div class="f rest" style="height:42px;border-radius:var(--egw-r-control)">ELIMINA</div>
+  <div style="margin-top:16px;display:flex;gap:10px"><span class="btn" style="background:#fff;border:1px solid var(--egw-field-border);color:var(--egw-ink);box-shadow:var(--egw-focus-ring)">Annulla</span><span class="btn" style="background:#fff;border:1px solid rgba(185,28,28,.35);color:var(--egw-red)">Elimina</span></div>
+</div>
+<p class="note">La conferma scritta solo per ciò che è irreversibile o esteso. Il fuoco parte da «Annulla», il rosso è contorno e non riempimento, e il verbo è il verbo — mai «OK».</p>
+</div>
+</div>
+</body></html>

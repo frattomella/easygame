@@ -29,6 +29,16 @@
       ],
       "port": 8095,
       "url": "http://127.0.0.1:8095"
+    },
+    {
+      "name": "design-source",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/serve-design-source.mjs"
+      ],
+      "port": 3020,
+      "url": "http://127.0.0.1:3020"
     }
-  ]
+  ],
+  "autoVerify": true
 }

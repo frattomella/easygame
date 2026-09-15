@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="stylesheet" href="_ds/easygame-design-system-84532636-540e-4f5d-91bf-75957af5e007/tokens/fonts.css">
+<link rel="stylesheet" href="_ds/easygame-design-system-84532636-540e-4f5d-91bf-75957af5e007/tokens/colors.css">
+<link rel="stylesheet" href="_ds/easygame-design-system-84532636-540e-4f5d-91bf-75957af5e007/tokens/typography.css">
+<link rel="stylesheet" href="_ds/easygame-design-system-84532636-540e-4f5d-91bf-75957af5e007/tokens/spacing.css">
+<link rel="stylesheet" href="_ds/easygame-design-system-84532636-540e-4f5d-91bf-75957af5e007/tokens/radius.css">
+<link rel="stylesheet" href="_ds/easygame-design-system-84532636-540e-4f5d-91bf-75957af5e007/tokens/elevation.css">
+<link rel="stylesheet" href="_ds/easygame-design-system-84532636-540e-4f5d-91bf-75957af5e007/tokens/motion.css">
+<link rel="stylesheet" href="_ds/easygame-design-system-84532636-540e-4f5d-91bf-75957af5e007/tokens/semantic.css">
+<link rel="stylesheet" href="_ds/easygame-design-system-84532636-540e-4f5d-91bf-75957af5e007/tokens/signature.css">
+<link rel="stylesheet" href="_ds/easygame-design-system-84532636-540e-4f5d-91bf-75957af5e007/styles.css">
+<script src="_ds/easygame-design-system-84532636-540e-4f5d-91bf-75957af5e007/_ds_bundle.js"></script>
+<style>
+body{margin:0;background:#eef3fe;font-family:Poppins,system-ui,sans-serif;color:#0b1a3a}
+a{color:#2563eb}
+a:hover{color:#3533cd}
+</style>
+</helmet>
+
+<div style="max-width:1240px;margin:0 auto;padding:48px 32px 80px;display:flex;flex-direction:column;gap:44px">
+
+<header style="display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;align-items:center;gap:10px">
+<img src="assets/logo-blue.png" alt="EasyGame" style="height:26px;width:auto">
+<span style="padding:5px 9px;background:#12265a;border-radius:10px 10px 4px 10px;font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.12em;color:#fff">WEB · v0.1 BOZZA</span>
+</div>
+<h1 style="margin:0;font:800 40px/1.05 Poppins,sans-serif;letter-spacing:-.02em;max-width:900px;text-wrap:pretty">EasyGame Web Design System</h1>
+<p style="margin:0;max-width:880px;font:400 15px/1.65 Poppins,sans-serif;color:rgba(11,26,58,.7);text-wrap:pretty">Estensione web del sistema mobile EGDS v3. Stessa identità — blu #2563EB, indaco #3533CD, navy come profondità, Poppins, angolo tagliato, occhielli, cifre tabulari, stati con la parola accanto al colore. UX diversa: tre ambienti, tabelle dense, filtri persistenti, azioni contestuali.</p>
+<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px">
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:18px 20px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">AMBIENTE 1 · GESTIONALE</div>
+<div style="margin-top:10px;font:700 15px/1.3 Poppins,sans-serif">Nebbia chiara, riquadri bianchi</div>
+<p style="margin:8px 0 0;font:400 12.5px/1.55 Poppins,sans-serif;color:rgba(11,26,58,.62)">Tutte le pagine di lavoro: elenchi, schede, cassa, segreteria. Fondo #EEF3FE, pannelli bianchi con ombra morbida e filo di luce. Nessun blu di sfondo.</p>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:18px 20px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">AMBIENTE 2 · DASHBOARD</div>
+<div style="margin-top:10px;font:700 15px/1.3 Poppins,sans-serif">Fascia di cielo dietro l'intestazione</div>
+<p style="margin:8px 0 0;font:400 12.5px/1.55 Poppins,sans-serif;color:rgba(11,26,58,.62)">Solo la Dashboard del club. Rampa blu 290px con fari e righe di campo, orizzonte sfumato, le card KPI salgono sul cielo.</p>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:18px 20px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">AMBIENTE 3 · FUORI DAL CLUB</div>
+<div style="margin-top:10px;font:700 15px/1.3 Poppins,sans-serif">Cielo pieno, senza orizzonte</div>
+<p style="margin:8px 0 0;font:400 12.5px/1.55 Poppins,sans-serif;color:rgba(11,26,58,.62)">Accesso, registrazione, account, stati di sistema. Marchio in filigrana, archi di campo, pannelli bianchi o di vetro scuro.</p>
+</div>
+</div>
+</header>
+
+<section style="display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:700 11px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">01</span>
+<h2 style="margin:0;font:800 24px/1.1 Poppins,sans-serif;letter-spacing:-.02em">Colore</h2>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:24px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">MARCHIO E PROFONDITÀ</div>
+<div style="margin-top:16px;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px">
+<div><div style="height:64px;background:#2563eb;border-radius:14px 14px 5px 14px"></div><div style="margin-top:8px;font:600 12px/1.3 Poppins,sans-serif">Blu 600</div><div style="font:400 11px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.55)">#2563EB · primario</div></div>
+<div><div style="height:64px;background:#3533cd;border-radius:14px 14px 5px 14px"></div><div style="margin-top:8px;font:600 12px/1.3 Poppins,sans-serif">Indaco</div><div style="font:400 11px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.55)">#3533CD · chiude il gradiente</div></div>
+<div><div style="height:64px;background:#12265a;border-radius:14px 14px 5px 14px"></div><div style="margin-top:8px;font:600 12px/1.3 Poppins,sans-serif">Navy 800</div><div style="font:400 11px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.55)">#12265A · cielo alto</div></div>
+<div><div style="height:64px;background:#0b1a3a;border-radius:14px 14px 5px 14px"></div><div style="margin-top:8px;font:600 12px/1.3 Poppins,sans-serif">Navy 900</div><div style="font:400 11px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.55)">#0B1A3A · inchiostro</div></div>
+<div><div style="height:64px;background:#eef3fe;border:1px solid rgba(11,26,58,.1);border-radius:14px 14px 5px 14px"></div><div style="margin-top:8px;font:600 12px/1.3 Poppins,sans-serif">Nebbia</div><div style="font:400 11px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.55)">#EEF3FE · fondo pagina</div></div>
+<div><div style="height:64px;background:#f4f7fd;border:1px solid rgba(11,26,58,.1);border-radius:14px 14px 5px 14px"></div><div style="margin-top:8px;font:600 12px/1.3 Poppins,sans-serif">Nebbia 100</div><div style="font:400 11px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.55)">#F4F7FD · righe e campi</div></div>
+</div>
+
+<div style="margin-top:26px;font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">STATI — SEMPRE CON LA PAROLA ACCANTO</div>
+<div style="margin-top:16px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px">
+<div><div style="height:52px;background:#15803d;border-radius:14px 14px 5px 14px"></div><div style="margin-top:8px;font:600 12px/1.3 Poppins,sans-serif">Verde 700</div><div style="font:400 11px/1.3 Poppins,sans-serif;color:rgba(11,26,58,.55)">incassato, presente, valido</div></div>
+<div><div style="height:52px;background:#b45309;border-radius:14px 14px 5px 14px"></div><div style="margin-top:8px;font:600 12px/1.3 Poppins,sans-serif">Ambra 700</div><div style="font:400 11px/1.3 Poppins,sans-serif;color:rgba(11,26,58,.55)">in attesa, in scadenza</div></div>
+<div><div style="height:52px;background:#b91c1c;border-radius:14px 14px 5px 14px"></div><div style="margin-top:8px;font:600 12px/1.3 Poppins,sans-serif">Rosso 700</div><div style="font:400 11px/1.3 Poppins,sans-serif;color:rgba(11,26,58,.55)">scaduto, mancante, bloccante</div></div>
+<div><div style="height:52px;background:#9a3412;border-radius:14px 14px 5px 14px"></div><div style="margin-top:8px;font:600 12px/1.3 Poppins,sans-serif">Arancio 800</div><div style="font:400 11px/1.3 Poppins,sans-serif;color:rgba(11,26,58,.55)">gara e convocazioni</div></div>
+<div><div style="height:52px;background:#1d4ed8;border-radius:14px 14px 5px 14px"></div><div style="margin-top:8px;font:600 12px/1.3 Poppins,sans-serif">Blu 700</div><div style="font:400 11px/1.3 Poppins,sans-serif;color:rgba(11,26,58,.55)">informativo, allenamento</div></div>
+</div>
+
+<div style="margin-top:26px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px">
+<div style="padding:16px;background:#f4f7fd;border:1px solid rgba(11,26,58,.08);border-radius:14px 14px 5px 14px">
+<div style="height:44px;border-radius:12px 12px 4px 12px;background:linear-gradient(135deg,#3b82f6,#2563eb 48%,#3533cd);border:1px solid rgba(255,255,255,.28);box-shadow:0 12px 24px -14px rgba(37,99,235,.8),inset 0 1px 0 rgba(255,255,255,.35)"></div>
+<div style="margin-top:10px;font:600 12px/1.4 Poppins,sans-serif">Gradiente d'azione</div>
+<div style="font:400 11.5px/1.45 Poppins,sans-serif;color:rgba(11,26,58,.62)">Unico gradiente del prodotto. Solo primario, voce attiva, barra di avanzamento. Vietato sul cielo.</div>
+</div>
+<div style="padding:16px;background:#f4f7fd;border:1px solid rgba(11,26,58,.08);border-radius:14px 14px 5px 14px">
+<div style="height:44px;border-radius:12px 12px 4px 12px;background:linear-gradient(135deg,#fb923c,#f97316 55%,#c2410c)"></div>
+<div style="margin-top:10px;font:600 12px/1.4 Poppins,sans-serif">Gradiente gara</div>
+<div style="font:400 11.5px/1.45 Poppins,sans-serif;color:rgba(11,26,58,.62)">Solo come striscia di modulo 3px sui pannelli di gara e convocazione.</div>
+</div>
+<div style="padding:16px;background:#f4f7fd;border:1px solid rgba(11,26,58,.08);border-radius:14px 14px 5px 14px">
+<div style="height:44px;border-radius:12px 12px 4px 12px;background:linear-gradient(160deg,#1b3576,#0b1a3a)"></div>
+<div style="margin-top:10px;font:600 12px/1.4 Poppins,sans-serif">Gradiente navy</div>
+<div style="font:400 11.5px/1.45 Poppins,sans-serif;color:rgba(11,26,58,.62)">Superfici a riposo: numero di maglia, rail, tessere identità.</div>
+</div>
+</div>
+<p style="margin:18px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Inchiostro solo in tre livelli: 100% #0B1A3A, 62%, 42%. Mai nero, mai grigio medio. Nessun testo sotto il 42%.</p>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:700 11px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">02</span>
+<h2 style="margin:0;font:800 24px/1.1 Poppins,sans-serif;letter-spacing:-.02em">Tipografia e cifre</h2>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:24px;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:32px">
+<div style="display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;align-items:baseline;gap:16px;padding-bottom:14px;border-bottom:1px solid rgba(11,26,58,.07)"><span style="font:800 32px/1.05 Poppins,sans-serif;letter-spacing:-.02em">Titolo pagina</span><span style="font:400 11.5px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.55)">800 · 32/34 · −0.02em</span></div>
+<div style="display:flex;align-items:baseline;gap:16px;padding-bottom:14px;border-bottom:1px solid rgba(11,26,58,.07)"><span style="font:800 20px/1.1 Poppins,sans-serif;letter-spacing:-.02em">Titolo di sezione</span><span style="font:400 11.5px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.55)">800 · 20/24</span></div>
+<div style="display:flex;align-items:baseline;gap:16px;padding-bottom:14px;border-bottom:1px solid rgba(11,26,58,.07)"><span style="font:700 11px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">OCCHIELLO DI BLOCCO</span><span style="font:400 11.5px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.55)">700 · 11 · +0.12em · maiuscolo</span></div>
+<div style="display:flex;align-items:baseline;gap:16px;padding-bottom:14px;border-bottom:1px solid rgba(11,26,58,.07)"><span style="font:600 13.5px/1.3 Poppins,sans-serif">Etichetta e nome in tabella</span><span style="font:400 11.5px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.55)">600 · 13.5</span></div>
+<div style="display:flex;align-items:baseline;gap:16px;padding-bottom:14px;border-bottom:1px solid rgba(11,26,58,.07)"><span style="font:400 13.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.72)">Testo corrente e dato in cella</span><span style="font:400 11.5px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.55)">400 · 13/13.5</span></div>
+<div style="display:flex;align-items:baseline;gap:16px"><span style="font:400 12px/1.5 Poppins,sans-serif;color:rgba(11,26,58,.55)">Meta e didascalia</span><span style="font:400 11.5px/1.3 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.55)">400 · 12 · inchiostro 55%</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:16px">
+<div style="padding:18px 20px;background:#f4f7fd;border:1px solid rgba(11,26,58,.08);border-radius:14px 14px 5px 14px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">CIFRE</div>
+<div style="margin-top:12px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font:400 12px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Dato di sintesi</span><span style="font:800 30px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:-.03em">38.420 €</span></div>
+<div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font:400 12px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Orario</span><span style="font:800 20px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:-.03em">18:30</span></div>
+<div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font:400 12px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Conteggio in riga</span><span style="font:700 13px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#15803d">14/16 presenti</span></div>
+<div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font:400 12px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Data breve italiana</span><span style="font:400 13px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums">24 set 2026</span></div>
+</div>
+</div>
+<p style="margin:0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Le cifre sono sempre tabulari e più grandi del testo accanto. Gli importi in colonna si allineano a destra; le date e gli orari restano a sinistra della loro colonna. Valore assente: <span style="font-variant-numeric:tabular-nums">—</span>, mai vuoto, mai «N/D».</p>
+</div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:700 11px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">03</span>
+<h2 style="margin:0;font:800 24px/1.1 Poppins,sans-serif;letter-spacing:-.02em">Superfici, angolo e spazio</h2>
+</div>
+<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px">
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:24px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">L'ANGOLO TAGLIATO</div>
+<div style="margin-top:18px;display:flex;align-items:flex-end;gap:18px">
+<div style="text-align:center"><div style="width:96px;height:96px;background:#f4f7fd;border:1px solid rgba(11,26,58,.12);border-radius:22px 22px 8px 22px"></div><div style="margin-top:8px;font:600 11.5px/1.3 Poppins,sans-serif">22/8</div><div style="font:400 11px/1.3 Poppins,sans-serif;color:rgba(11,26,58,.55)">pannelli</div></div>
+<div style="text-align:center"><div style="width:72px;height:72px;background:#f4f7fd;border:1px solid rgba(11,26,58,.12);border-radius:14px 14px 5px 14px"></div><div style="margin-top:8px;font:600 11.5px/1.3 Poppins,sans-serif">14/5</div><div style="font:400 11px/1.3 Poppins,sans-serif;color:rgba(11,26,58,.55)">campi, bottoni alti</div></div>
+<div style="text-align:center"><div style="width:56px;height:56px;background:#f4f7fd;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px"></div><div style="margin-top:8px;font:600 11.5px/1.3 Poppins,sans-serif">12/4</div><div style="font:400 11px/1.3 Poppins,sans-serif;color:rgba(11,26,58,.55)">comandi, voci nav</div></div>
+<div style="text-align:center"><div style="width:44px;height:44px;background:#f4f7fd;border:1px solid rgba(11,26,58,.12);border-radius:10px 10px 4px 10px"></div><div style="margin-top:8px;font:600 11.5px/1.3 Poppins,sans-serif">10/4</div><div style="font:400 11px/1.3 Poppins,sans-serif;color:rgba(11,26,58,.55)">chip, targhette</div></div>
+</div>
+<p style="margin:18px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Tre angoli morbidi, uno tagliato in basso a destra. Le pillole di stato restano a raggio pieno: sono l'unica eccezione, perché devono leggersi come parola e non come superficie.</p>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:24px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">RILIEVO — TRE LIVELLI, NON PIÙ</div>
+<div style="margin-top:18px;display:flex;flex-direction:column;gap:12px">
+<div style="padding:14px 16px;background:#f4f7fd;border:1px solid rgba(11,26,58,.08);border-radius:14px 14px 5px 14px;font:600 12.5px/1.3 Poppins,sans-serif">Piano 0 · riga, campo, chip · nessuna ombra</div>
+<div style="padding:14px 16px;background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:14px 14px 5px 14px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);font:600 12.5px/1.3 Poppins,sans-serif">Piano 1 · pannello di contenuto · ombra morbida + filo di luce</div>
+<div style="padding:14px 16px;background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:14px 14px 5px 14px;box-shadow:0 24px 56px -20px rgba(7,18,43,.45),inset 0 1px 0 rgba(255,255,255,.9);font:600 12.5px/1.3 Poppins,sans-serif">Piano 2 · pannello laterale, modale, menu · ombra profonda</div>
+</div>
+<div style="margin-top:20px;font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">RITMO</div>
+<p style="margin:10px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Base 4. Margine pagina 32. Fra pannelli 18. Dentro un pannello 24 di padding e 14 di gap. Riga di tabella 48 (44 in densità alta). Campo 46. Bottone 40. Icona di metadato 16.</p>
+</div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:700 11px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">04</span>
+<h2 style="margin:0;font:800 24px/1.1 Poppins,sans-serif;letter-spacing:-.02em">Comandi</h2>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:24px;display:flex;flex-direction:column;gap:24px">
+<div>
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">BOTTONI · SU FONDO CHIARO</div>
+<div style="margin-top:16px;display:flex;flex-wrap:wrap;align-items:center;gap:12px">
+<button style="height:40px;padding:0 18px;display:inline-flex;align-items:center;gap:10px;background:linear-gradient(135deg,#3b82f6,#2563eb 48%,#3533cd);border:1px solid rgba(255,255,255,.28);border-radius:12px 12px 4px 12px;box-shadow:0 14px 28px -12px rgba(37,99,235,.75),inset 0 1px 0 rgba(255,255,255,.35);font:600 13px/1 Poppins,sans-serif;color:#fff;cursor:pointer">Registra movimento<span style="width:22px;height:22px;background:rgba(255,255,255,.18);border-radius:8px 8px 3px 8px;display:flex;align-items:center;justify-content:center"><span style="width:13px;height:13px;background:#fff;mask:url(icons/arrow-forward.svg) center/contain no-repeat"></span></span></button>
+<button style="height:40px;padding:0 16px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;box-shadow:0 1px 2px rgba(11,26,58,.05),inset 0 1px 0 rgba(255,255,255,.9);font:600 13px/1 Poppins,sans-serif;color:#0b1a3a;cursor:pointer">Secondario</button>
+<button style="height:40px;padding:0 16px;background:#fff;border:1px solid rgba(37,99,235,.32);border-radius:12px 12px 4px 12px;box-shadow:0 1px 2px rgba(37,99,235,.08);font:600 13px/1 Poppins,sans-serif;color:#1e40af;cursor:pointer">Azione di riga</button>
+<button style="height:40px;padding:0 16px;background:transparent;border:none;font:600 13px/1 Poppins,sans-serif;color:#2563eb;cursor:pointer">Solo testo</button>
+<button style="height:40px;padding:0 16px;background:#fff;border:1px solid rgba(185,28,28,.35);border-radius:12px 12px 4px 12px;font:600 13px/1 Poppins,sans-serif;color:#b91c1c;cursor:pointer">Elimina</button>
+<button style="height:40px;padding:0 16px;background:rgba(11,26,58,.06);border:none;border-radius:12px 12px 4px 12px;font:600 13px/1 Poppins,sans-serif;color:rgba(11,26,58,.42);cursor:not-allowed">Disabilitato</button>
+</div>
+<p style="margin:14px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Un solo primario per schermata — quello che porta avanti il lavoro. Tutto il resto è secondario o testo. Il chip freccia sta solo sul primario di pagina, non su quelli di riga.</p>
+</div>
+<div style="height:1px;background:rgba(11,26,58,.07)"></div>
+<div>
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">BOTTONI · SUL CIELO</div>
+<div style="margin-top:16px;padding:20px;border-radius:14px 14px 5px 14px;background-image:radial-gradient(70% 55% at 10% -20%,rgba(96,165,250,.5),transparent 70%),linear-gradient(180deg,#1b3576,#2549a8);display:flex;flex-wrap:wrap;align-items:center;gap:12px">
+<button style="height:40px;padding:0 18px;background:#fff;border:none;border-radius:12px 12px 4px 12px;box-shadow:0 14px 28px -14px rgba(7,18,43,.6);font:700 13px/1 Poppins,sans-serif;color:#12265a;cursor:pointer">Primario invertito</button>
+<button style="height:40px;padding:0 16px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.45);border-radius:12px 12px 4px 12px;font:600 13px/1 Poppins,sans-serif;color:#fff;cursor:pointer">Fantasma</button>
+<span style="font:400 12.5px/1.5 Poppins,sans-serif;color:rgba(255,255,255,.8)">Il gradiente d'azione è vietato sul blu: sparirebbe nel fondo.</span>
+</div>
+</div>
+<div style="height:1px;background:rgba(11,26,58,.07)"></div>
+<div>
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">PILLOLE DI STATO · QUATTRO PESI</div>
+<div style="margin-top:16px;display:flex;flex-wrap:wrap;align-items:center;gap:10px">
+<span style="padding:4px 10px;background:rgba(11,26,58,.07);border:1px solid rgba(11,26,58,.16);border-radius:999px;font:700 10px/1.4 Poppins,sans-serif;letter-spacing:.06em;color:#0b1a3a">BOZZA</span>
+<span style="padding:3px 10px;background:#fff;border:1.5px solid #b45309;border-radius:999px;font:700 10px/1.4 Poppins,sans-serif;letter-spacing:.06em;color:#8a4708">IN SCADENZA</span>
+<span style="padding:4px 10px;background:#15803d;border-radius:999px;font:700 10px/1.4 Poppins,sans-serif;letter-spacing:.06em;color:#fff">INCASSATO</span>
+<span style="padding:4px 10px;background:#1d4ed8;border-radius:999px;font:700 10px/1.4 Poppins,sans-serif;letter-spacing:.06em;color:#fff">CONVOCATO</span>
+<span style="padding:4px 10px;background:#b45309;border-radius:999px;font:700 10px/1.4 Poppins,sans-serif;letter-spacing:.06em;color:#fff">IN ATTESA</span>
+<span style="padding:4px 10px;background:#b91c1c;border-radius:999px;font:700 10px/1.4 Poppins,sans-serif;letter-spacing:.06em;color:#fff">SCADUTO</span>
+<span style="padding:4px 10px;background:#9a3412;border-radius:999px;font:700 10px/1.4 Poppins,sans-serif;letter-spacing:.06em;color:#fff">GARA</span>
+</div>
+<p style="margin:14px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Quieta per ciò che non chiede nulla, a contorno per ciò che chiederà, piena per lo stato di fatto, piena rossa per ciò che blocca. Mai una riga intera colorata: lo stato sta nella pillola, non nella riga.</p>
+</div>
+<div style="height:1px;background:rgba(11,26,58,.07)"></div>
+<div>
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">CAMPI</div>
+<div style="margin-top:16px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px">
+<div>
+<label style="display:block;font:600 12px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">A riposo</label>
+<div style="margin-top:8px;display:flex;align-items:center;height:46px;padding:0 14px;background:#f4f7fd;border:1px solid rgba(11,26,58,.12);border-radius:14px 14px 5px 14px;box-shadow:inset 0 1px 2px rgba(11,26,58,.05);font:400 13.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.42)">Causale</div>
+</div>
+<div>
+<label style="display:block;font:600 12px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Compilato</label>
+<div style="margin-top:8px;display:flex;align-items:center;height:46px;padding:0 14px;background:#fff;border:1px solid rgba(11,26,58,.14);border-radius:14px 14px 5px 14px;font:400 13.5px/1 Poppins,sans-serif">Quota associativa</div>
+</div>
+<div>
+<label style="display:block;font:600 12px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">A fuoco</label>
+<div style="margin-top:8px;display:flex;align-items:center;height:46px;padding:0 14px;background:#fff;border:1.5px solid #2563eb;border-radius:14px 14px 5px 14px;box-shadow:0 0 0 3px rgba(37,99,235,.18);font:400 13.5px/1 Poppins,sans-serif">305,00</div>
+</div>
+<div>
+<label style="display:block;font:600 12px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">In errore</label>
+<div style="margin-top:8px;display:flex;align-items:center;height:46px;padding:0 14px;background:#fff;border:1.5px solid #b91c1c;border-radius:14px 14px 5px 14px;font:400 13.5px/1 Poppins,sans-serif">31/13/2026</div>
+<div style="margin-top:7px;font:500 11.5px/1.3 Poppins,sans-serif;color:#b91c1c">Data non valida</div>
+</div>
+</div>
+</div>
+<div style="height:1px;background:rgba(11,26,58,.07)"></div>
+<div>
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">BARRA FILTRI · PERSISTENTE, MAI UN MURO DI TENDINE</div>
+<div style="margin-top:16px;padding:14px 16px;background:#f4f7fd;border:1px solid rgba(11,26,58,.08);border-radius:14px 14px 5px 14px;display:flex;flex-wrap:wrap;align-items:center;gap:10px">
+<div style="display:flex;align-items:center;gap:9px;height:38px;padding:0 12px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;min-width:240px"><span style="width:15px;height:15px;background:rgba(11,26,58,.42);mask:url(icons/search-outline.svg) center/contain no-repeat"></span><span style="font:400 13px/1 Poppins,sans-serif;color:rgba(11,26,58,.42)">Cerca nell'elenco</span></div>
+<span style="display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 12px;background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.28);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;color:#1e40af">Categoria: Under 13 Silver<span style="width:13px;height:13px;background:#1e40af;mask:url(icons/close-circle.svg) center/contain no-repeat"></span></span>
+<span style="display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 12px;background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.28);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;color:#1e40af">Certificato: non valido<span style="width:13px;height:13px;background:#1e40af;mask:url(icons/close-circle.svg) center/contain no-repeat"></span></span>
+<span style="display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 12px;background:#fff;border:1px dashed rgba(11,26,58,.22);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Aggiungi filtro</span>
+<span style="margin-left:auto;font:400 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.55)"><span style="font-weight:700;font-variant-numeric:tabular-nums;color:#0b1a3a">7</span> di 184</span>
+<a href="#" style="font:600 12.5px/1 Poppins,sans-serif;color:#2563eb;text-decoration:none">Salva vista</a>
+</div>
+<p style="margin:14px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Ogni filtro attivo è un chip con la sua X e dice campo e valore. Il conteggio filtrato sta sempre accanto al totale. Le combinazioni ricorrenti si salvano come vista e ricompaiono nella colonna di modulo.</p>
+</div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:700 11px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">05</span>
+<h2 style="margin:0;font:800 24px/1.1 Poppins,sans-serif;letter-spacing:-.02em">Tabella — il componente centrale del web</h2>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);overflow-x:auto;overflow-y:hidden">
+<div style="display:flex;align-items:center;gap:14px;padding:18px 24px 14px;min-width:1060px">
+<span style="font:700 11px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">ELENCO ATLETI</span>
+<span style="font:700 11px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.42)">184</span>
+<div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+<span style="font:400 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.55)">2 selezionati</span>
+<button style="height:32px;padding:0 11px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12px/1 Poppins,sans-serif;cursor:pointer">Esporta</button>
+<button style="height:32px;padding:0 11px;background:#fff;border:1px solid rgba(37,99,235,.32);border-radius:12px 12px 4px 12px;font:600 12px/1 Poppins,sans-serif;color:#1e40af;cursor:pointer">Invia comunicazione</button>
+</div>
+</div>
+<div style="display:grid;min-width:1060px;grid-template-columns:36px 60px minmax(0,1.6fr) minmax(0,1fr) 128px 120px 116px 150px;gap:14px;padding:10px 24px;background:#f4f7fd;border-top:1px solid rgba(11,26,58,.06);border-bottom:1px solid rgba(11,26,58,.06);font:700 10px/1 Poppins,sans-serif;letter-spacing:.1em;color:rgba(11,26,58,.42)">
+<span></span><span>N°</span><span>ATLETA ↑</span><span>CATEGORIA</span><span>CERTIFICATO</span><span>QUOTA</span><span>PRESENZE</span><span></span>
+</div>
+<div style="display:grid;min-width:1060px;grid-template-columns:36px 60px minmax(0,1.6fr) minmax(0,1fr) 128px 120px 116px 150px;gap:14px;align-items:center;padding:0 24px;height:48px;border-bottom:1px solid rgba(11,26,58,.06);background:rgba(37,99,235,.04)">
+<span style="width:16px;height:16px;background:#2563eb;mask:url(icons/checkmark-circle.svg) center/contain no-repeat"></span>
+<span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;background:linear-gradient(160deg,#1b3576,#0b1a3a);border-radius:12px 12px 4px 12px;font:800 14px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#fff">14</span>
+<span style="font:600 13.5px/1 Poppins,sans-serif">Achille Grande</span>
+<span style="font:400 13px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Under 13 Silver</span>
+<span style="justify-self:start;padding:4px 9px;background:#b91c1c;border-radius:999px;font:700 10px/1.4 Poppins,sans-serif;letter-spacing:.06em;color:#fff">MANCANTE</span>
+<span style="font:700 13px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#15803d">305,00 €</span>
+<span style="font:400 13px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums">82%</span>
+<span style="justify-self:end;display:flex;gap:8px"><button style="height:32px;padding:0 11px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12px/1 Poppins,sans-serif;cursor:pointer">Scheda</button><button style="height:32px;padding:0 11px;background:#fff;border:1px solid rgba(37,99,235,.32);border-radius:12px 12px 4px 12px;font:600 12px/1 Poppins,sans-serif;color:#1e40af;cursor:pointer">Sollecita</button></span>
+</div>
+<div style="display:grid;min-width:1060px;grid-template-columns:36px 60px minmax(0,1.6fr) minmax(0,1fr) 128px 120px 116px 150px;gap:14px;align-items:center;padding:0 24px;height:48px;border-bottom:1px solid rgba(11,26,58,.06)">
+<span style="width:15px;height:15px;border:1.5px solid rgba(11,26,58,.25);border-radius:999px"></span>
+<span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;background:linear-gradient(160deg,#1b3576,#0b1a3a);border-radius:12px 12px 4px 12px;font:800 14px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#fff">7</span>
+<span style="font:600 13.5px/1 Poppins,sans-serif">Adam Ruocco</span>
+<span style="font:400 13px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Aquilotti</span>
+<span style="justify-self:start;padding:3px 9px;background:#fff;border:1.5px solid #b45309;border-radius:999px;font:700 10px/1.4 Poppins,sans-serif;letter-spacing:.06em;color:#8a4708">24 SET</span>
+<span style="font:700 13px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#b45309">150,00 €</span>
+<span style="font:400 13px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums">91%</span>
+<span style="justify-self:end;display:flex;gap:8px"><button style="height:32px;padding:0 11px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12px/1 Poppins,sans-serif;cursor:pointer">Scheda</button><button style="height:32px;padding:0 11px;background:#fff;border:1px solid rgba(37,99,235,.32);border-radius:12px 12px 4px 12px;font:600 12px/1 Poppins,sans-serif;color:#1e40af;cursor:pointer">Sollecita</button></span>
+</div>
+<div style="display:grid;min-width:1060px;grid-template-columns:36px 60px minmax(0,1.6fr) minmax(0,1fr) 128px 120px 116px 150px;gap:14px;align-items:center;padding:0 24px;height:48px;border-bottom:1px solid rgba(11,26,58,.06)">
+<span style="width:15px;height:15px;border:1.5px solid rgba(11,26,58,.25);border-radius:999px"></span>
+<span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;background:linear-gradient(160deg,#1b3576,#0b1a3a);border-radius:12px 12px 4px 12px;font:800 14px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#fff">23</span>
+<span style="font:600 13.5px/1 Poppins,sans-serif">Agnese Pagano</span>
+<span style="font:400 13px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Scoiattoli</span>
+<span style="justify-self:start;padding:4px 9px;background:#15803d;border-radius:999px;font:700 10px/1.4 Poppins,sans-serif;letter-spacing:.06em;color:#fff">VALIDO</span>
+<span style="font:700 13px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#15803d">305,00 €</span>
+<span style="font:400 13px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums">76%</span>
+<span style="justify-self:end;display:flex;gap:8px"><button style="height:32px;padding:0 11px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12px/1 Poppins,sans-serif;cursor:pointer">Scheda</button></span>
+</div>
+<div style="display:flex;align-items:center;gap:14px;padding:14px 24px;min-width:1060px;background:#f4f7fd;border-top:1px solid rgba(11,26,58,.06)">
+<span style="font:400 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Righe <span style="font-weight:700;font-variant-numeric:tabular-nums;color:#0b1a3a">1–25</span> di <span style="font-weight:700;font-variant-numeric:tabular-nums;color:#0b1a3a">184</span></span>
+<div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+<span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.42)">‹</span>
+<span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:#0b1a3a;border-radius:12px 12px 4px 12px;font:700 12.5px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#fff">1</span>
+<span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums">2</span>
+<span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums">3</span>
+<span style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">›</span>
+</div>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px">
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:18px 20px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">REGOLE DI COLONNA</div>
+<p style="margin:10px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Identità a sinistra (numero di maglia + nome), stati al centro, importi a destra, azioni in coda e allineate a destra. L'intestazione è occhiello 10px su nebbia, mai grassetto pieno.</p>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:18px 20px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">SELEZIONE E MASSA</div>
+<p style="margin:10px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">La riga selezionata prende un velo blu al 4% e il segno di spunta pieno, non un bordo. Le azioni di massa vivono nella testa del pannello, con il conteggio dei selezionati accanto.</p>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:18px 20px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">DENSITÀ</div>
+<p style="margin:10px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Riga 48px in comoda, 44px in compatta: l'utente sceglie e la scelta resta. Nessuna riga più alta di 48: il respiro si prende fra i pannelli, non dentro le righe.</p>
+</div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:700 11px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">06</span>
+<h2 style="margin:0;font:800 24px/1.1 Poppins,sans-serif;letter-spacing:-.02em">Navigazione, tab e pannelli</h2>
+</div>
+<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:14px">
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:24px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">VOCI DI BARRA LATERALE</div>
+<div style="margin-top:16px;display:flex;flex-direction:column;gap:6px;max-width:300px">
+<div style="display:flex;align-items:center;gap:11px;height:40px;padding:0 12px;background:linear-gradient(135deg,#3b82f6,#2563eb 48%,#3533cd);border:1px solid rgba(255,255,255,.28);border-radius:12px 12px 4px 12px;box-shadow:0 10px 24px -12px rgba(37,99,235,.8),inset 0 1px 0 rgba(255,255,255,.35)"><span style="width:18px;height:18px;background:#fff;mask:url(icons/home.svg) center/contain no-repeat"></span><span style="font:600 13.5px/1 Poppins,sans-serif;color:#fff">Attiva</span></div>
+<div style="display:flex;align-items:center;gap:11px;height:40px;padding:0 12px;background:#f4f7fd;border-radius:12px 12px 4px 12px"><span style="width:18px;height:18px;background:rgba(11,26,58,.62);mask:url(icons/person-outline.svg) center/contain no-repeat"></span><span style="font:500 13.5px/1 Poppins,sans-serif;color:#0b1a3a">In evidenza (hover)</span></div>
+<div style="display:flex;align-items:center;gap:11px;height:40px;padding:0 12px;border-radius:12px 12px 4px 12px"><span style="width:18px;height:18px;background:rgba(11,26,58,.5);mask:url(icons/people-outline.svg) center/contain no-repeat"></span><span style="font:500 13.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.72)">A riposo</span><span style="margin-left:auto;font:700 12px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.42)">184</span></div>
+<div style="display:flex;align-items:center;gap:11px;height:40px;padding:0 12px;border-radius:12px 12px 4px 12px"><span style="width:18px;height:18px;background:rgba(11,26,58,.5);mask:url(icons/shield-outline.svg) center/contain no-repeat"></span><span style="font:500 13.5px/1 Poppins,sans-serif;color:rgba(11,26,58,.72)">Con avviso</span><span style="margin-left:auto;display:inline-flex;align-items:center;padding:2px 7px;background:#b91c1c;border-radius:999px;font:700 10.5px/1.4 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#fff">7</span></div>
+</div>
+<p style="margin:16px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Gruppi con occhiello, mai più di cinque; la voce attiva è l'unica superficie in gradiente della barra. Il numero a destra è un dato, la pastiglia rossa è un problema: non si usano insieme sulla stessa voce.</p>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:24px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">TAB DI SCHEDA</div>
+<div style="margin-top:16px;display:flex;flex-wrap:wrap;align-items:center;gap:2px;border-bottom:1px solid rgba(11,26,58,.1)">
+<span style="padding:10px 14px;border-bottom:2px solid #2563eb;font:600 13px/1 Poppins,sans-serif;color:#1e40af">Generale</span>
+<span style="padding:10px 14px;font:500 13px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Contatti</span>
+<span style="padding:10px 14px;font:500 13px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Dati sanitari</span>
+<span style="padding:10px 14px;display:inline-flex;align-items:center;gap:7px;font:500 13px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Iscrizione<span style="padding:1.5px 6px;background:#b45309;border-radius:999px;font:700 9.5px/1.4 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:#fff">1</span></span>
+<span style="padding:10px 14px;font:500 13px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Documenti</span>
+<span style="padding:10px 14px;font:500 13px/1 Poppins,sans-serif;color:rgba(11,26,58,.62)">Compensi</span>
+</div>
+<div style="margin-top:20px;font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">CAMBIO DI CONTESTO (SEDE, STAGIONE, RUOLO)</div>
+<div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px">
+<span style="display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 12px;background:#fff;border:1px solid rgba(11,26,58,.14);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif">Tutte le sedi<span style="width:12px;height:12px;background:rgba(11,26,58,.42);mask:url(icons/chevron-down-outline.svg) center/contain no-repeat"></span></span>
+<span style="display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 12px;background:#fff;border:1px solid rgba(11,26,58,.14);border-radius:12px 12px 4px 12px;font:600 12.5px/1 Poppins,sans-serif">Stagione 2026/2027<span style="width:12px;height:12px;background:rgba(11,26,58,.42);mask:url(icons/chevron-down-outline.svg) center/contain no-repeat"></span></span>
+<span style="display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 12px;background:rgba(11,26,58,.05);border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:700 9.5px/1 Poppins,sans-serif;letter-spacing:.1em;color:rgba(11,26,58,.55)">RUOLO<span style="font:600 12px/1 Poppins,sans-serif;letter-spacing:0;color:#0b1a3a">Segreteria</span></span>
+</div>
+<p style="margin:16px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Il contesto sta in alto a destra della pagina, non dentro i filtri: cambia ciò che la pagina significa, non ciò che mostra.</p>
+</div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:700 11px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">07</span>
+<h2 style="margin:0;font:800 24px/1.1 Poppins,sans-serif;letter-spacing:-.02em">Stati: vuoto, caricamento, errore, conferma</h2>
+</div>
+<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px">
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:24px;display:flex;flex-direction:column;align-items:flex-start;gap:12px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">VUOTO</div>
+<div style="width:44px;height:44px;background:rgba(37,99,235,.1);border:1px solid rgba(37,99,235,.25);border-radius:14px 14px 5px 14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.8);display:flex;align-items:center;justify-content:center"><span style="width:20px;height:20px;background:#1e40af;mask:url(icons/server-outline.svg) center/contain no-repeat"></span></div>
+<div style="font:700 15px/1.3 Poppins,sans-serif">Nessun movimento nel periodo</div>
+<p style="margin:0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Registra il primo movimento oppure allarga l'intervallo di date.</p>
+<button style="height:38px;padding:0 14px;background:linear-gradient(135deg,#3b82f6,#2563eb 48%,#3533cd);border:1px solid rgba(255,255,255,.28);border-radius:12px 12px 4px 12px;box-shadow:0 12px 24px -14px rgba(37,99,235,.8),inset 0 1px 0 rgba(255,255,255,.35);font:600 12.5px/1 Poppins,sans-serif;color:#fff;cursor:pointer">Registra movimento</button>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:24px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">CARICAMENTO · SCHELETRO, NON GIRANDOLA</div>
+<div style="margin-top:16px;display:flex;flex-direction:column;gap:10px">
+<div style="display:flex;align-items:center;gap:14px"><span style="width:34px;height:34px;background:rgba(11,26,58,.07);border-radius:12px 12px 4px 12px"></span><span style="flex:1;height:11px;background:rgba(11,26,58,.07);border-radius:999px"></span><span style="width:90px;height:11px;background:rgba(11,26,58,.07);border-radius:999px"></span></div>
+<div style="display:flex;align-items:center;gap:14px"><span style="width:34px;height:34px;background:rgba(11,26,58,.07);border-radius:12px 12px 4px 12px"></span><span style="flex:1;height:11px;background:rgba(11,26,58,.07);border-radius:999px"></span><span style="width:70px;height:11px;background:rgba(11,26,58,.07);border-radius:999px"></span></div>
+<div style="display:flex;align-items:center;gap:14px"><span style="width:34px;height:34px;background:rgba(11,26,58,.07);border-radius:12px 12px 4px 12px"></span><span style="flex:1;height:11px;background:rgba(11,26,58,.07);border-radius:999px"></span><span style="width:104px;height:11px;background:rgba(11,26,58,.07);border-radius:999px"></span></div>
+</div>
+<p style="margin:16px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Lo scheletro ha la forma della tabella che arriverà: stessa altezza di riga, stesse colonne. Sopra i 3 secondi compare la barra indeterminata, non un testo che si scusa.</p>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:24px;display:flex;flex-direction:column;gap:14px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">AVVISI IN PAGINA</div>
+<div style="display:flex;align-items:flex-start;gap:11px;padding:14px 16px;background:rgba(185,28,28,.08);border:1px solid rgba(185,28,28,.3);border-radius:14px 14px 5px 14px">
+<span style="width:17px;height:17px;flex:none;margin-top:1px;background:#b91c1c;mask:url(icons/close-circle-outline.svg) center/contain no-repeat"></span>
+<div><div style="font:600 13px/1.35 Poppins,sans-serif;color:#0b1a3a">Tre atleti non possono essere convocati</div><div style="margin-top:4px;font:400 12.5px/1.5 Poppins,sans-serif;color:rgba(11,26,58,.72)">Certificato medico scaduto o mancante. La convocazione resta aperta, i nomi sono esclusi.</div></div>
+</div>
+<div style="display:flex;align-items:flex-start;gap:11px;padding:14px 16px;background:rgba(180,83,9,.08);border:1px solid rgba(180,83,9,.3);border-radius:14px 14px 5px 14px">
+<span style="width:17px;height:17px;flex:none;margin-top:1px;background:#b45309;mask:url(icons/help-circle-outline.svg) center/contain no-repeat"></span>
+<div><div style="font:600 13px/1.35 Poppins,sans-serif;color:#0b1a3a">Nessun conto finanziario configurato</div><div style="margin-top:4px;font:400 12.5px/1.5 Poppins,sans-serif;color:rgba(11,26,58,.72)">Senza un conto un movimento non può dire dove il denaro si è mosso.</div></div>
+</div>
+<div style="display:flex;align-items:center;gap:11px;padding:14px 16px;background:rgba(21,128,61,.08);border:1px solid rgba(21,128,61,.3);border-radius:14px 14px 5px 14px">
+<span style="width:17px;height:17px;flex:none;background:#15803d;mask:url(icons/checkmark-circle.svg) center/contain no-repeat"></span>
+<div style="font:600 13px/1.35 Poppins,sans-serif;color:#0b1a3a">Presenze salvate · 14/16</div>
+</div>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:24px">
+<div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">PANNELLO LATERALE · L'ALTERNATIVA ALLA MODALE</div>
+<div style="margin-top:16px;border:1px solid rgba(11,26,58,.1);border-radius:14px 14px 5px 14px;overflow:hidden">
+<div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid rgba(11,26,58,.08)">
+<div><div style="font:700 10px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">NUOVO MOVIMENTO</div><div style="margin-top:6px;font:700 15px/1.2 Poppins,sans-serif">Entrata</div></div>
+<span style="margin-left:auto;width:17px;height:17px;background:rgba(11,26,58,.5);mask:url(icons/close-circle.svg) center/contain no-repeat"></span>
+</div>
+<div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:center;height:42px;padding:0 13px;background:#f4f7fd;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:400 13px/1 Poppins,sans-serif;color:rgba(11,26,58,.42)">Causale</div>
+<div style="display:flex;gap:12px"><div style="flex:1;display:flex;align-items:center;height:42px;padding:0 13px;background:#f4f7fd;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:400 13px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.42)">gg/mm/aaaa</div><div style="flex:1;display:flex;align-items:center;height:42px;padding:0 13px;background:#f4f7fd;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:400 13px/1 Poppins,sans-serif;font-variant-numeric:tabular-nums;color:rgba(11,26,58,.42)">0,00 €</div></div>
+</div>
+<div style="display:flex;gap:10px;padding:14px 16px;border-top:1px solid rgba(11,26,58,.08);background:#f4f7fd">
+<button style="flex:1;height:40px;background:linear-gradient(135deg,#3b82f6,#2563eb 48%,#3533cd);border:1px solid rgba(255,255,255,.28);border-radius:12px 12px 4px 12px;box-shadow:0 12px 24px -14px rgba(37,99,235,.8),inset 0 1px 0 rgba(255,255,255,.35);font:600 13px/1 Poppins,sans-serif;color:#fff;cursor:pointer">Registra</button>
+<button style="height:40px;padding:0 16px;background:#fff;border:1px solid rgba(11,26,58,.12);border-radius:12px 12px 4px 12px;font:600 13px/1 Poppins,sans-serif;cursor:pointer">Annulla</button>
+</div>
+</div>
+<p style="margin:16px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Creare e modificare avviene in un pannello da destra (480px), così l'elenco dietro resta leggibile. La modale centrale è solo per conferme distruttive.</p>
+</div>
+</div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:18px">
+<div style="display:flex;align-items:baseline;gap:12px">
+<span style="font:700 11px/1 Poppins,sans-serif;letter-spacing:.12em;color:rgba(11,26,58,.42)">08</span>
+<h2 style="margin:0;font:800 24px/1.1 Poppins,sans-serif;letter-spacing:-.02em">Regole non negoziabili</h2>
+</div>
+<div style="background:#fff;border:1px solid rgba(11,26,58,.07);border-radius:22px 22px 8px 22px;box-shadow:0 1px 2px rgba(11,26,58,.05),0 16px 32px -24px rgba(11,26,58,.4),inset 0 1px 0 rgba(255,255,255,.9);padding:24px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 32px">
+<div><div style="font:600 13.5px/1.4 Poppins,sans-serif">Un primario per schermata</div><p style="margin:6px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Il gradiente d'azione compare una volta sola per pagina, più la voce attiva di navigazione.</p></div>
+<div><div style="font:600 13.5px/1.4 Poppins,sans-serif">Lo stato è una parola</div><p style="margin:6px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Ogni colore ha la sua etichetta italiana accanto. Mai colore da solo, mai righe colorate.</p></div>
+<div><div style="font:600 13.5px/1.4 Poppins,sans-serif">Le cifre sono tabulari</div><p style="margin:6px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Importi, date, orari, percentuali, numeri di maglia: sempre in colonna, sempre 700/800.</p></div>
+<div><div style="font:600 13.5px/1.4 Poppins,sans-serif">Niente sfumature decorative</div><p style="margin:6px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Tre gradienti esistono: azione, gara, navy. Le card viola-rosa e le sei sfumature attuali escono.</p></div>
+<div><div style="font:600 13.5px/1.4 Poppins,sans-serif">Il vetro resta al mobile</div><p style="margin:6px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Sul web le superfici sono opache: su una tabella da quaranta righe il blur è rumore.</p></div>
+<div><div style="font:600 13.5px/1.4 Poppins,sans-serif">Italiano, senza emoji</div><p style="margin:6px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Etichette brevi, nessun punto esclamativo, «·» come separatore, «—» per il dato assente.</p></div>
+<div><div style="font:600 13.5px/1.4 Poppins,sans-serif">Contrasto 4.5:1</div><p style="margin:6px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Testo mai sotto il 42% di inchiostro; le pillole piene hanno etichetta bianca su fondo 700.</p></div>
+<div><div style="font:600 13.5px/1.4 Poppins,sans-serif">L'angolo tagliato su tutto</div><p style="margin:6px 0 0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.62)">Pannelli, campi, bottoni, chip, tessere. L'unica eccezione sono le pillole di stato e gli avatar.</p></div>
+</div>
+<p style="margin:0;font:400 12.5px/1.6 Poppins,sans-serif;color:rgba(11,26,58,.55)">Prossimo passo: la panoramica delle schermate principali su questo sistema, poi una pagina per volta con tutti i suoi componenti — Atleti, Scheda atleta, Prima nota, Categorie, Calendario, Segreteria, Report.</p>
+</section>
+
+</div>
+</x-dc>
+</body>
+</html>
