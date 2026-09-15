@@ -251,12 +251,24 @@ da moduli applicativi e vanno trattati come parte del contratto:
 | `categories` | `compatibleCategoryIds: string[]` | categorie in cui gli atleti di questa categoria possono essere utilizzati. Esplicito, orientato, **non transitivo** ([ADR-0030](18-decision-log.md)). Letto da `src/lib/category-compatibility.ts`. |
 | `jersey_groups` | `includeCompatibleCategories: boolean` | se il gruppo numerazione accoglie anche gli atleti eleggibili per compatibilita. Default `false`. |
 | `club_sites` | `id`, `name`, `city`, `active` | sedi operative del club. Con meno di due sedi attive il club **non** e multi-sede e l'interfaccia non mostra il concetto ([ADR-0038](18-decision-log.md)). Letto da `src/lib/club-sites.ts`. |
-| `category_groups` | `categoryId`, `siteId`, `structureId?` | gruppo operativo: la coppia (categoria, sede). Non duplica la categoria, la colloca. Una categoria senza gruppi ne riceve uno **implicito** in lettura. |
+| `category_groups` | `categoryId`, `siteId`, `structureId?` | gruppo operativo: la coppia (categoria, sede). Non duplica la categoria, la colloca. Una categoria senza gruppi ne riceve uno **implicito** in lettura. Il JSON porta `siteId` e **non** `siteName`: chi lo mostra passa da `buildCategoryGroups` (o da `buildCategoryDisplayIndex` con `sites`), mai dal JSON grezzo ([ADR-0185](18-decision-log.md#adr-0185--categoria-sede-gruppo-e-appartenenza-sono-quattro-identita-letichetta-non-e-nessuna-delle-quattro-e-si-scrive-in-un-punto-solo-per-la-web-corrente-e-per-il-redesign-v2)). |
 | `document_templates` | `id: "attestazione-pagamento-frequenza"` | **identificativo riservato**, non un tipo speciale: e il modello «Attestazione di pagamento e frequenza» (`src/lib/documents/attestation-template.ts`). Il risolutore dei segnaposto non lo conosce e non lo tratta diversamente da un altro modello — l'id serve solo a `/modulistica` per sapere se il club ce l'ha gia e smettere di proporlo. Nessuna migrazione lo scrive: lo semina il pulsante, club per club ([ADR-0079](18-decision-log.md#adr-0079--il-risolutore-dei-segnaposto-e-lunica-capability-nuova-della-wave-1-e-accetta-quattro-vincoli-per-restarlo)). |
 
 L'eleggibilita per compatibilita **non e persistita**: si calcola a ogni
 lettura. Le appartenenze reali restano in `athlete_category_memberships`, che
 resta l'unica sorgente di «questo atleta e in questa categoria».
+
+**Righe storiche con il nome al posto dell'identificativo.** Un difetto gia
+corretto (N1, D-AUD-39) ha scritto righe con `category_id = "Pulcini - S.
+Cosma"` accanto alla riga vera dello stesso atleta, e righe identificate che
+portano ancora il nome precedente a una rinomina in `category_name`. Il
+lettore le riconosce: il nome stantio della riga identificata e un **alias**
+della categoria, e la riga gemella si fonde sulla vera anche con il catalogo in
+mano; un riferimento che il catalogo non conosce **non** e un'appartenenza
+secondaria ed esce da `collectDanglingAthleteCategoryReferences`
+([ADR-0185](18-decision-log.md#adr-0185--categoria-sede-gruppo-e-appartenenza-sono-quattro-identita-letichetta-non-e-nessuna-delle-quattro-e-si-scrive-in-un-punto-solo-per-la-web-corrente-e-per-il-redesign-v2)).
+`scripts/censimento-appartenenze-legacy.mjs` le conta e le classifica in sola
+lettura; la bonifica e una scrittura di massa e richiede autorizzazione.
 
 I riferimenti dentro `compatibleCategoryIds` possono essere id o nomi:
 `buildCategoryCompatibilityIndex` li risolve senza distinguere maiuscole,

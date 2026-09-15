@@ -1262,6 +1262,40 @@ non spingono la pagina.
 
 ---
 
+## Come si scrive una categoria (2026-09-15, ADR-0185)
+
+Un punto solo, per la Web corrente e per il redesign V2:
+`buildCategoryDisplayIndex` (`src/lib/categories/display.ts`), montato da
+`CategoryLabel` o chiesto con `label()` dentro un elenco.
+
+| Situazione | Etichetta |
+|---|---|
+| nome univoco nel catalogo | `Serie C` |
+| due configurate con lo stesso nome, su sedi diverse | `Pulcini · Scauri`, `Pulcini · S. Cosma` |
+| omonime nella stessa sede, o una categoria su due sedi | nome nudo (la sede non distingue) |
+| la sede distingue ma il suo `siteId` non si sa leggere | `Pulcini · Sede non disponibile` (`UNKNOWN_SITE_LABEL`) |
+| riferimento che il catalogo non conosce | il nome com'e, senza sede |
+
+Il separatore e `CATEGORY_SITE_SEPARATOR` (` · `), lo stesso del gruppo
+operativo. **Mai** un identificativo tecnico (`site-…`, `category-…`,
+`group:…`) come testo, e mai `nome + " - " + sede` composto a mano: la sede
+si accosta dove si disegna, con l'indice, non nella schermata. L'indice si
+costruisce **una volta per schermata** con il catalogo, i gruppi costruiti da
+`buildCategoryGroups` (o il JSON grezzo **piu** `sites`) e vale per V1 e V2.
+
+Le **opzioni gruppo** (selettore dei gruppi di un allenamento, programma
+settimanale, intestazioni dell'elenco atleti) si scrivono con
+`describeCategoryGroupOptions` / `labelCategoryGroupOptions` (`club-sites.ts`):
+la sede quando il nome che si legge compare piu di una volta nell'insieme
+mostrato, `Sede non assegnata` se il gruppo non ne ha una. L'area famiglia e
+l'area atleta ricevono `label` gia scritta dal server
+(`serializeAthleteCategories`).
+
+I selettori — primaria e secondarie della scheda atleta, creazione, cambio in
+blocco — offrono `selectableCategoryOptions(catalogo)`: le voci nate solo da
+una scheda (`configured: false`) non si scelgono. La primaria corrente e
+disabilitata fra le secondarie, per identificativo.
+
 ## La pagina calendario, e perche le due pagine restano (2026-09-01, Wave 5 — 5F)
 
 `/calendar` elenca allenamenti e gare insieme, filtrabili per tipo, sede,
