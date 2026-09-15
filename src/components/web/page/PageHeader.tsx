@@ -42,7 +42,9 @@ export function PageHeader({
   return (
     <div className={cn("mb-[18px]", className)} data-test="page-header">
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-        <div className="min-w-0 flex-1">
+        {/* La descrizione non si comprime in una colonna stretta: sotto i 420px di
+            spazio, controlli e azioni vanno a capo. */}
+        <div className="min-w-0 flex-1 basis-[420px]">
           {eyebrow ? (
             <Eyebrow tone={onSky ? "white" : "ink"} className="mb-2">
               {eyebrow}
