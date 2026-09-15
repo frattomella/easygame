@@ -1261,7 +1261,7 @@ export default function MatchesPage() {
                   title: "Nessuna categoria o atleta registrato",
                   description: "Aggiungi categorie e atleti per vedere la rosa convocabile.",
                 }}
-                noun={{ singular: "atleta", plural: "atleti" }}
+                noun={{ singular: "atleta", plural: "atleti", gender: "m" }}
                 hideFooter={rosterRows.length <= 25}
               />
             </CollapsedSection>

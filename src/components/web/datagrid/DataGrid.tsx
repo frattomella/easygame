@@ -39,6 +39,7 @@ import {
 import { ConfirmDialog } from "@/components/web/overlays/Modal";
 import { EmptyStateCard } from "@/components/web/page/Cards";
 import { formatInteger } from "@/lib/web/format";
+import { agree, allOf, noneOf, nounGender, theOnlyOne, type GridNoun } from "@/lib/web/nouns";
 import type { ColumnDef, DataGridProps, Density, FilterDef, FilterValue, ViewDef } from "@/components/web/datagrid/types";
 import { ALL_VIEW_ID, PAGE_SIZES, useGridState, type GridStateApi } from "@/components/web/datagrid/useGridState";
 
@@ -323,7 +324,7 @@ function ViewsBar<Row>({
   api: GridStateApi<Row>;
   search?: DataGridProps<Row>["search"];
   searchRef: React.RefObject<HTMLInputElement>;
-  noun: { singular: string; plural: string };
+  noun: GridNoun;
   unfilteredTotal: number;
 }) {
   const [saveOpen, setSaveOpen] = React.useState(false);
@@ -537,7 +538,7 @@ function Toolbar<Row>({
   filters: FilterDef<Row>[];
   columns: ColumnDef<Row>[];
   exportConfig?: DataGridProps<Row>["export"];
-  noun: { singular: string; plural: string };
+  noun: GridNoun;
   groupBy?: DataGridProps<Row>["groupBy"];
   state: string;
 }) {
@@ -722,7 +723,7 @@ function Toolbar<Row>({
               ) : null}
               <MenuSeparator />
               <MenuLabel className="normal-case tracking-normal">
-                Esporta le {formatInteger(api.filteredRows.length)} {api.filteredRows.length === 1 ? noun.singular : noun.plural} filtrate, {api.visibleColumnDefs.length} colonne
+                Esporta {nounGender(noun) === "m" ? "i" : "le"} {formatInteger(api.filteredRows.length)} {api.filteredRows.length === 1 ? noun.singular : noun.plural} {agree(noun, api.filteredRows.length, "filtrat")}, {api.visibleColumnDefs.length} colonne
               </MenuLabel>
             </MenuContent>
           </Menu>
@@ -882,7 +883,7 @@ function BulkBar<Row>({
 }: {
   api: GridStateApi<Row>;
   actions: NonNullable<DataGridProps<Row>["bulkActions"]>;
-  noun: { singular: string; plural: string };
+  noun: GridNoun;
   total: number;
 }) {
   const count = api.selection.size;
@@ -901,7 +902,7 @@ function BulkBar<Row>({
       </span>
       {!api.selectAllBeyondPage && count < total ? (
         <button type="button" onClick={api.selectAllFiltered} className="text-[12px] font-semibold text-egw-blue-700 underline">
-          seleziona {total === 1 ? `l'unica ${noun.singular}` : `tutti i ${formatInteger(total)}`}
+          seleziona {total === 1 ? theOnlyOne(noun) : allOf(noun, formatInteger(total))}
         </button>
       ) : null}
       {warnWide ? <span className="text-[11.5px] font-medium text-egw-amber-ink">Stai per agire su {formatInteger(count)} record.</span> : null}
@@ -1138,7 +1139,7 @@ function SkeletonRows<Row>({ template, rowHeight, columns, selectable, hasAction
 }
 
 /* ── Footer ──────────────────────────────────────────────────────────────── */
-function Footer<Row>({ api, total, serverTotal, start, end, noun }: { api: GridStateApi<Row>; total: number; serverTotal?: number; start: number; end: number; noun: { singular: string; plural: string } }) {
+function Footer<Row>({ api, total, serverTotal, start, end, noun }: { api: GridStateApi<Row>; total: number; serverTotal?: number; start: number; end: number; noun: GridNoun }) {
   const pages = api.pageCount;
   const current = api.page;
   const numbers: Array<number | "…"> = [];
@@ -1155,7 +1156,7 @@ function Footer<Row>({ api, total, serverTotal, start, end, noun }: { api: GridS
     <div className="flex min-h-[44px] flex-wrap items-center gap-3 border-t border-egw-hairline bg-egw-page-100 px-4 py-1.5 text-[12px] text-egw-ink-62">
       <span>
         {total === 0 ? (
-          <>Nessuna {noun.singular}</>
+          <>{noneOf(noun)}</>
         ) : (
           <>
             {noun.plural.charAt(0).toUpperCase() + noun.plural.slice(1)} <strong className="egw-num text-egw-ink">{start}–{end}</strong> di{" "}

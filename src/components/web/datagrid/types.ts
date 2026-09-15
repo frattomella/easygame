@@ -1,4 +1,5 @@
 import type * as React from "react";
+import type { GridNoun } from "@/lib/web/nouns";
 
 /**
  * Il contratto del DataGrid (guideline 07). Un modulo **configura** questa
@@ -159,8 +160,8 @@ export interface DataGridProps<Row> {
     /** `Importa…` in fondo al menu. */
     onImport?: () => void;
   };
-  /** Il nome della cosa, per «Righe 1–25 di 184» e «seleziona tutti i 184». */
-  noun?: { singular: string; plural: string };
+  /** Il nome della cosa, per «Righe 1–25 di 184» e «seleziona tutti i 184»; `gender` quando la desinenza inganna. */
+  noun?: GridNoun;
   /** Selezione controllata dall'esterno. */
   selectedIds?: ReadonlySet<string>;
   onSelectionChange?: (ids: Set<string>) => void;

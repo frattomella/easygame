@@ -2201,7 +2201,7 @@ export default function AthletesPage() {
                     kinds: ["csv", "pdf"],
                     onImport: () => setShowImportAthletesModal(true),
                   }}
-                  noun={{ singular: "atleta", plural: "atleti" }}
+                  noun={{ singular: "atleta", plural: "atleti", gender: "m" }}
                   selectedIds={selectedRowIds}
                   onSelectionChange={setSelectedRowIds}
                   banner={archiveBand}
