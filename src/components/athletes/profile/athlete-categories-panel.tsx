@@ -11,8 +11,9 @@ import {
   type CategoryGroupLike,
 } from "@/lib/categories/display";
 import { CategoryLabel } from "@/components/categories/category-label";
+import { selectableCategoryOptions } from "@/lib/category-utils";
 
-type CategoryOption = { id: string; name: string };
+type CategoryOption = { id: string; name: string; configured?: boolean | null };
 
 /**
  * Le categorie di un atleta nella finestra di modifica: primaria, sede della
@@ -43,7 +44,7 @@ export function AthleteCategoriesPanel({
   /**
    * I gruppi operativi del club (N3).
    *
-   * Servono a scrivere «Under 15 (Formia)» dove il nome da solo ne nomina due:
+   * Servono a scrivere «Under 15 · Formia» dove il nome da solo ne nomina due:
    * una categoria non porta una sede, la coppia (categoria, sede) e il gruppo
    * (ADR-0038). Senza, la tendina della **primaria** offre due voci identiche
    * proprio dove sceglierne una sbagliata sposta un ragazzo di squadra.
@@ -58,8 +59,20 @@ export function AthleteCategoriesPanel({
   onToggleSecondaryCategory: (categoryId: string, enabled: boolean) => void;
 }) {
   const display = React.useMemo(
-    () => buildCategoryDisplayIndex({ categories, groups }),
-    [categories, groups],
+    () => buildCategoryDisplayIndex({ categories, groups, sites }),
+    [categories, groups, sites],
+  );
+
+  /*
+    **Si sceglie solo fra cio che il club ha configurato** (ADR-0185).
+
+    Il catalogo che arriva porta anche le voci nate solo perche una scheda le
+    cita (`configured: false`): «Pulcini - S. Cosma» scritto dove serviva un
+    identificativo. Offrirle qui era la terza Pulcini che il club non ha.
+  */
+  const options = React.useMemo(
+    () => selectableCategoryOptions(categories),
+    [categories],
   );
 
   return (
@@ -73,7 +86,24 @@ export function AthleteCategoriesPanel({
           className="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
         >
           <option value="">Seleziona categoria primaria</option>
-          {categories.map((category) => (
+          {/*
+            La primaria che il club non ha piu fra le configurate — una riga
+            storica, o una categoria cancellata — si **vede** e non si
+            risceglie: senza questa voce la tendina mostrava il segnaposto
+            come se l'atleta non avesse nessuna categoria.
+          */}
+          {primaryCategoryId &&
+          !options.some((category) => category.id === primaryCategoryId) ? (
+            <option value={primaryCategoryId} disabled>
+              {display.label(
+                memberships.find(
+                  (membership) => membership.categoryId === primaryCategoryId,
+                ) ?? primaryCategoryId,
+              )}{" "}
+              (non configurata)
+            </option>
+          ) : null}
+          {options.map((category) => (
             <option
               key={`athlete-primary-category-${category.id}`}
               value={category.id}
@@ -103,9 +133,9 @@ export function AthleteCategoriesPanel({
 
       <div className="space-y-2">
         <Label>Categorie secondarie</Label>
-        {categories.length > 0 ? (
+        {options.length > 0 ? (
           <div className="grid gap-2 sm:grid-cols-2">
-            {categories.map((category) => {
+            {options.map((category) => {
               const isPrimary = primaryCategoryId === category.id;
               const isSelected = memberships.some(
                 (membership) =>

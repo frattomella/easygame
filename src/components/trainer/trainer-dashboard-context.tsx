@@ -48,6 +48,13 @@ type TrainerDashboardContextValue = {
   user: any | null;
   trainerProfile: any | null;
   categories: any[];
+  /**
+   * Come si scrive una categoria in tutta l'area allenatore (ADR-0185): lo
+   * stesso indice con cui bacheca, gare e allenamenti compongono
+   * `displayCategory`, esposto perche la scheda atleta dell'allenatore lo
+   * chieda invece di scrivere il nome nudo accanto a «Primaria».
+   */
+  categoryDisplay: CategoryDisplayIndex;
   assignedCategories: any[];
   assignedAthletes: any[];
   visibleTrainings: any[];
@@ -520,6 +527,9 @@ export function TrainerDashboardProvider({
   const [loading, setLoading] = useState(true);
   const [trainerProfile, setTrainerProfile] = useState<any | null>(null);
   const [categories, setCategories] = useState<any[]>([]);
+  const [categoryDisplay, setCategoryDisplay] = useState<CategoryDisplayIndex>(
+    () => buildCategoryDisplayIndex(),
+  );
   const [assignedAthletes, setAssignedAthletes] = useState<any[]>([]);
   const [visibleTrainings, setVisibleTrainings] = useState<any[]>([]);
   const [visibleMatches, setVisibleMatches] = useState<any[]>([]);
@@ -887,6 +897,7 @@ export function TrainerDashboardProvider({
           : [];
 
       setCategories(mergedCategories);
+      setCategoryDisplay(displayIndex);
       setTrainers(normalizedTrainerPool);
       setTrainerProfile(nextTrainerProfile);
       setAssignedAthletes(nextAssignedAthletes);
@@ -956,6 +967,7 @@ export function TrainerDashboardProvider({
       user,
       trainerProfile,
       categories,
+      categoryDisplay,
       assignedCategories,
       assignedAthletes,
       visibleTrainings,
@@ -979,6 +991,7 @@ export function TrainerDashboardProvider({
       assignedAthletes,
       assignedCategories,
       categories,
+      categoryDisplay,
       clinical,
       ownDocuments,
       loadDashboardData,

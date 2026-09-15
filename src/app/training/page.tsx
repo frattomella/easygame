@@ -30,7 +30,9 @@ import {
 } from "@/lib/athlete-category-memberships";
 import {
   athleteMatchesAnyCategory,
+  selectableCategoryOptions,
 } from "@/lib/category-utils";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import {
   compareAthletesByLastName,
   getAthleteDisplayName,
@@ -175,6 +177,8 @@ type TrainingPersonOption = {
 
 type TrainingCategoryOption = TrainingPersonOption & {
   color?: string;
+  /** Falso solo per una voce nata da una scheda e non configurata (ADR-0185). */
+  configured?: boolean | null;
 };
 
 type AttendanceSheetAthlete = AttendanceDrawerAthlete & {
@@ -1768,12 +1772,17 @@ const versioneSalvata = (risposta: any): number | null => {
     () => buildTrainingColumns({ siteNameOf: siteNameOfTraining }),
     [siteNameOfTraining],
   );
+  /* Come si scrive una categoria nel filtro (ADR-0185): la sede solo dove serve, niente voci storiche. */
+  const categoryDisplay = React.useMemo(
+    () => buildCategoryDisplayIndex({ categories, groups: categoryGroups }),
+    [categories, categoryGroups],
+  );
   const gridFilters = React.useMemo(
     () =>
       buildTrainingFilters({
-        categoryOptions: categories.map((category) => ({
+        categoryOptions: selectableCategoryOptions(categories).map((category) => ({
           value: String(category.id),
-          label: String(category.name),
+          label: categoryDisplay.label(category.id),
         })),
         trainerOptions: trainers.map((trainer) => ({
           value: String(trainer.id),
@@ -1784,7 +1793,7 @@ const versioneSalvata = (risposta: any): number | null => {
           : [],
         siteIdOf: siteIdOfTraining,
       }),
-    [categories, siteIdOfTraining, sites, trainers],
+    [categories, categoryDisplay, siteIdOfTraining, sites, trainers],
   );
   const gridRowActions = React.useMemo(
     () =>

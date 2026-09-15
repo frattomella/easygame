@@ -12,7 +12,14 @@ import {
   normalizeActiveClubSeason,
   normalizeClubSeasons,
 } from "@/lib/club-seasons";
-import { normalizeClubSites } from "@/lib/club-sites";
+import {
+  buildCategoryGroupLabel,
+  buildCategoryGroups,
+  buildSiteIndex,
+  normalizeClubSites,
+} from "@/lib/club-sites";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
+import { normalizeAthleteCategoryMemberships } from "@/lib/athlete-category-memberships";
 import { reportServerError } from "@/lib/server/observability";
 import {
   findGuardianLinks,
@@ -803,27 +810,6 @@ export const getFamilyDocumentAreas = async (
 };
 
 /**
- * **I nomi delle sedi di un club, indicizzati per identificativo.**
- *
- * PP-02 §B. Si costruisce dalla riga del club che l'atleta gia porta con se
- * (`include: { organization: true }`), e non da una lettura in piu: un
- * genitore con figli in due club ne ha due diversi, e prendere «le sedi del
- * club attivo» avrebbe messo il nome della sede sbagliata accanto alla
- * categoria del secondo figlio.
- */
-const buildSiteNameIndex = (club: any) => {
-  const index = new Map<string, string>();
-
-  normalizeClubSites(club?.club_sites).forEach((site) => {
-    const id = String(site?.id || "").trim().toLowerCase();
-    const name = String(site?.name || "").trim();
-    if (id && name) index.set(id, name);
-  });
-
-  return index;
-};
-
-/**
  * **Le appartenenze di un atleta, con la sede scritta per esteso.**
  *
  * Sta fuori da `serializeAthleteCard` perche la schermata di scelta del figlio
@@ -835,41 +821,70 @@ const serializeAthleteCategories = (
   athlete: any,
   categoryOptions: NormalizedCategoryOption[] = [],
 ) => {
-  const siteNames = buildSiteNameIndex(athlete?.organization);
+  const club = athlete?.organization;
+  /*
+    **Le appartenenze si leggono come identita, e si scrivono con l'indice**
+    (ADR-0185). Qui si iteravano le righe grezze: la riga gemella storica con
+    il solo nome usciva come seconda squadra, il nome stantio della colonna
+    vinceva sul catalogo e, dove `category_name` e nullo, il ripiego era lo
+    UUID. La famiglia leggeva «Pulcini - S. Cosma (S. Cosma) · Pulcini - S.
+    Cosma». Adesso: lo stesso normalizzatore della scheda, lo stesso catalogo,
+    la stessa etichetta.
+  */
+  const catalogo =
+    categoryOptions.length > 0
+      ? categoryOptions
+      : buildClubCategoryOptions({
+          clubCategories: club?.categories,
+          athletes: [athlete],
+        });
+  const sedi = normalizeClubSites(club?.club_sites);
+  const siteIndex = buildSiteIndex(sedi);
+  const display = buildCategoryDisplayIndex({
+    categories: catalogo,
+    groups: buildCategoryGroups({
+      categories: catalogo,
+      sites: sedi,
+      groups: club?.category_groups,
+    }),
+    sites: sedi,
+  });
 
-  return asArray(athlete?.category_memberships).map((membership: any) => ({
-    id: membership.category_id,
-    /*
-      **Il nome della squadra, e perche non basta la colonna denormalizzata**
-      (PP-04).
+  return normalizeAthleteCategoryMemberships(athlete, catalogo).map(
+    (membership) => {
+      const descritta = display.describe({
+        categoryId: membership.categoryId,
+        categoryName: membership.categoryName,
+      });
+      /*
+        PP-02 §B. La sede resta `null` quando la riga non ne dichiara una —
+        cioe su ogni club mono-sede, dove nominarla sarebbe rumore — e non e
+        mai un identificativo.
+      */
+      const siteName =
+        membership.siteId && siteIndex.has(membership.siteId)
+          ? siteIndex.getSiteName(membership.siteId)
+          : null;
 
-      `athlete_category_memberships.category_name` e nullable, e lo e davvero:
-      la popola `season-memberships.ts` sul rinnovo di stagione, e non la popola
-      nessun altro percorso che crei un'appartenenza. Il ripiego era
-      `membership.category_id`, cioe uno UUID — e la schermata «Le mie squadre»
-      dell'area atleta stampava, sotto il titolo, due identificativi.
-
-      Il catalogo del club e l'autorita, e `resolveCategoryLabel` la interroga
-      gia per gli eventi. L'identificativo resta l'ultimo ripiego: meglio uno
-      UUID che «Senza categoria» su una squadra che esiste.
-    */
-    name:
-      firstText(membership.category_name) ||
-      resolveCategoryLabel(membership.category_id, categoryOptions) ||
-      membership.category_id,
-    siteId: membership.site_id || null,
-    /*
-      PP-02 §B. La sede era un identificativo, e un identificativo non e
-      un'informazione: due categorie su due sedi diverse si leggevano come due
-      righe con accanto due UUID. Il nome si risolve dove il club e in mano, e
-      resta `null` quando la riga non dichiara una sede — cioe su ogni club
-      mono-sede, dove nominarla sarebbe rumore.
-    */
-    siteName: membership.site_id
-      ? siteNames.get(String(membership.site_id).trim().toLowerCase()) || null
-      : null,
-    isPrimary: Boolean(membership.is_primary),
-  }));
+      return {
+        id: membership.categoryId,
+        name: descritta.name,
+        siteId: membership.siteId || null,
+        siteName,
+        /*
+          L'etichetta da leggere: la sede dove il nome ne nomina due, o dove
+          l'appartenenza la dichiara — per la famiglia «dove si allena» e
+          informazione, non rumore.
+        */
+        label: descritta.site
+          ? descritta.label
+          : siteName
+            ? buildCategoryGroupLabel(descritta.name, siteName)
+            : descritta.name,
+        isPrimary: membership.isPrimary,
+      };
+    },
+  );
 };
 
 const serializeAthleteCard = (

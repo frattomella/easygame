@@ -1681,7 +1681,7 @@ export const CAMPI_AREA_ATLETA = {
     "participationStatus",
   ],
   /** Sorgente: `serializeAthleteCard`, campo `categories`. */
-  categoria: ["id", "name", "siteId", "isPrimary"],
+  categoria: ["id", "name", "siteId", "label", "isPrimary"],
   /** Sorgente: le righe di `club_event_participants`. */
   presenza: ["event_id", "status", "notes", "updated_at"],
   /**

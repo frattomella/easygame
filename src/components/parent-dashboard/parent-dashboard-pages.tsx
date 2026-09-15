@@ -688,10 +688,10 @@ export function ParentDashboardHome() {
               ? data.athlete.categories
                   .map((categoria: any) =>
                     categoria.isPrimary
-                      ? `${categoria.name} (principale)`
-                      : categoria.name,
+                      ? `${categoria.label || categoria.name} (principale)`
+                      : categoria.label || categoria.name,
                   )
-                  .join(" · ")
+                  .join(", ")
               : data.athlete.category_name || "Categoria da assegnare"
           }
         />
@@ -892,7 +892,14 @@ export function ParentAthletePage() {
                 { label: "Data di nascita", value: formatDate(athlete.birth_date) },
                 { label: "Eta", value: getAge(athlete.birth_date) },
                 { label: "Luogo di nascita", value: athlete.birth_place },
-                { label: "Categoria", value: athlete.category_name || "Da assegnare" },
+                {
+                  label: "Categoria",
+                  value:
+                    athlete.categories?.find((categoria) => categoria.isPrimary)?.label ||
+                    athlete.categories?.[0]?.label ||
+                    athlete.category_name ||
+                    "Da assegnare",
+                },
                 { label: "Numero maglia", value: athlete.jersey_number },
                 { label: "Codice fiscale", value: athlete.fiscal_code },
                 { label: "Telefono atleta", value: athlete.phone },

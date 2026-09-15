@@ -50,6 +50,7 @@ export default function TrainerCategoriesDashboardPage() {
       contesto, non veniva chiesto.
     */
     categories,
+    categoryDisplay,
     permissions,
     trainerProfile,
     visibleMatches,
@@ -144,7 +145,11 @@ export default function TrainerCategoriesDashboardPage() {
             return (
               <SurfacePanel
                 key={category.id || category.name}
-                title={category.name || category.id}
+                title={
+                  category.id
+                    ? categoryDisplay.label({ categoryId: category.id, categoryName: category.name })
+                    : category.name || "Categoria"
+                }
                 description={`${athletes.length} atleti nel tuo perimetro`}
                 icon={Users}
                 action={

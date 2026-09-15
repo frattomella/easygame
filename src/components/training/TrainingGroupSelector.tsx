@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Label } from "@/components/ui/label";
-import type { CategoryGroup } from "@/lib/club-sites";
+import { describeCategoryGroupOptions, type CategoryGroup } from "@/lib/club-sites";
 
 /**
  * Con chi si allena questo allenamento (ADR-0055).
@@ -55,14 +55,8 @@ export function TrainingGroupSelector({
     la sede a doverlo distinguere quando due gruppi — dello stesso
     identificativo o di due omonimi — scrivono la stessa scritta.
   */
-  const groupsPerCategoryName = React.useMemo(() => {
-    const counts = new Map<string, number>();
-    groups.forEach((group) => {
-      const key = group.categoryName.trim().toLowerCase();
-      counts.set(key, (counts.get(key) || 0) + 1);
-    });
-    return counts;
-  }, [groups]);
+  /* La regola vive in `describeCategoryGroupOptions` (ADR-0185): qui si legge. */
+  const descrivi = React.useMemo(() => describeCategoryGroupOptions(groups), [groups]);
 
   return (
     <div className="space-y-2">
@@ -70,9 +64,7 @@ export function TrainingGroupSelector({
       <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
         {groups.length ? (
           groups.map((group) => {
-            const showSite =
-              (groupsPerCategoryName.get(group.categoryName.trim().toLowerCase()) ||
-                0) > 1 && Boolean(group.siteName);
+            const descritta = descrivi(group);
 
             return (
               <label
@@ -88,10 +80,10 @@ export function TrainingGroupSelector({
                   onChange={(event) => onToggle(group, event.target.checked)}
                 />
                 <span className="min-w-0">
-                  <span className="block truncate">{group.categoryName}</span>
-                  {showSite ? (
+                  <span className="block truncate">{descritta.name}</span>
+                  {descritta.site ? (
                     <span className="block truncate text-xs text-muted-foreground">
-                      {group.siteName}
+                      {descritta.site}
                     </span>
                   ) : null}
                 </span>

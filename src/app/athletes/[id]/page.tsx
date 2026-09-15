@@ -59,7 +59,12 @@ import {
   DEFAULT_CLOTHING_SIZES,
   deriveClothingProfile,
 } from "@/lib/clothing-sizes";
-import { isMultiSiteClub, normalizeClubSites, type ClubSite } from "@/lib/club-sites";
+import {
+  buildCategoryGroups,
+  isMultiSiteClub,
+  normalizeClubSites,
+  type ClubSite,
+} from "@/lib/club-sites";
 import { AthleteRegistrationsPanel } from "@/components/athletes/profile/athlete-registrations-panel";
 import { AthleteRegistrationDialog } from "@/components/athletes/profile/athlete-registration-dialog";
 import {
@@ -274,7 +279,24 @@ export default function AthleteProfilePage() {
   const [athlete, setAthlete] = useState<any>(null);
   const [clubCategoryOptions, setClubCategoryOptions] = useState<any[]>([]);
   const [clubSites, setClubSites] = useState<ClubSite[]>([]);
-  const [clubCategoryGroups, setClubCategoryGroups] = useState<any[]>([]);
+  const [clubCategoryGroupsRaw, setClubCategoryGroupsRaw] = useState<any[]>([]);
+  /*
+    **I gruppi si leggono costruiti, non grezzi** (ADR-0185).
+
+    `clubs.category_groups` porta `siteId` e non il nome della sede; passato
+    com'era a `CategoryLabel` la scheda scriveva «Pulcini (site-1787776…)» a
+    ogni club con due Pulcini. `buildCategoryGroups` risolve la sede sul
+    catalogo e scarta le voci derivate: e la stessa lettura delle altre pagine.
+  */
+  const clubCategoryGroups = React.useMemo(
+    () =>
+      buildCategoryGroups({
+        categories: clubCategoryOptions,
+        sites: clubSites,
+        groups: clubCategoryGroupsRaw,
+      }),
+    [clubCategoryOptions, clubSites, clubCategoryGroupsRaw],
+  );
   const [athleteCategoryAnalytics, setAthleteCategoryAnalytics] =
     useState<AthleteCategoryAnalyticsResult>(EMPTY_ATHLETE_CATEGORY_ANALYTICS);
   const [editingSection, setEditingSection] = useState<string | null>(null);
@@ -851,7 +873,7 @@ export default function AthleteProfilePage() {
               due «Under 15», e sceglierne una sbagliata sposta un ragazzo di
               squadra senza che nessuno se ne accorga.
             */
-            setClubCategoryGroups(
+            setClubCategoryGroupsRaw(
               Array.isArray(categoryGroups) ? categoryGroups : [],
             );
             setClothingProducts(Array.isArray(products) ? products : []);
@@ -902,8 +924,32 @@ export default function AthleteProfilePage() {
     try {
       const { updateClubAthlete } = await import("@/lib/simplified-db");
 
+      /*
+        **Le appartenenze si mandano solo quando le si sta modificando**
+        (ADR-0185, revisione ostile H2). `editFormData` e una copia intera
+        della scheda, e `updateClubAthlete` cancella e riscrive le righe di
+        `athlete_category_memberships` ogni volta che riceve un elenco. Il
+        lettore lascia fuori i riferimenti pendenti — la riga con il solo
+        nome che non nomina nessuna categoria — quindi rimandare l'elenco dal
+        cassetto dei recapiti li avrebbe cancellati in silenzio: una bonifica
+        che nessuno ha autorizzato, innescata da un numero di telefono.
+      */
+      const {
+        categoryMemberships,
+        category_memberships,
+        memberships,
+        categories,
+        category,
+        category_id,
+        categoryName,
+        category_name,
+        ...fuoriDalleCategorie
+      } = editFormData;
+      const payload =
+        editingSection === "general" ? editFormData : fuoriDalleCategorie;
+
       const updatedAthlete = await updateClubAthlete(clubId, athleteId, {
-        ...editFormData,
+        ...payload,
         guardians,
         registrations,
         medicalVisits,
@@ -987,6 +1033,7 @@ export default function AthleteProfilePage() {
       categoryMemberships: editCategoryMemberships.map((membership) => ({
         category_id: membership.categoryId,
         category_name: membership.categoryName,
+        stored_category_name: membership.storedCategoryName,
         is_primary: membership.isPrimary,
         site_id: membership.isPrimary ? siteId : membership.siteId || "",
       })),
@@ -1004,6 +1051,7 @@ export default function AthleteProfilePage() {
       .map((membership) => ({
         category_id: membership.categoryId,
         category_name: membership.categoryName,
+        stored_category_name: membership.storedCategoryName,
         is_primary: false,
         site_id: membership.siteId || "",
       }));
@@ -1047,6 +1095,7 @@ export default function AthleteProfilePage() {
       .map((membership) => ({
         category_id: membership.categoryId,
         category_name: membership.categoryName,
+        stored_category_name: membership.storedCategoryName,
         is_primary: false,
         site_id: membership.siteId || "",
       }));
@@ -1055,6 +1104,8 @@ export default function AthleteProfilePage() {
       secondaryMemberships.push({
         category_id: category.id,
         category_name: category.name,
+        /* Una scelta nuova non ha un nome storico: la riga nasce con quello corrente. */
+        stored_category_name: category.name,
         is_primary: false,
         // Una categoria secondaria nasce senza sede: dichiararla per conto
         // dell'utente vorrebbe dire indovinare dove si allena.
@@ -1068,6 +1119,7 @@ export default function AthleteProfilePage() {
             {
               category_id: primaryMembership.categoryId,
               category_name: primaryMembership.categoryName,
+              stored_category_name: primaryMembership.storedCategoryName,
               is_primary: true,
               site_id: primaryMembership.siteId || "",
             },

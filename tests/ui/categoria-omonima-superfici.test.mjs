@@ -53,7 +53,7 @@ const SUPERFICI = [
     nome: "scheda atleta: selettore di primaria e secondarie",
     file: "src/components/athletes/profile/athlete-categories-panel.tsx",
     usa: /display\.label\(category\.id\)/,
-    gruppi: /buildCategoryDisplayIndex\(\{ categories, groups \}\)/,
+    gruppi: /buildCategoryDisplayIndex\(\{ categories, groups, sites \}\)/,
   },
   {
     nome: "scheda atleta: chip in testata",
@@ -102,6 +102,17 @@ test("la scheda atleta legge i gruppi del club e li passa ai pannelli", () => {
   /* Il cassetto di modifica riceve i gruppi come oggetto; le sezioni come prop. */
   assert.match(codice, /groups: clubCategoryGroups/);
   assert.match(codice, /categoryGroups=\{clubCategoryGroups\}/);
+  /*
+    **Costruiti, non grezzi** (ADR-0185): `clubs.category_groups` porta solo
+    `siteId`, e passato com'era la scheda scriveva «Pulcini (site-1787…)». La
+    pagina deve passare dai gruppi costruiti sul catalogo sedi, come le altre
+    schermate.
+  */
+  assert.match(
+    codice,
+    /buildCategoryGroups\(\{\s*categories: clubCategoryOptions,\s*sites: clubSites,\s*groups: clubCategoryGroupsRaw,/,
+    "la scheda atleta deve costruire i gruppi con buildCategoryGroups, non passare il JSON grezzo",
+  );
 });
 
 test("la bacheca dell'allenatore legge sedi e gruppi", () => {
@@ -170,12 +181,13 @@ test("nessuna superficie riscrive in casa la regola della sede", () => {
   }
 });
 
-test("il gruppo operativo conserva il proprio separatore", () => {
+test("gruppo operativo e disambiguazione si leggono con lo stesso separatore", () => {
   /*
-    `buildCategoryGroupLabel` scrive `Pulcini · Roma` e **non** cambia: li la
-    sede fa parte del nome della cosa, sempre, perche il gruppo *e* la coppia
-    (ADR-0038). Qui la sede e una disambiguazione, e per questo sta fra
-    parentesi. Le due non vanno unificate: dicono cose diverse.
+    `buildCategoryGroupLabel` scrive `Pulcini · Roma` perche il gruppo *e* la
+    coppia (ADR-0038). La disambiguazione per sede scrive «Pulcini · Scauri»
+    con **lo stesso** separatore (ADR-0185): cio che distingue le due non e la
+    punteggiatura ma *quando* la sede compare — sempre sul gruppo, solo dove il
+    nome ne nomina due sulla categoria. Un separatore solo, definito una volta.
   */
   const clubSites = leggi("src/lib/club-sites.ts");
 
@@ -184,11 +196,21 @@ test("il gruppo operativo conserva il proprio separatore", () => {
     /return site \? `\$\{category\}\$\{CATEGORY_GROUP_SEPARATOR\}\$\{site\}` : category;/,
     "il gruppo operativo continua a nominarsi con il separatore",
   );
+  assert.match(
+    clubSites,
+    /export const CATEGORY_GROUP_SEPARATOR = CATEGORY_SITE_SEPARATOR;/,
+    "il separatore del gruppo e quello del dominio, non una seconda costante",
+  );
 
   const display = leggi("src/lib/categories/display.ts");
   assert.match(
     display,
-    /label: site \? `\$\{name\} \(\$\{site\}\)` : name,/,
-    "la disambiguazione continua a stare fra parentesi",
+    /label: site \? `\$\{name\}\$\{CATEGORY_SITE_SEPARATOR\}\$\{site\}` : name,/,
+    "la disambiguazione usa il separatore del dominio",
+  );
+  assert.doesNotMatch(
+    display,
+    /\|\| siteId;/,
+    "un siteId non e mai un ripiego di etichetta",
   );
 });

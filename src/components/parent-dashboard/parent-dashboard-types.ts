@@ -80,6 +80,8 @@ export type ParentDashboardData = {
        * mono-sede e su ogni riga che non dichiara una sede.
        */
       siteName?: string | null;
+      /** L'etichetta canonica scritta dal server (ADR-0185): «Pulcini · Scauri». */
+      label?: string;
       isPrimary: boolean;
     }>;
     status?: string | null;

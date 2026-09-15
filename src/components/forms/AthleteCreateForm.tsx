@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import {
   findCategoryForBirthDate,
@@ -96,6 +96,13 @@ interface AthleteCreateFormProps {
     birthYearFrom?: number;
     birthYearTo?: number;
   }[];
+  /**
+   * Come si scrive una categoria (ADR-0185): la pagina la chiede all'indice
+   * canonico (`buildCategoryDisplayIndex`), che accosta la sede dove il nome
+   * ne nomina due. Senza, due «Pulcini» su due sedi erano due voci identiche
+   * nella tendina di chi sta iscrivendo un ragazzo. Assente, resta il nome.
+   */
+  categoryLabel?: (categoryId: string) => string;
   /**
    * Le federazioni configurate dal club (N2).
    *
@@ -266,6 +273,7 @@ export function AthleteCreateForm({
   showFooterActions = true,
   onDirtyChange,
   categories = [],
+  categoryLabel,
   federations = [],
 }: AthleteCreateFormProps) {
   const { showToast } = useToast();
@@ -463,15 +471,21 @@ export function AthleteCreateForm({
     onCancel();
   };
 
+  const etichetta = useCallback(
+    (category: { id: string; name: string }) =>
+      categoryLabel ? categoryLabel(category.id) : category.name,
+    [categoryLabel],
+  );
+
   const categoryOptions = useMemo(
     () => [
       { value: AUTO_CATEGORY, label: "Automatica per anno di nascita" },
       ...categories.map((category) => ({
         value: category.id,
-        label: `${category.name} - ${formatCategoryBirthYears(category)}`,
+        label: `${etichetta(category)} - ${formatCategoryBirthYears(category)}`,
       })),
     ],
-    [categories],
+    [categories, etichetta],
   );
 
   const federationOptions = useMemo(
@@ -577,7 +591,7 @@ export function AthleteCreateForm({
                         })
                       }
                     />
-                    <span className="egw-ellipsis">{category.name}</span>
+                    <span className="egw-ellipsis">{etichetta(category)}</span>
                   </label>
                 ))}
               </div>

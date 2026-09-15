@@ -60,7 +60,7 @@ export type AthleteAreaData = {
     seasonId: string | null;
     seasonLabel: string | null;
   };
-  categories: { id: string; name: string; isPrimary: boolean }[];
+  categories: { id: string; name: string; label?: string; isPrimary: boolean }[];
   health: {
     /** `valid` | `expiring` | `expired` | `undated` | `missing` (PP-02 §F). */
     status: string;

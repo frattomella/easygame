@@ -76,6 +76,7 @@ export default function TrainerTrainingsDashboardPage() {
     assignedAthletes,
     assignedCategories,
     categories,
+    categoryDisplay,
     loading: dashboardLoading,
     permissions,
     reload,
@@ -753,6 +754,7 @@ export default function TrainerTrainingsDashboardPage() {
           <TrainerWeeklySchedulePanel
             weeklySchedule={weeklySchedule}
             categories={categories}
+            categoryLabel={(reference) => categoryDisplay.label(reference)}
             assignedCategories={assignedCategories}
             trainers={trainers}
             locations={weeklyScheduleLocations}

@@ -65,6 +65,7 @@ export default function TrainerDashboardHomeV2Page() {
     assignedAthletes,
     assignedCategories,
     categories,
+    categoryDisplay,
     matchConvocationDeadlineDays,
     operationalAlerts,
     permissions,
@@ -640,7 +641,9 @@ export default function TrainerDashboardHomeV2Page() {
                       key={category?.id || category?.name}
                       className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50"
                     >
-                      {category?.name || category?.id}
+                      {category?.id
+                        ? categoryDisplay.label({ categoryId: category.id, categoryName: category.name })
+                        : category?.name || "Categoria"}
                     </Badge>
                   ))}
                 </div>

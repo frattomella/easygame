@@ -222,6 +222,7 @@ export default function TrainerAthleteProfilePage() {
     assignedAthletes,
     assignedCategories,
     categories,
+    categoryDisplay,
     clinical,
     permissions,
     visibleMatches,
@@ -319,11 +320,22 @@ export default function TrainerAthleteProfilePage() {
     getPrimaryAthleteCategoryMembership(athlete, categories) ||
     categoryMemberships[0] ||
     null;
+  /*
+    **La primaria si esclude per identificativo, non per nome** (ADR-0185).
+    Con due «Scoiattoli» su due sedi il confronto per nome nascondeva la
+    secondaria vera — l'altra sede — perche si chiama come la primaria.
+  */
   const secondaryCategories = categoryMemberships.filter(
     (membership) =>
       !membership.isPrimary &&
-      membership.categoryName !== primaryCategory?.categoryName,
+      membership.categoryId !== primaryCategory?.categoryId,
   );
+  /** L'etichetta canonica: «Pulcini · Scauri» dove il nome ne nomina due. */
+  const etichetta = (membership: { categoryId: string; categoryName: string }) =>
+    categoryDisplay.label({
+      categoryId: membership.categoryId,
+      categoryName: membership.categoryName,
+    });
   const categoryBadges =
     categoryMemberships.length > 0
       ? categoryMemberships
@@ -433,7 +445,7 @@ export default function TrainerAthleteProfilePage() {
                       : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-50"
                   }
                 >
-                  {membership.categoryName}{" "}
+                  {etichetta(membership)}{" "}
                   {membership.isPrimary ? "Primaria" : "Secondaria"}
                 </Badge>
               ))}
@@ -485,7 +497,7 @@ export default function TrainerAthleteProfilePage() {
                   <DetailField
                     label="Categoria primaria"
                     value={
-                      primaryCategory?.categoryName ||
+                      (primaryCategory ? etichetta(primaryCategory) : "") ||
                       categoryLabel ||
                       "Senza categoria"
                     }
@@ -501,7 +513,7 @@ export default function TrainerAthleteProfilePage() {
                               key={membership.categoryId}
                               className="border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-50"
                             >
-                              {membership.categoryName}
+                              {etichetta(membership)}
                             </Badge>
                           ))}
                         </div>

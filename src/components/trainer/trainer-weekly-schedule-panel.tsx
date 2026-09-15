@@ -213,12 +213,14 @@ const normalizeScheduleItem = ({
   item,
   index,
   categories,
+  categoryLabel,
   trainers,
   locations,
 }: {
   item: any;
   index: number;
   categories: CategoryOption[];
+  categoryLabel?: (reference: { categoryId: string; categoryName: string }) => string;
   trainers: TrainerOption[];
   locations: TrainingLocationOption[];
 }): DisplayWeeklyTraining => {
@@ -239,7 +241,7 @@ const normalizeScheduleItem = ({
         item?.category,
       categories,
     ) || "";
-  const categoryName = resolveCategoryLabel(
+  const nomeRisolto = resolveCategoryLabel(
     categoryId ||
       item?.categoryName ||
       item?.category_name ||
@@ -247,6 +249,11 @@ const normalizeScheduleItem = ({
       "Categoria",
     categories,
   );
+  /* L'etichetta canonica (ADR-0185): la sede accanto dove il nome ne nomina due. */
+  const categoryName =
+    categoryLabel && categoryId
+      ? categoryLabel({ categoryId, categoryName: nomeRisolto })
+      : nomeRisolto;
   const structureName = firstNonEmptyString(
     matchedLocation?.structureName,
     item?.structureName,
@@ -290,6 +297,7 @@ const normalizeScheduleItem = ({
 export function TrainerWeeklySchedulePanel({
   weeklySchedule,
   categories,
+  categoryLabel,
   assignedCategories,
   trainers,
   locations,
@@ -297,6 +305,8 @@ export function TrainerWeeklySchedulePanel({
 }: {
   weeklySchedule: any[];
   categories: CategoryOption[];
+  /** Come si scrive una categoria (ADR-0185): lo dice il contesto dell'allenatore. */
+  categoryLabel?: (reference: { categoryId: string; categoryName: string }) => string;
   assignedCategories: CategoryOption[];
   trainers: TrainerOption[];
   locations: TrainingLocationOption[];
@@ -315,6 +325,7 @@ export function TrainerWeeklySchedulePanel({
             item,
             index,
             categories,
+            categoryLabel,
             trainers,
             locations: effectiveLocations,
           }),
@@ -324,7 +335,7 @@ export function TrainerWeeklySchedulePanel({
             DAYS_OF_WEEK.indexOf(left.day) - DAYS_OF_WEEK.indexOf(right.day);
           return dayDiff || left.startTime.localeCompare(right.startTime);
         }),
-    [categories, effectiveLocations, trainers, weeklySchedule],
+    [categories, categoryLabel, effectiveLocations, trainers, weeklySchedule],
   );
   const filteredSchedule = React.useMemo(() => {
     if (mode === "club") {

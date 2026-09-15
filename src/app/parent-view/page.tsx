@@ -40,6 +40,8 @@ type Appartenenza = {
   name: string;
   siteId: string | null;
   siteName: string | null;
+  /** L'etichetta canonica, scritta dal server (ADR-0185): «Pulcini · Scauri». */
+  label?: string;
   isPrimary: boolean;
 };
 
@@ -67,19 +69,14 @@ const iniziali = (nome: string) =>
 /**
  * **Le squadre del figlio, come si leggono su una riga sola.**
  *
- * PP-02 §B. Una categoria per riga: nome, e la sede **solo quando c'e** — su un
- * club mono-sede ogni riga porterebbe la stessa parola, che e rumore. La
- * primaria non viene marcata: qui si sceglie un figlio, non si amministra una
- * squadra, e «(principale)» accanto a una categoria su due e una distinzione
- * che alla famiglia non serve per scegliere.
+ * PP-02 §B. Una categoria per riga, con l'etichetta che il server ha gia
+ * scritto con l'indice canonico (ADR-0185): la sede accanto solo quando c'e o
+ * serve a distinguere, mai composta qui. La primaria non viene marcata: qui si
+ * sceglie un figlio, non si amministra una squadra.
  */
 const squadre = (figlio: Figlio) => {
   const righe = (figlio.categories || [])
-    .map((categoria) =>
-      categoria.siteName
-        ? `${categoria.name} (${categoria.siteName})`
-        : categoria.name,
-    )
+    .map((categoria) => categoria.label || categoria.name)
     .filter(Boolean);
 
   if (righe.length) return righe.join(" · ");

@@ -268,7 +268,7 @@ export function AthleteHome() {
           {(data.categories || []).length ? (
             data.categories.map((categoria) => (
               <Badge key={categoria.id} variant={categoria.isPrimary ? "default" : "secondary"}>
-                {categoria.name}
+                {categoria.label || categoria.name}
               </Badge>
             ))
           ) : (

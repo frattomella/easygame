@@ -31,7 +31,7 @@ import {
 } from "@/lib/training-location-options";
 import { getAssociatedTrainerIds } from "@/lib/trainer-utils";
 import {
-  CATEGORY_GROUP_SEPARATOR,
+  labelCategoryGroupOptions,
   isCrossSiteEvent,
   resolveRecommendedStructures,
 } from "@/lib/club-sites";
@@ -896,27 +896,15 @@ export function WeeklyTrainingSchedule({
     voci «Pulcini» identiche e indistinguibili in ogni tendina di questo
     pannello. Il conteggio giusto e quello del **nome scritto a schermo**.
   */
-  const groupsPerCategoryName = React.useMemo(() => {
-    const counts = new Map<string, number>();
-    groupOptions.forEach((group) => {
-      const key = group.categoryName.trim().toLowerCase();
-      counts.set(key, (counts.get(key) || 0) + 1);
-    });
-    return counts;
-  }, [groupOptions]);
-
   /*
     L'etichetta porta la sede **solo** quando serve a distinguere: con una
     squadra sola per categoria «Pulcini · Scauri» aggiunge rumore e non
-    informazione (ADR-0055).
+    informazione (ADR-0055). La regola vive in `labelCategoryGroupOptions`
+    (ADR-0185), la stessa del selettore dei gruppi e dell'elenco atleti.
   */
-  const getGroupLabel = React.useCallback(
-    (group: TrainingGroupOption) =>
-      (groupsPerCategoryName.get(group.categoryName.trim().toLowerCase()) || 0) > 1 &&
-      group.siteName
-        ? `${group.categoryName}${CATEGORY_GROUP_SEPARATOR}${group.siteName}`
-        : group.categoryName,
-    [groupsPerCategoryName],
+  const getGroupLabel = React.useMemo(
+    () => labelCategoryGroupOptions(groupOptions),
+    [groupOptions],
   );
 
   /** Il gruppo di una riga: dichiarato, o dedotto dalla sua categoria. */

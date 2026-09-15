@@ -115,6 +115,7 @@ export default function TrainerAthletesDashboardPage() {
     assignedAthletes,
     assignedCategories,
     categories,
+    categoryDisplay,
     permissions,
     visibleMatches,
     visibleTrainings,
@@ -222,9 +223,13 @@ export default function TrainerAthletesDashboardPage() {
               athlete?.avatar ||
               null,
             categoryId: String(membership.categoryId || fallbackCategoryId),
-            categoryLabel: String(
-              membership.categoryName || fallbackCategoryLabel,
-            ),
+            /* L'etichetta canonica (ADR-0185): «Pulcini · Scauri» dove il nome ne nomina due. */
+            categoryLabel: membership.categoryId
+              ? categoryDisplay.label({
+                  categoryId: membership.categoryId,
+                  categoryName: membership.categoryName,
+                })
+              : String(membership.categoryName || fallbackCategoryLabel),
             membershipType: membership.isPrimary ? "primary" : "secondary",
             birthYear: resolveBirthYear(birthDate),
             birthDate: birthDate ? String(birthDate) : null,
@@ -234,7 +239,7 @@ export default function TrainerAthletesDashboardPage() {
           }));
         });
     },
-    [assignedAthletes, assignedCategories, categories],
+    [assignedAthletes, assignedCategories, categories, categoryDisplay],
   );
 
   const filteredAthletes = useMemo(() => {
@@ -268,7 +273,9 @@ export default function TrainerAthletesDashboardPage() {
           .replace(/[^a-z0-9]+/g, "-")}`;
       groups.set(categoryId, {
         id: categoryId,
-        name: String(category?.name || categoryId).trim(),
+        name: category?.id
+          ? categoryDisplay.label({ categoryId: category.id, categoryName: category.name })
+          : String(category?.name || "Categoria").trim(),
         birthYearsLabel:
           String(category?.birthYearsLabel || "").trim() || undefined,
         athletes: [],
@@ -298,7 +305,7 @@ export default function TrainerAthletesDashboardPage() {
         ),
       }))
       .filter((group) => group.athletes.length > 0);
-  }, [assignedCategories, filteredAthletes]);
+  }, [assignedCategories, categoryDisplay, filteredAthletes]);
 
   const toggleCategoryCollapse = (categoryId: string) => {
     setCollapsedCategories((current) => {

@@ -42,20 +42,28 @@ test("il selettore condiviso conta le omonime per nome, non per categoryId", () 
     path.join(SRC, "components", "training", "TrainingGroupSelector.tsx"),
   );
 
+  /*
+    ADR-0185: il conteggio per nome vive in `describeCategoryGroupOptions`
+    (`src/lib/club-sites.ts`), e il selettore lo importa: una copia in piu qui
+    sarebbe la terza stesura della stessa regola.
+  */
   assert.match(
     codice,
-    /groupsPerCategoryName/,
-    "il conteggio deve chiamarsi ed essere per nome, non per categoryId",
-  );
-  assert.match(
-    codice,
-    /group\.categoryName\.trim\(\)\.toLowerCase\(\)/,
-    "la chiave del conteggio e il nome normalizzato",
+    /describeCategoryGroupOptions\(groups\)/,
+    "il selettore chiede la regola al modulo proprietario",
   );
   assert.doesNotMatch(
     codice,
     /counts\.set\(group\.categoryId,/,
     "non deve essere rimasto il conteggio per categoryId",
+  );
+  assert.doesNotMatch(codice, /groupsPerCategoryName/, "nessuna copia locale del conteggio");
+
+  const modulo = senzaCommenti(path.join(SRC, "lib", "club-sites.ts"));
+  assert.match(
+    modulo,
+    /const chiave = normalizeReference\(group\.categoryName\);\s*if \(!chiave\) continue;\s*quantePerNome\.set/,
+    "la chiave del conteggio e il nome normalizzato",
   );
 });
 
@@ -78,12 +86,13 @@ test("il programma settimanale conta le omonime per nome, non per categoryId", (
     path.join(SRC, "components", "dashboard", "WeeklyTrainingSchedulePanel.tsx"),
   );
 
-  assert.match(codice, /groupsPerCategoryName/);
+  assert.match(codice, /labelCategoryGroupOptions\(groupOptions\)/);
   assert.doesNotMatch(
     codice,
     /counts\.set\(group\.categoryId,/,
     "non deve essere rimasto il conteggio per categoryId",
   );
+  assert.doesNotMatch(codice, /groupsPerCategoryName/, "nessuna copia locale del conteggio");
 });
 
 test("il dialogo di modifica del programma settimanale sceglie un gruppo, non una categoria grezza", () => {

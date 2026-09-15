@@ -16,10 +16,16 @@ import { DirtyGuardDialog } from "@/components/web/overlays/Modal";
 import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { AthleteCreateForm } from "@/components/forms/AthleteCreateForm";
-import { findCategoryForBirthDate } from "@/lib/category-utils";
+import {
+  findCategoryForBirthDate,
+  selectableCategoryOptions,
+} from "@/lib/category-utils";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
+import { buildCategoryGroups, normalizeClubSites } from "@/lib/club-sites";
 import {
   addClubAthlete,
   getClubCategories,
+  getClubData,
   getClubFederationOptions,
 } from "@/lib/simplified-db";
 import { type ClubFederation } from "@/lib/club-federations";
@@ -58,7 +64,14 @@ function NewAthletePageContent() {
     clubIdFromUrl || null,
   );
   const [categories, setCategories] = React.useState<any[]>([]);
+  const [categoryGroups, setCategoryGroups] = React.useState<any[]>([]);
   const [federations, setFederations] = React.useState<ClubFederation[]>([]);
+
+  /** Come si scrive una categoria qui (ADR-0185): la sede solo dove serve. */
+  const categoryDisplay = React.useMemo(
+    () => buildCategoryDisplayIndex({ categories, groups: categoryGroups }),
+    [categories, categoryGroups],
+  );
   const [dirty, setDirty] = React.useState(false);
   const [guardOpen, setGuardOpen] = React.useState(false);
 
@@ -91,10 +104,29 @@ function NewAthletePageContent() {
     if (!clubId) return;
     let cancelled = false;
 
-    void getClubCategories(clubId).then((rows: any) => {
+    /*
+      **Si sceglie solo fra cio che il club ha configurato** (ADR-0185): il
+      catalogo porta anche le voci nate da una scheda, e chi iscrive un
+      ragazzo non deve poterlo mettere in una squadra che non esiste. I gruppi
+      e le sedi servono a scrivere «Pulcini · Scauri» dove il nome ne nomina
+      due.
+    */
+    void Promise.all([
+      getClubCategories(clubId),
+      getClubData(clubId, "club_sites"),
+      getClubData(clubId, "category_groups"),
+    ]).then(([rows, sites, groups]: any[]) => {
       if (cancelled) return;
-      setCategories(
-        sortByName(Array.isArray(rows) ? rows : [], (row: any) => row?.name),
+      const selezionabili = selectableCategoryOptions(
+        Array.isArray(rows) ? rows : [],
+      );
+      setCategories(sortByName(selezionabili, (row: any) => row?.name));
+      setCategoryGroups(
+        buildCategoryGroups({
+          categories: selezionabili,
+          sites: normalizeClubSites(sites),
+          groups,
+        }),
       );
     });
 
@@ -241,6 +273,7 @@ function NewAthletePageContent() {
             <AthleteCreateForm
               formId="athlete-create-form"
               categories={categories}
+              categoryLabel={(categoryId) => categoryDisplay.label(categoryId)}
               federations={federations}
               onSubmit={handleSubmit}
               onCancel={goBack}

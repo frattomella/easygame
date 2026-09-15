@@ -237,13 +237,23 @@ test("W6-14 · le appartenenze si caricano tutte, non solo la primaria", () => {
     cambiata di una virgola — tutte le appartenenze, con la primaria dichiarata
     — e adesso si verifica dove vive, invece che sulla sua vecchia grafia.
   */
+  /*
+    ADR-0185: le righe passano dal normalizzatore canonico — tutte, con la
+    primaria dichiarata — e l'etichetta dall'indice; non piu un `map` sulle
+    righe grezze, che faceva uscire la riga gemella storica come seconda
+    squadra e il nome stantio al posto del catalogo.
+  */
   assert.ok(
-    server.includes("asArray(athlete?.category_memberships).map("),
-    "le appartenenze si mappano tutte, non si prende la primaria",
+    server.includes("normalizeAthleteCategoryMemberships(athlete, catalogo).map("),
+    "le appartenenze si mappano tutte, dal normalizzatore canonico",
   );
   assert.ok(
-    server.includes("isPrimary: Boolean(membership.is_primary),"),
+    server.includes("isPrimary: membership.isPrimary,"),
     "e la primaria e dichiarata, non dedotta dall'ordine",
+  );
+  assert.ok(
+    server.includes("display.describe({"),
+    "l'etichetta la scrive l'indice canonico, non la riga",
   );
   assert.ok(
     server.includes("categories: serializeAthleteCategories(athlete),"),
