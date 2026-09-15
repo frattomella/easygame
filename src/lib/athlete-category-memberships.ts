@@ -1,6 +1,7 @@
 import {
   resolveCategoryReference,
   sameAnyCategory,
+  type CategoryCatalogEntry,
 } from "@/lib/categories/identity";
 
 export type AthleteCategoryMembership = {
@@ -9,6 +10,20 @@ export type AthleteCategoryMembership = {
   athleteId?: string | null;
   categoryId: string;
   categoryName: string;
+  /**
+   * **Il nome com'era scritto sulla riga**, prima della risoluzione sul
+   * catalogo (ADR-0185).
+   *
+   * `categoryName` e l'etichetta corrente della categoria — quella del
+   * catalogo, quando c'e. Questo e cio che l'archivio dice: su una riga
+   * `{ category_id: <id vero>, category_name: "Pulcini - S. Cosma" }` vale
+   * «Pulcini - S. Cosma», cioe il nome che la categoria aveva prima di una
+   * rinomina. E l'evidenza che permette a una riga storica con il **solo**
+   * nome di riconoscersi nella propria gemella identificata: senza, la
+   * risoluzione sul catalogo cancellava quel nome prima della dedupe e la
+   * gemella restava orfana come seconda squadra.
+   */
+  storedCategoryName: string;
   isPrimary: boolean;
   /**
    * Sede in cui l'atleta svolge **questa** categoria. Vuota su un club
@@ -23,9 +38,18 @@ export type AthleteCategoryMembership = {
 export type AthleteCategoryRelationship = "primary" | "secondary" | "none";
 export type ParticipationCategoryContext = "primary" | "secondary" | "extra";
 
-type CategoryOptionLike = {
-  id?: string | null;
-  name?: string | null;
+type CategoryOptionLike = CategoryCatalogEntry;
+
+/**
+ * **Perche un riferimento non e diventato un'appartenenza.**
+ *
+ * `ambiguous`: il nome ne nominava due (ADR-0155). `dangling`: il catalogo
+ * del club c'e e non lo conosce — una categoria cancellata, o un'etichetta
+ * scritta dove serviva un identificativo, senza una gemella che dica chi e.
+ */
+export type DanglingAthleteCategoryReference = {
+  membership: AthleteCategoryMembership;
+  reason: "ambiguous" | "dangling";
 };
 
 const isRecord = (value: unknown): value is Record<string, any> =>
@@ -64,7 +88,7 @@ const firstNonEmptyString = (...values: unknown[]) => {
 const resolveCategoryIdentity = (
   rawId: unknown,
   rawName: unknown,
-  categories: CategoryOptionLike[] = [],
+  categories: readonly CategoryOptionLike[] = [],
 ) => {
   const riferimento = resolveCategoryReference(rawId, rawName, categories);
 
@@ -78,7 +102,7 @@ const resolveCategoryIdentity = (
 
 const toMembership = (
   value: unknown,
-  categories: CategoryOptionLike[] = [],
+  categories: readonly CategoryOptionLike[] = [],
   source: AthleteCategoryMembership["source"] = "membership",
   primaryHint = false,
 ): AthleteCategoryMembership | null => {
@@ -92,6 +116,7 @@ const toMembership = (
       id: `${identity.categoryId}:${source}`,
       categoryId: identity.categoryId,
       categoryName: identity.categoryName,
+      storedCategoryName: value.trim(),
       isPrimary: primaryHint,
       siteId: "",
       source,
@@ -102,13 +127,25 @@ const toMembership = (
     return null;
   }
 
+  const storedName = firstNonEmptyString(
+    /*
+      Il nome com'era sulla riga sopravvive a un giro nel browser: chi rimanda
+      un'appartenenza gia normalizzata porta `storedCategoryName`, e senza
+      leggerlo il salvataggio riscriverebbe la riga con il nome corrente,
+      cancellando l'alias di cui le righe gemelle di **altri** atleti hanno
+      bisogno (revisione ostile H3).
+    */
+    value.storedCategoryName,
+    value.stored_category_name,
+    value.category_name,
+    value.categoryName,
+    value.name,
+    value.label,
+    value.title,
+  );
   const identity = resolveCategoryIdentity(
     value.category_id ?? value.categoryId ?? value.id ?? value.value,
-    value.category_name ??
-      value.categoryName ??
-      value.name ??
-      value.label ??
-      value.title,
+    storedName,
     categories,
   );
 
@@ -123,6 +160,7 @@ const toMembership = (
     athleteId: firstNonEmptyString(value.athlete_id, value.athleteId) || null,
     categoryId: identity.categoryId,
     categoryName: identity.categoryName,
+    storedCategoryName: storedName,
     isPrimary: Boolean(
       value.is_primary ??
         value.isPrimary ??
@@ -148,7 +186,7 @@ const pushMembership = (
 
 const collectMemberships = (
   source: unknown,
-  categories: CategoryOptionLike[] = [],
+  categories: readonly CategoryOptionLike[] = [],
   origin: AthleteCategoryMembership["source"] = "membership",
   primaryHint = false,
 ) => {
@@ -190,6 +228,12 @@ const collectMemberships = (
   return memberships;
 };
 
+/** Vero quando l'appartenenza porta un identificativo suo, distinto dal nome. */
+const portaUnIdentificativo = (membership: AthleteCategoryMembership) =>
+  Boolean(membership.categoryName) &&
+  normalizeReference(membership.categoryId) !==
+    normalizeReference(membership.categoryName);
+
 /**
  * **Il catalogo implicito: quello che le appartenenze stesse portano.**
  *
@@ -198,48 +242,58 @@ const collectMemberships = (
  * stessa una voce di catalogo: dice come si chiama quella categoria. Una che
  * porta lo stesso valore nei due campi non dice niente di piu del valore.
  *
+ * Porta anche il nome **com'era scritto sulla riga** (`storedCategoryName`),
+ * come alias: dopo una rinomina la riga identificata dice ancora «Pulcini -
+ * S. Cosma», e quella e l'unica evidenza con cui la riga gemella scritta con
+ * il solo nome puo ritrovarla (ADR-0185). La risoluzione sul catalogo del club
+ * riscrive `categoryName` sul nome corrente, e senza l'alias l'evidenza andava
+ * persa proprio quando il catalogo c'era.
+ *
  * Serve perche sei chiamanti su dodici il catalogo del club non ce l'hanno in
  * mano (`getAthleteCategoryRelationship`, la pagina Gare, quella Allenamenti,
  * `club-sites`, `audience`, i numeri di maglia): senza questo, la riga
  * fantasma «Scoiattoli» che il difetto ha gia scritto in archivio resterebbe
  * una seconda categoria per sempre.
  */
-const catalogoImplicito = (memberships: AthleteCategoryMembership[]) =>
-  memberships
-    .filter(
-      (membership) =>
-        membership.categoryName &&
-        normalizeReference(membership.categoryId) !==
-          normalizeReference(membership.categoryName),
-    )
-    .map((membership) => ({
+const catalogoImplicito = (
+  memberships: readonly AthleteCategoryMembership[],
+): CategoryOptionLike[] =>
+  memberships.filter(portaUnIdentificativo).map((membership) => {
+    const aliases: string[] = [];
+    const stored = String(membership.storedCategoryName || "").trim();
+    if (
+      stored &&
+      normalizeReference(stored) !== normalizeReference(membership.categoryName) &&
+      normalizeReference(stored) !== normalizeReference(membership.categoryId)
+    ) {
+      aliases.push(stored);
+    }
+
+    return {
       id: membership.categoryId,
       name: membership.categoryName,
-    }));
+      aliases,
+    };
+  });
 
 /**
  * **La chiave con cui due appartenenze sono la stessa.**
  *
  * L'identificativo, quando c'e. Un'appartenenza che porta solo un **nome** —
  * la riga che il difetto ha scritto, o il record di un club senza catalogo —
- * si riconosce nell'identificativo di chi quel nome ce l'ha come etichetta,
- * ma **solo se ne nomina una sola**: due omonime su due sedi restano due
- * squadre (ADR-0155).
+ * si riconosce nell'identificativo di chi quel nome ce l'ha come etichetta o
+ * come alias, ma **solo se ne nomina una sola**: due omonime su due sedi
+ * restano due squadre (ADR-0155).
  */
 const chiaveDiIdentita = (
   membership: AthleteCategoryMembership,
-  catalogo: CategoryOptionLike[],
+  catalogo: readonly CategoryOptionLike[],
 ) => {
   const propria =
     normalizeReference(membership.categoryId) ||
     normalizeReference(membership.categoryName);
 
-  const portaGiaUnIdentificativo =
-    membership.categoryName &&
-    normalizeReference(membership.categoryId) !==
-      normalizeReference(membership.categoryName);
-
-  if (portaGiaUnIdentificativo) return propria;
+  if (portaUnIdentificativo(membership)) return propria;
 
   const identita = resolveCategoryIdentity(
     membership.categoryId,
@@ -252,62 +306,48 @@ const chiaveDiIdentita = (
   return normalizeReference(identita.categoryId) || propria;
 };
 
-const dedupeMemberships = (
-  memberships: AthleteCategoryMembership[],
-  categories: CategoryOptionLike[] = [],
-) => {
-  const deduped = new Map<string, AthleteCategoryMembership>();
-  const catalogo: CategoryOptionLike[] = [
-    ...categories,
-    ...catalogoImplicito(memberships),
-  ];
+const fondiAppartenenze = (
+  existing: AthleteCategoryMembership,
+  membership: AthleteCategoryMembership,
+): AthleteCategoryMembership => {
+  /*
+    **Fra le due vince l'identita, non l'ordine di lettura.**
 
-  memberships.forEach((membership) => {
-    const key = chiaveDiIdentita(membership, catalogo);
-    if (!key) {
-      return;
-    }
+    Quando si fondono la riga identificata e quella che porta il solo nome, a
+    sopravvivere deve essere l'identificativo: tenere «Scoiattoli» perche
+    capitava di leggerlo per primo lascerebbe l'atleta agganciato a una
+    stringa che il catalogo non conosce, e ogni salvataggio successivo la
+    riscriverebbe in archivio.
+  */
+  const identificata = [existing, membership].find(portaUnIdentificativo);
 
-    const existing = deduped.get(key);
-    if (!existing) {
-      deduped.set(key, membership);
-      return;
-    }
-
+  return {
+    ...existing,
     /*
-      **Fra le due vince l'identita, non l'ordine di lettura.**
-
-      Quando si fondono la riga identificata e quella che porta il solo nome, a
-      sopravvivere deve essere l'identificativo: tenere «Scoiattoli» perche
-      capitava di leggerlo per primo lascerebbe l'atleta agganciato a una
-      stringa che il catalogo non conosce, e ogni salvataggio successivo la
-      riscriverebbe in archivio.
+      Anche la riga e la sede seguono l'identita: tenere quelle di chi capitava
+      per primo faceva dipendere dall'ordine dell'heap quale riga sopravvive
+      al salvataggio e in quale sede sta l'atleta (revisione ostile M3).
     */
-    const identificata = [existing, membership].find(
-      (voce) =>
-        voce.categoryName &&
-        normalizeReference(voce.categoryId) !==
-          normalizeReference(voce.categoryName),
-    );
+    id: identificata?.id || existing.id || membership.id,
+    categoryId:
+      identificata?.categoryId || existing.categoryId || membership.categoryId,
+    categoryName:
+      identificata?.categoryName ||
+      existing.categoryName ||
+      membership.categoryName,
+    storedCategoryName:
+      identificata?.storedCategoryName ||
+      existing.storedCategoryName ||
+      membership.storedCategoryName,
+    organizationId: existing.organizationId || membership.organizationId,
+    athleteId: existing.athleteId || membership.athleteId,
+    isPrimary: existing.isPrimary || membership.isPrimary,
+    siteId: identificata?.siteId || existing.siteId || membership.siteId,
+    source: existing.source === "legacy" ? membership.source : existing.source,
+  };
+};
 
-    deduped.set(key, {
-      ...existing,
-      id: existing.id || membership.id,
-      categoryId:
-        identificata?.categoryId || existing.categoryId || membership.categoryId,
-      categoryName:
-        identificata?.categoryName ||
-        existing.categoryName ||
-        membership.categoryName,
-      organizationId: existing.organizationId || membership.organizationId,
-      athleteId: existing.athleteId || membership.athleteId,
-      isPrimary: existing.isPrimary || membership.isPrimary,
-      siteId: existing.siteId || membership.siteId,
-      source: existing.source === "legacy" ? membership.source : existing.source,
-    });
-  });
-
-  const values = Array.from(deduped.values());
+const scegliPrimaria = (values: AthleteCategoryMembership[]) => {
   if (values.length === 0) {
     return values;
   }
@@ -341,10 +381,211 @@ const dedupeMemberships = (
     .sort((left, right) => Number(right.isPrimary) - Number(left.isPrimary));
 };
 
-export const normalizeAthleteCategoryMemberships = (
-  athleteOrMemberships: unknown,
-  categories: CategoryOptionLike[] = [],
+type Normalizzate = {
+  memberships: AthleteCategoryMembership[];
+  dangling: DanglingAthleteCategoryReference[];
+};
+
+const dedupeMemberships = (
+  memberships: AthleteCategoryMembership[],
+  categories: readonly CategoryOptionLike[] = [],
+): Normalizzate => {
+  const deduped = new Map<string, AthleteCategoryMembership>();
+  const dangling: DanglingAthleteCategoryReference[] = [];
+  const catalogoClub = (Array.isArray(categories) ? categories : []).filter(
+    (voce) => voce?.id,
+  );
+  const catalogo: CategoryOptionLike[] = [
+    ...catalogoClub,
+    ...catalogoImplicito(memberships),
+  ];
+  const qualcunaIdentificata = memberships.some(portaUnIdentificativo);
+
+  memberships.forEach((membership) => {
+    const key = chiaveDiIdentita(membership, catalogo);
+    if (!key) {
+      return;
+    }
+
+    /*
+      **Un nome che ne nomina due non e un'appartenenza** (ADR-0155).
+
+      Vale per ogni sorgente, non solo per la colonna storica: una stringa in
+      `data.categories` («Scoiattoli», con due Scoiattoli in catalogo) o una
+      riga scritta con il solo nome non identificano nessuna squadra. Prima
+      entravano come riga propria, e a schermo usciva «Scoiattoli · Secondaria»
+      accanto a una primaria che era gia una delle due. Si scarta **solo** se
+      l'atleta ha almeno un'appartenenza identificata: un club senza catalogo,
+      con i soli nomi, non ha ambiguita conoscibili e continua come prima.
+    */
+    if (!portaUnIdentificativo(membership) && qualcunaIdentificata) {
+      const identita = resolveCategoryIdentity(
+        membership.categoryId,
+        membership.categoryName,
+        catalogo,
+      );
+      if (identita.ambiguous && !identita.known) {
+        dangling.push({ membership, reason: "ambiguous" });
+        return;
+      }
+    }
+
+    const existing = deduped.get(key);
+    if (!existing) {
+      deduped.set(key, membership);
+      return;
+    }
+
+    deduped.set(key, fondiAppartenenze(existing, membership));
+  });
+
+  let values = Array.from(deduped.values());
+
+  /*
+    **Con il catalogo del club in mano, un riferimento che il catalogo non
+    conosce e pendente, non una seconda squadra** (ADR-0185).
+
+    `categories` e il catalogo del club — tutto, mai un sottoinsieme: e il
+    contratto di questo parametro. Se c'e e non riconosce un'appartenenza,
+    quella cita una categoria che il club non ha: cancellata, o un'etichetta
+    scritta dove serviva un identificativo e senza una gemella che dica chi e.
+    Una **secondaria** cosi non entra: esce fra i pendenti, per il censimento.
+    La **primaria** resta, segnalata: toglierla farebbe salire una secondaria
+    al suo posto in silenzio, e la scheda deve dire cio che l'archivio dice,
+    non inventare una squadra.
+
+    Senza catalogo non si giudica niente: le righe restano com'erano.
+  */
+  if (catalogoClub.length > 0) {
+    const primaria = scegliPrimaria(values).find((voce) => voce.isPrimary);
+    values = values.filter((membership) => {
+      /*
+        Si giudica sul catalogo del **club**, non su quello implicito: una
+        riga identificata e sempre nel proprio catalogo implicito, e giudicarla
+        li vorrebbe dire che una categoria cancellata non e mai pendente
+        (revisione ostile L1). Gli alias del catalogo del club bastano a far
+        riconoscere la gemella gia fusa.
+      */
+      const identita = resolveCategoryIdentity(
+        membership.categoryId,
+        membership.categoryName,
+        catalogoClub,
+      );
+      if (identita.known) return true;
+
+      const ePrimaria =
+        primaria &&
+        normalizeReference(primaria.categoryId) ===
+          normalizeReference(membership.categoryId);
+      dangling.push({
+        membership,
+        reason: identita.ambiguous ? "ambiguous" : "dangling",
+      });
+      return Boolean(ePrimaria);
+    });
+  }
+
+  return { memberships: scegliPrimaria(values), dangling };
+};
+
+/**
+ * **Una proiezione ritrova la propria riga, o entra da secondaria, o tace.**
+ *
+ * Vale per la colonna storica (`athletes.category_id`, `data.category`) e per
+ * l'elenco delle etichette (`categories`, `data.categories`): sono **cache
+ * derivate** che lo stesso salvataggio scrive dalle righe di
+ * `athlete_category_memberships`. Le righe sono la fonte; la proiezione dice
+ * al piu qualcosa che le righe non dicono.
+ *
+ * Restituisce la proiezione riscritta sull'identita della riga che la
+ * riconosce — cosi la dedupe le fonde, e la sede eventualmente dichiarata
+ * sulla colonna non va persa — oppure la proiezione da secondaria quando
+ * nessuna riga la riconosce ma il riferimento e inequivocabile, oppure `null`
+ * quando il nome ne nomina due.
+ */
+const riconciliaProiezione = (
+  proiezione: AthleteCategoryMembership,
+  memberships: readonly AthleteCategoryMembership[],
+  categories: readonly CategoryOptionLike[] = [],
+  /**
+   * Solo la **colonna storica** entra da secondaria quando nessuna riga la
+   * riconosce (C2, club migrato a meta). Un'etichetta di `data.categories`
+   * o una voce di `data.categoryMemberships` che non ritrova la propria riga
+   * e una cache rimasta indietro, e riscriverla come riga vera al salvataggio
+   * successivo riaprirebbe la strada del fantasma (revisione ostile M2).
+   */
+  sconosciutaEntra = false,
 ) => {
+  const catalogo: CategoryOptionLike[] = [
+    ...categories,
+    ...catalogoImplicito(memberships),
+  ];
+
+  const identita = resolveCategoryIdentity(
+    proiezione.categoryId,
+    proiezione.categoryName,
+    catalogo,
+  );
+
+  /* Un nome che ne nomina due non ne nomina nessuna: la proiezione tace. */
+  if (identita.ambiguous && !identita.known) return null;
+
+  const chiave = normalizeReference(identita.categoryId);
+  const riga = memberships.find(
+    (membership) => normalizeReference(membership.categoryId) === chiave,
+  );
+
+  /*
+    **Se non si riconosce in nessuna riga, entra come secondaria — non
+    sparisce** (revisione ostile, C2).
+
+    Su un club **migrato a meta** — `athletes.category_id` con la primaria
+    vera, righe scritte solo per le secondarie — quella categoria spariva
+    dalla scheda, e il salvataggio successivo fissava la perdita anche nella
+    colonna. Entrare come secondaria e la scelta prudente: se la colonna era
+    davvero la primaria si vede tutto e l'ordine si corregge in un clic; se
+    era rimasta indietro si vede una categoria di troppo, che si toglie.
+    Nessuna delle due cancella un dato. (Se poi il catalogo del club non la
+    conosce, e la dedupe a dichiararla pendente.)
+  */
+  if (!riga) {
+    if (!sconosciutaEntra) return null;
+    /*
+      Nessuna riga e dichiarata primaria e la colonna dice «questa e la sua
+      categoria»: e l'unica dichiarazione che c'e, e resta (revisione ostile
+      H1). Altrimenti l'indice zero — cioe l'ordine dell'heap — sceglierebbe la
+      primaria al posto del club, e il primo salvataggio la scriverebbe.
+    */
+    const nessunaDichiarata = !memberships.some((voce) => voce.isPrimary);
+    return { ...proiezione, isPrimary: nessunaDichiarata };
+  }
+
+  /*
+    **La bandiera «primaria» resta della riga.**
+
+    La proiezione arriva con la propria bandiera — la colonna storica dice per
+    costruzione «questa e la sua categoria», la prima etichetta dell'elenco
+    idem. Lasciargliela vorrebbe dire che una cache **non allineata** promuove
+    una secondaria a primaria non appena l'ordine di lettura la mette davanti
+    — cioe che la colonna comanda sulle righe, che e il verso opposto a quello
+    vero. Della proiezione sopravvive solo la sede, e solo se la riga non ne
+    dichiara una.
+  */
+  const nessunaDichiarata = !memberships.some((voce) => voce.isPrimary);
+  return {
+    ...proiezione,
+    categoryId: riga.categoryId,
+    categoryName: riga.categoryName || proiezione.categoryName,
+    storedCategoryName: riga.storedCategoryName || proiezione.storedCategoryName,
+    /* La colonna promuove la riga che riconosce solo se nessuna e dichiarata. */
+    isPrimary: riga.isPrimary || (sconosciutaEntra && nessunaDichiarata),
+  };
+};
+
+const normalizza = (
+  athleteOrMemberships: unknown,
+  categories: readonly CategoryOptionLike[] = [],
+): Normalizzate => {
   if (Array.isArray(athleteOrMemberships)) {
     return dedupeMemberships(
       collectMemberships(athleteOrMemberships, categories, "membership"),
@@ -353,35 +594,80 @@ export const normalizeAthleteCategoryMemberships = (
   }
 
   if (!isRecord(athleteOrMemberships)) {
-    return [];
+    return { memberships: [], dangling: [] };
   }
 
   const athlete = athleteOrMemberships;
   const data = isRecord(athlete.data) ? athlete.data : {};
   const memberships: AthleteCategoryMembership[] = [];
 
+  /*
+    **Le righe sono la fonte; le altre grafie sono proiezioni delle righe.**
+
+    `category_memberships` e la tabella (ADR-0038). `categoryMemberships`,
+    `memberships` e le due chiavi in `data` le scrive lo stesso salvataggio
+    **dalle** righe normalizzate — e il rollover di stagione riallinea le
+    righe senza toccarle. Leggerle come sesta sorgente con la propria
+    bandiera faceva vincere una cache rimasta indietro sull'ordine dell'heap
+    (revisione ostile M1). Quando le righe ci sono, ogni altra voce deve
+    riconoscersi in una di loro; quando non ci sono — il record che il client
+    rimanda, o il club mai migrato — restano l'unica fonte, come prima.
+  */
+  collectMemberships(athlete.category_memberships, categories, "membership").forEach(
+    (membership) => memberships.push(membership),
+  );
+  const proiezioniDiRiga: AthleteCategoryMembership[] = [];
   [
-    athlete.category_memberships,
     athlete.categoryMemberships,
     athlete.memberships,
     data.categoryMemberships,
     data.category_memberships,
   ].forEach((source) => {
     collectMemberships(source, categories, "membership").forEach((membership) =>
-      memberships.push(membership),
+      proiezioniDiRiga.push(membership),
+    );
+  });
+  if (memberships.length === 0) {
+    proiezioniDiRiga.forEach((membership) => pushMembership(memberships, membership));
+  } else {
+    proiezioniDiRiga.forEach((membership) => {
+      pushMembership(
+        memberships,
+        riconciliaProiezione(membership, memberships, categories),
+      );
+    });
+  }
+
+  /*
+    **L'elenco delle etichette e una proiezione, come la colonna.**
+
+    `categories` / `data.categories` e cio che `hydrateAthleteWithMemberships`
+    scrive **dalle** appartenenze normalizzate: un elenco di nomi, la primaria
+    per prima. Trattarlo come una sorgente in piu, con la prima voce promossa a
+    primaria, produceva due difetti: su un club con due «Scoiattoli» la stringa
+    non risolveva e usciva come secondaria fantasma; e su una scheda letta
+    senza catalogo la stringa poteva prendersi la primaria dalla riga vera.
+    Quando le righe ci sono, ogni etichetta deve riconoscersi in una di loro
+    (stessa regola della colonna); quando non ci sono — il club mai migrato —
+    l'elenco resta la fonte e la prima e la primaria, come prima.
+  */
+  const etichette: AthleteCategoryMembership[] = [];
+  [athlete.categories, data.categories].forEach((source) => {
+    if (!Array.isArray(source)) return;
+    collectMemberships(source, categories, "data").forEach((membership) =>
+      etichette.push(membership),
     );
   });
 
-  if (Array.isArray(athlete.categories)) {
-    collectMemberships(athlete.categories, categories, "data").forEach(
-      (membership) => memberships.push(membership),
-    );
-  }
-
-  if (Array.isArray(data.categories)) {
-    collectMemberships(data.categories, categories, "data").forEach(
-      (membership) => memberships.push(membership),
-    );
+  if (memberships.length === 0) {
+    etichette.forEach((membership) => pushMembership(memberships, membership));
+  } else {
+    etichette.forEach((membership) => {
+      pushMembership(
+        memberships,
+        riconciliaProiezione(membership, memberships, categories),
+      );
+    });
   }
 
   /*
@@ -403,15 +689,11 @@ export const normalizeAthleteCategoryMemberships = (
     l'indice unico non intercetta perche e una stringa diversa.
 
     Adesso: se le righe ci sono, la colonna deve **riconoscersi in una di loro**
-    o non dice niente. La riconciliazione usa il catalogo del club quando c'e e,
-    quando non c'e, il catalogo **implicito** che le righe stesse portano
-    (`categoryId` + `categoryName`) — cosi la colonna con il solo nome ritrova la
-    propria riga anche nei sei chiamanti che il catalogo non lo passano.
-
-    Se il nome ne nomina due — due «Under 15» su due sedi — non ne nomina
-    nessuna (ADR-0155) e la colonna viene **lasciata cadere**: le righe hanno gia
-    detto in quali squadre sta l'atleta, e inventarne una terza per non buttare
-    via una cache ambigua sarebbe la fusione al contrario.
+    o entra da secondaria (C2). La riconciliazione usa il catalogo del club
+    quando c'e e, quando non c'e, il catalogo **implicito** che le righe stesse
+    portano (`categoryId` + `categoryName` + alias) — cosi la colonna con il
+    solo nome ritrova la propria riga anche nei sei chiamanti che il catalogo
+    non lo passano.
 
     Nessuna perdita: quando le righe **non** ci sono — il club mai migrato — la
     colonna resta l'unica fonte e diventa la primaria, come prima.
@@ -439,35 +721,10 @@ export const normalizeAthleteCategoryMemberships = (
     if (memberships.length === 0) {
       pushMembership(memberships, legacy);
     } else {
-      /*
-        **Se non si riconosce in nessuna riga, entra come secondaria — non
-        sparisce** (revisione ostile, C2).
-
-        La prima stesura la lasciava cadere, e su un club **migrato a meta** —
-        `athletes.category_id` con la primaria vera, righe scritte solo per le
-        secondarie — quella categoria spariva dalla scheda. Peggio: il
-        salvataggio successivo riscrive `athletes.category_id` dalla primaria
-        normalizzata, quindi la perdita diventava permanente anche nella
-        colonna. Un difetto che si aggrava da solo e piu grave di uno che resta
-        fermo.
-
-        Entrare come **secondaria** e la scelta prudente fra le due: se la
-        colonna era davvero la primaria si vede tutto e l'ordine si corregge in
-        un clic; se era rimasta indietro si vede una categoria di troppo, che si
-        toglie. Nessuna delle due cancella un dato.
-
-        Non e il difetto N1 che torna: quello era la **stessa** categoria due
-        volte, e la riconciliazione qui sopra continua a fonderla. Qui si parla
-        di una categoria diversa, che l'atleta ha davvero.
-
-        Resta fuori solo il caso ambiguo — un nome che ne nomina due — perche
-        li la colonna non identifica nessuna categoria (ADR-0155) e inventarne
-        una sarebbe la fusione al contrario.
-      */
-      const rientra = riconciliaProiezione(legacy, memberships, categories);
-      if (rientra) {
-        pushMembership(memberships, rientra);
-      }
+      pushMembership(
+        memberships,
+        riconciliaProiezione(legacy, memberships, categories, true),
+      );
     }
   }
 
@@ -475,69 +732,34 @@ export const normalizeAthleteCategoryMemberships = (
 };
 
 /**
- * **La colonna storica ritrova la propria riga, o non entra.**
+ * **Le appartenenze di un atleta, come identita.**
  *
- * Restituisce la proiezione riscritta sull'identita della riga che la
- * riconosce — cosi `dedupeMemberships` le fonde e la sede eventualmente
- * dichiarata sulla colonna non va persa — oppure `null` quando nessuna riga la
- * riconosce.
+ * `categories` e il **catalogo del club** — tutto, mai un sottoinsieme. Con
+ * il catalogo in mano ogni riferimento si risolve a una categoria del club;
+ * cio che non si risolve non e un'appartenenza (vedi
+ * `collectDanglingAthleteCategoryReferences`). Senza catalogo si lavora sui
+ * nomi e sul catalogo implicito che le righe portano, come sempre.
  */
-const riconciliaProiezione = (
-  legacy: AthleteCategoryMembership,
-  memberships: AthleteCategoryMembership[],
-  categories: CategoryOptionLike[] = [],
-) => {
-  const catalogo: CategoryOptionLike[] = [
-    ...categories,
-    ...memberships.map((membership) => ({
-      id: membership.categoryId,
-      name: membership.categoryName,
-    })),
-  ];
+export const normalizeAthleteCategoryMemberships = (
+  athleteOrMemberships: unknown,
+  categories: readonly CategoryOptionLike[] = [],
+) => normalizza(athleteOrMemberships, categories).memberships;
 
-  const identita = resolveCategoryIdentity(
-    legacy.categoryId,
-    legacy.categoryName,
-    catalogo,
-  );
-
-  /* Un nome che ne nomina due non ne nomina nessuna: la colonna tace. */
-  if (identita.ambiguous) return null;
-
-  const chiave = normalizeReference(identita.categoryId);
-  const riga = memberships.find(
-    (membership) => normalizeReference(membership.categoryId) === chiave,
-  );
-
-  /*
-    Nessuna riga la riconosce: e una categoria **in piu**, non una da buttare.
-    Entra come secondaria — la primaria la dicono le righe, che sono la fonte.
-  */
-  if (!riga) {
-    return { ...legacy, isPrimary: false };
-  }
-
-  /*
-    **La bandiera «primaria» resta della riga.**
-
-    La proiezione arriva sempre con `isPrimary: true`, perche la colonna storica
-    dice per costruzione «questa e la sua categoria». Lasciargliela vorrebbe
-    dire che una cache **non allineata** promuove una secondaria a primaria non
-    appena l'ordine di lettura la mette davanti — cioe che la colonna comanda
-    sulle righe, che e il verso opposto a quello vero. Della proiezione
-    sopravvive solo la sede, e solo se la riga non ne dichiara una.
-  */
-  return {
-    ...legacy,
-    categoryId: riga.categoryId,
-    categoryName: riga.categoryName || legacy.categoryName,
-    isPrimary: riga.isPrimary,
-  };
-};
+/**
+ * **I riferimenti che non sono diventati appartenenze**, con il motivo.
+ *
+ * E il lato diagnostico di `normalizeAthleteCategoryMemberships`: serve al
+ * censimento delle righe storiche (`scripts/censimento-appartenenze-legacy.mjs`)
+ * e a nessuna schermata. Una riga qui e un dato da bonificare, non da mostrare.
+ */
+export const collectDanglingAthleteCategoryReferences = (
+  athleteOrMemberships: unknown,
+  categories: readonly CategoryOptionLike[] = [],
+) => normalizza(athleteOrMemberships, categories).dangling;
 
 export const getPrimaryAthleteCategoryMembership = (
   athleteOrMemberships: unknown,
-  categories: CategoryOptionLike[] = [],
+  categories: readonly CategoryOptionLike[] = [],
 ) =>
   normalizeAthleteCategoryMemberships(athleteOrMemberships, categories).find(
     (membership) => membership.isPrimary,
@@ -545,22 +767,15 @@ export const getPrimaryAthleteCategoryMembership = (
 
 export const getAthleteCategoryLabels = (
   athleteOrMemberships: unknown,
-  categories: CategoryOptionLike[] = [],
+  categories: readonly CategoryOptionLike[] = [],
 ) =>
   normalizeAthleteCategoryMemberships(athleteOrMemberships, categories).map(
     (membership) => membership.categoryName,
   );
 
-const getCategoryReferences = (
-  category: CategoryOptionLike | string | null | undefined,
-) =>
-  (typeof category === "string" ? [category] : [category?.id, category?.name])
-    .map(normalizeReference)
-    .filter(Boolean);
-
 export const getAthleteCategoryReferences = (
   athleteOrMemberships: unknown,
-  categories: CategoryOptionLike[] = [],
+  categories: readonly CategoryOptionLike[] = [],
 ) =>
   normalizeAthleteCategoryMemberships(athleteOrMemberships, categories).flatMap(
     (membership) =>

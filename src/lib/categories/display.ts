@@ -13,7 +13,8 @@
  * nominando gia il rimedio: **la sede si accosta in un punto solo, non in dieci
  * schermate**.
  *
- * Questo e quel punto.
+ * Questo e quel punto. Lo consumano la Web corrente e il redesign V2 **con lo
+ * stesso indice**: la presentazione puo cambiare, la semantica no (ADR-0185).
  *
  * ## La regola
  *
@@ -23,7 +24,7 @@
  *    `sameCategory`; chi risolve, da `resolveCategoryReference`.
  *
  * 2. **La sede si accosta solo quando serve.** Accostarla sempre —
- *    «Pulcini (Roma)» in un club che ha una sede sola — e rumore su ogni riga
+ *    «Pulcini · Roma» in un club che ha una sede sola — e rumore su ogni riga
  *    di ogni schermata per un'ambiguita che non esiste. L'ambiguita si calcola
  *    dove si disegna, cioe qui, e sull'insieme che si sta mostrando.
  *
@@ -33,17 +34,40 @@
  *    falsa. In quel caso l'etichetta resta il nome nudo, e a distinguere ci
  *    pensa cio che la schermata ha gia (l'ordine, il gruppo, la fascia d'eta).
  *
+ * 4. **La sede si scrive con il suo nome, mai con il suo identificativo.**
+ *    Un `siteId` e un fatto dell'archivio, non un'etichetta: si risolve sul
+ *    catalogo delle sedi (`sites`) o sul `siteName` che il gruppo gia porta.
+ *    Se non si risolve, a schermo va `UNKNOWN_SITE_LABEL` — e **solo** quando
+ *    la sede serviva a distinguere: altrimenti il nome nudo basta. Qui c'era
+ *    `nomi.get(siteId) || siteId`, e la scheda atleta scriveva
+ *    «Pulcini (site-1787776326508-a61cb7)» a ogni club con due Pulcini.
+ *
  * ## Cosa non fa
  *
  * Non conosce le appartenenze di un atleta, non decide eleggibilita e non
  * ordina niente: l'ordine canonico e `sortCategoryOptions` (D-INT-9). Non
  * sostituisce `buildCategoryGroupLabel`, che scrive il **gruppo operativo**
  * (`Pulcini · Roma`) — li la sede fa parte del nome della cosa, sempre, perche
- * il gruppo *e* la coppia (ADR-0038). Qui la sede e una disambiguazione, e per
- * questo e fra parentesi e non dopo un separatore.
+ * il gruppo *e* la coppia (ADR-0038). Qui la sede e una disambiguazione, e
+ * compare solo dove il nome da solo non basta. Il separatore e lo stesso,
+ * perche a schermo «Pulcini · Scauri» deve leggersi allo stesso modo da
+ * qualunque parte arrivi.
  */
 
 import { normalizeCategoryToken } from "@/lib/categories/identity";
+
+/** Separatore fra categoria e sede: `Pulcini · Scauri`. Unico per tutto il prodotto. */
+export const CATEGORY_SITE_SEPARATOR = " · ";
+
+/**
+ * L'etichetta di una sede che l'archivio cita ma il catalogo non conosce.
+ *
+ * Diversa da `UNASSIGNED_SITE_LABEL` («Sede non assegnata», `club-sites`):
+ * li la sede manca, qui c'e un riferimento che non si sa leggere. Un
+ * identificativo tecnico a schermo non e un'etichetta: e un difetto che si
+ * legge. Compare solo dove la sede serviva a distinguere due omonime.
+ */
+export const UNKNOWN_SITE_LABEL = "Sede non disponibile";
 
 export type CategoryDisplayEntry = {
   id?: string | null;
@@ -57,14 +81,20 @@ export type CategoryGroupLike = {
   active?: boolean;
 };
 
+/** Una voce del catalogo sedi: basta id e nome, `ClubSite` va bene com'e. */
+export type SiteDisplayEntry = {
+  id?: string | null;
+  name?: string | null;
+};
+
 export type CategoryDisplay = {
   /** L'identificativo: l'unica cosa con cui si sceglie. */
   readonly id: string;
   /** Il nome della categoria, nudo. */
   readonly name: string;
-  /** La sede, valorizzata **solo** quando serve a distinguere due omonime. */
+  /** La sede, valorizzata **solo** quando serve a distinguere due omonime. Mai un identificativo. */
   readonly site: string;
-  /** `Under 15 (Formia)` quando serve, `Under 15` quando non serve. */
+  /** `Under 15 · Formia` quando serve, `Under 15` quando non serve. */
   readonly label: string;
   /** Vero quando il nome, da solo, ne nomina piu di una. */
   readonly ambiguous: boolean;
@@ -86,10 +116,26 @@ const trim = (value: unknown) => String(value ?? "").trim();
  * (ADR-0038). Percio la sede di una categoria e quella dei suoi gruppi — e
  * quando i gruppi sono due, la categoria non ha *una* sede e la
  * disambiguazione per sede non e disponibile.
+ *
+ * Il nome della sede si legge dal catalogo `sites` quando c'e, altrimenti dal
+ * `siteName` che il gruppo porta (e cio che `buildCategoryGroups` produce).
+ * Un gruppo letto grezzo dall'archivio — `clubs.category_groups` porta solo
+ * `siteId` — senza catalogo sedi non ha un nome da mostrare: la sede resta
+ * **nota per identita** (serve a contare le omonime per sede) ma **senza
+ * etichetta**, e a schermo va `UNKNOWN_SITE_LABEL`, mai il `siteId`.
  */
-const sedePerCategoria = (groups: readonly CategoryGroupLike[]) => {
+const sedePerCategoria = (
+  groups: readonly CategoryGroupLike[],
+  sites: readonly SiteDisplayEntry[],
+) => {
   const perCategoria = new Map<string, Set<string>>();
   const nomi = new Map<string, string>();
+
+  for (const site of Array.isArray(sites) ? sites : []) {
+    const siteId = trim(site?.id);
+    const siteName = trim(site?.name);
+    if (siteId && siteName) nomi.set(siteId, siteName);
+  }
 
   for (const group of Array.isArray(groups) ? groups : []) {
     if (group?.active === false) continue;
@@ -106,16 +152,16 @@ const sedePerCategoria = (groups: readonly CategoryGroupLike[]) => {
     if (siteName && !nomi.has(siteId)) nomi.set(siteId, siteName);
   }
 
-  return (categoryId: string) => {
+  return (categoryId: string): { siteId: string; siteName: string } => {
     const sedi = perCategoria.get(normalizeCategoryToken(categoryId));
     /*
       Zero sedi: la categoria non e su nessun gruppo, non c'e niente da
       accostare. Due o piu: gira su piu sedi, e nominarne una sarebbe falso.
     */
-    if (!sedi || sedi.size !== 1) return "";
+    if (!sedi || sedi.size !== 1) return { siteId: "", siteName: "" };
 
     const [siteId] = Array.from(sedi);
-    return nomi.get(siteId) || siteId;
+    return { siteId, siteName: nomi.get(siteId) || "" };
   };
 };
 
@@ -130,9 +176,12 @@ const sedePerCategoria = (groups: readonly CategoryGroupLike[]) => {
 export const buildCategoryDisplayIndex = ({
   categories = [],
   groups = [],
+  sites = [],
 }: {
   categories?: readonly CategoryDisplayEntry[];
   groups?: readonly CategoryGroupLike[];
+  /** Il catalogo sedi del club: risolve i `siteId` dei gruppi letti grezzi. */
+  sites?: readonly SiteDisplayEntry[];
 } = {}): CategoryDisplayIndex => {
   const voci = (Array.isArray(categories) ? categories : []).filter((voce) =>
     trim(voce?.id),
@@ -145,7 +194,7 @@ export const buildCategoryDisplayIndex = ({
     quanteConQuestoNome.set(nome, (quanteConQuestoNome.get(nome) || 0) + 1);
   }
 
-  const sedeDi = sedePerCategoria(groups);
+  const sedeDi = sedePerCategoria(groups, sites);
 
   const perId = new Map<string, CategoryDisplayEntry>();
   for (const voce of voci) {
@@ -157,22 +206,23 @@ export const buildCategoryDisplayIndex = ({
 
     Non basta che la categoria ne abbia una sola: deve essere una sola **e non
     di qualcun altro con lo stesso nome**. Due «Under 15» che vivono tutte e due
-    a Roma, scritte «Under 15 (Roma)» due volte, sono ancora due voci identiche
+    a Roma, scritte «Under 15 · Roma» due volte, sono ancora due voci identiche
     — con in piu la promessa implicita di essere state disambiguate, che e
     peggio del nome nudo perche invita a fidarsi.
 
-    Si conta quindi quante omonime rivendicano ciascuna sede, e la parentesi si
-    apre solo dove quel conto fa uno.
+    Si conta quindi quante omonime rivendicano ciascuna sede — per
+    **identificativo** di sede, non per nome: due sedi omonime sono due sedi —
+    e l'etichetta si accosta solo dove quel conto fa uno.
   */
   const quanteOmonimeInQuestaSede = new Map<string, number>();
   for (const voce of voci) {
     const nome = normalizeCategoryToken(voce?.name);
     if (!nome || (quanteConQuestoNome.get(nome) || 0) < 2) continue;
 
-    const sede = sedeDi(trim(voce.id));
-    if (!sede) continue;
+    const { siteId } = sedeDi(trim(voce.id));
+    if (!siteId) continue;
 
-    const chiave = `${nome}::${normalizeCategoryToken(sede)}`;
+    const chiave = `${nome}::${siteId}`;
     quanteOmonimeInQuestaSede.set(
       chiave,
       (quanteOmonimeInQuestaSede.get(chiave) || 0) + 1,
@@ -180,11 +230,17 @@ export const buildCategoryDisplayIndex = ({
   }
 
   const sedeCheDistingue = (id: string, name: string) => {
-    const sede = sedeDi(id);
-    if (!sede) return "";
+    const { siteId, siteName } = sedeDi(id);
+    if (!siteId) return "";
 
-    const chiave = `${normalizeCategoryToken(name)}::${normalizeCategoryToken(sede)}`;
-    return (quanteOmonimeInQuestaSede.get(chiave) || 0) === 1 ? sede : "";
+    const chiave = `${normalizeCategoryToken(name)}::${siteId}`;
+    if ((quanteOmonimeInQuestaSede.get(chiave) || 0) !== 1) return "";
+
+    /*
+      La sede distingue, ma non ha un nome che si sappia leggere: si dice
+      che manca, non si scrive l'identificativo (regola 4).
+    */
+    return siteName || UNKNOWN_SITE_LABEL;
   };
 
   const describe = (reference: unknown): CategoryDisplay => {
@@ -224,15 +280,11 @@ export const buildCategoryDisplayIndex = ({
 
     if (!voce) {
       /*
-        Un riferimento che il catalogo non conosce si mostra com'e. Non e un
-        errore: e il club che non ha mai aperto la pagina delle categorie, o
-        una colonna storica mai bonificata. Nessuna sede da accostare, perche
-        non si sa a quale categoria appartenga.
-      */
-      /*
         Il catalogo non lo conosce: si mostra il **nome** se il chiamante ce
-        l'ha, e il valore com'e solo quando non c'e altro. Un identificativo a
-        schermo non e un'etichetta: e un difetto che si legge.
+        l'ha, e il valore com'e solo quando non c'e altro. Non e un errore: e
+        il club che non ha mai aperto la pagina delle categorie, o una colonna
+        storica mai bonificata. Nessuna sede da accostare, perche non si sa a
+        quale categoria appartenga.
       */
       const etichetta = perLeggere || grezzo;
 
@@ -254,7 +306,7 @@ export const buildCategoryDisplayIndex = ({
       id,
       name,
       site,
-      label: site ? `${name} (${site})` : name,
+      label: site ? `${name}${CATEGORY_SITE_SEPARATOR}${site}` : name,
       ambiguous,
     };
   };
@@ -280,5 +332,6 @@ export const describeCategoryForDisplay = (
   options: {
     categories?: readonly CategoryDisplayEntry[];
     groups?: readonly CategoryGroupLike[];
+    sites?: readonly SiteDisplayEntry[];
   } = {},
 ): CategoryDisplay => buildCategoryDisplayIndex(options).describe(reference);

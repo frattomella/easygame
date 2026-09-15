@@ -114,7 +114,14 @@ const serializeAthleteMemberships = (
     organization_id: membership.organizationId || clubId || null,
     athlete_id: membership.athleteId || athleteId || null,
     category_id: membership.categoryId,
-    category_name: membership.categoryName,
+    /*
+      **Il nome com'era sulla riga non si riscrive per caso** (ADR-0185).
+      Dopo una rinomina la riga porta ancora il nome vecchio, ed e l'evidenza
+      con cui le righe gemelle di **altri** atleti — scritte con il solo nome
+      — ritrovano la categoria vera. Un salvataggio che non tocca la categoria
+      non deve cancellarla: la bonifica delle righe storiche e un passo a se.
+    */
+    category_name: membership.storedCategoryName || membership.categoryName,
     is_primary: membership.isPrimary,
     site_id: membership.siteId || null,
   }));

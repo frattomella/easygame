@@ -4,11 +4,13 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 import {
+  CATEGORY_SITE_SEPARATOR,
   buildCategoryDisplayIndex,
   type CategoryDisplay,
   type CategoryDisplayEntry,
   type CategoryDisplayIndex,
   type CategoryGroupLike,
+  type SiteDisplayEntry,
 } from "@/lib/categories/display";
 
 /**
@@ -22,12 +24,17 @@ import {
  *
  * Non e un'etichetta di identita: chi sceglie una categoria manda
  * l'identificativo. Vedi ADR-0155.
+ *
+ * La Web corrente e il redesign V2 montano **questo** componente: la sede si
+ * scrive «Pulcini · Scauri» in tutti e due, con il separatore del dominio, e
+ * mai con un identificativo tecnico (ADR-0185).
  */
 export function CategoryLabel({
   category,
   index,
   categories,
   groups,
+  sites,
   className,
   siteClassName,
 }: {
@@ -38,14 +45,16 @@ export function CategoryLabel({
   /** In alternativa, il catalogo: l'indice si costruisce al volo. */
   categories?: readonly CategoryDisplayEntry[];
   groups?: readonly CategoryGroupLike[];
+  /** Il catalogo sedi: risolve il `siteId` dei gruppi letti grezzi. */
+  sites?: readonly SiteDisplayEntry[];
   className?: string;
   siteClassName?: string;
 }) {
   const descritta: CategoryDisplay = React.useMemo(() => {
     const indice =
-      index || buildCategoryDisplayIndex({ categories, groups });
+      index || buildCategoryDisplayIndex({ categories, groups, sites });
     return indice.describe(category);
-  }, [index, categories, groups, category]);
+  }, [index, categories, groups, sites, category]);
 
   if (!descritta.site) {
     return <span className={className}>{descritta.name}</span>;
@@ -57,7 +66,7 @@ export function CategoryLabel({
       {/*
         La sede sta in un elemento suo e non dentro la stessa stringa: chi legge
         con lo schermo la sente come parte del nome, e chi guarda la vede come
-        un dettaglio. `whitespace-nowrap` perche «(Formia)» non deve andare a
+        un dettaglio. `whitespace-nowrap` perche «· Formia» non deve andare a
         capo da solo su 375 px.
       */}
       <span
@@ -66,7 +75,8 @@ export function CategoryLabel({
           siteClassName,
         )}
       >
-        ({descritta.site})
+        {CATEGORY_SITE_SEPARATOR.trimStart()}
+        {descritta.site}
       </span>
     </span>
   );

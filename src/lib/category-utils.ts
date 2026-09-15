@@ -80,6 +80,18 @@ export type NormalizedCategoryOption = {
    * continuano a valere come "configurata", cioe il comportamento di prima.
    */
   configured?: boolean;
+  /**
+   * **I nomi con cui questa categoria e stata scritta in passato** (ADR-0185).
+   *
+   * Appresi dalle appartenenze che portano l'identificativo vero **e** un nome
+   * diverso da quello corrente: una riga `{ j8liup8, "Pulcini - S. Cosma" }`
+   * dice che «Pulcini» si chiamava cosi prima di una rinomina. Un riferimento
+   * storico con il solo nome «Pulcini - S. Cosma» nomina allora **lei**, e non
+   * diventa una terza voce del catalogo. Evidenza, non identita: nessuno
+   * sceglie una categoria da qui, e `resolveCategoryReference` li legge con la
+   * stessa regola dei nomi — se ne nomina due, non ne nomina nessuna.
+   */
+  aliases?: string[];
 };
 
 const YEAR_PATTERN = /(\d{4})\D+(\d{4})/;
@@ -331,6 +343,22 @@ const findCategoryIndex = (
       return !!candidateName && candidateName === existingName;
     }
 
+    /*
+      Una candidata derivata **senza** identificativo suo si riconosce anche
+      in un nome storico della voce configurata (ADR-0185): e la riga scritta
+      con la sola etichetta di prima della rinomina, non una squadra nuova.
+    */
+    if (
+      origine === "derivata" &&
+      !candidateHasOwnId &&
+      !!candidateName &&
+      (category.aliases || []).some(
+        (alias) => normalizeCategoryReference(alias) === candidateName,
+      )
+    ) {
+      return true;
+    }
+
     return (
       (!!candidateId &&
         (candidateId === existingId || candidateId === existingName)) ||
@@ -358,7 +386,11 @@ const mergeCategoryOption = (
       perche una scheda la cita (D-AUD-37/38, pilota Fortitudo Scauri). Vedi
       `configured` sul tipo.
     */
-    categories.push({ ...candidate, configured: origine === "configurata" });
+    categories.push({
+      ...candidate,
+      aliases: [...(candidate.aliases || [])],
+      configured: origine === "configurata",
+    });
     return;
   }
 
@@ -369,6 +401,43 @@ const mergeCategoryOption = (
   const candidateHasDistinctId =
     normalizeCategoryReference(candidate.id) !==
     normalizeCategoryReference(candidate.name);
+
+  /*
+    **Un nome diverso portato da una voce identificata e un alias, non un
+    nome nuovo** (ADR-0185). La voce configurata tiene il proprio nome; il
+    nome con cui una riga la cita entra fra gli alias, cosi un riferimento
+    storico con quella sola etichetta la ritrova invece di diventare una
+    terza voce.
+  */
+  const aliases = new Set<string>([
+    ...(current.aliases || []),
+    ...(candidate.aliases || []),
+  ]);
+  const nomeCorrente = current.name || candidate.name;
+  /*
+    Un alias che coincide con il nome **corrente** di un'altra voce non si
+    apprende: e il presente di quella, non il passato di questa, e renderebbe
+    ambiguo un nome che oggi nomina una categoria sola (revisione ostile H2).
+  */
+  const eIlNomeCorrenteDiUnAltra = (nome: string) =>
+    categories.some(
+      (voce, indice) =>
+        indice !== index &&
+        normalizeCategoryReference(voce.name) === normalizeCategoryReference(nome),
+    );
+  if (
+    candidate.name &&
+    normalizeCategoryReference(candidate.name) !==
+      normalizeCategoryReference(nomeCorrente) &&
+    normalizeCategoryReference(candidate.name) !==
+      normalizeCategoryReference(current.id) &&
+    !eIlNomeCorrenteDiUnAltra(candidate.name)
+  ) {
+    aliases.add(candidate.name);
+  }
+  for (const alias of Array.from(aliases)) {
+    if (eIlNomeCorrenteDiUnAltra(alias)) aliases.delete(alias);
+  }
 
   categories[index] = {
     /*
@@ -410,6 +479,7 @@ const mergeCategoryOption = (
       configurata (ripiego per chi costruisce l'elenco senza questo campo).
     */
     configured: (current.configured ?? true) || origine === "configurata",
+    aliases: Array.from(aliases),
   };
 };
 
@@ -547,31 +617,81 @@ export function buildClubCategoryOptions({
     });
   });
 
+  /*
+    **Un club senza anagrafica ha per catalogo i nomi che usa** (revisione
+    ostile H1). Se nessuna sorgente configurata ha prodotto una voce, le voci
+    derivate dalle schede sono l'unico catalogo che esiste: marcarle
+    `configured: false` le toglierebbe da ogni selettore e il club non
+    potrebbe piu assegnare una categoria a nessuno. La distinzione serve a
+    non far passare un'etichetta storica per una squadra **accanto** a quelle
+    vere, non a spegnere un club che le squadre le ha solo per nome.
+  */
+  const origineDerivata: "configurata" | "derivata" =
+    merged.length === 0 ? "configurata" : "derivata";
+
   if (Array.isArray(athletes)) {
+    /*
+      **Prima chi sa dire chi e, poi chi porta solo un nome** (ADR-0185).
+
+      Le voci derivate si fondono in due passate perche l'ordine degli atleti
+      in archivio non e un fatto del dominio. Una riga identificata insegna
+      un alias («j8liup8 si chiamava "Pulcini - S. Cosma"»); una riga con il
+      solo nome «Pulcini - S. Cosma» deve trovarlo gia appreso, o diventa una
+      terza voce a seconda di quale atleta si legge per primo.
+    */
+    const candidate: NormalizedCategoryOption[] = [];
     athletes.forEach((athlete) => {
       normalizeAthleteCategoryMemberships(athlete).forEach((membership) =>
-        mergeCategoryOption(
-          merged,
-          {
-            id: membership.categoryId,
-            name: membership.categoryName,
-            color: null,
-            compatibleCategoryIds: [],
-          },
-          "derivata",
-        ),
+        candidate.push({
+          id: membership.categoryId,
+          name: membership.categoryName,
+          color: null,
+          compatibleCategoryIds: [],
+          aliases: membership.storedCategoryName
+            ? [membership.storedCategoryName]
+            : [],
+        }),
       );
 
-      mergeCategoryOption(
-        merged,
-        deriveCategoryFromAthlete(athlete),
-        "derivata",
-      );
+      const derivata = deriveCategoryFromAthlete(athlete);
+      if (derivata) candidate.push(derivata);
     });
+
+    const conIdentificativo = (voce: NormalizedCategoryOption) =>
+      normalizeCategoryReference(voce.id) !== normalizeCategoryReference(voce.name);
+
+    candidate
+      .filter(conIdentificativo)
+      .forEach((voce) => mergeCategoryOption(merged, voce, origineDerivata));
+    candidate
+      .filter((voce) => !conIdentificativo(voce))
+      .forEach((voce) => mergeCategoryOption(merged, voce, origineDerivata));
   }
 
   return sortCategoryOptions(merged);
 }
+
+/**
+ * **Le categorie fra cui si puo scegliere** (ADR-0185).
+ *
+ * `buildClubCategoryOptions` tiene anche le voci nate **solo** perche una
+ * scheda le cita (`configured: false`): servono a non far sparire quell'atleta
+ * da elenchi e report, non a offrire la voce come squadra. Ogni selettore —
+ * la primaria e le secondarie della scheda atleta, il cambio categoria in
+ * blocco, i filtri che scrivono — passa da qui: un'etichetta storica non e
+ * un'opzione, e offrirla creerebbe la terza «Pulcini» che il club non ha.
+ *
+ * E la stessa regola con cui `buildCategoryGroups` non promuove una voce
+ * derivata a gruppo implicito, applicata al lato che sceglie.
+ */
+export const selectableCategoryOptions = <
+  T extends { configured?: boolean | null },
+>(
+  options: readonly T[],
+): T[] =>
+  (Array.isArray(options) ? options : []).filter(
+    (option) => option?.configured !== false,
+  );
 
 /**
  * **Questo atleta e di questa categoria?**

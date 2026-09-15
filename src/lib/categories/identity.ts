@@ -53,6 +53,54 @@
 export type CategoryCatalogEntry = {
   id?: string | null;
   name?: string | null;
+  /**
+   * Falso **solo** per una voce che esiste perche una scheda la cita e il
+   * club non l'ha configurata (`NormalizedCategoryOption.configured`). Una
+   * voce cosi non e un'identita: qui non entra, altrimenti il riferimento
+   * pendente che l'ha generata risolverebbe su se stesso e nessuno lo
+   * vedrebbe piu come pendente (ADR-0185).
+   */
+  configured?: boolean | null;
+  /**
+   * **I nomi con cui questa categoria e stata scritta in passato.**
+   *
+   * Non sono identita: sono evidenza. Una riga di appartenenza che porta
+   * `{ category_id: <id vero>, category_name: "Pulcini - S. Cosma" }` dice
+   * che quella categoria si chiamava cosi prima di una rinomina, e un
+   * riferimento storico con il solo nome «Pulcini - S. Cosma» nomina **lei**,
+   * non una categoria nuova. Chi costruisce il catalogo li raccoglie
+   * (`buildClubCategoryOptions`, `catalogoImplicito`); qui si leggono come un
+   * nome in piu, con la stessa regola: se ne nomina due, non ne nomina nessuna.
+   */
+  aliases?: readonly string[] | null;
+};
+
+/**
+ * **Le voci che rispondono a questo nome: prima per nome corrente, poi per
+ * alias, mai insieme.**
+ *
+ * Un alias e un nome che una categoria **aveva**; il nome corrente e quello
+ * che un'altra categoria **ha**. Se i due coincidono — la categoria rinominata
+ * e una nuova che ha preso il vecchio nome, o una riga scritta male — contare
+ * l'alias accanto al nome renderebbe ambiguo un nome che oggi nomina una
+ * categoria sola, e ogni riferimento a quella categoria smetterebbe di
+ * risolvere. Il presente vince sul passato: gli alias si consultano solo
+ * quando nessun nome corrente risponde.
+ */
+const entriesAnsweringTo = (
+  conosciute: readonly CategoryCatalogEntry[],
+  token: string,
+) => {
+  const perNomeCorrente = conosciute.filter(
+    (voce) => normalizeCategoryToken(voce?.name) === token,
+  );
+  if (perNomeCorrente.length > 0) return perNomeCorrente;
+
+  return conosciute.filter(
+    (voce) =>
+      Array.isArray(voce?.aliases) &&
+      voce.aliases.some((alias) => normalizeCategoryToken(alias) === token),
+  );
 };
 
 /** La forma normale di un riferimento: senza spazi ai bordi, minuscolo. */
@@ -234,6 +282,55 @@ export type CategoryReference = {
   readonly ambiguous: boolean;
 };
 
+/**
+ * **Il catalogo si legge per identificativi distinti.**
+ *
+ * Un'ambiguita e «questo nome ne nomina **due**»: due categorie, non due
+ * righe. Il catalogo implicito che le appartenenze di un atleta portano
+ * (`athlete-category-memberships`) elenca la stessa categoria una volta per
+ * riga — la riga della tabella, la proiezione in `data`, l'elenco delle
+ * etichette — e contarle come omonime rendeva ambiguo un nome che nominava
+ * una categoria sola. L'effetto misurato sul club pilota: la riga storica con
+ * il solo nome non si riuniva alla propria gemella e, senza catalogo del club,
+ * si prendeva la **primaria**.
+ *
+ * Fra due voci con lo stesso identificativo vince la prima che porta un
+ * nome: l'identita e una, e l'etichetta serve solo a leggerla.
+ */
+const distinctCatalogEntries = (catalog: readonly CategoryCatalogEntry[]) => {
+  const perId = new Map<string, CategoryCatalogEntry>();
+  for (const voce of Array.isArray(catalog) ? catalog : []) {
+    const id = normalizeCategoryToken(voce?.id);
+    if (!id) continue;
+    /* Una voce non configurata non e un'identita (vedi il tipo). */
+    if (voce?.configured === false) continue;
+    const gia = perId.get(id);
+    if (!gia) {
+      perId.set(id, { ...voce, aliases: [...(voce?.aliases || [])] });
+      continue;
+    }
+    /*
+      La stessa categoria, letta due volte: l'identita e una, e ogni nome in
+      piu — corrente o storico — e un alias in piu con cui risponde.
+    */
+    const nomi = new Set<string>([
+      ...(gia.aliases || []),
+      ...(voce?.aliases || []),
+    ]);
+    const nomeGia = String(gia.name ?? "").trim();
+    const nomeVoce = String(voce?.name ?? "").trim();
+    if (nomeVoce && nomeGia && normalizeCategoryToken(nomeVoce) !== normalizeCategoryToken(nomeGia)) {
+      nomi.add(nomeVoce);
+    }
+    perId.set(id, {
+      ...gia,
+      name: nomeGia || nomeVoce,
+      aliases: Array.from(nomi),
+    });
+  }
+  return Array.from(perId.values());
+};
+
 export const resolveCategoryReference = (
   rawId: unknown,
   rawName: unknown,
@@ -244,9 +341,7 @@ export const resolveCategoryReference = (
 
   if (!id && !name) return null;
 
-  const conosciute = (Array.isArray(catalog) ? catalog : []).filter(
-    (voce) => voce?.id,
-  );
+  const conosciute = distinctCatalogEntries(catalog);
   let ambiguo = false;
 
   for (const grezzo of [id, name]) {
@@ -265,9 +360,7 @@ export const resolveCategoryReference = (
       };
     }
 
-    const perNome = conosciute.filter(
-      (voce) => normalizeCategoryToken(voce.name) === token,
-    );
+    const perNome = entriesAnsweringTo(conosciute, token);
     if (perNome.length === 1 && perNome[0]?.id) {
       return {
         id: String(perNome[0].id),
@@ -316,7 +409,7 @@ export const categoryIdentity = (
   const identificativi = new Set<string>();
   const nomi = new Set<string>();
 
-  const conosciute = catalog.filter((voce) => voce?.id);
+  const conosciute = distinctCatalogEntries(catalog);
 
   for (const grezzo of collectCategoryTokens(record)) {
     const perId = conosciute.find(
@@ -327,9 +420,7 @@ export const categoryIdentity = (
       continue;
     }
 
-    const perNome = conosciute.filter(
-      (voce) => normalizeCategoryToken(voce.name) === grezzo,
-    );
+    const perNome = entriesAnsweringTo(conosciute, grezzo);
     if (perNome.length === 1) {
       identificativi.add(normalizeCategoryToken(perNome[0].id));
       continue;

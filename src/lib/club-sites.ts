@@ -47,6 +47,11 @@ import {
   normalizeAthleteCategoryMemberships,
   type AthleteCategoryMembership,
 } from "./athlete-category-memberships";
+import {
+  CATEGORY_SITE_SEPARATOR,
+  UNKNOWN_SITE_LABEL,
+} from "./categories/display";
+import { resolveCategoryReference } from "./categories/identity";
 
 export type ClubSite = {
   id: string;
@@ -87,13 +92,24 @@ export type SiteIndex = {
   sites: ClubSite[];
   /** Risolve un riferimento (id o nome, qualunque maiuscola) nell'id reale. */
   resolveSiteId: (reference: unknown) => string;
-  /** Nome leggibile di una sede, o il riferimento stesso se sconosciuta. */
+  /**
+   * Nome leggibile di una sede. Un riferimento che il catalogo non conosce
+   * **non** si restituisce com'e: un `site-…` a schermo e un difetto che si
+   * legge, non un'etichetta (ADR-0185). Esce `UNKNOWN_SITE_LABEL`; il vuoto
+   * resta vuoto.
+   */
   getSiteName: (reference: unknown) => string;
   has: (reference: unknown) => boolean;
 };
 
-/** Separatore fra categoria e sede: `Pulcini · Roma`. */
-export const CATEGORY_GROUP_SEPARATOR = " · ";
+/**
+ * Separatore fra categoria e sede: `Pulcini · Roma`.
+ *
+ * E lo stesso di `@/lib/categories/display`: il gruppo operativo e la
+ * disambiguazione per sede si leggono allo stesso modo, da qualunque parte
+ * arrivino (ADR-0185).
+ */
+export const CATEGORY_GROUP_SEPARATOR = CATEGORY_SITE_SEPARATOR;
 
 /**
  * L'etichetta della sede di chi non ne ha una.
@@ -203,7 +219,7 @@ export const buildSiteIndex = (sites: readonly ClubSite[]): SiteIndex => {
   sites.forEach((site) => {
     if (site.id) idByReference.set(normalizeReference(site.id), site.id);
     if (site.name) idByReference.set(normalizeReference(site.name), site.id);
-    nameById.set(site.id, site.name || site.id);
+    nameById.set(site.id, site.name || UNKNOWN_SITE_LABEL);
   });
 
   const resolveSiteId = (reference: unknown) => {
@@ -217,7 +233,8 @@ export const buildSiteIndex = (sites: readonly ClubSite[]): SiteIndex => {
     resolveSiteId,
     getSiteName: (reference: unknown) => {
       const id = resolveSiteId(reference);
-      return nameById.get(id) || id;
+      if (!id) return "";
+      return nameById.get(id) || UNKNOWN_SITE_LABEL;
     },
     has: (reference: unknown) => {
       const text = trimText(reference);
@@ -269,20 +286,49 @@ type CategoryLike = {
   configured?: boolean | null;
 };
 
-const buildCategoryLookup = (categories: readonly CategoryLike[]) => {
-  const byReference = new Map<string, { id: string; name: string }>();
+/**
+ * **Che categoria nomina un gruppo?** Lo dice `resolveCategoryReference`
+ * (ADR-0155), non una mappa locale.
+ *
+ * Qui c'era un dizionario che indicizzava il catalogo **per identificativo e
+ * per nome nello stesso posto**, con l'ultimo che vinceva: un gruppo salvato
+ * con `categoryId: "Pulcini"` — un'etichetta dove serviva un identificativo —
+ * su un club con due Pulcini finiva sempre sulla seconda, in silenzio. Un nome
+ * che ne nomina due non ne nomina nessuna: il riferimento resta com'e, e non
+ * si incontra con nessuna delle due squadre vere.
+ */
+const resolveGroupCategory = (
+  categoryReference: string,
+  categoryName: string,
+  categories: readonly CategoryLike[],
+) => {
+  const risolto = resolveCategoryReference(
+    categoryReference,
+    categoryName,
+    categories,
+  );
 
-  categories.forEach((category) => {
-    const id = trimText(category?.id);
-    const name = trimText(category?.name);
-    const identity = { id: id || name, name: name || id };
-    if (!identity.id) return;
+  if (risolto?.known) {
+    return { id: risolto.id, name: risolto.name };
+  }
 
-    if (id) byReference.set(normalizeReference(id), identity);
-    if (name) byReference.set(normalizeReference(name), identity);
-  });
+  return {
+    id: categoryReference,
+    name: categoryName || categoryReference,
+  };
+};
 
-  return byReference;
+/** Il posto della categoria nell'ordine del club, letto **per identificativo** (D-INT-9). */
+const readCategorySortOrderById = (
+  categoryId: string,
+  categories: readonly CategoryLike[],
+) => {
+  const voce = categories.find(
+    (category) =>
+      normalizeReference(category?.id) === normalizeReference(categoryId),
+  );
+  const posto = (voce as any)?.sortOrder;
+  return typeof posto === "number" ? posto : null;
 };
 
 export const normalizeCategoryGroup = (
@@ -304,15 +350,11 @@ export const normalizeCategoryGroup = (
     return null;
   }
 
-  const lookup = buildCategoryLookup(categories);
-  const identity = lookup.get(normalizeReference(categoryReference)) || {
-    id: categoryReference,
-    name: firstText(
-      group?.categoryName,
-      group?.category_name,
-      categoryReference,
-    ),
-  };
+  const identity = resolveGroupCategory(
+    categoryReference,
+    firstText(group?.categoryName, group?.category_name),
+    categories,
+  );
   const siteId = siteIndex.resolveSiteId(readSiteReference(group));
   const siteName = siteId ? siteIndex.getSiteName(siteId) : "";
   const configuredName = firstText(group?.name, group?.label, group?.title);
@@ -341,11 +383,7 @@ export const normalizeCategoryGroup = (
       catalogo. Salvarlo sulla riga del gruppo vorrebbe dire tenerne due
       allineati a mano (D-INT-9).
     */
-    categorySortOrder:
-      typeof (lookup.get(normalizeReference(identity.id)) as any)?.sortOrder ===
-      "number"
-        ? (lookup.get(normalizeReference(identity.id)) as any).sortOrder
-        : null,
+    categorySortOrder: readCategorySortOrderById(identity.id, categories),
     raw: group,
   };
 };
@@ -896,6 +934,65 @@ export const buildCategoryGroupsForSites = ({
 export const getActiveCategoryGroups = (groups: readonly CategoryGroup[]) =>
   groups.filter((group) => group.active);
 
+export type CategoryGroupOptionLike = {
+  categoryName: string;
+  siteName?: string | null;
+  siteId?: string | null;
+};
+
+/**
+ * **Come si scrive un gruppo fra le opzioni di una tendina** (ADR-0185).
+ *
+ * La regola era scritta tre volte — selettore dei gruppi di un allenamento,
+ * programma settimanale, intestazioni dell'elenco atleti — e una delle tre
+ * contava per `categoryId` invece che per nome scritto, quindi due
+ * categorie omonime con un gruppo ciascuna (D-AUD-37) si leggevano «Pulcini»
+ * e «Pulcini». Adesso e una: la sede si accosta quando **il nome che si
+ * legge** compare piu di una volta nell'insieme mostrato — due omonime, o
+ * una categoria su due sedi — e si scrive per nome; se il gruppo non ne ha
+ * una da leggere esce `UNASSIGNED_SITE_LABEL`, mai un identificativo.
+ *
+ * Non sostituisce `buildCategoryDisplayIndex`, che scrive una **categoria**:
+ * qui l'opzione e la squadra concreta, e con una categoria su due sedi la
+ * sede fa parte del nome della cosa (ADR-0038).
+ */
+export type CategoryGroupOptionDisplay = {
+  /** Il nome della categoria, nudo. */
+  readonly name: string;
+  /** La sede da leggere accanto, o vuota quando non serve. Mai un identificativo. */
+  readonly site: string;
+  /** `Pulcini · Scauri` quando serve, `Pulcini` quando non serve. */
+  readonly label: string;
+};
+
+export const describeCategoryGroupOptions = <T extends CategoryGroupOptionLike>(
+  groups: readonly T[],
+): ((group: T) => CategoryGroupOptionDisplay) => {
+  const quantePerNome = new Map<string, number>();
+  for (const group of groups) {
+    const chiave = normalizeReference(group.categoryName);
+    if (!chiave) continue;
+    quantePerNome.set(chiave, (quantePerNome.get(chiave) || 0) + 1);
+  }
+
+  return (group) => {
+    const name = trimText(group.categoryName) || "Categoria";
+    const serveLaSede =
+      (quantePerNome.get(normalizeReference(group.categoryName)) || 0) > 1;
+    if (!serveLaSede) return { name, site: "", label: name };
+    const site = trimText(group.siteName) || UNASSIGNED_SITE_LABEL;
+    return { name, site, label: buildCategoryGroupLabel(name, site) };
+  };
+};
+
+/** La scorciatoia di chi vuole solo la scritta. */
+export const labelCategoryGroupOptions = <T extends CategoryGroupOptionLike>(
+  groups: readonly T[],
+): ((group: T) => string) => {
+  const descrivi = describeCategoryGroupOptions(groups);
+  return (group) => descrivi(group).label;
+};
+
 /* --------------------------------------------------- allenamenti e gruppi */
 
 /**
@@ -1082,7 +1179,7 @@ export const rilevaDisallineamentiDiSede = ({
   return Array.from(perSede.entries())
     .map(([siteId, athleteIds]) => ({
       siteId,
-      siteName: index.getSiteName(siteId) || siteId,
+      siteName: index.getSiteName(siteId),
       athleteIds: Array.from(athleteIds),
     }))
     .sort((left, right) =>

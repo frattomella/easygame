@@ -11680,3 +11680,123 @@ Fortitudo conservano la versione precedente). Le tre deroghe al design
 (mobile sotto i 1024, cassetto Azioni rapide che apre il modulo della pagina
 invece di un modulo compatto interno, `Ruoli e accessi`) sono scritte qui e
 non altrove.
+
+## ADR-0185 — Categoria, sede, gruppo e appartenenza sono quattro identita; l'etichetta non e nessuna delle quattro, e si scrive in un punto solo per la Web corrente e per il redesign V2
+
+**Data:** 2026-09-15
+
+**Contesto.** Sul club pilota Fortitudo Scauri la scheda atleta scriveva
+«Pulcini (site-1787776326508-a61cb7)», offriva una terza «Pulcini - S. Cosma»
+fra le categorie scegliibili e mostrava «Pulcini · Secondaria» a un ragazzo
+senza secondarie. Il trace sui dati reali (branch Neon `web-redesign-staging`,
+copia del pilota) ha dato tre cause distinte, tutte gia «corrette» una volta in
+un consumatore e sopravvissute in un altro:
+
+1. `src/lib/categories/display.ts` ripiegava sul `siteId` quando il gruppo non
+   portava `siteName`, e la scheda atleta — nella Web corrente `768ef05` e nel
+   V2 allo stesso modo — passava `clubs.category_groups` **grezzo**, che porta
+   solo `siteId`;
+2. `normalizeAthleteCategoryMemberships`, **con** il catalogo del club in mano,
+   riscriveva `categoryName` sul nome corrente prima della dedupe: l'evidenza
+   «`j8liup8` si chiamava "Pulcini - S. Cosma"» spariva, e la riga gemella
+   scritta con il solo nome (D-AUD-39: 215 righe cosi nel pilota) restava
+   orfana come seconda squadra. Senza catalogo la coppia si autoriparava, ed e
+   per questo che la diagnosi precedente non l'aveva vista. Inoltre
+   l'ambiguita di un nome si contava per **righe** e non per identificativi
+   distinti, e una stringa di `data.categories` con nome ambiguo diventava
+   una membership propria;
+3. `buildClubCategoryOptions` teneva le voci nate solo da una scheda come
+   `configured: false`, ma il flag lo leggeva **solo** `buildCategoryGroups`:
+   ogni selettore offriva anche le voci fantasma.
+
+**Decisione.**
+
+1. **Quattro identita, quattro domande.** Categoria (in che fascia gioca),
+   sede (in che citta), gruppo operativo (quale squadra concreta =
+   categoria + sede), appartenenza dell'atleta (verso quale identita
+   operativa, con che ruolo). Nessuna delle quattro si riconosce da
+   un'etichetta: `resolveCategoryReference` e `sameCategory` per la
+   categoria, `buildSiteIndex.resolveSiteId` per la sede,
+   `buildCategoryGroupId` per il gruppo, `normalizeAthleteCategoryMemberships`
+   per l'appartenenza.
+2. **L'etichetta operativa ha un punto solo**, `buildCategoryDisplayIndex`
+   (`src/lib/categories/display.ts`), consumato dalla Web corrente e dal V2
+   attraverso `CategoryLabel` o `label()`. Scrive «Serie C» quando il nome e
+   univoco e «Pulcini · Scauri» / «Pulcini · S. Cosma» quando due configurate
+   condividono il nome — con il **nome** della sede, risolto sul catalogo
+   `sites` o sul `siteName` del gruppo costruito, e con lo stesso separatore
+   del gruppo operativo (`CATEGORY_SITE_SEPARATOR`, da cui deriva
+   `CATEGORY_GROUP_SEPARATOR`). Un `siteId` non e mai un'etichetta: se la sede
+   serviva a distinguere e non si sa leggere esce `UNKNOWN_SITE_LABEL`
+   («Sede non disponibile»); se non serviva, il nome nudo. `getSiteName`
+   segue la stessa regola. La presentazione puo differire fra le due Web; la
+   semantica e questa e non se ne scrive una seconda.
+3. **Un nome stantio e un alias, non una categoria.** Il catalogo
+   (`CategoryCatalogEntry.aliases`, `NormalizedCategoryOption.aliases`) e le
+   appartenenze (`storedCategoryName`) conservano il nome con cui una riga
+   identificata cita la categoria; un riferimento con il solo nome lo ritrova
+   con la stessa regola dei nomi — se ne nomina due, non ne nomina nessuna.
+   L'ambiguita si conta su identificativi **distinti**. Le voci derivate si
+   fondono in due passate (prima chi porta un identificativo, poi chi porta
+   solo un nome), cosi l'esito non dipende dall'ordine degli atleti.
+4. **Si sceglie solo fra cio che il club ha configurato**:
+   `selectableCategoryOptions` e il filtro di ogni selettore (scheda atleta,
+   creazione, cambio in blocco). Una voce `configured: false` resta nel
+   catalogo per non far sparire l'atleta dagli elenchi, non per essere scelta.
+5. **Un'appartenenza identifica una categoria, o non e un'appartenenza.** Un
+   riferimento con il solo nome che ne nomina due non entra da nessuna
+   sorgente (riga, proiezione, colonna) quando l'atleta ha almeno una riga
+   identificata. Con il catalogo del club in mano — che e **tutto** il
+   catalogo, mai un sottoinsieme: e il contratto del parametro — una
+   **secondaria** che il catalogo non conosce e pendente e esce fra i
+   `collectDanglingAthleteCategoryReferences`; la **primaria** pendente resta
+   e si segnala, perche toglierla farebbe salire una secondaria al suo posto.
+   `categories` / `data.categories` sono una proiezione come la colonna
+   storica: riconoscono la propria riga e ne prendono la bandiera, non la
+   danno. Senza catalogo nulla cambia rispetto a prima.
+6. **La bonifica delle righe storiche e separata e autorizzata.**
+   `scripts/censimento-appartenenze-legacy.mjs` legge e classifica
+   (`DETERMINISTIC` / `AMBIGUOUS` / `UNRESOLVABLE`); nessuna scrittura
+   automatica. Sul pilota: 215 righe, tutte deterministiche, 0 ambigue.
+
+7. **Le opzioni gruppo hanno una regola sola**, `describeCategoryGroupOptions`
+   / `labelCategoryGroupOptions` (`club-sites.ts`): la sede si accosta quando
+   il nome che si legge compare piu di una volta nell'insieme mostrato. La
+   consumano l'elenco atleti (intestazioni di gruppo), `TrainingGroupSelector`
+   e il programma settimanale, che prima la scrivevano tre volte — e una delle
+   tre contava per `categoryId`.
+8. **Il salvataggio non e una bonifica.** La scheda atleta manda le
+   appartenenze **solo** dal cassetto che le modifica: un riferimento pendente
+   lasciato fuori dal lettore non viene cancellato da un numero di telefono. Le
+   righe rimandate conservano `storedCategoryName` e il writer lo riscrive
+   com'era (`serializeAthleteMemberships`): l'alias di cui le gemelle di altri
+   atleti hanno bisogno non si perde finche la bonifica non lo rende inutile.
+   Quando nessuna riga e dichiarata primaria, la colonna storica **resta** la
+   primaria (club migrato a meta): l'ordine dell'heap non sceglie al posto del
+   club. `categoryMemberships` / `data.categoryMemberships` e le etichette sono
+   proiezioni: con le righe presenti si riconoscono in una riga e ne prendono la
+   bandiera; un'etichetta che non ne ritrova nessuna tace; solo la colonna
+   storica entra da secondaria (C2).
+9. **Un nome corrente vince su un alias**, e un alias uguale al nome corrente di
+   un'altra categoria non si apprende. Un club **senza** anagrafica ha per
+   catalogo i nomi che usa: le voci derivate sono configurate, e i selettori
+   restano pieni. Una voce `configured: false` non e un'identita per
+   `resolveCategoryReference`: il pendente che l'ha generata resta pendente
+   anche con il catalogo reale in mano.
+
+**Conseguenze.** La scheda atleta costruisce i gruppi con
+`buildCategoryGroups` come le altre pagine; il modulo di creazione, la scheda
+dell'allenatore, le sue bacheche, l'area famiglia e l'area atleta
+(`serializeAthleteCategories` + `label`), i selettori degli allenatori
+(scheda, nuovo, filtro), il filtro degli allenamenti, i certificati e il
+magazzino (filtro per identificativo, non per etichetta) chiedono l'etichetta
+all'indice. Una riga gemella storica si fonde sulla riga vera al primo
+salvataggio **del cassetto categorie** — non e una migrazione, e cio che il
+modulo mostra. Revisione ostile in tre (identita/fantasmi, appartenenze, parita
+V1/V2): otto High trovati e chiusi, Critical 0, High 0 alla seconda passata.
+Le prove: `tests/lib/categoria-sede-appartenenza-identita.test.mjs` (22, sui
+dati del pilota), `tests/lib/categoria-revisione-ostile-adr-0185.test.mjs`
+(13), piu l'aggiornamento di `categoria-omonima-sede-visibile`,
+`categoria-omonima-superfici`, `training-categoria-groupOptions`,
+`multisite-ux`, `area-famiglia-wave6`, `atleti-v2-parita`,
+`categorie-v2-parita` alla forma nuova.

@@ -15,7 +15,7 @@ import {
  * aperta — accostare **sempre** la sede o solo quando il nome e ambiguo — e
  * presa qui: **solo quando serve**, e l'ambiguita si calcola dove si disegna.
  *
- * La ragione e che l'alternativa e rumore: «Pulcini (Roma)» su ogni riga di un
+ * La ragione e che l'alternativa e rumore: «Pulcini · Roma» su ogni riga di un
  * club che ha una sede sola non aiuta nessuno a distinguere niente.
  */
 
@@ -60,8 +60,8 @@ test("due omonime si leggono con la sede accanto", () => {
     groups: GRUPPI,
   });
 
-  assert.equal(indice.label(U15_FORMIA), "Under 15 (Formia)");
-  assert.equal(indice.label(U15_SCAURI), "Under 15 (Scauri)");
+  assert.equal(indice.label(U15_FORMIA), "Under 15 · Formia");
+  assert.equal(indice.label(U15_SCAURI), "Under 15 · Scauri");
   assert.notEqual(
     indice.label(U15_FORMIA),
     indice.label(U15_SCAURI),
@@ -102,7 +102,7 @@ test("una categoria con nome unico non porta nessuna sede", () => {
   assert.equal(indice.describe(PULCINI).ambiguous, false);
 });
 
-test("un club mono-sede senza omonime non vede mai una parentesi", () => {
+test("un club mono-sede senza omonime non vede mai una sede accanto", () => {
   const indice = buildCategoryDisplayIndex({
     categories: [
       { id: "c1", name: "Pulcini" },
@@ -163,7 +163,7 @@ test("una categoria che gira su due sedi non ne dichiara una sola", () => {
   });
 
   assert.equal(indice.label("a"), "Under 15", "due sedi: nominarne una sarebbe falso");
-  assert.equal(indice.label("b"), "Under 15 (Napoli)");
+  assert.equal(indice.label("b"), "Under 15 · Napoli");
 });
 
 test("un gruppo archiviato non presta la propria sede", () => {
@@ -181,7 +181,7 @@ test("un gruppo archiviato non presta la propria sede", () => {
 
   assert.equal(
     indice.label("a"),
-    "Under 15 (Milano)",
+    "Under 15 · Milano",
     "resta una sola sede attiva, ed e quella",
   );
 });
@@ -231,7 +231,7 @@ test("la resa vive in un componente solo, e la sede vi e secondaria", () => {
   assert.match(
     sorgente,
     /whitespace-nowrap/,
-    "«(Formia)» non deve andare a capo da solo su 375 px",
+    "«· Formia» non deve andare a capo da solo su 375 px",
   );
 });
 
