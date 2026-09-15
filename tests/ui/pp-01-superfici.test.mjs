@@ -31,7 +31,12 @@ const senzaCommenti = (sorgente) =>
 const SCHEDA = "app/athletes/[id]/page.tsx";
 const INTESTAZIONE = "components/athletes/profile/athlete-profile-header.tsx";
 const ACCESSO = "components/athletes/profile/athlete-account-section.tsx";
-const BARRA = "components/dashboard/Sidebar.tsx";
+/*
+  Dal Web V2 la barra del club e in due file: le voci (etichette, indirizzi,
+  gruppi) in `web/shell/navigation.ts`, il disegno in `web/shell/Sidebar.tsx`.
+*/
+const BARRA = "components/web/shell/navigation.ts";
+const BARRA_UI = "components/web/shell/Sidebar.tsx";
 const BARRA_MOBILE = "components/layout/MobileTopBar.tsx";
 
 /* ==================================================================== */
@@ -172,8 +177,17 @@ test("§I · nessuna delle due sezioni e montata due volte", () => {
 /* ==================================================================== */
 
 test("§K · la barra blu ha una larghezza sola, e le tre la condividono", () => {
+  /*
+    La barra del club segue la geometria del sistema Web V2 (256/72,
+    guideline 06 §6.1–6.2); quelle di allenatore e famiglia restano a 264/80
+    finche non vengono ridisegnate.
+  */
+  const club = leggi(BARRA_UI);
+  assert.ok(club.includes('"w-[256px]"'), `${BARRA_UI}: la barra estesa e a 256px`);
+  assert.ok(club.includes('"w-[72px]"'), `${BARRA_UI}: la barra compressa e a 72px`);
+  assert.equal(club.includes('"w-[320px]"'), false);
+
   const barre = [
-    BARRA,
     "components/trainer/TrainerSidebar.tsx",
     "components/parent-dashboard/ParentSidebar.tsx",
   ];
@@ -197,15 +211,18 @@ test("§K · la barra blu ha una larghezza sola, e le tre la condividono", () =>
 });
 
 test("§K · nella barra compressa ogni voce dice il proprio nome", () => {
-  const barra = senzaCommenti(leggi(BARRA));
+  const barra = senzaCommenti(leggi(BARRA_UI));
+  const voci = senzaCommenti(leggi(BARRA));
 
   /*
     L'HUB era l'unica icona della barra compressa senza il fumetto delle altre:
     aveva `title`, che e del browser, arriva dopo un secondo e non risponde al
-    fuoco da tastiera.
+    fuoco da tastiera. Nel Web V2 l'HUB e una voce come le altre, e ogni voce
+    compressa ha il `Tooltip` del sistema.
   */
   assert.ok(
-    barra.includes('<SidebarItemTooltip label="EasyGame HUB"'),
+    voci.includes('href: "/hub"') &&
+      barra.includes("<Tooltip content={item.label}"),
     "anche l'HUB e una pagina, e nella barra compressa e un'icona come le altre",
   );
   assert.equal(
@@ -307,7 +324,7 @@ test("§M · «Permessi» e «Ruoli e accessi» non si chiamano piu allo stesso 
 
 test("§J · «Profilo» porta all'unica superficie che funziona per ogni ruolo", () => {
   for (const file of [
-    "components/dashboard/Header.tsx",
+    "components/web/shell/Topbar.tsx",
     "components/layout/MobileTopBar.tsx",
   ]) {
     const sorgente = senzaCommenti(leggi(file));

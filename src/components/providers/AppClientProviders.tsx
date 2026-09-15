@@ -6,6 +6,7 @@ import { GlobalLoadingProvider } from "@/components/providers/GlobalLoadingProvi
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { ToastProvider } from "@/components/ui/toast-notification";
 import { Toaster } from "@/components/ui/toaster";
+import { ShellProvider } from "@/components/web/shell/ShellProvider";
 
 export function AppClientProviders({
   children,
@@ -22,7 +23,10 @@ export function AppClientProviders({
           enableSystem={false}
           disableTransitionOnChange
         >
-          <GlobalLoadingProvider>{children}</GlobalLoadingProvider>
+          {/* Lo stato del guscio Web V2 (barra compressa, cassetti globali). */}
+          <ShellProvider>
+            <GlobalLoadingProvider>{children}</GlobalLoadingProvider>
+          </ShellProvider>
           <Toaster />
         </ThemeProvider>
       </AuthProvider>

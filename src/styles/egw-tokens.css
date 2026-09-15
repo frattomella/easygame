@@ -1,0 +1,164 @@
+/* EasyGame Web — livello di token EGDS v3.1.0 (`--egw-*`).
+   Copia fedele di `design-source/tokens/web.css`: se cambia la fonte, cambia
+   anche questo file, non il contrario. Nessun esadecimale nei componenti:
+   si consumano queste variabili (guideline 10 §10.3). */
+:root {
+  /* ── Environment 1 · gestionale (every working page) ───────────────── */
+  --egw-page: #eef3fe;              /* page ground */
+  --egw-page-100: #f4f7fd;          /* table header, field rest, row zebra */
+  --egw-page-050: #f7f9fe;          /* active row, hovered surface */
+  --egw-page-025: #fbfcfe;          /* filter bar */
+  --egw-panel: #ffffff;
+  --egw-panel-border: rgba(11, 26, 58, .07);
+  --egw-hairline: rgba(11, 26, 58, .08);   /* inside a panel */
+  --egw-rule: rgba(11, 26, 58, .06);       /* between table rows */
+  --egw-field-border: rgba(11, 26, 58, .12);
+  --egw-control-border: rgba(11, 26, 58, .14);
+
+  /* ── Environment 2 · dashboard sky band ───────────────────────────── */
+  --egw-sky-h: 340px;               /* @kind color */ /* band height, top of the content column */
+  --egw-sky: radial-gradient(560px 280px at 16% -14%, rgba(96,165,250,.5), transparent 70%),
+             radial-gradient(520px 260px at 88% -22%, rgba(53,51,205,.45), transparent 70%),
+             repeating-linear-gradient(90deg, rgba(255,255,255,.07) 0 1px, transparent 1px 28px),
+             linear-gradient(180deg, #0f1f4d, #162c66 46%, #1e3c8f 86%, #22459f); /* @kind color */
+  --egw-horizon-top: 216px;         /* @kind color */ /* where the fade starts inside the band */
+  --egw-horizon-h: 132px; /* @kind color */
+  --egw-horizon: linear-gradient(180deg, rgba(238,243,254,0), rgba(238,243,254,.72) 62%, #eef3fe); /* @kind color */
+
+  /* ── Environment 3 · fuori dal club (auth, account, system) ───────── */
+  --egw-sky-full: radial-gradient(760px 520px at 18% -8%, rgba(96,165,250,.5), transparent 70%),
+                  radial-gradient(700px 480px at 90% -14%, rgba(53,51,205,.45), transparent 70%),
+                  repeating-linear-gradient(90deg, rgba(255,255,255,.07) 0 1px, transparent 1px 28px),
+                  linear-gradient(180deg, #0f1f4d, #162c66 46%, #1e3c8f 86%, #22459f); /* @kind color */
+
+  /* ── Ink · three levels, nothing between ──────────────────────────── */
+  --egw-ink: #0b1a3a;
+  --egw-ink-72: rgba(11, 26, 58, .72);   /* body copy */
+  --egw-ink-62: rgba(11, 26, 58, .62);   /* secondary copy */
+  --egw-ink-42: rgba(11, 26, 58, .42);   /* eyebrow, placeholder — floor */
+
+  /* ── Brand & depth ────────────────────────────────────────────────── */
+  --egw-blue: #2563eb;
+  --egw-blue-700: #1d4ed8;          /* informative, link, training */
+  --egw-blue-800: #1e40af;          /* label on blue tint */
+  --egw-indigo: #3533cd;
+  --egw-navy-800: #12265a;          /* neutral-strong button, active view chip */
+  --egw-navy-900: #0b1a3a;
+
+  /* ── Semantic (solid 700s — label always white) ───────────────────── */
+  --egw-green: #15803d;             /* valido, incassato, presente, completato */
+  --egw-amber: #b45309;             /* in attesa, in scadenza, da sistemare */
+  --egw-amber-ink: #8a4708;         /* amber label on white, outline tier */
+  --egw-red: #b91c1c;               /* scaduto, mancante, errore, bloccante */
+  --egw-orange: #9a3412;            /* gara e convocazioni */
+
+  /* ── Tints (fill 8–12%, border 26–32%) ────────────────────────────── */
+  --egw-tint-blue: rgba(37, 99, 235, .10);
+  --egw-tint-blue-bd: rgba(37, 99, 235, .28);
+  --egw-tint-green: rgba(21, 128, 61, .10);
+  --egw-tint-green-bd: rgba(21, 128, 61, .30);
+  --egw-tint-amber: rgba(180, 83, 9, .10);
+  --egw-tint-amber-bd: rgba(180, 83, 9, .30);
+  --egw-tint-red: rgba(185, 28, 28, .09);
+  --egw-tint-red-bd: rgba(185, 28, 28, .30);
+  --egw-tint-orange: rgba(234, 88, 12, .10);
+  --egw-tint-orange-bd: rgba(234, 88, 12, .26);
+  --egw-row-selected: rgba(37, 99, 235, .05);
+  --egw-row-hover: #f7f9fe;
+
+  /* ── The only three gradients ─────────────────────────────────────── */
+  --egw-grad-action: linear-gradient(135deg, #3b82f6, #2563eb 48%, #3533cd); /* @kind color */
+  --egw-grad-sidebar: linear-gradient(168deg, #3b82f6, #2563eb 42%, #3533cd); /* @kind color */
+  --egw-grad-drawer: linear-gradient(150deg, #3b82f6, #2563eb 46%, #3533cd); /* @kind color */
+  --egw-grad-match: linear-gradient(135deg, #fb923c, #f97316 55%, #c2410c); /* @kind color */
+  --egw-grad-navy: linear-gradient(160deg, #1b3576, #0b1a3a); /* @kind color */
+  --egw-grad-hairline: linear-gradient(90deg, #3b82f6, #2563eb 48%, #3533cd); /* @kind color */
+
+  /* ── The cut corner ───────────────────────────────────────────────── */
+  --egw-r-panel: 22px 22px 8px 22px;      /* @kind radius */ /* content panel, card */
+  --egw-r-panel-sm: 18px 18px 6px 18px;   /* @kind radius */ /* grid panel, drawer body block */
+  --egw-r-field: 14px 14px 5px 14px;      /* @kind radius */ /* field, tall button, inset block */
+  --egw-r-control: 12px 12px 4px 12px;    /* @kind radius */ /* button, nav item, input 42px */
+  --egw-r-chip: 10px 10px 4px 10px;       /* @kind radius */ /* chip, tag, counter, icon chip */
+  --egw-r-micro: 8px 8px 3px 8px;         /* @kind radius */ /* 22–26px squares, glyph tiles */
+  --egw-r-check: 5px 5px 2px 5px;         /* @kind radius */ /* row checkbox */
+  --egw-r-menu: 16px 16px 5px 16px;       /* @kind radius */ /* dropdown menu, popover */
+  --egw-r-pill: 9999px;                   /* @kind radius */ /* STATUS PILL ONLY */
+
+  /* ── Elevation · three planes, never four ─────────────────────────── */
+  --egw-plane-0: none; /* @kind shadow */
+  --egw-plane-1: 0 1px 2px rgba(11, 26, 58, .05), 0 16px 32px -24px rgba(11, 26, 58, .4),
+                 inset 0 1px 0 rgba(255, 255, 255, .9); /* @kind shadow */
+  --egw-plane-2: 0 24px 56px -20px rgba(7, 18, 43, .45), inset 0 1px 0 rgba(255, 255, 255, .9); /* @kind shadow */
+  --egw-plane-menu: 0 26px 60px -20px rgba(7, 18, 43, .4), 0 0 0 1px rgba(11, 26, 58, .07),
+                    inset 0 1px 0 #fff; /* @kind shadow */
+  --egw-plane-drawer: -30px 0 70px -24px rgba(7, 18, 43, .55); /* @kind shadow */
+  --egw-glow-action: 0 14px 28px -12px rgba(37, 99, 235, .75), inset 0 1px 0 rgba(255, 255, 255, .35); /* @kind shadow */
+  --egw-scrim: rgba(7, 18, 43, .5); /* @kind color */
+
+  /* ── Geometry ─────────────────────────────────────────────────────── */
+  --egw-sidebar-w: 256px;
+  --egw-sidebar-collapsed-w: 72px;
+  --egw-topbar-h: 60px;             /* light topbar */
+  --egw-topbar-sky-h: 64px;         /* topbar over the sky band */
+  --egw-topbar-hairline: 3px;
+  --egw-page-gutter: 32px;          /* ≥1440px; 24px at 1280; 20px at 1152 */
+  --egw-page-max: 1560px;           /* content column cap; grids may go full width */
+  --egw-panel-gap: 18px;
+  --egw-panel-pad: 24px;
+  --egw-panel-gap-inner: 14px;
+  --egw-drawer-w: 480px;            /* create / edit */
+  --egw-drawer-w-narrow: 392px;     /* quick actions, inspector */
+  --egw-drawer-w-wide: 720px;       /* multi-section form */
+  --egw-modal-w: 460px;             /* confirmation only */
+  --egw-menu-w: 262px;
+
+  /* ── Density · row heights ────────────────────────────────────────── */
+  --egw-row-h: 44px;                /* media — DEFAULT */
+  --egw-row-h-comfortable: 48px;
+  --egw-row-h-compact: 40px;
+  --egw-row-head-h: 40px;
+  --egw-cell-pad-x: 16px;
+  --egw-cell-gap: 12px;
+
+  /* ── Control heights ──────────────────────────────────────────────── */
+  --egw-btn-h: 40px;
+  --egw-btn-h-sm: 32px;             /* row action, toolbar */
+  --egw-btn-h-xs: 28px;             /* bulk bar, inline chip */
+  --egw-field-h: 46px;              /* page form */
+  --egw-field-h-sm: 42px;           /* drawer form */
+  --egw-nav-h: 40px;                /* sidebar item, active */
+  --egw-nav-h-rest: 38px;
+  --egw-icon-meta: 16px;
+  --egw-icon-nav: 17px;
+  --egw-icon-action: 13px;
+
+  /* ── Type ─────────────────────────────────────────────────────────── */
+  --egw-t-page-title: 800 32px/1.08 var(--eg-font-brand, Poppins), sans-serif; /* @kind font */
+  --egw-t-section: 800 20px/1.2 var(--eg-font-brand, Poppins), sans-serif; /* @kind font */
+  --egw-t-panel-title: 700 15px/1.3 var(--eg-font-brand, Poppins), sans-serif; /* @kind font */
+  --egw-t-eyebrow: 700 10px/1 var(--eg-font-brand, Poppins), sans-serif; /* @kind font */
+  --egw-t-col-head: 700 9.5px/1 var(--eg-font-brand, Poppins), sans-serif; /* @kind font */
+  --egw-t-label: 600 13.5px/1.3 var(--eg-font-brand, Poppins), sans-serif; /* @kind font */
+  --egw-t-body: 400 13.5px/1.6 var(--eg-font-brand, Poppins), sans-serif; /* @kind font */
+  --egw-t-cell: 400 13px/1 var(--eg-font-brand, Poppins), sans-serif; /* @kind font */
+  --egw-t-meta: 400 12px/1.5 var(--eg-font-brand, Poppins), sans-serif; /* @kind font */
+  --egw-t-btn: 600 13px/1 var(--eg-font-brand, Poppins), sans-serif; /* @kind font */
+  --egw-track-eyebrow: .12em; /* @kind other */
+  --egw-track-col-head: .1em; /* @kind other */
+  --egw-track-pill: .08em; /* @kind other */
+  --egw-track-display: -.02em; /* @kind other */
+  --egw-track-num: -.03em; /* @kind other */
+
+  /* ── Focus, hover, motion ─────────────────────────────────────────── */
+  --egw-focus-ring: 0 0 0 3px rgba(37, 99, 235, .18); /* @kind shadow */
+  --egw-focus-border: #2563eb;
+  --egw-focus-ring-dark: 0 0 0 3px rgba(255, 255, 255, .55); /* @kind shadow */
+  --egw-focus-ring-danger: 0 0 0 3px rgba(185, 28, 28, .2); /* @kind shadow */
+  --egw-dur-hover: 90ms; /* @kind other */
+  --egw-dur-press: 110ms; /* @kind other */
+  --egw-dur-panel: 160ms; /* @kind other */
+  --egw-dur-drawer: 220ms; /* @kind other */
+  --egw-dur-drawer-out: 180ms; /* @kind other */
+  --egw-ease: cubic-bezier(.2, .9, .25, 1); /* @kind other */
+}

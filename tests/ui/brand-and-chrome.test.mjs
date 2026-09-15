@@ -71,7 +71,8 @@ test("il marchio non ha dipendenze di rete", () => {
 
 // --- topbar del club ----------------------------------------------------------
 
-const HEADER = path.join(SRC, "components/dashboard/Header.tsx");
+/* Dal Web V2 la barra superiore del club e `web/shell/Topbar.tsx`. */
+const HEADER = path.join(SRC, "components/web/shell/Topbar.tsx");
 const MOBILE_TOPBAR = path.join(SRC, "components/layout/MobileTopBar.tsx");
 
 /** Sorgente senza commenti: un commento che *nomina* una cosa rimossa non e la cosa. */

@@ -158,8 +158,13 @@ test("W6-55 · un campo nuovo non nasce con due tariffe a zero", () => {
 
 /* ----------------------------------------------------------- SIDEBAR §10 */
 
+/*
+  Dal Web V2 la barra del club e `web/shell/Sidebar.tsx`: il fumetto e il
+  `Tooltip` del sistema, montato intorno a ogni voce quando la barra e
+  compressa. Le barre di allenatore e famiglia restano quelle di prima.
+*/
 const SIDEBAR = [
-  "components/dashboard/Sidebar.tsx",
+  "components/web/shell/Sidebar.tsx",
   "components/trainer/TrainerSidebar.tsx",
   "components/parent-dashboard/ParentSidebar.tsx",
 ];
@@ -168,7 +173,8 @@ test("§10 · compressa, ogni voce della barra dice il proprio nome", () => {
   for (const file of SIDEBAR) {
     const sorgente = leggi(file);
     assert.ok(
-      sorgente.includes("<SidebarItemTooltip"),
+      sorgente.includes("<SidebarItemTooltip") ||
+        sorgente.includes("<Tooltip content={item.label}"),
       `${file}: la barra compressa mostra icone mute`,
     );
     assert.ok(

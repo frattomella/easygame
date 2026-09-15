@@ -173,6 +173,12 @@ const navSections = [
         schermo largo almeno 1024 px.
       */
       { href: "/documenti", label: "Documenti", icon: FileCheck },
+      /*
+        Gli appuntamenti sono una voce della barra laterale V2 (gruppo
+        Segreteria): la stessa destinazione deve esistere anche qui, sotto i
+        1024 px.
+      */
+      { href: "/appuntamenti", label: "Appuntamenti", icon: CalendarDays },
       { href: "/notifications", label: "Notifiche", icon: Bell },
       { href: "/communications", label: "Comunicazioni", icon: Send },
       { href: "/reports", label: "Report", icon: BarChart3 },

@@ -276,7 +276,8 @@ test("la pagina e il menu usano la matrice condivisa dei permessi", () => {
     "il permesso sui saldi lo applica il servizio, e la pagina legge il risultato",
   );
 
-  const sidebar = read("src/components/dashboard/Sidebar.tsx");
+  /* Dal Web V2 le voci della barra stanno in `web/shell/navigation.ts`. */
+  const sidebar = read("src/components/web/shell/navigation.ts");
   assert.match(
     sidebar,
     /canOpenAccounting/,

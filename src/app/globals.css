@@ -1,3 +1,10 @@
+/*
+  EGDS v3.1.0 — il livello Web V2. I token e la base vivono in src/styles/ e
+  vengono importati prima di Tailwind cosi le utility egw-* li trovano.
+*/
+@import "../styles/egw-tokens.css";
+@import "../styles/egw-base.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

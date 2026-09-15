@@ -437,7 +437,7 @@ test("le barre di schede non escono dallo schermo stretto", () => {
 
 test("i comandi di intestazione vanno a capo prima di uscire", () => {
   assert.match(
-    read("components/dashboard/shared-page-header.tsx"),
+    read("components/web/page/PageHeader.tsx"),
     /flex flex-wrap gap-2 sm:shrink-0/,
     "`shrink-0` sotto sm faceva sporgere di qualche pixel un pulsante con etichetta lunga",
   );

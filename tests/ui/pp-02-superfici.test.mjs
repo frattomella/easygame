@@ -31,7 +31,8 @@ const GUSCIO = "components/parent-dashboard/parent-dashboard-shell.tsx";
 const BARRA = "components/parent-dashboard/ParentSidebar.tsx";
 const SCELTA = "app/parent-view/page.tsx";
 const PAGINE = "components/parent-dashboard/parent-dashboard-pages.tsx";
-const HEADER = "components/dashboard/Header.tsx";
+/* Dal Web V2 la barra superiore e `web/shell/Topbar.tsx`. */
+const HEADER = "components/web/shell/Topbar.tsx";
 
 /* ==================================================================== */
 /*  §A — la scelta del figlio sta nel guscio, non dentro ogni pagina     */
@@ -119,11 +120,11 @@ test("§C · la barra superiore preferisce l'identita dichiarata alla copia loca
   const header = senzaCommenti(leggi(HEADER));
 
   assert.ok(
-    header.includes("clubIdentity?.name || orgName"),
+    header.includes("clubIdentity?.name || activeClub?.name"),
     "il nome dichiarato deve vincere",
   );
   assert.ok(
-    header.includes("clubIdentity ? clubIdentity.seasonLabel : activeSeasonLabel"),
+    header.includes("clubIdentity ? clubIdentity.seasonLabel : activeClub?.activeSeasonLabel"),
     "e con lui la stagione: prenderne una da una fonte e una dall'altra e il modo di mostrarle discordi",
   );
 });
@@ -459,7 +460,7 @@ test("§T · la riga dell'appuntamento legge la proiezione, non un vocabolario s
 });
 
 test("§T · la barra su telefono riceve la stessa identita di quella su desktop", () => {
-  const header = senzaCommenti(leggi("components/dashboard/Header.tsx"));
+  const header = senzaCommenti(leggi(HEADER));
   const barra = senzaCommenti(leggi("components/layout/MobileTopBar.tsx"));
 
   /*

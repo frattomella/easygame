@@ -1,0 +1,214 @@
+/*
+  EasyGame Web — base del sistema V2 (EGDS v3.1.0).
+
+  Qui vivono solo le regole che non si esprimono bene come utility Tailwind:
+  il font di marca, le animazioni consentite (guideline 05 §5.7), la barra di
+  scorrimento nelle superfici del guscio, e poche classi di composizione usate
+  da piu componenti. Tutto il resto sta nei componenti sotto
+  `src/components/web/` e usa i token `--egw-*`.
+*/
+
+:root {
+  --eg-font-brand: var(--font-poppins), "Poppins", system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+}
+
+/* ── Numeri: sempre tabellari dove il sistema li vuole ─────────────────── */
+.egw-num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--egw-track-num);
+}
+
+/* ── Le uniche animazioni ammesse ──────────────────────────────────────── */
+@keyframes egw-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes egw-drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes egw-drawer-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+@keyframes egw-modal-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes egw-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes egw-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes egw-toast-in {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes egw-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+.egw-skeleton {
+  background: rgba(11, 26, 58, 0.07);
+  animation: egw-pulse 1.4s var(--egw-ease) infinite;
+}
+
+.egw-drawer-panel[data-state="open"] {
+  animation: egw-drawer-in var(--egw-dur-drawer) var(--egw-ease);
+}
+.egw-drawer-panel[data-state="closed"] {
+  animation: egw-drawer-out var(--egw-dur-drawer-out) var(--egw-ease);
+}
+.egw-modal-panel[data-state="open"] {
+  animation: egw-modal-in var(--egw-dur-panel) var(--egw-ease);
+}
+.egw-modal-panel[data-state="closed"] {
+  animation: egw-fade-out var(--egw-dur-panel) var(--egw-ease);
+}
+.egw-scrim[data-state="open"] {
+  animation: egw-fade-in var(--egw-dur-drawer) var(--egw-ease);
+}
+.egw-scrim[data-state="closed"] {
+  animation: egw-fade-out var(--egw-dur-drawer-out) var(--egw-ease);
+}
+.egw-toast-enter {
+  animation: egw-toast-in var(--egw-dur-panel) var(--egw-ease);
+}
+.egw-indeterminate::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 33%;
+  background: var(--egw-grad-action);
+  animation: egw-indeterminate 1.2s var(--egw-ease) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .egw-skeleton,
+  .egw-drawer-panel[data-state],
+  .egw-modal-panel[data-state],
+  .egw-scrim[data-state],
+  .egw-toast-enter,
+  .egw-indeterminate::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ── Barra di scorrimento sottile nelle superfici del guscio ──────────── */
+.egw-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(11, 26, 58, 0.22) transparent;
+}
+.egw-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.egw-scroll::-webkit-scrollbar-thumb {
+  background: rgba(11, 26, 58, 0.22);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.egw-scroll-onblue {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+.egw-scroll-onblue::-webkit-scrollbar {
+  width: 8px;
+}
+.egw-scroll-onblue::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* ── Il cielo della Dashboard (ambiente 2) ─────────────────────────────── */
+.egw-sky-band {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--egw-sky-h);
+  background: var(--egw-sky);
+  pointer-events: none;
+}
+.egw-sky-band::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--egw-horizon-top);
+  height: var(--egw-horizon-h);
+  background: var(--egw-horizon);
+}
+
+/* ── Fuori dal club (ambiente 3) ───────────────────────────────────────── */
+.egw-sky-full {
+  background: var(--egw-sky-full);
+}
+
+/* ── Filo di gradiente sotto la topbar chiara ──────────────────────────── */
+.egw-hairline-strip {
+  height: var(--egw-topbar-hairline);
+  background: var(--egw-grad-hairline);
+}
+
+/* ── Testo su una riga con ellissi e valore intero nel tooltip ─────────── */
+.egw-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

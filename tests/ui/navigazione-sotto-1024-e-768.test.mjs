@@ -65,10 +65,11 @@ const hrefDi = (testo) =>
 /*  Guscio del club — soglia 1024 px                                        */
 /* ======================================================================== */
 
+/* Dal Web V2 l'elenco delle voci del club vive in `web/shell/navigation.ts`. */
 const SIDEBAR_CLUB = blocco(
-  leggi("src/components/dashboard/Sidebar.tsx"),
-  "const sidebarGroups: SidebarGroup\\[\\] = \\[",
-  "Sidebar.tsx",
+  leggi("src/components/web/shell/navigation.ts"),
+  "export const NAV_GROUPS: readonly NavGroup\\[\\] = \\[",
+  "navigation.ts",
 );
 const MENU_CLUB = blocco(
   leggi("src/components/layout/MobileTopBar.tsx"),
@@ -94,6 +95,8 @@ const VOCI_MOBILE_CLUB = hrefDi(MENU_CLUB);
  */
 const SOLO_DESKTOP_CLUB = {
   /* esempio: "/una-rotta": "motivo per cui a 375 px non ha senso" */
+  "/hub":
+    "sotto i 1024 px l'HUB ha gia il proprio collegamento dedicato nella barra mobile (`showHubLink`), fuori dall'elenco delle sezioni",
 };
 
 test("ogni voce della barra laterale del club esiste anche nel menu sotto i 1024 px", () => {

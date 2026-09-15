@@ -1,0 +1,218 @@
+/**
+ * Il sistema di stato del Web V2 (guideline 09 §9.4).
+ *
+ * Otto livelli semantici, quattro pesi visivi, **una parola sempre presente**.
+ * Un componente non riscrive mai un'etichetta: la prende da qui, cosi la stessa
+ * situazione non ha mai due dizioni. Un valore che l'API non manda rende
+ * `NON REGISTRATO`, mai una cella vuota.
+ *
+ * Modulo puro, testato in `tests/web/status.test.mjs`.
+ */
+
+export type StatusWeight = "quiet" | "outline" | "solid" | "urgent";
+export type StatusHue = "neutral" | "green" | "amber" | "red" | "blue" | "orange";
+
+export type StatusSpec = {
+  /** L'etichetta italiana, gia in maiuscolo. */
+  label: string;
+  weight: StatusWeight;
+  hue: StatusHue;
+};
+
+const spec = (label: string, weight: StatusWeight, hue: StatusHue): StatusSpec =>
+  Object.freeze({ label, weight, hue });
+
+/** Lo stato «non lo so»: quieto, neutro, e dice che manca un dato. */
+export const STATUS_UNKNOWN: StatusSpec = spec("NON REGISTRATO", "quiet", "neutral");
+
+/* ── Persona (atleta, allenatore, staff, socio) ─────────────────────────── */
+export const PERSON_STATUS = Object.freeze({
+  active: spec("ATTIVO", "solid", "green"),
+  suspended: spec("SOSPESO", "urgent", "red"),
+  on_loan: spec("IN PRESTITO", "outline", "blue"),
+  inactive: spec("DISATTIVATO", "quiet", "neutral"),
+  archived: spec("ARCHIVIATO", "quiet", "neutral"),
+  draft: spec("BOZZA", "quiet", "neutral"),
+} as const);
+
+/* ── Certificato / documento ────────────────────────────────────────────── */
+export const CERTIFICATE_STATUS = Object.freeze({
+  valid: spec("VALIDO", "solid", "green"),
+  expiring: spec("IN SCADENZA", "outline", "amber"),
+  expired: spec("SCADUTO", "urgent", "red"),
+  missing: spec("MANCANTE", "urgent", "red"),
+  pending_approval: spec("DA APPROVARE", "solid", "amber"),
+  in_regola: spec("IN REGOLA", "solid", "green"),
+  to_sign: spec("DA FIRMARE", "outline", "amber"),
+} as const);
+
+/* ── Denaro ─────────────────────────────────────────────────────────────── */
+export const MONEY_STATUS = Object.freeze({
+  paid: spec("INCASSATO", "solid", "green"),
+  partial: spec("PARZIALE", "solid", "amber"),
+  pending: spec("IN ATTESA", "solid", "amber"),
+  overdue: spec("SCADUTO", "urgent", "red"),
+  cancelled: spec("ANNULLATO", "quiet", "neutral"),
+  refunded: spec("RIMBORSATO", "quiet", "neutral"),
+  reversed: spec("STORNATO", "quiet", "neutral"),
+  settled: spec("SALDATA", "solid", "green"),
+} as const);
+
+/* ── Attivita (allenamento, gara, appuntamento) ─────────────────────────── */
+export const ACTIVITY_STATUS = Object.freeze({
+  completed: spec("COMPLETATO", "solid", "green"),
+  in_progress: spec("IN CORSO", "solid", "blue"),
+  scheduled: spec("PROGRAMMATO", "quiet", "neutral"),
+  cancelled: spec("ANNULLATO", "quiet", "neutral"),
+  not_recorded: spec("NON REGISTRATO", "quiet", "neutral"),
+  recorded: spec("REGISTRATO", "solid", "green"),
+  match: spec("GARA", "solid", "orange"),
+  training: spec("ALLENAMENTO", "solid", "blue"),
+} as const);
+
+/* ── Iscrizione ─────────────────────────────────────────────────────────── */
+export const ENROLMENT_STATUS = Object.freeze({
+  active: spec("ATTIVA", "solid", "green"),
+  incomplete: spec("INCOMPLETA", "solid", "amber"),
+  to_fix: spec("DA SISTEMARE", "solid", "amber"),
+  rejected: spec("RIFIUTATA", "urgent", "red"),
+  closed: spec("CHIUSA", "quiet", "neutral"),
+  suspended: spec("SOSPESA", "urgent", "red"),
+} as const);
+
+/* ── Convocazione / presenza ────────────────────────────────────────────── */
+export const CALLUP_STATUS = Object.freeze({
+  called: spec("CONVOCATO", "solid", "blue"),
+  not_called: spec("NON CONVOCATO", "quiet", "neutral"),
+  no_answer: spec("SENZA RISPOSTA", "outline", "amber"),
+  present: spec("PRESENTE", "solid", "green"),
+  absent: spec("ASSENTE", "urgent", "red"),
+  justified: spec("GIUSTIFICATO", "outline", "amber"),
+  to_mark: spec("DA SEGNARE", "quiet", "neutral"),
+} as const);
+
+/* ── Account EasyGame ───────────────────────────────────────────────────── */
+export const ACCOUNT_STATUS = Object.freeze({
+  linked: spec("COLLEGATO", "solid", "green"),
+  invited: spec("INVITATO", "outline", "amber"),
+  none: spec("SENZA ACCESSO", "quiet", "neutral"),
+  revoked: spec("REVOCATO", "quiet", "neutral"),
+} as const);
+
+/**
+ * Risolve un valore dell'API in uno stato del sistema. Accetta le grafie che
+ * il prodotto usa oggi (inglese e italiano, maiuscole e minuscole, con spazi o
+ * trattini) e rende `STATUS_UNKNOWN` per cio che non riconosce: mai un errore,
+ * mai una cella vuota.
+ */
+const ALIASES: Record<string, StatusSpec> = {
+  // persona
+  active: PERSON_STATUS.active,
+  attivo: PERSON_STATUS.active,
+  attiva: PERSON_STATUS.active,
+  suspended: PERSON_STATUS.suspended,
+  sospeso: PERSON_STATUS.suspended,
+  sospesa: PERSON_STATUS.suspended,
+  on_loan: PERSON_STATUS.on_loan,
+  loan: PERSON_STATUS.on_loan,
+  "in prestito": PERSON_STATUS.on_loan,
+  prestito: PERSON_STATUS.on_loan,
+  inactive: PERSON_STATUS.inactive,
+  disattivato: PERSON_STATUS.inactive,
+  disabled: PERSON_STATUS.inactive,
+  archived: PERSON_STATUS.archived,
+  archiviato: PERSON_STATUS.archived,
+  draft: PERSON_STATUS.draft,
+  bozza: PERSON_STATUS.draft,
+  // certificato
+  valid: CERTIFICATE_STATUS.valid,
+  valido: CERTIFICATE_STATUS.valid,
+  expiring: CERTIFICATE_STATUS.expiring,
+  expiring_soon: CERTIFICATE_STATUS.expiring,
+  "in scadenza": CERTIFICATE_STATUS.expiring,
+  expired: CERTIFICATE_STATUS.expired,
+  scaduto: CERTIFICATE_STATUS.expired,
+  missing: CERTIFICATE_STATUS.missing,
+  mancante: CERTIFICATE_STATUS.missing,
+  none: CERTIFICATE_STATUS.missing,
+  pending_approval: CERTIFICATE_STATUS.pending_approval,
+  "da approvare": CERTIFICATE_STATUS.pending_approval,
+  // denaro
+  paid: MONEY_STATUS.paid,
+  pagato: MONEY_STATUS.paid,
+  pagata: MONEY_STATUS.paid,
+  incassato: MONEY_STATUS.paid,
+  partial: MONEY_STATUS.partial,
+  parziale: MONEY_STATUS.partial,
+  "parzialmente pagata": MONEY_STATUS.partial,
+  pending: MONEY_STATUS.pending,
+  "in attesa": MONEY_STATUS.pending,
+  overdue: MONEY_STATUS.overdue,
+  scaduta: MONEY_STATUS.overdue,
+  cancelled: MONEY_STATUS.cancelled,
+  canceled: MONEY_STATUS.cancelled,
+  annullato: MONEY_STATUS.cancelled,
+  annullata: MONEY_STATUS.cancelled,
+  refunded: MONEY_STATUS.refunded,
+  rimborsato: MONEY_STATUS.refunded,
+  reversed: MONEY_STATUS.reversed,
+  stornato: MONEY_STATUS.reversed,
+  // attivita
+  completed: ACTIVITY_STATUS.completed,
+  completato: ACTIVITY_STATUS.completed,
+  in_progress: ACTIVITY_STATUS.in_progress,
+  "in corso": ACTIVITY_STATUS.in_progress,
+  scheduled: ACTIVITY_STATUS.scheduled,
+  programmato: ACTIVITY_STATUS.scheduled,
+  planned: ACTIVITY_STATUS.scheduled,
+  not_recorded: ACTIVITY_STATUS.not_recorded,
+  "non registrato": ACTIVITY_STATUS.not_recorded,
+  recorded: ACTIVITY_STATUS.recorded,
+  registrato: ACTIVITY_STATUS.recorded,
+  // convocazione / presenza
+  called: CALLUP_STATUS.called,
+  convocato: CALLUP_STATUS.called,
+  convoked: CALLUP_STATUS.called,
+  not_called: CALLUP_STATUS.not_called,
+  "non convocato": CALLUP_STATUS.not_called,
+  no_answer: CALLUP_STATUS.no_answer,
+  "senza risposta": CALLUP_STATUS.no_answer,
+  present: CALLUP_STATUS.present,
+  presente: CALLUP_STATUS.present,
+  absent: CALLUP_STATUS.absent,
+  assente: CALLUP_STATUS.absent,
+  justified: CALLUP_STATUS.justified,
+  giustificato: CALLUP_STATUS.justified,
+  // account
+  linked: ACCOUNT_STATUS.linked,
+  collegato: ACCOUNT_STATUS.linked,
+  invited: ACCOUNT_STATUS.invited,
+  invitato: ACCOUNT_STATUS.invited,
+  revoked: ACCOUNT_STATUS.revoked,
+  revocato: ACCOUNT_STATUS.revoked,
+};
+
+export const resolveStatus = (
+  value: string | null | undefined,
+  fallback: StatusSpec = STATUS_UNKNOWN,
+): StatusSpec => {
+  if (!value) return fallback;
+  const key = String(value).trim().toLowerCase().replace(/[-\s]+/g, " ");
+  return ALIASES[key] || ALIASES[key.replace(/ /g, "_")] || fallback;
+};
+
+/**
+ * Lo stato di un certificato a partire dalla scadenza: la logica che ogni
+ * schermata riscriveva a modo suo. `expiringWithinDays` e la soglia «in
+ * scadenza» (30 nel prodotto).
+ */
+export const certificateStatusFromExpiry = (
+  daysUntilExpiry: number | null,
+  options: { expiringWithinDays?: number } = {},
+): StatusSpec => {
+  const threshold = options.expiringWithinDays ?? 30;
+  if (daysUntilExpiry == null) return CERTIFICATE_STATUS.missing;
+  if (daysUntilExpiry < 0) return CERTIFICATE_STATUS.expired;
+  if (daysUntilExpiry <= threshold) return CERTIFICATE_STATUS.expiring;
+  return CERTIFICATE_STATUS.valid;
+};

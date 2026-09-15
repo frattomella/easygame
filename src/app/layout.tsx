@@ -1,5 +1,5 @@
 import "./globals.css";
-import { Archivo, Inter } from "next/font/google";
+import { Archivo, Inter, Poppins } from "next/font/google";
 import { AppClientProviders } from "@/components/providers/AppClientProviders";
 
 /**
@@ -27,6 +27,17 @@ const archivo = Archivo({
   variable: "--font-display",
 });
 
+/**
+ * EGDS v3.1.0: Poppins e la voce del Web V2 (guideline 05 §5.3), la stessa
+ * famiglia del mobile. Resta self-hosted da next/font come le altre.
+ */
+const poppins = Poppins({
+  subsets: ["latin"],
+  display: "swap",
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-poppins",
+});
+
 export const metadata = {
   title: {
     default: "EasyGame",
@@ -44,7 +55,7 @@ export default function RootLayout({
   return (
     <html
       lang="it"
-      className={`light ${inter.variable} ${archivo.variable}`}
+      className={`light ${inter.variable} ${archivo.variable} ${poppins.variable}`}
       suppressHydrationWarning
     >
       <head suppressHydrationWarning />

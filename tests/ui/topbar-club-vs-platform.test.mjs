@@ -43,8 +43,10 @@ const readCode = (file) =>
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
-const CLUB_HEADER = "components/dashboard/Header.tsx";
-const CLUB_SIDEBAR = "components/dashboard/Sidebar.tsx";
+/* Dal Web V2 il guscio del club vive in `web/shell/`. */
+const CLUB_HEADER = "components/web/shell/Topbar.tsx";
+const CLUB_SIDEBAR = "components/web/shell/Sidebar.tsx";
+const CLUB_NAV = "components/web/shell/navigation.ts";
 const CLUB_MOBILE = "components/layout/MobileTopBar.tsx";
 const PLATFORM_SHELL = "components/platform-admin/platform-admin-shell.tsx";
 const CLUB_IDENTITY = "components/brand/club-identity.tsx";
@@ -54,20 +56,23 @@ const CLUB_IDENTITY = "components/brand/club-identity.tsx";
 test("la topbar del club ha le azioni rapide", () => {
   const header = readCode(CLUB_HEADER);
 
-  assert.match(header, /QUICK_ACTIONS/, "l'elenco delle azioni rapide");
+  assert.match(header, /visibleQuickActions/, "l'elenco delle azioni rapide");
+  assert.match(readCode(CLUB_NAV), /QUICK_ACTIONS/, "l'elenco vive nella navigazione del guscio");
   assert.match(header, /Azioni rapide/, "il comando visibile all'utente");
   assert.match(header, /quickActionsOpen/, "il pannello che le mostra");
 });
 
 test("le azioni rapide del club passano dalla matrice permessi", () => {
-  for (const file of [CLUB_HEADER, CLUB_MOBILE]) {
-    const source = readCode(file);
-    assert.match(
-      source,
-      /canAccessPath\(\s*activeRole\s*,\s*action\.href/,
-      `${file}: una scorciatoia verso un'area vietata non deve comparire`,
-    );
-  }
+  assert.match(
+    readCode(CLUB_NAV),
+    /canAccessPath\(\s*context\.role\s*,\s*path/,
+    `${CLUB_NAV}: una scorciatoia verso un'area vietata non deve comparire`,
+  );
+  assert.match(
+    readCode(CLUB_MOBILE),
+    /canAccessPath\(\s*activeRole\s*,\s*action\.href/,
+    `${CLUB_MOBILE}: una scorciatoia verso un'area vietata non deve comparire`,
+  );
 });
 
 test("la topbar del club ha l'assistenza", () => {
@@ -75,7 +80,8 @@ test("la topbar del club ha l'assistenza", () => {
 
   assert.match(header, /HelpCircle/);
   assert.match(header, /Assistenza/);
-  assert.match(header, /cedisoft\.it\/contatti/);
+  assert.match(header, /HELP_URL/);
+  assert.match(readCode(CLUB_NAV), /cedisoft\.it\/contatti/);
 });
 
 /**
@@ -97,12 +103,12 @@ test("il marchio EasyGame sta nella sidebar, non nella topbar del club", () => {
   const sidebar = readCode(CLUB_SIDEBAR);
   assert.match(
     sidebar,
-    /<EasyGame(Logo|Wordmark)/,
+    /from "@\/\.\.\/public\/images\/brand\/logotipo-w\.png"/,
     "il marchio sono gli asset ufficiali in public/images/brand/",
   );
   assert.match(
     sidebar,
-    /href="\/account"[\s\S]{0,320}<EasyGame(Logo|Wordmark)/,
+    /href="\/account"[\s\S]{0,400}src=\{iconWhite\}/,
     "dal marchio si torna all'elenco dei club",
   );
 });
@@ -333,8 +339,8 @@ test("nessun font nuovo importato da next/font", () => {
 
   assert.deepEqual(
     imported,
-    ["Archivo", "Inter"],
-    "Inter per testo e dati, Archivo per i titoli: non se ne aggiungono altri",
+    ["Archivo", "Inter", "Poppins"],
+    "Inter per testo e dati, Archivo per i titoli, Poppins per il Web V2 (EGDS v3.1.0): non se ne aggiungono altri",
   );
 
   const others = APP_FILES.filter(
@@ -406,7 +412,7 @@ test("le asserzioni reggono anche in un checkout CRLF", () => {
   );
   assert.match(
     comeLoLeggeIlTest,
-    /href="\/account"[\s\S]{0,320}<EasyGame(Logo|Wordmark)/,
+    /href="\/account"[\s\S]{0,400}src=\{iconWhite\}/,
     "la distanza fra marchio e link non deve dipendere dal checkout",
   );
 });
