@@ -248,7 +248,7 @@ test("ne la scheda ne la creazione accettano piu testo libero", () => {
   );
   assert.match(
     dialogo,
-    /value=\{federation\.id\}/,
+    /value:\s*federation\.id/,
     "il valore della tendina e l'identificativo, non la scritta",
   );
 });

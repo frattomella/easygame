@@ -254,8 +254,8 @@ const TABELLA = {
     catalogo: true,
     canonico: false,
   },
-  "src/components/dashboard/UpcomingTrainings.tsx": {
-    decide: "il riquadro dei prossimi allenamenti",
+  "src/components/dashboard/v2/today-trainings.ts": {
+    decide: "il riquadro «Oggi in palestra» della Dashboard (organico atteso)",
     catalogo: true,
     canonico: false,
   },

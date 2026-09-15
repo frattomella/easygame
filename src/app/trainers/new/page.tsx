@@ -8,13 +8,20 @@ import {
   DashboardPageContainer,
   dashboardMainClassName,
 } from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/web/page/PageHeader";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { Panel, PanelHeader } from "@/components/web/primitives/Surface";
+import { Button } from "@/components/web/primitives/Button";
+import { DataChip } from "@/components/web/primitives/StatusPill";
+import {
+  DateInput,
+  Field,
+  FormGrid,
+  MultiSelect,
+  TextInput,
+  Textarea,
+  ValidationSummary,
+} from "@/components/web/forms/Field";
 import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { supabase } from "@/lib/supabase";
@@ -24,26 +31,25 @@ import { PersonIdentityFields } from "@/components/forms/person-identity-fields"
 import { PhoneField } from "@/components/forms/phone-field";
 import { DocumentExtractionField } from "@/components/forms/document-extraction-field";
 import { ClothingSizesFields } from "@/components/forms/clothing-sizes-fields";
-import {
-  DEFAULT_CLOTHING_SIZES,
-  type ClothingSizes,
-} from "@/lib/clothing-sizes";
-import { ArrowLeft, Calendar, Euro, Mail, Phone, Save, User } from "lucide-react";
+import { DEFAULT_CLOTHING_SIZES, type ClothingSizes } from "@/lib/clothing-sizes";
+import { Mail } from "lucide-react";
 import { todayLocalDateOnly } from "@/lib/date-only";
 
+/**
+ * Nuovo allenatore nel Web V2 (pattern 6, guideline 09 §9.1): pannelli a
+ * sezioni, griglia a due colonne dove i campi sono pari, barra delle azioni
+ * appiccicata in fondo. Stessi campi, stesse regole e stessa scrittura della
+ * V1 (`addClubData(clubId, "trainers", …)`).
+ */
 type TrainerFormState = {
   firstName: string;
   lastName: string;
   email: string;
   phone: string;
   /**
-   * La data intera, non il solo anno.
-   *
-   * Il form chiedeva l'anno di nascita, che non basta a calcolare un codice
-   * fiscale: la scheda dell'allenatore invece la data intera ce l'aveva gia e
-   * la rotta di modifica la degradava ad anno e la ricostruiva come 1° gennaio
-   * (Blocco 7). `birthYear` resta scritto, derivato, per non rompere le
-   * schede esistenti.
+   * La data intera, non il solo anno: senza data e sesso il codice fiscale
+   * non si calcola. `birthYear` resta scritto, derivato, per le schede che
+   * lo leggono ancora.
    */
   birthDate: string;
   gender: string;
@@ -80,6 +86,8 @@ const initialFormState: TrainerFormState = {
   selectedCategories: [],
 };
 
+type FormError = { id?: string; label: string };
+
 function NewTrainerPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -90,6 +98,8 @@ function NewTrainerPageContent() {
   const [formData, setFormData] = useState<TrainerFormState>(initialFormState);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingCategories, setIsLoadingCategories] = useState(true);
+  const [errors, setErrors] = useState<FormError[]>([]);
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     const clubIdFromParams = searchParams?.get("clubId");
@@ -97,12 +107,10 @@ function NewTrainerPageContent() {
       setClubId(clubIdFromParams);
       return;
     }
-
     if (activeClub?.id) {
       setClubId(activeClub.id);
       return;
     }
-
     if (typeof window !== "undefined") {
       const storedClub = localStorage.getItem("activeClub");
       if (storedClub) {
@@ -126,7 +134,6 @@ function NewTrainerPageContent() {
         setIsLoadingCategories(false);
         return;
       }
-
       setIsLoadingCategories(true);
       try {
         const { data: clubData, error } = await supabase
@@ -134,22 +141,15 @@ function NewTrainerPageContent() {
           .select("categories")
           .eq("id", clubId)
           .single();
-
-        if (error) {
-          throw error;
-        }
-
+        if (error) throw error;
         const nextCategories = Array.isArray(clubData?.categories)
           ? clubData.categories
               .map((category: any) => ({
                 id: String(category?.id || "").trim(),
                 name: String(category?.name || "").trim(),
               }))
-              .filter((category: { id: string; name: string }) =>
-                Boolean(category.id && category.name),
-              )
+              .filter((category: { id: string; name: string }) => Boolean(category.id && category.name))
           : [];
-
         setCategories(nextCategories);
       } catch (error) {
         console.error("Error loading trainer categories:", error);
@@ -159,29 +159,29 @@ function NewTrainerPageContent() {
         setIsLoadingCategories(false);
       }
     };
-
-    loadCategories();
+    void loadCategories();
   }, [clubId, showToast]);
 
   const selectedCategoryNames = useMemo(
-    () =>
-      categories
-        .filter((category) => formData.selectedCategories.includes(category.id))
-        .map((category) => category.name),
+    () => categories.filter((category) => formData.selectedCategories.includes(category.id)).map((c) => c.name),
     [categories, formData.selectedCategories],
   );
 
-  const handleInputChange = (field: keyof TrainerFormState, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+  const patch = (next: Partial<TrainerFormState>) => {
+    setDirty(true);
+    setFormData((previous) => ({ ...previous, ...next }));
   };
 
-  const toggleCategory = (categoryId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      selectedCategories: prev.selectedCategories.includes(categoryId)
-        ? prev.selectedCategories.filter((id) => id !== categoryId)
-        : [...prev.selectedCategories, categoryId],
-    }));
+  const handleInputChange = (field: keyof TrainerFormState, value: string) => patch({ [field]: value });
+
+  const validate = (): FormError[] => {
+    const next: FormError[] = [];
+    if (!formData.firstName.trim()) next.push({ id: "trainer-first-name", label: "Nome" });
+    if (!formData.lastName.trim()) next.push({ id: "trainer-last-name", label: "Cognome" });
+    if (!formData.email.trim() && !formData.phone.trim()) {
+      next.push({ id: "trainer-new-email", label: "Almeno un contatto tra email e telefono" });
+    }
+    return next;
   };
 
   const handleSave = async (event: React.FormEvent) => {
@@ -192,18 +192,16 @@ function NewTrainerPageContent() {
       return;
     }
 
-    if (!formData.firstName.trim() || !formData.lastName.trim()) {
-      showToast("error", "Nome e cognome sono obbligatori");
-      return;
-    }
-
-    if (!formData.email.trim() && !formData.phone.trim()) {
-      showToast("error", "Inserisci almeno un contatto tra email e telefono");
+    const nextErrors = validate();
+    setErrors(nextErrors);
+    if (nextErrors.length) {
+      const first = nextErrors[0].id ? document.getElementById(nextErrors[0].id) : null;
+      first?.scrollIntoView({ block: "center", behavior: "smooth" });
+      first?.focus();
       return;
     }
 
     setIsSaving(true);
-
     try {
       const firstName = formData.firstName.trim();
       const lastName = formData.lastName.trim();
@@ -220,9 +218,7 @@ function NewTrainerPageContent() {
         phone: formData.phone.trim(),
         birthDate: formData.birthDate || null,
         // Derivato: chi legge ancora l'anno lo trova dov'era.
-        birthYear: formData.birthDate
-          ? Number(formData.birthDate.slice(0, 4))
-          : null,
+        birthYear: formData.birthDate ? Number(formData.birthDate.slice(0, 4)) : null,
         gender: formData.gender || null,
         birthPlace: formData.birthPlace.trim(),
         birthPlaceCode: formData.birthPlaceCode.trim(),
@@ -244,125 +240,87 @@ function NewTrainerPageContent() {
       };
 
       const savedTrainer = await addClubData(clubId, "trainers", newTrainer);
-
+      setDirty(false);
       showToast("success", "Allenatore creato con successo");
       router.push(`/trainers/${savedTrainer.id}?clubId=${clubId}`);
     } catch (error) {
       console.error("Error creating trainer:", error);
-      showToast(
-        "error",
-        error instanceof Error
-          ? error.message
-          : "Errore durante la creazione dell'allenatore",
-      );
+      showToast("error", error instanceof Error ? error.message : "Errore durante la creazione dell'allenatore");
     } finally {
       setIsSaving(false);
     }
   };
 
+  const backHref = clubId ? `/trainers?clubId=${clubId}` : "/trainers";
+  const contactError = errors.find((e) => e.id === "trainer-new-email");
+
   return (
-    <div className="flex h-[100dvh] bg-gradient-to-br from-blue-50 via-white to-purple-50">
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
-
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Header title="Nuovo Allenatore" />
-
+        <Header title="Nuovo allenatore" />
         <main className={dashboardMainClassName}>
-          <DashboardPageContainer className="max-w-5xl">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() =>
-                    router.push(clubId ? `/trainers?clubId=${clubId}` : "/trainers")
-                  }
-                  className="rounded-full"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                </Button>
-                <SharedPageHeader
-                  title="Nuovo Allenatore"
-                  subtitle="Crea una nuova anagrafica allenatore per il club selezionato."
-                  className="flex-1"
+          <DashboardPageContainer className="max-w-[1100px] pb-20">
+            <PageHeader
+              eyebrow="Persone · Allenatori"
+              title="Nuovo allenatore"
+              description="Crea una nuova anagrafica allenatore per il club selezionato."
+            >
+              {!clubId ? (
+                <AlertBlock severity="warning" title="Seleziona prima un club">
+                  Scegli il club dalla tua area account, poi torna qui per creare il nuovo allenatore.
+                </AlertBlock>
+              ) : null}
+            </PageHeader>
+
+            <form id="new-trainer-form" onSubmit={handleSave} className="flex flex-col gap-[18px]" noValidate>
+              <ValidationSummary errors={errors} />
+
+              <Panel as="section">
+                <PanelHeader
+                  eyebrow="Anagrafica"
+                  title="Dati della persona"
+                  description="Puoi compilare i campi da un documento d'identità: i dati letti si propongono, non si scrivono da soli."
                 />
-              </div>
-
-              <Button
-                type="submit"
-                form="new-trainer-form"
-                disabled={isSaving || !clubId}
-                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-              >
-                <Save className="mr-2 h-4 w-4" />
-                {isSaving ? "Salvataggio..." : "Salva Allenatore"}
-              </Button>
-            </div>
-
-            {!clubId ? (
-              <Card className="border-amber-200 bg-amber-50">
-                <CardContent className="py-6 text-amber-900">
-                  Seleziona prima un club dalla tua area account, poi torna qui per
-                  creare il nuovo allenatore.
-                </CardContent>
-              </Card>
-            ) : null}
-
-            <form id="new-trainer-form" onSubmit={handleSave} className="space-y-6">
-              <Card className="shadow-sm">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <User className="h-5 w-5 text-blue-600" />
-                    Anagrafica
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
+                <div className="space-y-5">
                   <DocumentExtractionField
                     currentValues={formData}
-                    onApply={(fieldsPatch) =>
-                      setFormData((previous) => ({ ...previous, ...fieldsPatch }))
-                    }
+                    onApply={(fieldsPatch) => patch(fieldsPatch as Partial<TrainerFormState>)}
                   />
                   {/*
-                    I sei campi di identita, nell'ordine condiviso. Il luogo di
-                    nascita era l'unico che qui non esisteva come campo: viveva
-                    dentro il codice fiscale, dopo il risultato del calcolo che
-                    e proprio lui a rendere possibile.
+                    I sei campi di identita, nell'ordine condiviso: nome,
+                    cognome, data e luogo di nascita, sesso, codice fiscale.
                   */}
                   <PersonIdentityFields
                     idPrefix="trainer"
                     values={formData}
                     required={{ firstName: true, lastName: true }}
-                    onChange={(patch) =>
-                      setFormData((previous) => ({ ...previous, ...patch }))
-                    }
+                    onChange={(identityPatch) => patch(identityPatch as Partial<TrainerFormState>)}
                   />
-                </CardContent>
-              </Card>
+                </div>
+              </Panel>
 
-              <Card className="shadow-sm">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Mail className="h-5 w-5 text-blue-600" />
-                    Contatti
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div>
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
+              <Panel as="section">
+                <PanelHeader
+                  eyebrow="Contatti"
+                  title="Contatti e residenza"
+                  description="Serve almeno un recapito tra email e telefono."
+                />
+                <FormGrid>
+                  <Field label="Email" htmlFor="trainer-new-email" error={contactError ? "Inserisci almeno un contatto tra email e telefono" : undefined}>
+                    <TextInput
+                      id="trainer-new-email"
                       type="email"
+                      inputMode="email"
+                      leading={<Mail />}
                       value={formData.email}
-                      onChange={(event) =>
-                        handleInputChange("email", event.target.value)
-                      }
+                      onChange={(event) => handleInputChange("email", event.target.value)}
                       placeholder="Es. marco.bianchi@easygame.it"
                     />
-                  </div>
+                  </Field>
                   <div>
                     <PhoneField
-                      id="phone"
+                      id="trainer-new-phone"
                       value={formData.phone}
                       onChange={(value) => handleInputChange("phone", value)}
                     />
@@ -370,160 +328,125 @@ function NewTrainerPageContent() {
                   {/*
                     Via, comune e CAP dal componente condiviso: il comune si
                     cerca nell'archivio ISTAT e porta con se il CAP quando ne
-                    ha uno solo (Blocco A, punti 9 e 10). Erano tre input
-                    liberi, uguali in sei anagrafiche e assistiti in nessuna.
+                    ha uno solo.
                   */}
-                  <PersonResidenceFields
-                    idPrefix="trainer-new"
-                    values={formData}
-                    onChange={(patch) => {
-                      for (const [field, value] of Object.entries(patch)) {
-                        handleInputChange(field as keyof TrainerFormState, value as string);
-                      }
-                    }}
-                  />
-                </CardContent>
-              </Card>
+                  <div className="laptop:col-span-2">
+                    <PersonResidenceFields
+                      idPrefix="trainer-new"
+                      values={formData}
+                      onChange={(residencePatch) => {
+                        for (const [field, value] of Object.entries(residencePatch)) {
+                          handleInputChange(field as keyof TrainerFormState, value as string);
+                        }
+                      }}
+                    />
+                  </div>
+                </FormGrid>
+              </Panel>
 
               {/*
-                Taglie: stesse definizioni dell'abbigliamento (Blocco 7).
-                Nessun numero di maglia — chi non scende in campo non ne ha uno.
+                Taglie: stesse definizioni dell'abbigliamento. Nessun numero di
+                maglia — chi non scende in campo non ne ha uno.
               */}
-              <Card className="shadow-sm">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <User className="h-5 w-5 text-blue-600" />
-                    Taglie vestiario
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ClothingSizesFields
-                    idPrefix="trainer-clothing"
-                    value={formData.clothingSizes}
-                    onChange={(next) =>
-                      setFormData((previous) => ({
-                        ...previous,
-                        clothingSizes: next,
-                      }))
-                    }
-                    person={{
-                      gender: formData.gender,
-                      birthDate: formData.birthDate,
-                    }}
-                  />
-                </CardContent>
-              </Card>
+              <Panel as="section">
+                <PanelHeader eyebrow="Vestiario" title="Taglie vestiario" />
+                <ClothingSizesFields
+                  idPrefix="trainer-clothing"
+                  value={formData.clothingSizes}
+                  onChange={(next) => patch({ clothingSizes: next })}
+                  person={{ gender: formData.gender, birthDate: formData.birthDate }}
+                />
+              </Panel>
 
-              <Card className="shadow-sm">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Calendar className="h-5 w-5 text-blue-600" />
-                    Inquadramento
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div>
-                    <Label htmlFor="startDate">Data inizio</Label>
-                    <Input
-                      id="startDate"
-                      type="date"
+              <Panel as="section">
+                <PanelHeader eyebrow="Inquadramento" title="Inizio, compenso e categorie" />
+                <FormGrid>
+                  <Field label="Data inizio" htmlFor="trainer-new-start-date" width="20ch">
+                    <DateInput
+                      id="trainer-new-start-date"
                       value={formData.startDate}
-                      onChange={(event) =>
-                        handleInputChange("startDate", event.target.value)
-                      }
+                      onChange={(event) => handleInputChange("startDate", event.target.value)}
                     />
-                  </div>
-                  <div>
-                    <Label htmlFor="salary">Compenso mensile</Label>
-                    <div className="relative">
-                      <Euro className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                      <Input
-                        id="salary"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className="pl-9"
-                        value={formData.salary}
-                        onChange={(event) =>
-                          handleInputChange("salary", event.target.value)
-                        }
-                        placeholder="Es. 1500"
-                      />
-                    </div>
-                  </div>
-                  <div className="md:col-span-2">
-                    <Label>Categorie allenate</Label>
+                  </Field>
+                  <Field label="Compenso mensile" htmlFor="trainer-new-salary" width="16ch" helper="Promemoria: il rapporto di lavoro si registra nella scheda, in «Lavoro e compensi».">
+                    <TextInput
+                      id="trainer-new-salary"
+                      type="number"
+                      numeric
+                      min="0"
+                      step="0.01"
+                      trailing="€"
+                      value={formData.salary}
+                      onChange={(event) => handleInputChange("salary", event.target.value)}
+                      placeholder="Es. 1500"
+                    />
+                  </Field>
+                  <div className="laptop:col-span-2">
                     {isLoadingCategories ? (
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                        Caricamento categorie...
-                      </div>
+                      <Field label="Categorie allenate">
+                        <div className="h-[46px] animate-pulse rounded-egw-field bg-[rgba(11,26,58,.07)]" />
+                      </Field>
                     ) : categories.length === 0 ? (
-                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                        Nessuna categoria disponibile. Puoi comunque creare
-                        l&apos;allenatore e assegnargli le categorie in un secondo
-                        momento.
-                      </div>
+                      <AlertBlock severity="warning" title="Nessuna categoria disponibile">
+                        Puoi comunque creare l&apos;allenatore e assegnargli le categorie in un secondo momento.
+                      </AlertBlock>
                     ) : (
-                      <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <div className="flex flex-wrap gap-2">
-                          {categories.map((category) => {
-                            const checked = formData.selectedCategories.includes(
-                              category.id,
-                            );
-
-                            return (
-                              <button
-                                key={category.id}
-                                type="button"
-                                onClick={() => toggleCategory(category.id)}
-                                className={`rounded-full border px-3 py-1.5 text-sm transition ${
-                                  checked
-                                    ? "border-blue-600 bg-blue-600 text-white"
-                                    : "border-slate-200 bg-white text-slate-700 hover:border-blue-300"
-                                }`}
-                              >
-                                {category.name}
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        {selectedCategoryNames.length > 0 ? (
-                          <div className="flex flex-wrap gap-2">
-                            {selectedCategoryNames.map((categoryName) => (
-                              <Badge
-                                key={categoryName}
-                                variant="secondary"
-                                className="bg-blue-100 text-blue-700"
-                              >
+                      <Field
+                        label="Categorie allenate"
+                        htmlFor="trainer-new-categories"
+                        helper="Un allenatore può seguire più categorie."
+                      >
+                        <MultiSelect
+                          id="trainer-new-categories"
+                          values={formData.selectedCategories}
+                          onValuesChange={(next) => patch({ selectedCategories: next })}
+                          options={categories.map((category) => ({ value: category.id, label: category.name }))}
+                          placeholder="Seleziona le categorie"
+                        />
+                        <div className="mt-2.5 flex flex-wrap gap-1.5">
+                          {selectedCategoryNames.length > 0 ? (
+                            selectedCategoryNames.map((categoryName) => (
+                              <DataChip key={categoryName} tone="blue" size="sm">
                                 {categoryName}
-                              </Badge>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-slate-500">
-                            Nessuna categoria selezionata.
-                          </p>
-                        )}
-                      </div>
+                              </DataChip>
+                            ))
+                          ) : (
+                            <p className="font-brand text-[11.5px] text-egw-ink-62">Nessuna categoria selezionata.</p>
+                          )}
+                        </div>
+                      </Field>
                     )}
                   </div>
-                  <div className="md:col-span-2">
-                    <Label htmlFor="bio">Note professionali</Label>
+                  <Field label="Note professionali" htmlFor="trainer-new-bio" className="laptop:col-span-2">
                     <Textarea
-                      id="bio"
+                      id="trainer-new-bio"
                       value={formData.bio}
-                      onChange={(event) =>
-                        handleInputChange("bio", event.target.value)
-                      }
-                      placeholder="Inserisci una breve presentazione o eventuali note sull'allenatore..."
+                      onChange={(event) => handleInputChange("bio", event.target.value)}
+                      placeholder="Inserisci una breve presentazione o eventuali note sull'allenatore"
                       rows={4}
                     />
-                  </div>
-                </CardContent>
-              </Card>
+                  </Field>
+                </FormGrid>
+              </Panel>
             </form>
           </DashboardPageContainer>
+
+          {/* Barra delle azioni appiccicata al fondo (guideline 08 §8.4). */}
+          <div className="sticky bottom-0 z-10 -mx-4 mt-[18px] border-t border-egw-hairline bg-white px-4 py-3 shadow-[0_-1px_0_rgba(11,26,58,.09)] md:-mx-5 md:px-5 lg:-mx-6 lg:px-6 xl:-mx-8 xl:px-8">
+            <div className="mx-auto flex w-full max-w-[1100px] flex-wrap items-center justify-between gap-3">
+              <span className="font-brand text-[12px] font-medium text-egw-amber-ink">
+                {dirty ? "Modifiche non salvate" : ""}
+              </span>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Button variant="secondary" onClick={() => router.push(backHref)} disabled={isSaving}>
+                  Annulla
+                </Button>
+                <Button type="submit" form="new-trainer-form" variant="primary" loading={isSaving} disabled={!clubId}>
+                  Salva allenatore
+                </Button>
+              </div>
+            </div>
+          </div>
         </main>
       </div>
     </div>
@@ -532,13 +455,7 @@ function NewTrainerPageContent() {
 
 export default function NewTrainerPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-screen items-center justify-center">
-          Caricamento...
-        </div>
-      }
-    >
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center font-brand text-egw-ink-62">Caricamento</div>}>
       <NewTrainerPageContent />
     </Suspense>
   );

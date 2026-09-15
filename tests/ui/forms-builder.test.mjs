@@ -324,10 +324,13 @@ test("la firma non fa scorrere la pagina mentre si disegna", () => {
 
 test("dalla scheda atleta si compila un modulo, con l'atleta gia selezionato", () => {
   const page = readCode("app/athletes/[id]/page.tsx");
+  /* Web V2: il pulsante vive nella sezione «Documenti condivisi con la famiglia». */
+  const sezione = readCode("components/athletes/profile/v2/AthleteDocumentSections.tsx");
   const dialog = readCode("components/forms/compile-form-dialog.tsx");
 
   assert.match(page, /<CompileFormDialog/);
-  assert.match(page, /Compila modulo/);
+  assert.match(sezione, /Compila modulo/);
+  assert.match(page, /onCompileForm=\{\(\) => setCompileFormOpen\(true\)\}/);
   assert.match(dialog, /atleta gia selezionato/);
   assert.ok(
     !dialog.includes("Scegli l'atleta"),

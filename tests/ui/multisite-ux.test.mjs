@@ -39,7 +39,6 @@ test("le pagine che filtrano per sede usano il componente, non una tendina propr
   for (const file of [
     "app/categories/page.tsx",
     "app/structures/page.tsx",
-    "app/athletes/page.tsx",
     "app/training/page.tsx",
   ]) {
     const source = read(file);
@@ -49,6 +48,27 @@ test("le pagine che filtrano per sede usano il componente, non una tendina propr
       `${file} deve montare SiteFilter e non una tendina sede propria`,
     );
   }
+
+  /*
+    L'elenco Atleti nel Web V2 monta la forma V2 dello stesso filtro — un
+    controllo di contesto nell'intestazione di pagina — con la **stessa
+    regola**: la decisione «non multi-sede = niente filtro» sta nel
+    componente, non nella pagina, e il valore vuoto vuol dire «tutte».
+  */
+  const athletes = read("app/athletes/page.tsx");
+  assert.match(athletes, /<SiteContextControl/);
+  assert.doesNotMatch(
+    athletes,
+    /<select[\s\S]{0,200}site/i,
+    "nessuna tendina sede propria nella pagina",
+  );
+  const control = read("components/athletes/v2/athletes-context-controls.tsx");
+  assert.match(
+    control,
+    /if \(!isMultiSiteClub\(sites\)\) \{\s*return null;/,
+    "la decisione sta nel componente, cosi la pagina la eredita",
+  );
+  assert.match(control, /ALL_SITES_VALUE/, "il valore «tutte» e quello condiviso");
 });
 
 test("la struttura porta la sede, e senza sede resta visibile", () => {
@@ -268,6 +288,8 @@ test("un allenatore puo seguire piu squadre senza duplicare l'anagrafica", () =>
   const page = read("app/trainers/[id]/page.tsx");
   assert.match(page, /Gruppi seguiti/);
   assert.match(page, /assignableGroups/);
+  /* La scelta dei gruppi vive nel cassetto «Informazioni societarie». */
+  assert.match(read("components/trainer/v2/trainer-section-drawer.tsx"), /label="Gruppi seguiti"/);
 });
 
 test("gli allenatori proposti seguono i gruppi scelti", () => {
@@ -278,13 +300,25 @@ test("gli allenatori proposti seguono i gruppi scelti", () => {
 });
 
 test("il dato senza sede si colloca in blocco, non scheda per scheda", () => {
-  const source = read("app/athletes/page.tsx");
+  /*
+    Nel Web V2 il cassetto «Cambia categoria» vive in
+    `src/components/athletes/v2/bulk-category-drawer.tsx`, montato
+    dall'elenco: stessi due campi, stessa regola sulla sede.
+  */
+  const page = read("app/athletes/page.tsx");
+  assert.match(page, /<BulkCategoryDrawer/, "l'elenco monta il cassetto");
 
+  const source = read("components/athletes/v2/bulk-category-drawer.tsx");
   assert.match(source, /bulk-site-target/);
   assert.match(
     source,
     /Lascia la sede attuale/,
     "un cambio di categoria non deve cancellare una sede che nessuno ha toccato",
+  );
+  assert.match(
+    source,
+    /isMultiSiteClub\(sites\)/,
+    "la sede si offre solo a un club multi-sede",
   );
 });
 
@@ -325,7 +359,18 @@ test("si puo scegliere una squadra, non solo una sede", () => {
     /if \(groups\.length < 2\) \{\s*\n?\s*return null;/,
     "con una squadra sola il menu e rumore, come per il filtro sede",
   );
-  assert.match(page, /<CategoryGroupFilter/);
+  /*
+    L'elenco Atleti nel Web V2 monta la forma V2 dello stesso filtro, un
+    controllo di contesto accanto a quello della sede, con la stessa regola
+    di montaggio.
+  */
+  assert.match(page, /<GroupContextControl/);
+  const control = read("components/athletes/v2/athletes-context-controls.tsx");
+  assert.match(
+    control,
+    /if \(groups\.length < 2\) \{\s*\n?\s*return null;/,
+    "con una squadra sola il controllo non si monta, come il filtro condiviso",
+  );
 });
 
 /**

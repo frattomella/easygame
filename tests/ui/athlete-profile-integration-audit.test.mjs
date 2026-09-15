@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -36,16 +36,28 @@ const strip = (file) =>
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
+/*
+  Con il Web V2 (09 §9.8) le sezioni della scheda vivono nei componenti di
+  `src/components/athletes/profile/v2/` e la pagina le **monta**: l'audit
+  legge la superficie intera — pagina, sezioni e cassetti V2 — perche cio
+  che si misura e che ogni area esista una volta sola, non in quale file.
+*/
+const V2_DIR = path.join(PROJECT_ROOT, "src/components/athletes/profile/v2");
+const v2Files = readdirSync(V2_DIR)
+  .filter((name) => name.endsWith(".tsx"))
+  .map((name) => path.join(V2_DIR, name));
+
 const source = readFileSync(PAGE, "utf8").replace(/\r\n/g, "\n");
 const pageCode = strip(PAGE);
 const tabCode = strip(ENROLLMENT_TAB);
+const v2Code = v2Files.map(strip).join("\n");
 
 /*
   La scheda «Iscrizione» e uscita dalla pagina (ADR-0056): l'audit segue le
   aree dove sono finite, invece di pretendere che restino tutte a riga
   quattromila di una pagina da ottomila.
 */
-const code = `${pageCode}\n${tabCode}`;
+const code = `${pageCode}\n${tabCode}\n${v2Code}`;
 
 /** Le otto aree che l'audit di integrazione deve trovare montate. */
 const AREE = [
@@ -54,10 +66,10 @@ const AREE = [
   ["voucher e contributi", /<AthleteFundingSummary\b/],
   ["modulistica", /<CompileFormDialog\b/],
   ["categorie, sede e gruppo", /<AthleteCategoriesPanel\b/],
-  ["documenti", /<CardTitle>Altri Documenti<\/CardTitle>/],
+  ["documenti", /title="Altri documenti"/],
   ["allegati", /<CertificateAttachmentField\b/],
   ["genitori", /getGuardianDisplayName\b/],
-  ["kit e taglie", /<CardTitle>Assegnazioni kit<\/CardTitle>/],
+  ["kit e taglie", /title="Assegnazioni kit"/],
 ];
 
 test("le aree toccate dai workstream sono tutte montate", () => {

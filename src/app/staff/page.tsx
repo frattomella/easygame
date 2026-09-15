@@ -1,433 +1,236 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import * as React from "react";
 import { useRouter } from "next/navigation";
+import { Building2, ChevronRight, FileDown, FileSpreadsheet, MoreHorizontal, Pencil, Plus, Trash2, UserCheck, UserX, Users } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import {
-  Plus,
-  Users,
-  Mail,
-  Phone,
-  Calendar,
-  Building,
-  Edit,
-  Trash2,
-  LayoutGrid,
-  Table,
-  Settings2,
-  UserCheck,
-  UserX,
-} from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuCheckboxItem,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
-import {
-  BulkSelectionToolbar,
-  SelectRowCheckbox,
-  useListSelection,
-} from "@/components/ui/list-selection";
-import {
-  availableExportScopes,
-  exportScopeLabel,
-  resolveScopeRows,
-  type SelectionScope,
-} from "@/lib/list-selection";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { StaffTable } from "@/components/staff/StaffTable";
-import { DepartmentManagement } from "@/components/staff/DepartmentManagement";
-import { exportPeopleCsv, exportPeoplePdf } from "@/lib/person-export";
-import { useToast } from "@/components/ui/toast-notification";
-import { FileDown, FileSpreadsheet } from "lucide-react";
-import {
-  countStaffByDepartment,
-  getDepartmentBadgeClassName,
-  normalizeDepartmentName,
-  upsertStaffDepartment,
-  type StaffDepartment as Department,
-} from "@/lib/staff-directory";
-import {
-  deleteStaffDepartment,
-  resolveStaffDepartments,
-  saveStaffDepartments,
-} from "@/lib/api/staff-departments";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
-import {
-  DashboardPageContainer,
-  dashboardMainClassName,
-} from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
+import { DashboardPageContainer, dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { sortPeopleByLastName } from "@/lib/athlete-name-utils";
-import { EntityIcon } from "@/components/ui/entity-icon";
+import { useToast } from "@/components/ui/toast-notification";
+import { HeaderStat, PageHeader } from "@/components/web/page/PageHeader";
+import { Button, IconButton } from "@/components/web/primitives/Button";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/web/primitives/Overlays";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { IdentityCell } from "@/components/web/primitives/Identity";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type { BulkActionDef, ColumnDef, ExportRequest, FilterDef, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
+import { certificateStatusFromExpiry } from "@/lib/web/status";
+import { daysUntil, formatDateShort, formatInteger, joinMeta } from "@/lib/web/format";
+import { exportPeopleCsv, exportPeoplePdf } from "@/lib/person-export";
+import type { SelectionScope } from "@/lib/list-selection";
+import {
+  countStaffByDepartment,
+  findStaffDepartment,
+  normalizeDepartmentName,
+  upsertStaffDepartment,
+  type StaffDepartment,
+} from "@/lib/staff-directory";
+import { deleteStaffDepartment, resolveStaffDepartments, saveStaffDepartments } from "@/lib/api/staff-departments";
+import { DepartmentsDrawer } from "@/components/staff/v2/departments-drawer";
+import { MoveDepartmentDrawer } from "@/components/staff/v2/move-department-drawer";
+import { DeleteStaffDialog } from "@/components/staff/v2/delete-staff-dialog";
+import { useStaffAccessEmails } from "@/components/staff/v2/use-staff-access-emails";
+import { useStaffClubId, withClubId } from "@/components/staff/v2/use-staff-club-id";
+import {
+  departmentChipTone,
+  getStaffDisplayName,
+  getStaffIdentity,
+  isStaffActive,
+  staffHireDate,
+  staffStatusSpec,
+  type StaffMember,
+} from "@/components/staff/v2/staff-model";
 
-interface StaffMember {
-  id: string;
-  name: string;
-  fullName?: string;
-  surname?: string;
-  email: string;
-  phone: string;
-  role: string;
-  department: string;
-  status: string;
-  hire_date?: string;
-  hireDate?: string;
-  avatar: string;
-}
+/**
+ * `/staff` — elenco dello staff (Web V2, pattern 1: intestazione di pagina +
+ * DataGrid a tutta larghezza).
+ *
+ * La griglia unica sostituisce sia la tabella sia la vista a card della V1:
+ * cio che la card mostrava (ruolo come sottotitolo, stato, reparto, email,
+ * telefono, data di assunzione) sono colonne o la riga meta dell'identita.
+ * I dati e le scritture sono quelli della V1: `clubs.staff_members` letto e
+ * riscritto in **una** UPDATE per l'intero lotto, i reparti tramite
+ * `saveStaffDepartments`/`deleteStaffDepartment` (mai il blob `settings`).
+ */
+const NO_DEPARTMENT = "__none__";
 
-const getStaffDisplayName = (member: StaffMember) =>
-  member.fullName ||
-  [member.name, member.surname].filter(Boolean).join(" ").trim() ||
-  member.name;
+const STATUS_FILTER_OPTIONS = [
+  { value: "active", label: "Attivo" },
+  { value: "inactive", label: "Inattivo" },
+  { value: "on_leave", label: "In congedo" },
+];
+
+const STAFF_VIEWS: ViewDef[] = [
+  { id: "active", label: "Attivi", filters: { status: "active" }, builtIn: true },
+  { id: "inactive", label: "Non attivi", filters: { status: "inactive" }, builtIn: true },
+  { id: "no-department", label: "Senza reparto", filters: { department: NO_DEPARTMENT }, builtIn: true, tone: "amber" },
+];
+
+const statusKey = (member: StaffMember) => {
+  const key = String(member.status || "").trim().toLowerCase();
+  if (!key || key === "active" || key === "attivo") return key ? "active" : "";
+  if (key === "on_leave" || key === "in congedo") return "on_leave";
+  return "inactive";
+};
 
 export default function StaffPage() {
   const router = useRouter();
   const { activeClub } = useAuth();
   const { showToast } = useToast();
-  const [staffMembers, setStaffMembers] = useState<StaffMember[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [clubId, setClubId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"cards" | "table">("table");
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [departmentFilter, setDepartmentFilter] = useState("all");
-  const [isDepartmentManagementOpen, setIsDepartmentManagementOpen] =
-    useState(false);
-  const [visibleColumns, setVisibleColumns] = useState({
-    name: true,
-    role: true,
-    department: true,
-    email: true,
-    phone: true,
-    status: true,
-    hireDate: true,
-  });
-  const [bulkBusy, setBulkBusy] = useState(false);
-  const selection = useListSelection();
+  const { clubId, resolved } = useStaffClubId(null);
+  const access = useStaffAccessEmails();
 
-  useEffect(() => {
-    // Get clubId from auth context first, then localStorage as fallback
-    if (activeClub?.id) {
-      setClubId(activeClub.id);
+  const [staffMembers, setStaffMembers] = React.useState<StaffMember[]>([]);
+  const [departments, setDepartments] = React.useState<StaffDepartment[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [reloadKey, setReloadKey] = React.useState(0);
+  const [departmentsOpen, setDepartmentsOpen] = React.useState(false);
+  const [moveRows, setMoveRows] = React.useState<StaffMember[] | null>(null);
+  const [deleting, setDeleting] = React.useState<StaffMember | null>(null);
+  const [deleteBusy, setDeleteBusy] = React.useState(false);
+  const [bulkBusy, setBulkBusy] = React.useState(false);
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() => new Set());
+
+  React.useEffect(() => {
+    if (!resolved) return;
+    if (!clubId) {
+      setLoading(false);
+      setStaffMembers([]);
+      setDepartments([]);
       return;
     }
-
-    if (typeof window !== "undefined") {
-      const storedClub = localStorage.getItem("activeClub");
-      if (storedClub) {
-        try {
-          const parsed = JSON.parse(storedClub);
-          if (parsed?.id) {
-            setClubId(parsed.id);
-          }
-        } catch (e) {
-          console.error("Error parsing activeClub from localStorage", e);
-        }
-      }
-    }
-  }, [activeClub]);
-
-  useEffect(() => {
-    const loadData = async () => {
-      // Don't query if clubId is not set or is invalid
-      if (!clubId || clubId === "null" || clubId === "undefined") {
-        setLoading(false);
-        setStaffMembers([]);
-        setDepartments([]);
-        return;
-      }
-
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
       try {
-        // Get staff members from clubs.staff_members JSONB column
         const { data: clubData, error } = await supabase
           .from("clubs")
           .select("staff_members, settings")
           .eq("id", clubId)
           .single();
-
-        if (error) {
-          if (process.env.NODE_ENV === "development") {
-            console.error("Error loading staff:", error);
-          }
-          setStaffMembers([]);
-        } else {
-          const members = clubData?.staff_members || [];
-          const settings =
-            clubData?.settings && typeof clubData.settings === "object"
-              ? clubData.settings
-              : {};
-          setStaffMembers(members);
-          setDepartments(resolveStaffDepartments(settings, members));
-          // Un id selezionato che non esiste piu mostrerebbe un conteggio che
-          // non corrisponde a niente.
-          selection.prune(members.map((member: any) => String(member.id)));
-        }
+        if (cancelled) return;
+        if (error) throw error;
+        const members: StaffMember[] = Array.isArray(clubData?.staff_members) ? clubData.staff_members : [];
+        const settings = clubData?.settings && typeof clubData.settings === "object" ? clubData.settings : {};
+        setStaffMembers(members);
+        setDepartments(resolveStaffDepartments(settings, members));
+        setLoadError(null);
+        // Un id selezionato che non esiste piu mostrerebbe un conteggio che
+        // non corrisponde a niente.
+        setSelectedIds((current) => new Set(Array.from(current).filter((id) => members.some((m) => String(m.id) === id))));
       } catch (error) {
-        if (process.env.NODE_ENV === "development") {
-          console.error("Error loading staff:", error);
-        }
-      setStaffMembers([]);
-      setDepartments([]);
+        if (cancelled) return;
+        if (process.env.NODE_ENV === "development") console.error("Error loading staff:", error);
+        setStaffMembers([]);
+        setDepartments([]);
+        setLoadError(error instanceof Error ? error.message : null);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [clubId, resolved, reloadKey]);
 
-    loadData();
-    // `selection` cambia a ogni spunta: fra le dipendenze rileggerebbe
-    // l'elenco a ogni casella premuta.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clubId]);
+  const reload = () => setReloadKey((k) => k + 1);
 
-  const handleDelete = async (memberId: string) => {
-    if (!confirm("Sei sicuro di voler eliminare questo membro dello staff?"))
-      return;
-    if (!clubId) return;
-
-    try {
-      // Remove from local state first
-      const updatedStaff = staffMembers.filter(
-        (member) => member.id !== memberId,
-      );
-      setStaffMembers(updatedStaff);
-
-      // Update the clubs table
-      const { error } = await supabase
-        .from("clubs")
-        .update({ staff_members: updatedStaff })
-        .eq("id", clubId);
-
-      if (error) throw error;
-    } catch (error) {
-      console.error("Error deleting staff member:", error);
-      // Reload data on error
-      const { data: clubData } = await supabase
-        .from("clubs")
-        .select("staff_members")
-        .eq("id", clubId)
-        .single();
-      setStaffMembers(clubData?.staff_members || []);
-    }
-  };
+  /* ── Scritture ─────────────────────────────────────────────────────────── */
 
   /**
-   * Membri e reparti si salvano separatamente, e non per pigrizia.
-   *
-   * `settings` e una colonna JSON sola: riscriverla dallo snapshot letto al
-   * montaggio della pagina significava riportare indietro `seasons`,
-   * `activeSeasonId` e tutto il resto a com'erano allora. Bastava che qualcuno
-   * cambiasse stagione mentre questa pagina era aperta perche il salvataggio
-   * di un reparto la annullasse. `saveStaffDepartments` rilegge la colonna
-   * prima di riscriverla.
+   * Membri e reparti si salvano separatamente, e non per pigrizia: `settings`
+   * e una colonna JSON sola, e `saveStaffDepartments` la rilegge prima di
+   * riscriverla, cosi una stagione cambiata nel frattempo non torna indietro.
    */
-  const persistStaffState = async (
-    nextStaffMembers: StaffMember[],
-    nextDepartments: Department[] | null = null,
-  ) => {
-    if (!clubId) return;
-
-    const { error } = await supabase
-      .from("clubs")
-      .update({ staff_members: nextStaffMembers })
-      .eq("id", clubId);
-
+  const writeStaffMembers = async (next: StaffMember[]) => {
+    if (!clubId) throw new Error("ID del club mancante");
+    const { error } = await supabase.from("clubs").update({ staff_members: next }).eq("id", clubId);
     if (error) throw error;
-
-    if (nextDepartments) {
-      await saveStaffDepartments(clubId, nextDepartments);
-    }
   };
 
-  const handleSaveDepartment = async (department: Department) => {
-    const normalizedDepartment = {
-      ...department,
-      name: normalizeDepartmentName(department.name),
-    };
-
-    if (!normalizedDepartment.name) return;
-
-    const nextDepartments = upsertStaffDepartment(
-      departments,
-      normalizedDepartment,
-    );
-
-    setDepartments(nextDepartments);
-
+  const handleSaveDepartment = async (department: StaffDepartment) => {
+    const normalized = { ...department, name: normalizeDepartmentName(department.name) };
+    if (!normalized.name) return;
+    const next = upsertStaffDepartment(departments, normalized);
+    setDepartments(next);
     try {
-      if (clubId) await saveStaffDepartments(clubId, nextDepartments);
+      if (clubId) await saveStaffDepartments(clubId, next);
     } catch (error) {
       console.error("Error saving department:", error);
+      showToast("error", "Operazione non riuscita");
     }
   };
 
   const handleDeleteDepartment = async (departmentId: string) => {
-    const removedDepartment = departments.find(
-      (department) => department.id === departmentId,
-    );
-    const nextDepartments = departments.filter(
-      (department) => department.id !== departmentId,
-    );
-    const removedName = normalizeDepartmentName(removedDepartment?.name);
-    const nextStaffMembers = removedName
+    const removed = departments.find((d) => d.id === departmentId);
+    const removedName = normalizeDepartmentName(removed?.name);
+    const nextDepartments = departments.filter((d) => d.id !== departmentId);
+    const nextMembers = removedName
       ? staffMembers.map((member) =>
-          normalizeDepartmentName(member.department).toLowerCase() ===
-          removedName.toLowerCase()
-            ? { ...member, department: "" }
-            : member,
+          normalizeDepartmentName(member.department).toLowerCase() === removedName.toLowerCase() ? { ...member, department: "" } : member,
         )
       : staffMembers;
-
     setDepartments(nextDepartments);
-    setStaffMembers(nextStaffMembers);
-    if (departmentFilter === removedName) setDepartmentFilter("all");
-
+    setStaffMembers(nextMembers);
     try {
       if (clubId) {
-        await persistStaffState(nextStaffMembers);
+        await writeStaffMembers(nextMembers);
         await deleteStaffDepartment(clubId, departmentId);
       }
     } catch (error) {
       console.error("Error deleting department:", error);
+      showToast("error", "Operazione non riuscita");
     }
   };
 
-  const filteredStaffMembers = sortPeopleByLastName(
-    departmentFilter === "all"
-      ? staffMembers
-      : staffMembers.filter(
-          (member) =>
-            normalizeDepartmentName(member.department).toLowerCase() ===
-            departmentFilter.toLowerCase(),
-        ),
-  );
-  const staffCountsByDepartment = countStaffByDepartment(staffMembers);
-
-  /**
-   * Gli ambiti di export che hanno senso adesso (RC Fix 2, punto 10).
-   *
-   * Con una selezione attiva il primo e «selezionati»: chi ne ha scelti
-   * quattro non vuole un PDF di tutto il reparto.
-   */
-  const exportScopes = availableExportScopes({
-    selectedCount: selection.count,
-    filteredCount: filteredStaffMembers.length,
-    totalCount: staffMembers.length,
-  });
-
-  const rowsForScope = (scope: SelectionScope) =>
-    resolveScopeRows({
-      scope,
-      rows: staffMembers,
-      filteredRows: filteredStaffMembers,
-      selectedIds: selection.selectedIds,
-      idOf: (member) => String(member.id),
-    });
-
-  /**
-   * Export PDF, con lo stesso motore dell'elenco Atleti.
-   *
-   * Non e una seconda implementazione: `printPeoplePdf` prende colonne e
-   * righe e non sa di che entita si tratti (Blocco 7, punto 13).
-   */
-  const handleExportPdf = (scope: SelectionScope) => {
-    const people = rowsForScope(scope);
-    const result = exportPeoplePdf({
-      entity: "staff",
-      people: people as unknown as Record<string, any>[],
-      clubName: activeClub?.name || "EasyGame",
-      visibleColumns: visibleColumns,
-      scope,
-    });
-
-    if (!result.ok) {
-      showToast(
-        "error",
-        result.reason === "empty"
-          ? "Nessun elemento da esportare"
-          : "Consenti i popup per generare il PDF",
-      );
-      return;
+  const confirmDelete = async () => {
+    if (!deleting || !clubId) return;
+    const memberId = deleting.id;
+    setDeleteBusy(true);
+    const previous = staffMembers;
+    const next = staffMembers.filter((member) => member.id !== memberId);
+    setStaffMembers(next);
+    try {
+      await writeStaffMembers(next);
+      setSelectedIds((current) => {
+        const copy = new Set(current);
+        copy.delete(String(memberId));
+        return copy;
+      });
+      showToast("success", "Membro dello staff eliminato con successo");
+      setDeleting(null);
+    } catch (error) {
+      console.error("Error deleting staff member:", error);
+      setStaffMembers(previous);
+      showToast("error", "Errore nell'eliminazione del membro dello staff");
+      reload();
+    } finally {
+      setDeleteBusy(false);
     }
-
-    showToast("success", "PDF pronto: si apre la finestra di stampa");
   };
 
   /**
-   * Lo stesso elenco in CSV: stesse colonne visibili, stessi valori.
-   *
-   * Il tracciato appartiene a `src/lib/csv.ts`, non a questa pagina.
+   * Scrive la stessa modifica su ogni membro selezionato, in **una sola**
+   * scrittura: lo staff vive in un unico array JSONB, e dieci scritture
+   * separate possono fermarsi alla settima e lasciare l'elenco a meta.
    */
-  const handleExportCsv = (scope: SelectionScope) => {
-    const result = exportPeopleCsv({
-      entity: "staff",
-      people: rowsForScope(scope) as unknown as Record<string, any>[],
-      clubName: activeClub?.name || "EasyGame",
-      visibleColumns: visibleColumns,
-      scope,
-    });
-
-    if (!result.ok) {
-      showToast("error", "Nessun elemento da esportare");
-      return;
-    }
-
-    showToast("success", "CSV scaricato");
-  };
-
-  /**
-   * Scrive la stessa modifica su ogni membro selezionato.
-   *
-   * Lo staff vive in un unico array JSONB (`clubs.staff_members`): la
-   * modifica di massa e **una sola scrittura**, non una per riga. Non e
-   * un'ottimizzazione, e cio che rende l'operazione indivisibile — dieci
-   * scritture separate possono fermarsi alla settima e lasciare l'elenco a
-   * meta.
-   */
-  const applyToSelection = async (
-    updatesFor: (member: StaffMember) => Record<string, any>,
-    successMessage: (count: number) => string,
-  ) => {
+  const applyToRows = async (rows: StaffMember[], updatesFor: (member: StaffMember) => Record<string, any>, successMessage: (count: number) => string) => {
     if (!clubId || bulkBusy) return;
-
-    const targetIds = new Set(rowsForScope("selected").map((m) => String(m.id)));
+    const targetIds = new Set(rows.map((m) => String(m.id)));
     if (!targetIds.size) return;
-
     setBulkBusy(true);
     const previous = staffMembers;
-    const updated = staffMembers.map((member) =>
-      targetIds.has(String(member.id))
-        ? { ...member, ...updatesFor(member) }
-        : member,
-    );
-
+    const updated = staffMembers.map((member) => (targetIds.has(String(member.id)) ? { ...member, ...updatesFor(member) } : member));
     try {
       setStaffMembers(updated);
-      const { error } = await supabase
-        .from("clubs")
-        .update({ staff_members: updated })
-        .eq("id", clubId);
-
-      if (error) throw error;
+      await writeStaffMembers(updated);
       showToast("success", successMessage(targetIds.size));
     } catch (error) {
       console.error("Error running bulk staff action:", error);
-      // Si torna a com'era: un elenco che mostra una modifica non salvata e
-      // peggio di uno che non l'ha mai mostrata.
       setStaffMembers(previous);
       showToast("error", "Operazione non riuscita");
     } finally {
@@ -435,519 +238,401 @@ export default function StaffPage() {
     }
   };
 
-  const setSelectionStatus = (status: "active" | "inactive") =>
-    applyToSelection(
-      () => ({ status }),
-      (count) =>
-        `${count} membri dello staff ${status === "active" ? "attivati" : "disattivati"}`,
-    );
+  const setRowsStatus = (rows: StaffMember[], status: "active" | "inactive") =>
+    applyToRows(rows, () => ({ status }), (count) => `${count} membri dello staff ${status === "active" ? "attivati" : "disattivati"}`);
 
-  /**
-   * Il reparto e **uno solo** per persona: qui si sostituisce, non si aggiunge.
-   * E la differenza con l'assegnazione degli allenatori, che di categorie ne
-   * hanno piu d'una.
-   */
-  const setSelectionDepartment = (department: Department) =>
-    applyToSelection(
-      () => ({ department: department.name }),
-      (count) => `${count} membri dello staff spostati in ${department.name}`,
-    );
+  /* ── Esportazione (stesso motore della V1: person-export) ──────────────── */
+  const runExport = (kind: "csv" | "pdf", rows: StaffMember[], columnIds: string[], requestScope: "filtered" | "selected") => {
+    const visibleColumns = {
+      name: true,
+      role: columnIds.includes("role"),
+      department: columnIds.includes("department"),
+      email: columnIds.includes("email"),
+      phone: columnIds.includes("phone"),
+      status: columnIds.includes("status"),
+      hireDate: columnIds.includes("hireDate"),
+    };
+    const scope: SelectionScope = requestScope === "selected" ? "selected" : rows.length === staffMembers.length ? "all" : "filtered";
+    const people = rows as unknown as Record<string, any>[];
+    const clubName = activeClub?.name || "EasyGame";
+    if (kind === "pdf") {
+      const result = exportPeoplePdf({
+        entity: "staff",
+        people,
+        clubName,
+        visibleColumns,
+        scope,
+      });
+      if (!result.ok) {
+        showToast("error", result.reason === "empty" ? "Nessun elemento da esportare" : "Consenti i popup per generare il PDF");
+        return;
+      }
+      showToast("success", "PDF pronto: si apre la finestra di stampa");
+      return;
+    }
+    const result = exportPeopleCsv({
+      entity: "staff",
+      people,
+      clubName,
+      visibleColumns,
+      scope,
+    });
+    if (!result.ok) {
+      showToast("error", "Nessun elemento da esportare");
+      return;
+    }
+    showToast("success", "CSV scaricato");
+  };
 
-  const renderStaffMainContent = () => (
-    <main className={dashboardMainClassName}>
-      <DashboardPageContainer>
-        {/* Header */}
-        <div className="flex justify-between items-center">
-          <SharedPageHeader
-            title="Staff"
-            subtitle="Gestisci il personale amministrativo e tecnico"
+  const defaultExportColumnIds = ["role", "department", "email", "phone", "status", "hireDate"];
+
+  /* ── Griglia ───────────────────────────────────────────────────────────── */
+  const recordHref = (member: StaffMember) => withClubId(`/staff/${member.id}`, clubId);
+
+  const columns = React.useMemo<ColumnDef<StaffMember>[]>(() => {
+    const base: ColumnDef<StaffMember>[] = [
+      {
+        id: "identity",
+        header: "Nome",
+        kind: "identity",
+        locked: true,
+        width: 2,
+        cell: (row) => (
+          <IdentityCell
+            name={getStaffDisplayName(row)}
+            round
+            href={recordHref(row)}
+            onClick={() => router.push(recordHref(row))}
+            meta={joinMeta(row.role, normalizeDepartmentName(row.department) || "Non assegnato")}
           />
-          <div className="flex flex-wrap justify-end gap-2">
-            <Select
-              value={departmentFilter}
-              onValueChange={setDepartmentFilter}
-            >
-              <SelectTrigger className="h-9 w-[170px]">
-                <SelectValue placeholder="Filtra reparto" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tutti i reparti</SelectItem>
-                {departments.map((department) => (
-                  <SelectItem key={department.id} value={department.name}>
-                    {department.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              onClick={() => setIsDepartmentManagementOpen(true)}
-            >
-              <Building className="mr-2 h-4 w-4" />
-              Reparti
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" disabled={!exportScopes.length}>
-                  <FileDown className="mr-2 h-4 w-4" />
-                  Esporta PDF
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {exportScopes.map((scope) => (
-                  <DropdownMenuItem
-                    key={scope}
-                    onClick={() => handleExportPdf(scope)}
-                  >
-                    {exportScopeLabel(scope, rowsForScope(scope).length)}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" disabled={!exportScopes.length}>
-                  <FileSpreadsheet className="mr-2 h-4 w-4" />
-                  Esporta CSV
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {exportScopes.map((scope) => (
-                  <DropdownMenuItem
-                    key={scope}
-                    onClick={() => handleExportCsv(scope)}
-                  >
-                    {exportScopeLabel(scope, rowsForScope(scope).length)}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button
-              variant={viewMode === "table" ? "default" : "outline"}
-              size="icon"
-              onClick={() => setViewMode("table")}
-              title="Visualizzazione Tabella"
-            >
-              <Table className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={viewMode === "cards" ? "default" : "outline"}
-              size="icon"
-              onClick={() => setViewMode("cards")}
-              title="Visualizzazione Card"
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </Button>
+        ),
+        sortValue: (row) => {
+          const identity = getStaffIdentity(row);
+          return `${identity.lastName} ${identity.firstName}`.trim().toLowerCase();
+        },
+        exportValue: (row) => getStaffDisplayName(row),
+        title: (row) => getStaffDisplayName(row),
+      },
+      {
+        id: "department",
+        header: "Reparto",
+        kind: "classification",
+        cell: (row) => {
+          const name = normalizeDepartmentName(row.department);
+          if (!name) return <DataChip size="sm">Non assegnato</DataChip>;
+          return (
+            <DataChip size="sm" tone={departmentChipTone(findStaffDepartment(departments, name))} title={name}>
+              {name}
+            </DataChip>
+          );
+        },
+        sortValue: (row) => normalizeDepartmentName(row.department).toLowerCase() || null,
+        exportValue: (row) => normalizeDepartmentName(row.department),
+        title: (row) => normalizeDepartmentName(row.department) || "Non assegnato",
+      },
+      {
+        id: "role",
+        header: "Ruolo",
+        kind: "classification",
+        cell: (row) => String(row.role || "").trim(),
+        sortValue: (row) => String(row.role || "").trim().toLowerCase() || null,
+      },
+      {
+        id: "status",
+        header: "Stato",
+        kind: "status",
+        cell: (row) => <StatusPill status={staffStatusSpec(row.status)} />,
+        sortValue: (row) => statusKey(row),
+        exportValue: (row) => staffStatusSpec(row.status).label,
+      },
+    ];
+    if (access.enabled) {
+      base.push({
+        id: "access",
+        header: "Accesso EasyGame",
+        kind: "status",
+        cell: (row) => {
+          const spec = access.statusFor(row.email);
+          return spec ? <StatusPill status={spec} /> : null;
+        },
+        sortValue: (row) => access.statusFor(row.email)?.label ?? null,
+        exportValue: (row) => access.statusFor(row.email)?.label ?? "",
+      });
+    }
+    base.push(
+      {
+        id: "email",
+        header: "Email",
+        kind: "text",
+        minWidth: 160,
+        cell: (row) => String(row.email || "").trim(),
+        sortValue: (row) => String(row.email || "").trim().toLowerCase() || null,
+      },
+      {
+        id: "phone",
+        header: "Telefono",
+        kind: "text",
+        cell: (row) => <span className="egw-num">{String(row.phone || "").trim()}</span>,
+        sortValue: (row) => String(row.phone || "").trim() || null,
+        exportValue: (row) => String(row.phone || "").trim(),
+        title: (row) => String(row.phone || "").trim() || undefined,
+      },
+      {
+        id: "hireDate",
+        header: "Data assunzione",
+        kind: "date",
+        cell: (row) => (staffHireDate(row) ? formatDateShort(staffHireDate(row)) : null),
+        sortValue: (row) => staffHireDate(row) || null,
+        exportValue: (row) => staffHireDate(row),
+      },
+      {
+        id: "documentExpiry",
+        header: "Scadenza documento",
+        kind: "status",
+        hidden: true,
+        cell: (row) => {
+          const expiry = String(row.documentExpiry || "").trim();
+          if (!expiry) return null;
+          const days = daysUntil(expiry);
+          return <StatusPill status={certificateStatusFromExpiry(days)} detail={formatDateShort(expiry)} />;
+        },
+        sortValue: (row) => String(row.documentExpiry || "").trim() || null,
+        exportValue: (row) => String(row.documentExpiry || "").trim(),
+        title: (row) => (row.documentExpiry ? formatDateShort(row.documentExpiry) : undefined),
+      },
+      {
+        id: "fiscalCode",
+        header: "Codice fiscale",
+        kind: "text",
+        hidden: true,
+        cell: (row) => <span className="egw-num uppercase">{String(row.fiscalCode || row.fiscal_code || "").trim()}</span>,
+        sortValue: (row) => String(row.fiscalCode || row.fiscal_code || "").trim() || null,
+        exportValue: (row) => String(row.fiscalCode || row.fiscal_code || "").trim(),
+      },
+      {
+        id: "city",
+        header: "Comune di residenza",
+        kind: "text",
+        hidden: true,
+        cell: (row) => String(row.city || "").trim(),
+        sortValue: (row) => String(row.city || "").trim().toLowerCase() || null,
+      },
+    );
+    return base;
+    // `access.statusFor` cambia identita a ogni render: le dipendenze vere sono
+    // il permesso, le email caricate e i reparti.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [departments, access.enabled, access.loading, access.error, clubId]);
 
-            {viewMode === "table" && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    title="Personalizza Colonne"
-                  >
-                    <Settings2 className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuLabel>Colonne Visibili</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuCheckboxItem
-                    checked={visibleColumns.name}
-                    onCheckedChange={(checked) =>
-                      setVisibleColumns((prev) => ({
-                        ...prev,
-                        name: checked,
-                      }))
-                    }
-                  >
-                    Nome
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={visibleColumns.role}
-                    onCheckedChange={(checked) =>
-                      setVisibleColumns((prev) => ({
-                        ...prev,
-                        role: checked,
-                      }))
-                    }
-                  >
-                    Ruolo
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={visibleColumns.department}
-                    onCheckedChange={(checked) =>
-                      setVisibleColumns((prev) => ({
-                        ...prev,
-                        department: checked,
-                      }))
-                    }
-                  >
-                    Reparto
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={visibleColumns.email}
-                    onCheckedChange={(checked) =>
-                      setVisibleColumns((prev) => ({
-                        ...prev,
-                        email: checked,
-                      }))
-                    }
-                  >
-                    Email
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={visibleColumns.phone}
-                    onCheckedChange={(checked) =>
-                      setVisibleColumns((prev) => ({
-                        ...prev,
-                        phone: checked,
-                      }))
-                    }
-                  >
-                    Telefono
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={visibleColumns.status}
-                    onCheckedChange={(checked) =>
-                      setVisibleColumns((prev) => ({
-                        ...prev,
-                        status: checked,
-                      }))
-                    }
-                  >
-                    Stato
-                  </DropdownMenuCheckboxItem>
-                  <DropdownMenuCheckboxItem
-                    checked={visibleColumns.hireDate}
-                    onCheckedChange={(checked) =>
-                      setVisibleColumns((prev) => ({
-                        ...prev,
-                        hireDate: checked,
-                      }))
-                    }
-                  >
-                    Data Assunzione
-                  </DropdownMenuCheckboxItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            <Button
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  const storedClub = localStorage.getItem("activeClub");
-                  if (storedClub) {
-                    try {
-                      const parsed = JSON.parse(storedClub);
-                      if (parsed?.id) {
-                        router.push(`/staff/new?clubId=${parsed.id}`);
-                        return;
-                      }
-                    } catch (e) {
-                      console.error(
-                        "Errore nel parsing di activeClub da localStorage",
-                        e,
-                      );
-                    }
-                  }
-                }
-                router.push("/staff/new");
-              }}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Aggiungi Membro
-            </Button>
-          </div>
-        </div>
+  const rolesInUse = React.useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const member of staffMembers) {
+      const role = String(member.role || "").trim();
+      if (role && !seen.has(role.toLowerCase())) seen.set(role.toLowerCase(), role);
+    }
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, "it", { sensitivity: "base" }));
+  }, [staffMembers]);
 
-        <BulkSelectionToolbar
-          selection={selection}
-          nouns={{ one: "membro dello staff", many: "membri dello staff" }}
-          className="mb-4"
-        >
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8"
-            disabled={bulkBusy}
-            onClick={() => void setSelectionStatus("active")}
-          >
-            <UserCheck className="mr-1.5 h-3.5 w-3.5 text-green-600" aria-hidden />
-            Attiva
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8"
-            disabled={bulkBusy}
-            onClick={() => void setSelectionStatus("inactive")}
-          >
-            <UserX className="mr-1.5 h-3.5 w-3.5 text-amber-600" aria-hidden />
-            Disattiva
-          </Button>
+  const filters = React.useMemo<FilterDef<StaffMember>[]>(() => {
+    const counts = countStaffByDepartment(staffMembers);
+    const list: FilterDef<StaffMember>[] = [
+      {
+        id: "department",
+        label: "Reparto",
+        type: "select",
+        pinned: true,
+        options: [
+          ...departments.map((d) => ({ value: d.name, label: d.name, count: counts[d.name.toLowerCase()] || 0 })),
+          { value: NO_DEPARTMENT, label: "Senza reparto", count: staffMembers.filter((m) => !normalizeDepartmentName(m.department)).length },
+        ],
+        apply: (row, value) => {
+          if (typeof value !== "string" || !value) return true;
+          const name = normalizeDepartmentName(row.department);
+          if (value === NO_DEPARTMENT) return !name;
+          return name.toLowerCase() === value.toLowerCase();
+        },
+      },
+      {
+        id: "status",
+        label: "Stato",
+        type: "select",
+        options: STATUS_FILTER_OPTIONS,
+        apply: (row, value) => (typeof value === "string" && value ? statusKey(row) === value : true),
+      },
+      {
+        id: "role",
+        label: "Ruolo",
+        type: "select",
+        options: rolesInUse.map((role) => ({ value: role, label: role })),
+        apply: (row, value) => (typeof value === "string" && value ? String(row.role || "").trim().toLowerCase() === value.toLowerCase() : true),
+      },
+    ];
+    if (access.enabled) {
+      list.push({
+        id: "access",
+        label: "Accesso EasyGame",
+        type: "select",
+        options: [
+          { value: "linked", label: "Collegato" },
+          { value: "none", label: "Senza accesso" },
+        ],
+        apply: (row, value) => {
+          if (typeof value !== "string" || !value) return true;
+          const spec = access.statusFor(row.email);
+          if (!spec) return true;
+          return value === "linked" ? spec.label === "COLLEGATO" : spec.label !== "COLLEGATO";
+        },
+      });
+    }
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [departments, staffMembers, rolesInUse, access.enabled, access.loading]);
 
-          {departments.length ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8"
-                  disabled={bulkBusy}
-                >
-                  <Building className="mr-1.5 h-3.5 w-3.5 text-blue-600" aria-hidden />
-                  Sposta in un reparto
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-72 overflow-y-auto">
-                <DropdownMenuLabel>Il reparto e uno solo: sostituisce</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {departments.map((department) => (
-                  <DropdownMenuItem
-                    key={department.id}
-                    onClick={() => void setSelectionDepartment(department)}
-                  >
-                    {department.name}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8"
-            disabled={bulkBusy}
-            onClick={() => handleExportPdf("selected")}
-          >
-            <FileDown className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-            Esporta PDF
-          </Button>
-
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8"
-            disabled={bulkBusy}
-            onClick={() => handleExportCsv("selected")}
-          >
-            <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-            Esporta CSV
-          </Button>
-        </BulkSelectionToolbar>
-
-        {/* Staff List */}
-        {filteredStaffMembers.length > 0 ? (
-          viewMode === "table" ? (
-            <Card>
-              <CardContent className="p-6">
-                <StaffTable
-                  staffMembers={filteredStaffMembers}
-                  selection={selection}
-                  departments={departments}
-                  onEdit={(member) =>
-                    router.push(`/staff/${member.id}?clubId=${clubId}`)
-                  }
-                  onDelete={(id) => handleDelete(id)}
-                  onToggleStatus={() => {}}
-                  formatDate={(date) => {
-                    if (!date) return "N/A";
-                    try {
-                      return new Date(date).toLocaleDateString("it-IT", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        year: "numeric",
-                      });
-                    } catch {
-                      return "N/A";
-                    }
-                  }}
-                  visibleColumns={visibleColumns}
-                />
-              </CardContent>
-            </Card>
-          ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredStaffMembers.map((member) => {
-              const department = departments.find(
-                (item) =>
-                  normalizeDepartmentName(item.name).toLowerCase() ===
-                  normalizeDepartmentName(member.department).toLowerCase(),
-              );
-
-              return (
-              <Card
-                key={member.id}
-                className="hover:shadow-lg transition-shadow duration-200 cursor-pointer"
-                onClick={() =>
-                  router.push(`/staff/${member.id}?clubId=${clubId}`)
-                }
-              >
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <div className="flex items-center gap-3">
-                    {/*
-                      La scheda si apre al clic: spuntare non deve aprirla, o
-                      selezionare dieci persone vorrebbe dire aprire dieci
-                      pagine.
-                    */}
-                    <span onClick={(event) => event.stopPropagation()}>
-                      <SelectRowCheckbox
-                        selection={selection}
-                        id={String(member.id)}
-                        label={getStaffDisplayName(member)}
-                      />
-                    </span>
-                    <EntityIcon
-                      type="staff"
-                      size="sm"
-                      label={getStaffDisplayName(member)}
-                    />
-                    <div>
-                      <CardTitle className="text-lg">
-                        {getStaffDisplayName(member)}
-                      </CardTitle>
-                      <p className="text-sm text-gray-500">{member.role}</p>
-                    </div>
-                  </div>
-                  <Badge
-                    variant={member.status === "active" ? "default" : "outline"}
-                    className={
-                      member.status === "active"
-                        ? "bg-green-100 text-green-800 border-green-200"
-                        : "bg-gray-100 text-gray-800 border-gray-200"
-                    }
-                  >
-                    {member.status === "active" ? "Attivo" : "Non Attivo"}
-                  </Badge>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <Badge
-                      variant="outline"
-                      className={getDepartmentBadgeClassName(department)}
-                    >
-                      {member.department || "Non assegnato"}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center text-sm text-gray-600">
-                    <Mail className="h-4 w-4 mr-2" />
-                    {member.email || "Email non disponibile"}
-                  </div>
-                  <div className="flex items-center text-sm text-gray-600">
-                    <Phone className="h-4 w-4 mr-2" />
-                    {member.phone || "Telefono non disponibile"}
-                  </div>
-                  <div className="flex items-center text-sm text-gray-600">
-                    <Calendar className="h-4 w-4 mr-2" />
-                    {member.hire_date || member.hireDate
-                      ? `Assunto il ${new Date(member.hire_date || member.hireDate || "").toLocaleDateString("it-IT")}`
-                      : "Data assunzione non disponibile"}
-                  </div>
-                  <div className="flex justify-end gap-2 mt-4">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        router.push(`/staff/${member.id}?clubId=${clubId}`);
-                      }}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(member.id);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-              );
-            })}
-          </div>
-          )
-        ) : null}
-
-        {filteredStaffMembers.length === 0 && !loading && (
-          <Card className="text-center py-12">
-            <CardContent>
-              <Users className="h-16 w-16 mx-auto text-gray-400 mb-4" />
-              <h3 className="text-xl font-semibold mb-2">
-                {staffMembers.length === 0
-                  ? "Nessun membro dello staff"
-                  : "Nessun risultato trovato"}
-              </h3>
-              <p className="text-gray-600 mb-4">
-                {staffMembers.length === 0
-                  ? "Inizia aggiungendo il primo membro del tuo staff"
-                  : "Prova a modificare i filtri di ricerca"}
-              </p>
-              {staffMembers.length === 0 ? (
-                <Button
-                  onClick={() => {
-                    if (typeof window !== "undefined") {
-                      const storedClub = localStorage.getItem("activeClub");
-                      if (storedClub) {
-                        try {
-                          const parsed = JSON.parse(storedClub);
-                          if (parsed?.id) {
-                            router.push(`/staff/new?clubId=${parsed.id}`);
-                            return;
-                          }
-                        } catch (e) {
-                          console.error(
-                            "Errore nel parsing di activeClub da localStorage",
-                            e,
-                          );
-                        }
-                      }
-                    }
-                    router.push("/staff/new");
-                  }}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Aggiungi Membro
-                </Button>
-              ) : null}
-            </CardContent>
-          </Card>
-        )}
-        <DepartmentManagement
-          isOpen={isDepartmentManagementOpen}
-          onClose={() => setIsDepartmentManagementOpen(false)}
-          onSave={handleSaveDepartment}
-          departments={departments}
-          onDelete={handleDeleteDepartment}
-          staffCountsByDepartment={staffCountsByDepartment}
-        />
-      </DashboardPageContainer>
-    </main>
+  const rowActions = React.useMemo<RowActionDef<StaffMember>[]>(
+    () => [
+      { id: "open", label: "Apri scheda", icon: <ChevronRight />, primary: true, onClick: (row) => router.push(recordHref(row)) },
+      { id: "edit", label: "Modifica", icon: <Pencil />, onClick: (row) => router.push(withClubId(`/staff/${row.id}/edit`, clubId)) },
+      { id: "delete", label: "Elimina", icon: <Trash2 />, tone: "danger", onClick: (row) => setDeleting(row) },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [clubId],
   );
 
-  return (
-    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-      {/*
-        Una sola chrome, e il contenuto montato **una volta**.
+  const bulkActions = React.useMemo<BulkActionDef<StaffMember>[]>(
+    () => [
+      { id: "activate", label: "Attiva", icon: <UserCheck />, onRun: (rows) => setRowsStatus(rows, "active"), disabled: () => bulkBusy },
+      { id: "deactivate", label: "Disattiva", icon: <UserX />, onRun: (rows) => setRowsStatus(rows, "inactive"), disabled: () => bulkBusy },
+      { id: "move", label: "Sposta in un reparto", icon: <Building2 />, hidden: !departments.length, onRun: (rows) => setMoveRows(rows), disabled: () => bulkBusy },
+      { id: "export-pdf", label: "Esporta PDF", icon: <FileDown />, onRun: (rows) => runExport("pdf", rows, defaultExportColumnIds, "selected"), disabled: () => bulkBusy },
+      { id: "export-csv", label: "Esporta CSV", icon: <FileSpreadsheet />, onRun: (rows) => runExport("csv", rows, defaultExportColumnIds, "selected"), disabled: () => bulkBusy },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [departments.length, bulkBusy, staffMembers, clubId, activeClub?.name],
+  );
 
-        Qui c'erano due rami — uno `hidden lg:flex`, uno `lg:hidden` — che
-        montavano entrambi la pagina: nascosta con il CSS, ma viva nel DOM.
-        React eseguiva due volte ogni effetto, quindi ogni lettura partiva due
-        volte e ogni autosave rischiava due PATCH sovrapposte sulla stessa
-        colonna. `Header` monta gia da se la barra mobile e quella desktop
-        (RC Fix 1, punto 11).
-      */}
+  const onExport = (request: ExportRequest<StaffMember>) =>
+    runExport(request.kind === "pdf" ? "pdf" : "csv", request.rows, request.columns.map((c) => c.id), request.scope);
+
+  const search = React.useMemo(
+    () => ({
+      placeholder: "Cerca per nome, email, ruolo",
+      match: (row: StaffMember, query: string) => {
+        const q = query.trim().toLowerCase();
+        if (!q) return true;
+        return [getStaffDisplayName(row), row.email, row.phone, row.role, row.department]
+          .map((v) => String(v || "").toLowerCase())
+          .some((v) => v.includes(q));
+      },
+    }),
+    [],
+  );
+
+  const goToNew = () => router.push(withClubId("/staff/new", clubId));
+
+  const activeCount = staffMembers.filter((m) => isStaffActive(m.status)).length;
+  const gridState = loading ? "loading" : loadError ? "error" : "ready";
+
+  return (
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header title="Staff" />
-        {renderStaffMainContent()}
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>
+            <PageHeader
+              eyebrow="Persone"
+              title="Staff"
+              description="Gestisci il personale amministrativo e tecnico del club."
+              stats={
+                <>
+                  <HeaderStat value={formatInteger(staffMembers.length)} label={staffMembers.length === 1 ? "membro" : "membri"} />
+                  <HeaderStat value={formatInteger(activeCount)} label="attivi" tone="green" />
+                  <HeaderStat value={formatInteger(departments.length)} label={departments.length === 1 ? "reparto" : "reparti"} />
+                </>
+              }
+              actions={
+                <>
+                  <Menu>
+                    <MenuTrigger asChild>
+                      <IconButton aria-label="Altre azioni" variant="secondary" size="md">
+                        <MoreHorizontal />
+                      </IconButton>
+                    </MenuTrigger>
+                    <MenuContent align="end" width={240}>
+                      <MenuItem onSelect={() => setDepartmentsOpen(true)}>
+                        <Building2 />
+                        Gestisci reparti
+                      </MenuItem>
+                    </MenuContent>
+                  </Menu>
+                  <Button variant="primary" icon={<Plus />} onClick={goToNew}>
+                    Nuovo membro dello staff
+                  </Button>
+                </>
+              }
+            />
+
+            <DataGrid<StaffMember>
+              module="staff"
+              aria-label="Elenco dello staff"
+              rows={staffMembers}
+              getRowId={(row) => String(row.id)}
+              columns={columns}
+              filters={filters}
+              views={STAFF_VIEWS}
+              search={search}
+              defaultSort={{ columnId: "identity", direction: "asc" }}
+              rowActions={rowActions}
+              bulkActions={bulkActions}
+              selectedIds={selectedIds}
+              onSelectionChange={setSelectedIds}
+              onOpenRow={(row) => router.push(recordHref(row))}
+              state={gridState}
+              errorMessage={loadError}
+              onRetry={reload}
+              noun={{ singular: "membro dello staff", plural: "membri dello staff" }}
+              export={{ onExport, kinds: ["csv", "pdf"] }}
+              empty={{
+                icon: <Users />,
+                title: "Nessun membro dello staff",
+                description: "Inizia aggiungendo il primo membro del tuo staff.",
+                primary: (
+                  <Button variant="primary" size="sm" icon={<Plus />} onClick={goToNew}>
+                    Nuovo membro dello staff
+                  </Button>
+                ),
+              }}
+            />
+          </DashboardPageContainer>
+        </main>
       </div>
+
+      <DepartmentsDrawer
+        open={departmentsOpen}
+        onOpenChange={setDepartmentsOpen}
+        departments={departments}
+        staffCountsByDepartment={countStaffByDepartment(staffMembers)}
+        onSave={handleSaveDepartment}
+        onDelete={handleDeleteDepartment}
+      />
+
+      <MoveDepartmentDrawer
+        open={Boolean(moveRows)}
+        onOpenChange={(open) => !open && setMoveRows(null)}
+        rows={moveRows || []}
+        departments={departments}
+        onConfirm={(department) =>
+          applyToRows(moveRows || [], () => ({ department: department.name }), (count) => `${count} membri dello staff spostati in ${department.name}`)
+        }
+      />
+
+      <DeleteStaffDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => !open && !deleteBusy && setDeleting(null)}
+        name={deleting ? getStaffDisplayName(deleting) : ""}
+        onConfirm={confirmDelete}
+        loading={deleteBusy}
+      />
     </div>
   );
 }

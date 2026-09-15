@@ -29,7 +29,8 @@ const senzaCommenti = (sorgente) =>
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
 const SCHEDA = "app/athletes/[id]/page.tsx";
-const INTESTAZIONE = "components/athletes/profile/athlete-profile-header.tsx";
+/* Dal Web V2 l'intestazione della scheda e il `RecordHeader` avvolto per l'atleta. */
+const INTESTAZIONE = "components/athletes/profile/v2/AthleteRecordHeader.tsx";
 const ACCESSO = "components/athletes/profile/athlete-account-section.tsx";
 /*
   Dal Web V2 la barra del club e in due file: le voci (etichette, indirizzi,
@@ -129,31 +130,27 @@ test("§I · i dati personali stanno dentro la scheda Generale", () => {
     "la sezione resta montata: spostarla non e toglierla",
   );
 
-  const generale = scheda.indexOf('<TabsContent value="generale"');
-  const contatti = scheda.indexOf('<TabsContent value="contatti"');
+  /*
+    Con il Web V2 «Generale» e diventata l'area **Profilo** (09 §9.8): la
+    sezione sta dentro quell'area, ed e l'ultima — chi apre la scheda cerca
+    l'anagrafica, e i diritti dell'interessato sono l'ultima cosa che si fa,
+    non la prima che si legge.
+  */
+  const profilo = scheda.indexOf('area === "profilo"');
+  const attivita = scheda.indexOf('area === "attivita"');
   const sezione = scheda.indexOf("<AthleteDataSubjectSection");
 
-  assert.ok(generale > 0 && contatti > generale, "le due schede esistono in ordine");
+  assert.ok(profilo > 0 && attivita > profilo, "le due aree esistono in ordine");
   assert.ok(
-    sezione > generale && sezione < contatti,
-    "la sezione sta dentro «Generale», e non piu sopra le schede",
+    sezione > profilo && sezione < attivita,
+    "la sezione sta dentro «Profilo», e non piu sopra le aree",
   );
 
-  /*
-    In **fondo**, non in mezzo: chi apre la scheda cerca l'anagrafica, e i
-    diritti dell'interessato sono l'ultima cosa che si fa, non la prima che si
-    legge.
-  */
-  /*
-    L'ancoraggio e il **pannello**, non piu il titolo della card: N4 ha
-    estratto tabella e finestra dei tesseramenti in
-    `athlete-registrations-panel.tsx` per rientrare sotto il tetto di righe
-    della scheda. Cio che questa prova misura — l'**ordine** — non e cambiato.
-  */
-  const tesseramento = scheda.indexOf("<AthleteRegistrationsPanel");
+  const anagrafica = scheda.indexOf("<AthleteAnagraficaCard");
+  const famiglia = scheda.indexOf("<AthleteGuardiansPanel");
   assert.ok(
-    tesseramento > generale && sezione > tesseramento,
-    "sta dopo l'anagrafica e il tesseramento, in coda alla scheda",
+    anagrafica > profilo && famiglia > anagrafica && sezione > famiglia,
+    "sta dopo l'anagrafica e la famiglia, in coda all'area",
   );
 });
 
@@ -162,7 +159,7 @@ test("§I · nessuna delle due sezioni e montata due volte", () => {
   for (const [componente, quante] of [
     ["<AthleteDataSubjectSection", 1],
     ["<AthleteAccountDialog", 1],
-    ["<AthleteProfileHeader", 1],
+    ["<AthleteRecordHeader", 1],
   ]) {
     assert.equal(
       (scheda.split(componente).length - 1),

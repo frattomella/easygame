@@ -25,6 +25,8 @@ const TRAINER_NEW = "app/trainers/new/page.tsx";
 const TRAINER_EDIT = "app/trainers/[id]/edit/page.tsx";
 const EDIT_TRAINING = "components/forms/EditTrainingForm.tsx";
 const DOCUMENTS_PANEL = "components/trainer/trainer-documents-panel.tsx";
+/* Dal Web V2 le sezioni si modificano in un cassetto: i campi vivono qui. */
+const TRAINER_DRAWER = "components/trainer/v2/trainer-section-drawer.tsx";
 
 // --- dati societari ----------------------------------------------------------
 
@@ -32,23 +34,23 @@ test("«Ruolo» non e piu nei dati societari dell'allenatore", () => {
   const source = readCode(TRAINER_CARD);
 
   assert.equal(
-    /<h3[^>]*>Ruolo<\/h3>/.test(source),
+    /label: "Ruolo"/.test(source),
     false,
     "su una scheda allenatore il ruolo vale sempre «Allenatore»",
   );
   assert.equal(
-    /<Label>Ruolo<\/Label>/.test(source),
+    /label="Ruolo"/.test(readCode(TRAINER_DRAWER)),
     false,
     "e non deve nemmeno essere modificabile da qui",
   );
 });
 
 test("la data di inizio si puo modificare", () => {
-  const source = readCode(TRAINER_CARD);
+  const source = readCode(TRAINER_DRAWER);
 
   assert.match(
     source,
-    /<Label>Data di Inizio<\/Label>[\s\S]{0,400}editFormData\.startDate/,
+    /label="Data di inizio"[\s\S]{0,400}form\.startDate/,
     "esisteva solo come testo in sola lettura",
   );
 });

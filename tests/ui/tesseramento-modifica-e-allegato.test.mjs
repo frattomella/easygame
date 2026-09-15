@@ -53,7 +53,7 @@ test("visualizza e scarica compaiono solo quando il file c'e", () => {
   */
   const inizio = codice.indexOf("hasFile ? (");
   assert.ok(inizio > 0, "il ramo condizionale deve esistere");
-  const ramo = codice.slice(inizio, codice.indexOf("Nessun allegato"));
+  const ramo = codice.slice(inizio, codice.indexOf(") : null}", inizio));
 
   assert.match(ramo, /onView\(registration\)/);
   assert.match(ramo, /onDownload\(registration\)/);
@@ -141,8 +141,9 @@ test("correggere aggiorna la riga invece di accodarne una seconda", () => {
 test("la finestra dichiara che sta correggendo", () => {
   const dialogo = senzaCommenti(leggi(DIALOGO));
 
-  assert.match(dialogo, /isEditing \? "Modifica Tesseramento" : "Nuovo Tesseramento"/);
-  assert.match(dialogo, /isEditing \? "Salva modifiche" : "Salva Tesseramento"/);
+  /* Web V2: sentence case (guideline 10 §10.5, regola 11). */
+  assert.match(dialogo, /isEditing \? "Modifica tesseramento" : "Nuovo tesseramento"/);
+  assert.match(dialogo, /isEditing \? "Salva modifiche" : "Salva tesseramento"/);
 });
 
 /* ------------------------------------------------------------------ */

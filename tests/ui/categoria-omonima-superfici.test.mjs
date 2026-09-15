@@ -56,8 +56,8 @@ const SUPERFICI = [
     gruppi: /buildCategoryDisplayIndex\(\{ categories, groups \}\)/,
   },
   {
-    nome: "scheda atleta: pettorine in testata",
-    file: "src/components/athletes/profile/athlete-profile-header.tsx",
+    nome: "scheda atleta: chip in testata",
+    file: "src/components/athletes/profile/v2/AthleteRecordHeader.tsx",
     usa: /<CategoryLabel/,
     gruppi: /groups: categoryGroups/,
   },
@@ -99,7 +99,8 @@ test("la scheda atleta legge i gruppi del club e li passa ai pannelli", () => {
     /getClubData\(effectiveClubId, "category_groups"\)/,
     "senza questa lettura la sede non esiste in questa pagina",
   );
-  assert.match(codice, /groups=\{clubCategoryGroups\}/);
+  /* Il cassetto di modifica riceve i gruppi come oggetto; le sezioni come prop. */
+  assert.match(codice, /groups: clubCategoryGroups/);
   assert.match(codice, /categoryGroups=\{clubCategoryGroups\}/);
 });
 

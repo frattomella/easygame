@@ -9,9 +9,10 @@ import {
   DashboardPageContainer,
   dashboardMainClassName,
 } from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { PageHeader } from "@/components/web/page/PageHeader";
+import { IconButton } from "@/components/web/primitives/Button";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { DirtyGuardDialog } from "@/components/web/overlays/Modal";
 import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { AthleteCreateForm } from "@/components/forms/AthleteCreateForm";
@@ -38,6 +39,12 @@ import { sortByName } from "@/lib/sorting";
  * La pagina non contiene logica di dominio: monta il modulo, scrive con
  * `addClubAthlete` e porta alla scheda appena creata — che e il gesto
  * successivo naturale, invece di riportare a un elenco dove cercarla.
+ *
+ * Nel Web V2 e il pattern 6 («Full-page form», guideline 09 §9.1):
+ * intestazione di pagina, pannelli a sezioni, barra delle azioni in fondo.
+ * L'unico gradiente della schermata e il «Salva atleta» della barra: qui in
+ * cima resta solo la freccia per tornare all'elenco, con la guardia sulle
+ * modifiche non salvate.
  */
 
 function NewAthletePageContent() {
@@ -52,6 +59,8 @@ function NewAthletePageContent() {
   );
   const [categories, setCategories] = React.useState<any[]>([]);
   const [federations, setFederations] = React.useState<ClubFederation[]>([]);
+  const [dirty, setDirty] = React.useState(false);
+  const [guardOpen, setGuardOpen] = React.useState(false);
 
   React.useEffect(() => {
     if (clubIdFromUrl && clubIdFromUrl !== "null") {
@@ -105,6 +114,19 @@ function NewAthletePageContent() {
   }, [clubId]);
 
   const backHref = clubId ? `/athletes?clubId=${clubId}` : "/athletes";
+
+  const goBack = React.useCallback(() => {
+    router.push(backHref);
+  }, [backHref, router]);
+
+  /** La freccia in cima chiede prima, se c'e qualcosa da perdere. */
+  const requestBack = () => {
+    if (dirty) {
+      setGuardOpen(true);
+      return;
+    }
+    goBack();
+  };
 
   const handleSubmit = async (draft: any) => {
     if (!clubId || !user) {
@@ -180,65 +202,62 @@ function NewAthletePageContent() {
   };
 
   return (
-    <div className="flex h-[100dvh] bg-gradient-to-br from-blue-50 via-white to-purple-50">
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <Header title="Nuovo Atleta" />
+        <Header title="Nuovo atleta" />
 
         <main className={dashboardMainClassName}>
-          <DashboardPageContainer className="max-w-5xl">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex min-w-0 items-center gap-4">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="rounded-full"
-                  aria-label="Torna agli atleti"
-                  onClick={() => router.push(backHref)}
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                </Button>
-                <SharedPageHeader
-                  title="Nuovo Atleta"
-                  subtitle="Obbligatori nome, cognome e data di nascita. Il resto si puo compilare ora o dopo."
-                  className="flex-1"
-                />
-              </div>
-
-              <Button
-                type="submit"
-                form="athlete-create-form"
-                disabled={!clubId}
-                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 sm:w-auto"
+          <DashboardPageContainer className="max-w-[1120px]">
+            <div className="flex items-start gap-3">
+              <IconButton
+                aria-label="Torna agli atleti"
+                variant="secondary"
+                size="md"
+                className="mt-1 shrink-0"
+                onClick={requestBack}
               >
-                Salva Atleta
-              </Button>
+                <ArrowLeft />
+              </IconButton>
+              <PageHeader
+                eyebrow="Persone · Atleti"
+                title="Nuovo atleta"
+                description="Obbligatori nome, cognome e data di nascita. Il resto si può compilare ora o dopo."
+                className="mb-0 min-w-0 flex-1"
+              >
+                {!clubId ? (
+                  <AlertBlock
+                    severity="warning"
+                    title="Nessun club selezionato"
+                  >
+                    Seleziona prima un club dalla tua area account, poi torna
+                    qui per iscrivere il nuovo atleta.
+                  </AlertBlock>
+                ) : null}
+              </PageHeader>
             </div>
 
-            {!clubId ? (
-              <Card className="border-amber-200 bg-amber-50">
-                <CardContent className="py-6 text-amber-900">
-                  Seleziona prima un club dalla tua area account, poi torna qui
-                  per iscrivere il nuovo atleta.
-                </CardContent>
-              </Card>
-            ) : null}
-
-            <Card className="shadow-sm">
-              <CardContent className="pt-6">
-                <AthleteCreateForm
-                  formId="athlete-create-form"
-                  categories={categories}
-                  federations={federations}
-                  onSubmit={handleSubmit}
-                  onCancel={() => router.push(backHref)}
-                />
-              </CardContent>
-            </Card>
+            <AthleteCreateForm
+              formId="athlete-create-form"
+              categories={categories}
+              federations={federations}
+              onSubmit={handleSubmit}
+              onCancel={goBack}
+              onDirtyChange={setDirty}
+            />
           </DashboardPageContainer>
         </main>
       </div>
+
+      <DirtyGuardDialog
+        open={guardOpen}
+        onOpenChange={setGuardOpen}
+        onDiscard={() => {
+          setGuardOpen(false);
+          goBack();
+        }}
+      />
     </div>
   );
 }

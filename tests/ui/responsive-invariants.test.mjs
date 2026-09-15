@@ -28,6 +28,12 @@ const read = (relative) =>
 const TOUCHED = [
   "app/athletes/[id]/page.tsx",
   "app/trainers/[id]/page.tsx",
+  "app/trainers/page.tsx",
+  "app/trainers/new/page.tsx",
+  "components/trainer/v2/trainer-section-drawer.tsx",
+  "components/trainer/v2/trainer-access-panel.tsx",
+  "components/trainer/v2/trainer-payments-panel.tsx",
+  "components/trainer/trainer-documents-panel.tsx",
   "app/staff/[id]/page.tsx",
   "app/soci/[id]/page.tsx",
   "app/organization/page.tsx",
@@ -35,8 +41,24 @@ const TOUCHED = [
   "components/forms/phone-field.tsx",
   "components/forms/certificate-attachment-field.tsx",
   "components/forms/document-extraction-field.tsx",
-  "components/athletes/profile/athlete-profile-header.tsx",
-  "components/athletes/profile/athlete-profile-tabs.tsx",
+  /*
+    Dal Web V2 la scheda atleta e composta dai blocchi in
+    `components/athletes/profile/v2/`: valgono le stesse regole.
+  */
+  "components/athletes/profile/v2/AthleteRecordHeader.tsx",
+  "components/athletes/profile/v2/AthleteProfileSections.tsx",
+  "components/athletes/profile/v2/AthleteActivitySections.tsx",
+  "components/athletes/profile/v2/AthleteHealthSections.tsx",
+  "components/athletes/profile/v2/AthleteDocumentSections.tsx",
+  "components/athletes/profile/v2/AthleteProfileDrawers.tsx",
+  "components/athletes/profile/v2/AthleteDocumentDrawers.tsx",
+  "components/athletes/profile/v2/AthleteActivityDrawers.tsx",
+  "components/athletes/profile/v2/AthleteAdministrationParts.tsx",
+  "components/athletes/profile/v2/record-primitives.tsx",
+  "components/athletes/profile/athlete-certificates-panel.tsx",
+  "components/athletes/profile/athlete-registrations-panel.tsx",
+  "components/athletes/profile/athlete-data-subject-section.tsx",
+  "components/athletes/profile/athlete-account-section.tsx",
   /*
     Le superfici nuove della Wave 1. Valgono le stesse regole: l'elenco di
     riconferma puo avere duecento righe, e va deciso da uno smartphone il
@@ -132,29 +154,31 @@ test("le tabelle scrollano nel proprio contenitore, non nel documento", () => {
   }
 });
 
-test("l'intestazione della scheda atleta impila le azioni sotto md", () => {
-  const source = read("components/athletes/profile/athlete-profile-header.tsx");
-
+test("l'intestazione della scheda atleta e quella del sistema, che va a capo da sola", () => {
+  /*
+    Dal Web V2 l'intestazione e il `RecordHeader` (09 §9.8): identita, nome
+    e azioni stanno in un `flex-wrap`, e le azioni oltre le due inline vanno
+    nel `···`. La scheda non ridisegna niente: lo monta.
+  */
+  const source = read("components/athletes/profile/v2/AthleteRecordHeader.tsx");
+  assert.match(source, /<RecordHeader/);
   assert.match(
-    source,
-    /flex flex-col md:flex-row/,
-    "foto, nome e tre pulsanti non stanno su una riga a 375 px",
-  );
-  assert.match(
-    source,
-    /flex-1 md:flex-none/,
-    "i pulsanti devono occupare la larghezza quando sono impilati",
+    read("components/web/record/Record.tsx"),
+    /flex flex-wrap items-start gap-5/,
+    "identita, nome e azioni vanno a capo a 375 px",
   );
 });
 
-test("le sette sezioni della scheda atleta scorrono invece di andare a capo", () => {
-  const source = read("components/athletes/profile/athlete-profile-tabs.tsx");
+test("le quattro aree della scheda atleta scorrono invece di andare a capo", () => {
+  const source = read("components/athletes/profile/v2/AthleteRecordHeader.tsx");
+  assert.match(source, /<RecordAreaSwitcher/);
 
-  assert.match(source, /overflow-x-auto/);
+  /* La riga delle aree scorre dentro il RecordHeader del sistema. */
+  const record = read("components/web/record/Record.tsx");
   assert.match(
-    source,
-    /flex-nowrap/,
-    "sette sezioni su due righe spingono il contenuto sotto la piega",
+    record,
+    /overflow-x-auto[^>]*>\s*\{areas\}/,
+    "quattro aree su due righe spingono il contenuto sotto la piega",
   );
 });
 
@@ -234,7 +258,7 @@ test("il guscio del club non cresce con il proprio contenuto", () => {
  * stessa riga, era gia a capo automatico: la differenza era una classe.
  */
 test("le righe di comandi degli elenchi vanno a capo su schermo stretto", () => {
-  for (const file of ["app/soci/page.tsx", "app/trainers/page.tsx"]) {
+  for (const file of ["app/soci/page.tsx"]) {
     const source = read(file);
 
     assert.match(
@@ -243,6 +267,17 @@ test("le righe di comandi degli elenchi vanno a capo su schermo stretto", () => 
       `${file}: i comandi dell'intestazione non vanno a capo`,
     );
   }
+
+  /*
+    L'elenco Allenatori e passato alla `PageHeader` del Web V2: la riga di
+    titolo e azioni va a capo dentro il componente condiviso, non nella pagina.
+  */
+  assert.match(read("app/trainers/page.tsx"), /<PageHeader/);
+  assert.match(
+    read("components/web/page/PageHeader.tsx"),
+    /flex flex-wrap items-end justify-between/,
+    "l'intestazione condivisa deve andare a capo su schermo stretto",
+  );
 });
 
 /**
@@ -257,17 +292,22 @@ test("i comandi dei documenti dell'allenatore stanno nello schermo", () => {
 
   assert.match(
     source,
-    /flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center/,
+    /flex flex-col items-start justify-between gap-3 border-b border-egw-hairline px-4 py-3 sm:flex-row sm:items-center/,
     "l'intestazione va a colonna sotto i 640 px",
   );
   assert.match(
     source,
-    /w-full justify-center gap-2[^"]*sm:w-auto/,
+    /w-full justify-center sm:w-auto/,
     "il comando occupa la riga finche c'e poco spazio",
   );
+  /*
+    Dal Web V2 le righe stanno nel `DataGrid`, che scorre dentro il proprio
+    pannello (`overflow-auto` sul corpo) invece di allargare la pagina.
+  */
+  assert.match(source, /<DataGrid/);
   assert.match(
-    source,
-    /overflow-x-auto/,
+    read("components/web/datagrid/DataGrid.tsx"),
+    /overflow-auto/,
     "la griglia scorre da sola invece di allargare la pagina",
   );
 });
@@ -385,7 +425,10 @@ test("l'anteprima del builder usa lo stesso renderer della compilazione", () => 
 
 test("le griglie a una colonna dichiarano una traccia che puo restringersi", () => {
   const casi = [
-    ["app/dashboard/page.tsx", /grid-cols-\[minmax\(0,1fr\)\][\s\S]{0,80}xl:grid-cols-\[minmax\(0,1fr\)_320px\]/],
+    [
+      "components/dashboard/v2/ClubDashboard.tsx",
+      /grid-cols-\[minmax\(0,1fr\)\][\s\S]{0,80}laptop:grid-cols-\[minmax\(0,2fr\)_minmax\(0,1fr\)\]/,
+    ],
     ["app/onboarding/page.tsx", /grid-cols-\[minmax\(0,1fr\)\][\s\S]{0,120}lg:grid-cols-\[240px,minmax\(0,1fr\)\]/],
   ];
 
@@ -405,7 +448,7 @@ test("le colonne che contengono elenchi scorrevoli possono restringersi", () => 
     "l'elenco dei passi scorre gia; era la colonna a non potersi stringere",
   );
   assert.match(
-    read("app/dashboard/page.tsx"),
+    read("components/dashboard/v2/ClubDashboard.tsx"),
     /<aside className="grid min-w-0/,
     "le schede laterali uscivano di cinquanta pixel dallo schermo",
   );
@@ -568,16 +611,27 @@ test("l'intestazione del conto di incasso va a capo", () => {
  * era esattamente quella che il collaudo dichiara di coprire.
  */
 test("la riga di intestazione degli Atleti va a capo invece di tagliare le azioni", () => {
+  /*
+    Nel Web V2 la riga e la `PageHeader` delle fondamenta: contesto (sede,
+    gruppo) e azioni stanno nello stesso blocco a destra del titolo, e l'
+    invariante — «va a capo, non taglia» — vive li, una volta per tutte le
+    pagine. Qui si verifica che l'elenco la usi e che le fondamenta la
+    mantengano.
+  */
   const source = read("app/athletes/page.tsx");
+  assert.match(source, /<PageHeader/, "l'elenco usa l'intestazione di pagina del sistema");
+  assert.match(source, /context=\{/, "sede e gruppo sono controlli di contesto dell'intestazione");
+  assert.match(source, /actions=\{/, "l'azione principale sta nell'intestazione");
 
+  const header = read("components/web/page/PageHeader.tsx");
   assert.match(
-    source,
-    /flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center/,
-    "i blocchi della riga devono poter andare a capo da lg in su",
+    header,
+    /flex flex-wrap items-end justify-between/,
+    "i blocchi della riga devono poter andare a capo",
   );
   assert.match(
-    source,
-    /flex shrink-0 items-center gap-2 lg:ml-auto/,
+    header,
+    /flex flex-wrap gap-2 sm:shrink-0 items-center/,
     "il gruppo con l'azione principale non si comprime sotto il suo contenuto",
   );
 });

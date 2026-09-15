@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  CheckCircle2,
   Mail,
   RotateCcw,
   ShieldCheck,
@@ -11,26 +10,16 @@ import {
   UserPlus,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Button } from "@/components/web/primitives/Button";
+import { Checkbox, Skeleton } from "@/components/web/primitives/Controls";
+import { Panel, PanelHeader, Eyebrow } from "@/components/web/primitives/Surface";
+import { StatusPill } from "@/components/web/primitives/StatusPill";
+import { Drawer } from "@/components/web/overlays/Drawer";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { Field, FieldSizeProvider, TextInput } from "@/components/web/forms/Field";
+import { formatDateTime } from "@/lib/web/format";
 import { useToast } from "@/components/ui/toast-notification";
+import { athleteAccountStatus } from "./v2/record-primitives";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { apiRequest } from "@/lib/api/client";
 import { roleHasPermission } from "@/lib/permissions/catalog";
@@ -98,18 +87,7 @@ const ETICHETTA_STORIA: Record<string, string> = {
   expired: "Scaduto",
 };
 
-const quando = (valore: string | null | undefined) => {
-  if (!valore) return "—";
-  const istante = new Date(valore);
-  if (Number.isNaN(istante.getTime())) return "—";
-  return istante.toLocaleString("it-IT", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
+const quando = (valore: string | null | undefined) => formatDateTime(valore);
 
 /**
  * **La stessa chiave, chiesta una volta sola.**
@@ -148,28 +126,24 @@ export function AthleteAccountDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4" />
-            Accesso EasyGame
-          </DialogTitle>
-          <DialogDescription>
-            L&apos;atleta riceve un link personale e sceglie da se la propria
-            password. EasyGame non manda mai una password per email, e nessuno
-            del club la puo vedere.
-          </DialogDescription>
-        </DialogHeader>
-        {open ? (
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      width="default"
+      eyebrow="Accesso"
+      title="Accesso EasyGame"
+      description="L'atleta riceve un link personale e sceglie da sé la propria password. EasyGame non manda mai una password per email, e nessuno del club la può vedere."
+    >
+      {open ? (
+        <FieldSizeProvider size="sm">
           <AthleteAccountSection
             athleteId={athleteId}
             suggestedEmail={suggestedEmail}
             chrome="plain"
           />
-        ) : null}
-      </DialogContent>
-    </Dialog>
+        </FieldSizeProvider>
+      ) : null}
+    </Drawer>
   );
 }
 
@@ -286,267 +260,238 @@ export function AthleteAccountSection({
   const mancaLaConferma = Boolean(stato?.isMinor) && !tutoreAutorizza;
 
   const corpo = (
-    <div className="space-y-4">
-        {caricamento ? (
-          <p className="text-sm text-slate-500">Caricamento…</p>
-        ) : errore ? (
-          <p className="text-sm text-red-600">{errore}</p>
-        ) : stato ? (
-          <>
-            {/* ------------------------------------------------ lo stato -- */}
-            {/*
-              **Quattro stati, non tre** (PP-04). «Accesso revocato» era
-              indistinguibile da «Nessun account»: la stessa scritta per un
-              atleta mai invitato e per uno a cui l'accesso e stato **tolto**,
-              che sono i due fatti opposti su cui la segreteria telefona.
-            */}
-            <div className="flex flex-wrap items-center gap-2">
-              {stato.status === "active" ? (
-                <Badge className="bg-emerald-600 hover:bg-emerald-600">
-                  <CheckCircle2 className="mr-1 h-3 w-3" />
-                  Accesso attivo
-                </Badge>
-              ) : stato.status === "invited" ? (
-                <Badge variant="secondary">
-                  <Mail className="mr-1 h-3 w-3" />
-                  Invito inviato
-                </Badge>
-              ) : stato.status === "revoked" ? (
-                <Badge variant="destructive">
-                  <ShieldOff className="mr-1 h-3 w-3" />
-                  Accesso revocato
-                </Badge>
-              ) : (
-                <Badge variant="outline">Nessun account</Badge>
-              )}
-
-              {stato.account ? (
-                <span className="text-sm text-slate-600">
-                  {stato.account.email}
-                  {stato.account.name ? ` · ${stato.account.name}` : ""}
-                </span>
-              ) : stato.invite ? (
-                <span className="text-sm text-slate-600">
-                  {stato.invite.email} · inviato il {quando(stato.invite.sentAt)}
-                  , scade il {quando(stato.invite.expiresAt)}
-                </span>
-              ) : stato.lastInviteEmail ? (
-                /*
-                  Fuori dallo stato «invitato» il ramo `invite` e nullo, e con
-                  lui sparivano dallo schermo «a chi» e «quando» — che sono
-                  esattamente le due domande che ci si fa **dopo** una revoca o
-                  una scadenza.
-                */
-                <span className="text-sm text-slate-600">
-                  {stato.lastInviteEmail} · ultimo invito il{" "}
-                  {quando(stato.lastInviteAt)}
-                  {stato.revokedAt
-                    ? `, revocato il ${quando(stato.revokedAt)}`
-                    : ""}
-                </span>
-              ) : null}
-            </div>
-
-            {stato.status === "revoked" ? (
-              <p className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-900">
-                Questo atleta aveva un accesso a EasyGame e non ce l&apos;ha
-                piu. Se deve rientrare, mandagli un invito nuovo: il vecchio
-                link non funziona.
-              </p>
+    <div className="flex flex-col gap-4">
+      {caricamento ? (
+        <div className="flex flex-col gap-3">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-[42px] w-full" />
+          <Skeleton className="h-8 w-40" />
+        </div>
+      ) : errore ? (
+        <AlertBlock severity="danger" title={errore} />
+      ) : stato ? (
+        <>
+          {/* ------------------------------------------------ lo stato -- */}
+          {/*
+            **Quattro stati, non tre** (PP-04). «Accesso revocato» era
+            indistinguibile da «Nessun account»: la stessa scritta per un
+            atleta mai invitato e per uno a cui l'accesso e stato **tolto**,
+            che sono i due fatti opposti su cui la segreteria telefona.
+          */}
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill status={athleteAccountStatus(stato.status)} />
+            {stato.account ? (
+              <span className="font-brand text-[12.5px] text-egw-ink-62">
+                {stato.account.email}
+                {stato.account.name ? ` · ${stato.account.name}` : ""}
+              </span>
+            ) : stato.invite ? (
+              <span className="font-brand text-[12.5px] text-egw-ink-62">
+                {stato.invite.email} · inviato il {quando(stato.invite.sentAt)}, scade il {quando(stato.invite.expiresAt)}
+              </span>
+            ) : stato.lastInviteEmail ? (
+              /*
+                Fuori dallo stato «invitato» il ramo `invite` e nullo, e con
+                lui sparivano dallo schermo «a chi» e «quando» — che sono
+                esattamente le due domande che ci si fa **dopo** una revoca o
+                una scadenza.
+              */
+              <span className="font-brand text-[12.5px] text-egw-ink-62">
+                {stato.lastInviteEmail} · ultimo invito il {quando(stato.lastInviteAt)}
+                {stato.revokedAt ? `, revocato il ${quando(stato.revokedAt)}` : ""}
+              </span>
             ) : null}
+          </div>
 
-            {/* ----------------------------------------------- le azioni -- */}
-            {stato.status === "active" ? (
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={inCorso}
-                  onClick={() => {
-                    void agisci(
-                      `/api/v1/athlete-accounts/${athleteId}/link`,
-                      { method: "DELETE" },
-                      "Account scollegato dal profilo atleta",
-                    );
-                  }}
-                >
-                  <Unlink2 className="mr-2 h-4 w-4" />
-                  Scollega account
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={inCorso}
-                  onClick={() => {
-                    void agisci(
-                      `/api/v1/athlete-accounts/${athleteId}`,
-                      { method: "DELETE" },
-                      "Accesso revocato",
-                    );
-                  }}
-                >
-                  <ShieldOff className="mr-2 h-4 w-4" />
-                  Revoca l&apos;accesso
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="max-w-md">
-                  <Label htmlFor="accesso-atleta-email">
-                    Indirizzo email dell&apos;atleta
-                  </Label>
-                  <Input
-                    id="accesso-atleta-email"
-                    type="email"
-                    value={email}
-                    onChange={(evento) => setEmail(evento.target.value)}
-                    placeholder="nome@esempio.it"
+          {stato.status === "revoked" ? (
+            <AlertBlock severity="danger" title="Questo atleta aveva un accesso a EasyGame e non ce l'ha più.">
+              Se deve rientrare, mandagli un invito nuovo: il vecchio link non funziona.
+            </AlertBlock>
+          ) : null}
+
+          {/* ----------------------------------------------- le azioni -- */}
+          {stato.status === "active" ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Unlink2 />}
+                disabled={inCorso}
+                onClick={() => {
+                  void agisci(
+                    `/api/v1/athlete-accounts/${athleteId}/link`,
+                    { method: "DELETE" },
+                    "Account scollegato dal profilo atleta",
+                  );
+                }}
+              >
+                Scollega account
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                icon={<ShieldOff />}
+                disabled={inCorso}
+                onClick={() => {
+                  void agisci(
+                    `/api/v1/athlete-accounts/${athleteId}`,
+                    { method: "DELETE" },
+                    "Accesso revocato",
+                  );
+                }}
+              >
+                Revoca l&apos;accesso
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              <Field label="Indirizzo email dell'atleta" htmlFor="accesso-atleta-email">
+                <TextInput
+                  id="accesso-atleta-email"
+                  type="email"
+                  inputMode="email"
+                  leading={<Mail />}
+                  value={email}
+                  onChange={(evento) => setEmail(evento.target.value)}
+                  placeholder="nome@esempio.it"
+                />
+              </Field>
+
+              {/*
+                **La conferma sul minore** (ADR-0116).
+
+                EasyGame non ha una policy che dica se un minore possa avere
+                un accesso proprio, chi lo autorizzi e come lo si provi: e una
+                decisione legale che il repository non puo prendere. Finche
+                non c'e, il gesto non passa in silenzio — chi lo compie
+                dichiara, e la dichiarazione finisce nell'audit con il suo
+                nome e la sua ora.
+
+                La casella e qui perche la conferma la deve dare una persona,
+                non il codice che compone la richiesta: il server la pretende
+                comunque, e nasconderla soltanto lascerebbe un pulsante che
+                risponde 400. E la stessa forma della cancellazione di un
+                minore (ADR-0105), sulla stessa scheda.
+              */}
+              {stato.isMinor ? (
+                <label className="flex items-start gap-2.5 rounded-egw-field border border-egw-tint-amber-bd bg-egw-tint-amber p-3 font-brand text-[12.5px] leading-[1.5] text-egw-ink">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={tutoreAutorizza}
+                    onChange={(evento) => setTutoreAutorizza(evento.target.checked)}
+                    aria-label="Confermo che chi ha la responsabilita genitoriale ha autorizzato l'accesso"
                   />
-                </div>
+                  <span>
+                    Questo atleta risulta <strong>minorenne</strong>, o non ha
+                    una data di nascita in anagrafica. Confermo che chi ne ha
+                    la <strong>responsabilita genitoriale</strong> ha
+                    autorizzato l&apos;apertura di un accesso EasyGame a suo
+                    nome.
+                  </span>
+                </label>
+              ) : null}
 
-                {/*
-                  **La conferma sul minore** (ADR-0116).
-
-                  EasyGame non ha una policy che dica se un minore possa avere
-                  un accesso proprio, chi lo autorizzi e come lo si provi: e una
-                  decisione legale che il repository non puo prendere. Finche
-                  non c'e, il gesto non passa in silenzio — chi lo compie
-                  dichiara, e la dichiarazione finisce nell'audit con il suo
-                  nome e la sua ora.
-
-                  La casella e qui perche la conferma la deve dare una persona,
-                  non il codice che compone la richiesta: il server la pretende
-                  comunque, e nasconderla soltanto lascerebbe un pulsante che
-                  risponde 400. E la stessa forma della cancellazione di un
-                  minore (ADR-0105), che sta due pannelli piu sotto sulla
-                  stessa scheda.
-                */}
-                {stato.isMinor ? (
-                  <label className="flex max-w-2xl items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                    <Checkbox
-                      className="mt-0.5"
-                      checked={tutoreAutorizza}
-                      onCheckedChange={(valore) =>
-                        setTutoreAutorizza(valore === true)
-                      }
-                      aria-label="Confermo che chi ha la responsabilita genitoriale ha autorizzato l'accesso"
-                    />
-                    <span>
-                      Questo atleta risulta <strong>minorenne</strong>, o non ha
-                      una data di nascita in anagrafica. Confermo che chi ne ha
-                      la <strong>responsabilita genitoriale</strong> ha
-                      autorizzato l&apos;apertura di un accesso EasyGame a suo
-                      nome.
-                    </span>
-                  </label>
-                ) : null}
-
-                <div className="flex flex-wrap gap-2">
-                  {stato.status === "invited" ? (
-                    <>
-                      <Button
-                        size="sm"
-                        disabled={inCorso}
-                        onClick={() => {
-                          void agisci(
-                            `/api/v1/athlete-accounts/${athleteId}/resend`,
-                            { method: "POST" },
-                            "Invito reinviato",
-                          );
-                        }}
-                      >
-                        <RotateCcw className="mr-2 h-4 w-4" />
-                        Reinvia l&apos;invito
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={inCorso || !email.trim() || mancaLaConferma}
-                        onClick={() => {
-                          void agisci(
-                            `/api/v1/athlete-accounts/${athleteId}/email`,
-                            {
-                              method: "POST",
-                              body: {
-                                email,
-                                acknowledgeMinor: tutoreAutorizza,
-                              },
-                            },
-                            "Invito mandato al nuovo indirizzo",
-                          );
-                        }}
-                      >
-                        <Mail className="mr-2 h-4 w-4" />
-                        Cambia indirizzo e reinvia
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={inCorso}
-                        onClick={() => {
-                          void agisci(
-                            `/api/v1/athlete-accounts/${athleteId}`,
-                            { method: "DELETE" },
-                            "Invito revocato",
-                          );
-                        }}
-                      >
-                        <ShieldOff className="mr-2 h-4 w-4" />
-                        Revoca l&apos;invito
-                      </Button>
-                    </>
-                  ) : (
+              <div className="flex flex-wrap gap-2">
+                {stato.status === "invited" ? (
+                  <>
                     <Button
+                      variant="primary"
                       size="sm"
-                      disabled={inCorso || !email.trim() || mancaLaConferma}
+                      icon={<RotateCcw />}
+                      disabled={inCorso}
                       onClick={() => {
                         void agisci(
-                          `/api/v1/athlete-accounts/${athleteId}`,
-                          {
-                            method: "POST",
-                            body: { email, acknowledgeMinor: tutoreAutorizza },
-                          },
-                          "Invito inviato",
+                          `/api/v1/athlete-accounts/${athleteId}/resend`,
+                          { method: "POST" },
+                          "Invito reinviato",
                         );
                       }}
                     >
-                      <UserPlus className="mr-2 h-4 w-4" />
-                      {stato.status === "revoked"
-                        ? "Invita di nuovo"
-                        : "Invita l’atleta"}
+                      Reinvia l&apos;invito
                     </Button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* --------------------------------------------- cosa e stato - */}
-            {stato.history.length ? (
-              <div className="pt-2">
-                <p className="mb-2 text-xs font-semibold uppercase text-slate-500">
-                  Cosa e successo
-                </p>
-                <ul className="space-y-1 text-sm text-slate-600">
-                  {stato.history.map((riga) => (
-                    <li
-                      key={riga.id}
-                      className="flex flex-wrap items-center gap-x-2 border-b border-slate-100 pb-1"
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<Mail />}
+                      disabled={inCorso || !email.trim() || mancaLaConferma}
+                      onClick={() => {
+                        void agisci(
+                          `/api/v1/athlete-accounts/${athleteId}/email`,
+                          {
+                            method: "POST",
+                            body: {
+                              email,
+                              acknowledgeMinor: tutoreAutorizza,
+                            },
+                          },
+                          "Invito mandato al nuovo indirizzo",
+                        );
+                      }}
                     >
-                      <span className="font-medium text-slate-800">
-                        {ETICHETTA_STORIA[riga.status] || riga.status}
-                      </span>
-                      <span>{riga.email}</span>
-                      <span className="text-slate-400">
-                        {quando(
-                          riga.acceptedAt || riga.revokedAt || riga.sentAt,
-                        )}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                      Cambia indirizzo e reinvia
+                    </Button>
+                    <Button
+                      variant="text"
+                      size="sm"
+                      icon={<ShieldOff />}
+                      disabled={inCorso}
+                      onClick={() => {
+                        void agisci(
+                          `/api/v1/athlete-accounts/${athleteId}`,
+                          { method: "DELETE" },
+                          "Invito revocato",
+                        );
+                      }}
+                    >
+                      Revoca l&apos;invito
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={<UserPlus />}
+                    disabled={inCorso || !email.trim() || mancaLaConferma}
+                    onClick={() => {
+                      void agisci(
+                        `/api/v1/athlete-accounts/${athleteId}`,
+                        {
+                          method: "POST",
+                          body: { email, acknowledgeMinor: tutoreAutorizza },
+                        },
+                        "Invito inviato",
+                      );
+                    }}
+                  >
+                    {stato.status === "revoked"
+                      ? "Invita di nuovo"
+                      : "Invita l’atleta"}
+                  </Button>
+                )}
               </div>
-            ) : null}
-          </>
+            </div>
+          )}
+
+          {/* --------------------------------------------- cosa e stato - */}
+          {stato.history.length ? (
+            <div className="pt-1">
+              <Eyebrow className="mb-2">Cosa è successo</Eyebrow>
+              <ul className="divide-y divide-egw-rule rounded-egw-field border border-egw-hairline bg-egw-page-100">
+                {stato.history.map((riga) => (
+                  <li key={riga.id} className="flex min-h-[40px] flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-1.5 font-brand text-[12.5px] text-egw-ink-62">
+                    <span className="font-semibold text-egw-ink">
+                      {ETICHETTA_STORIA[riga.status] || riga.status}
+                    </span>
+                    <span>{riga.email}</span>
+                    <span className="egw-num ml-auto text-egw-ink-42">
+                      {quando(riga.acceptedAt || riga.revokedAt || riga.sentAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
@@ -554,19 +499,18 @@ export function AthleteAccountSection({
   if (chrome === "plain") return corpo;
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <ShieldCheck className="h-4 w-4" />
-          Accesso EasyGame
-        </CardTitle>
-        <CardDescription>
-          L&apos;atleta riceve un link personale e sceglie da se la propria
-          password. EasyGame non manda mai una password per email, e nessuno del
-          club la puo vedere.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>{corpo}</CardContent>
-    </Card>
+    <Panel as="section">
+      <PanelHeader
+        eyebrow="Accesso"
+        title={
+          <span className="inline-flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4" />
+            Accesso EasyGame
+          </span>
+        }
+        description="L'atleta riceve un link personale e sceglie da sé la propria password. EasyGame non manda mai una password per email, e nessuno del club la può vedere."
+      />
+      {corpo}
+    </Panel>
   );
 }

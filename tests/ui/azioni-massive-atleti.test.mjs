@@ -112,15 +112,46 @@ test("«tutti» chiede l’insieme filtrato intero, non la pagina", () => {
     "la funzione dell'export degrada «tutti» nella selezione",
   );
 
+  /*
+    Nel Web V2 le due funzioni ricevono cio che la griglia mostra
+    (`visibili`, `request.rows`): sotto la soglia e gia tutto l'insieme
+    filtrato, sopra la soglia le pagine restanti si chiedono qui. La forma
+    resta la stessa: una sola paginazione, e l'export che ricade su di essa.
+  */
   assert.match(
     testo,
-    /const collectFilteredAthletes = async \(\): Promise<Athlete\[\]> => \{[\s\S]{0,400}getClubAthletesPage\(/,
+    /const collectFilteredAthletes = async \([^)]*\): Promise<Athlete\[\]> => \{[\s\S]{0,400}getClubAthletesPage\(/,
     "la paginazione vive in un punto solo, e sta li",
   );
   assert.match(
     testo,
-    /const collectAthletesForExport = async \(\): Promise<Athlete\[\]> => \{[\s\S]{0,300}return collectFilteredAthletes\(\);/,
+    /const collectAthletesForExport = async \([\s\S]{0,80}\): Promise<Athlete\[\]> => \{[\s\S]{0,400}return collectFilteredAthletes\(/,
     "l'export resta quello che era: la selezione, oppure tutto l'insieme filtrato",
+  );
+});
+
+test("«seleziona tutti» sopra la soglia vale per l'intero archivio filtrato", () => {
+  /*
+    La griglia del Web V2 seleziona **le righe caricate**. Sotto la soglia
+    sono gia tutto l'insieme; sopra, quando la selezione copre ogni riga
+    caricata, l'ambito diventa «all» e i bersagli si risolvono sulle pagine
+    del server — come faceva «Azioni su tutti» nella V1. Senza questo, con
+    duemila atleti «seleziona tutti i 200» toccherebbe duecento persone e la
+    conferma direbbe «tutti gli atleti registrati».
+  */
+  const testo = sorgente();
+
+  assert.match(
+    testo,
+    /const bulkScopeOf = \(righe: Athlete\[\]\): PendingBulkAction\["scope"\] =>\s*paginated && righe\.length > 0 && righe\.length >= filteredAthletes\.length\s*\? "all"\s*: "selected";/,
+    "l'ambito si decide in un posto solo, e dipende da «tutte le righe caricate»",
+  );
+
+  const aperture = Array.from(testo.matchAll(/scope: bulkScopeOf\(/g)).length;
+  assert.equal(
+    aperture,
+    5,
+    "ogni azione di massa — attiva, sospendi, disattiva, elimina, cambia categoria — passa dal risolutore di ambito",
   );
 });
 

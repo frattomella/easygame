@@ -26,9 +26,18 @@ import {
  * la tenevano sempre visibile.
  */
 
+/*
+  Dal Web V2 la barra delle otto schede e sparita (09 §9.8): al suo posto lo
+  switcher delle quattro aree, dentro l'intestazione della scheda. Le regole
+  restano le stesse — nessuna etichetta nascosta, niente a capo.
+*/
 const BARRA = path.join(
   process.cwd(),
-  "src/components/athletes/profile/athlete-profile-tabs.tsx",
+  "src/components/athletes/profile/v2/AthleteRecordHeader.tsx",
+);
+const SEZIONI = path.join(
+  process.cwd(),
+  "src/components/athletes/profile/v2/AthleteProfileSections.tsx",
 );
 
 const sorgente = () => readFileSync(BARRA, "utf8");
@@ -50,9 +59,16 @@ test("la barra continua a scorrere invece di mandare a capo", () => {
   */
   const source = sorgente();
 
-  assert.match(source, /overflow-x-auto/);
-  assert.match(source, /flex-nowrap/);
-  assert.match(source, /whitespace-nowrap/);
+  assert.match(
+    source,
+    /<RecordAreaSwitcher/,
+    "lo switcher del sistema non manda a capo i segmenti (whitespace-nowrap in SegmentedControl)",
+  );
+  assert.match(
+    readFileSync(path.join(process.cwd(), "src/components/web/record/Record.tsx"), "utf8"),
+    /overflow-x-auto/,
+    "la riga delle aree del RecordHeader scorre invece di andare a capo",
+  );
 });
 
 test("ogni sezione ha un'etichetta, e l'icona non la sostituisce", () => {
@@ -90,6 +106,13 @@ const SCHEDA = path.join(process.cwd(), "src/app/athletes/[id]/page.tsx");
 const ELENCO = path.join(process.cwd(), "src/app/athletes/page.tsx");
 
 test("le matite della scheda atleta dicono cosa modificano", () => {
+  /*
+    Dal Web V2 il comando di modifica di una sezione non e piu una matita: e
+    il pulsante «Modifica» della `DetailCard` (09 §9.3) o della riga chiusa,
+    con la parola scritta, dentro un blocco che ha un titolo. Cio che si
+    misura e che ogni sezione lo **abbia**, e che arrivi come `onEdit` o come
+    pulsante con etichetta, mai come icona muta.
+  */
   const source = readFileSync(SCHEDA, "utf8");
 
   const sezioni = ["general", "contact", "address", "medical", "identity"];
@@ -97,26 +120,58 @@ test("le matite della scheda atleta dicono cosa modificano", () => {
     const indice = source.indexOf(`handleEditSection("${sezione}")`);
     assert.ok(indice > 0, `manca il comando di modifica per ${sezione}`);
     assert.match(
-      source.slice(Math.max(0, indice - 260), indice),
-      /aria-label=/,
+      source.slice(Math.max(0, indice - 200), indice),
+      /onEdit=\{|>\s*$|aria-label=/,
       `il comando di modifica di ${sezione} e una icona senza nome`,
     );
   }
 
-  const tutore = source.indexOf("openEditGuardianModal(idx)");
+  /* Il tutore ha una matita vera, e dice di quale tutore e. */
+  const sezioniProfilo = readFileSync(SEZIONI, "utf8");
+  const tutore = sezioniProfilo.indexOf("onEdit(idx)");
   assert.ok(tutore > 0);
-  assert.match(source.slice(Math.max(0, tutore - 260), tutore), /aria-label=/);
+  assert.match(
+    sezioniProfilo.slice(Math.max(0, tutore - 260), tutore),
+    /aria-label=\{`Modifica il tutore/,
+  );
 });
 
 test("la riga di un atleta dice di quale atleta sono le azioni", () => {
+  /*
+    Nel Web V2 la riga la disegna il DataGrid (`src/components/web/datagrid`),
+    e la pagina dichiara solo le azioni (`rowActions`). Il comando di riga
+    porta un nome accessibile in italiano — «Apri scheda» sul pulsante a
+    icona, «Altre azioni» sul menu — e ogni voce del menu e un'etichetta
+    leggibile. Il nome dell'atleta nel `aria-label` del menu e una miglioria
+    da chiedere alle fondamenta (il DataGrid non lo espone): e segnalata nel
+    rapporto di migrazione.
+  */
   const source = readFileSync(ELENCO, "utf8");
-  const indice = source.indexOf("<MoreVertical className=\"h-4 w-4\" />");
-
-  assert.ok(indice > 0, "il comando di riga non c'e piu");
+  assert.match(source, /rowActions=\{rowActions\}/, "le azioni di riga passano dalla griglia");
   assert.match(
-    source.slice(Math.max(0, indice - 300), indice),
-    /aria-label=\{`Azioni per \$\{athlete\.name\}`\}/,
-    "duecento pulsanti chiamati tutti «button» non si distinguono",
+    source,
+    /label: "Apri scheda",\s*primary: true,/,
+    "il verbo piu usato e il pulsante a icona, con il suo nome",
+  );
+
+  const grid = readFileSync(
+    path.join(process.cwd(), "src/components/web/datagrid/DataGrid.tsx"),
+    "utf8",
+  );
+  assert.match(
+    grid,
+    /<IconButton aria-label=\{primary\.label\}/,
+    "il pulsante a icona della riga prende il nome dall'azione",
+  );
+  assert.match(
+    grid,
+    /<IconButton aria-label=\{rowLabel \? `Altre azioni per \$\{rowLabel\(row\)\}` : "Altre azioni"\}/,
+    "il menu della riga ha un nome, non e un «button», e porta il nome della riga",
+  );
+  assert.match(
+    source,
+    /rowLabel=\{\(row\) => getAthleteDisplayName\(row\)\}/,
+    "la riga dice di quale atleta sono le azioni",
   );
 });
 

@@ -19,11 +19,18 @@ const SRC = path.join(process.cwd(), "src");
 const read = (relative) =>
   readFileSync(path.join(SRC, ...relative.split("/")), "utf8");
 
-/** Gli elenchi che selezionano e agiscono sulla selezione. */
-const SELECTION_SURFACES = [
+/** Gli elenchi V1 che selezionano e agiscono sulla selezione. */
+const SELECTION_SURFACES = [["app/soci/page.tsx", "elenco soci"]];
+
+/**
+ * Gli elenchi migrati al Web V2: la selezione, la casella «tutti visibili»,
+ * l'ambito di export e la barra delle azioni sono del `DataGrid` condiviso
+ * (guideline 07 §7.7, §7.10). Le stesse invarianti si leggono nella
+ * configurazione della griglia, non in una copia per pagina.
+ */
+const GRID_SURFACES = [
   ["app/trainers/page.tsx", "elenco allenatori"],
   ["app/staff/page.tsx", "elenco staff"],
-  ["app/soci/page.tsx", "elenco soci"],
 ];
 
 test("i tre elenchi usano la selezione condivisa, non una copia per pagina", () => {
@@ -46,20 +53,37 @@ test("i tre elenchi usano la selezione condivisa, non una copia per pagina", () 
       `${label} (${file}): manca la casella di riga`,
     );
   }
+
+  for (const [file, label] of GRID_SURFACES) {
+    const source = read(file);
+
+    assert.match(
+      source,
+      /<DataGrid/,
+      `${label} (${file}): l'elenco deve essere il DataGrid condiviso`,
+    );
+    assert.match(
+      source,
+      /bulkActions=\{bulkActions\}/,
+      `${label} (${file}): le azioni sulla selezione passano dalla barra della griglia`,
+    );
+    assert.match(
+      source,
+      /onSelectionChange=\{setSelectedIds\}/,
+      `${label} (${file}): la selezione e controllata dalla pagina, cosi si ripulisce alla rilettura`,
+    );
+  }
 });
 
 /**
  * «Seleziona tutti visibili» dove le righe stanno in una tabella.
  *
- * Lo staff la monta dentro `StaffTable`, che e il suo componente di tabella:
- * per questo il suo file non la contiene direttamente.
+ * Allenatori e staff sono passati al `DataGrid`, che monta la casella di
+ * testata da se (`aria-label="Seleziona la pagina"`): per questo i loro file
+ * non compaiono.
  */
 test("dove c'e una tabella c'e la casella «seleziona tutti visibili»", () => {
-  for (const file of [
-    "app/trainers/page.tsx",
-    "app/soci/page.tsx",
-    "components/staff/StaffTable.tsx",
-  ]) {
+  for (const file of ["app/soci/page.tsx"]) {
     assert.match(
       read(file),
       /<SelectAllCheckbox/,
@@ -104,6 +128,31 @@ test("l'export dei tre elenchi passa dagli ambiti condivisi", () => {
       `${label} (${file}): l'intestazione del PDF non si riscrive nella pagina`,
     );
   }
+
+  for (const [file, label] of GRID_SURFACES) {
+    const source = read(file);
+
+    assert.match(
+      source,
+      /export=\{\{ onExport/,
+      `${label} (${file}): l'export vive nel menu «Esporta» della griglia`,
+    );
+    assert.match(
+      source,
+      /requestScope === "selected" \? "selected"/,
+      `${label} (${file}): «selezionati» significa esattamente i selezionati`,
+    );
+    assert.match(
+      source,
+      /^\s*scope,\s*$/m,
+      `${label} (${file}): l'ambito si passa, la frase la costruisce person-export`,
+    );
+    assert.doesNotMatch(
+      source,
+      /scopeLabel:/,
+      `${label} (${file}): l'intestazione del PDF non si riscrive nella pagina`,
+    );
+  }
 });
 
 /**
@@ -116,6 +165,14 @@ test("ogni elenco ripulisce la selezione quando rilegge le righe", () => {
     assert.match(
       read(file),
       /selection\.prune\(/,
+      `${label} (${file}): la selezione va ripulita di cio che non esiste piu`,
+    );
+  }
+
+  for (const [file, label] of GRID_SURFACES) {
+    assert.match(
+      read(file),
+      /setSelectedIds\(\(current\) => new Set\(Array\.from\(current\)\.filter\(/,
       `${label} (${file}): la selezione va ripulita di cio che non esiste piu`,
     );
   }
@@ -141,6 +198,24 @@ test("nessun elenco di persone ha preso l'eliminazione di massa dagli atleti", (
       /Elimina/i.test(toolbar),
       false,
       `${label} (${file}): la barra della selezione non deve offrire l'eliminazione di massa`,
+    );
+  }
+
+  for (const [file, label] of GRID_SURFACES) {
+    const source = read(file);
+    const start = source.indexOf("useMemo<BulkActionDef");
+    const block = source.slice(start, source.indexOf("]);", start));
+
+    assert.ok(block.length > 0, `${label}: azioni di massa non trovate`);
+    assert.equal(
+      /Elimina/i.test(block),
+      false,
+      `${label} (${file}): le azioni di massa non devono offrire l'eliminazione`,
+    );
+    assert.equal(
+      /tone: "danger"/.test(block),
+      false,
+      `${label} (${file}): nessuna azione di massa distruttiva`,
     );
   }
 });

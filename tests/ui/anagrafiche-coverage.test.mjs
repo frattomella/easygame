@@ -23,13 +23,15 @@ const read = (relative) =>
 
 /** Tutte le superfici in cui una persona ha un recapito telefonico. */
 const PHONE_SURFACES = [
-  ["app/athletes/[id]/page.tsx", "scheda atleta (atleta e genitore)"],
-  ["app/trainers/[id]/page.tsx", "scheda allenatore"],
-  ["app/staff/[id]/page.tsx", "scheda staff"],
+  /* La scheda atleta V2 modifica contatti e tutori in un cassetto: i campi vivono li. */
+  ["components/athletes/profile/v2/AthleteProfileDrawers.tsx", "scheda atleta (atleta e genitore)"],
+  /* La scheda allenatore V2 modifica i contatti in un cassetto: i campi vivono li. */
+  ["components/trainer/v2/trainer-section-drawer.tsx", "scheda allenatore (cassetti di modifica)"],
+  ["components/staff/v2/staff-form.tsx", "scheda staff (cassetti di modifica) e nuovo staff"],
   ["app/soci/[id]/page.tsx", "scheda socio"],
   ["app/organization/page.tsx", "scheda club"],
   ["app/trainers/new/page.tsx", "nuovo allenatore"],
-  ["app/staff/new/page.tsx", "nuovo staff"],
+  /* Il modulo staff V2 e uno solo, condiviso da creazione, modifica e cassetti della scheda. */
   ["app/soci/new/page.tsx", "nuovo socio"],
   ["components/forms/AthleteCreateForm.tsx", "nuovo atleta"],
 ];
@@ -75,9 +77,9 @@ test("nessuna anagrafica ha piu un input di telefono fatto in casa", () => {
  * perche l'aggiunta di una decima anagrafica non passi inosservata.
  */
 const PERSON_IDENTITY_SURFACES = [
-  ["app/athletes/[id]/page.tsx", "scheda atleta (atleta e genitore)"],
-  ["app/trainers/[id]/page.tsx", "scheda allenatore"],
-  ["app/staff/[id]/page.tsx", "scheda staff"],
+  ["components/athletes/profile/v2/AthleteProfileDrawers.tsx", "scheda atleta (atleta e genitore)"],
+  ["components/trainer/v2/trainer-section-drawer.tsx", "scheda allenatore (cassetti di modifica)"],
+  ["components/staff/v2/staff-form.tsx", "scheda staff (cassetti di modifica) e nuovo staff"],
   /*
     La scheda socio era l'ultima anagrafica di persona senza codice fiscale:
     il modulo di creazione lo raccoglieva, la scheda non lo mostrava e non lo
@@ -86,7 +88,7 @@ const PERSON_IDENTITY_SURFACES = [
   */
   ["app/soci/[id]/page.tsx", "scheda socio"],
   ["app/trainers/new/page.tsx", "nuovo allenatore"],
-  ["app/staff/new/page.tsx", "nuovo staff"],
+  /* Il modulo staff V2 e uno solo: vedi la riga della scheda staff. */
   ["app/soci/new/page.tsx", "nuovo socio"],
   ["components/forms/AthleteCreateForm.tsx", "nuovo atleta e genitore/tutore"],
 ];
@@ -198,7 +200,7 @@ test("la scheda club verifica il codice fiscale del rappresentante senza calcola
  */
 test("il sesso e una scelta, non testo libero, dove serve al codice fiscale", () => {
   for (const file of [
-    "app/trainers/[id]/page.tsx",
+    "components/trainer/v2/trainer-section-drawer.tsx",
     "app/staff/[id]/page.tsx",
     "app/soci/[id]/page.tsx",
   ]) {
@@ -223,9 +225,9 @@ test("il sesso e una scelta, non testo libero, dove serve al codice fiscale", ()
 const DOCUMENT_READER_SURFACES = [
   ["components/forms/AthleteCreateForm.tsx", "nuovo atleta"],
   ["app/trainers/new/page.tsx", "nuovo allenatore"],
-  ["app/staff/new/page.tsx", "nuovo staff"],
+  ["components/staff/v2/staff-form.tsx", "nuovo staff"],
   ["app/soci/new/page.tsx", "nuovo socio"],
-  ["app/athletes/[id]/page.tsx", "genitore/tutore"],
+  ["components/athletes/profile/v2/AthleteProfileDrawers.tsx", "genitore/tutore"],
 ];
 
 test("la lettura documenti e su tutte le anagrafiche di persona", () => {
@@ -296,17 +298,19 @@ test("nessuna superficie applica i dati letti senza passare dalla conferma", () 
  */
 const CLOTHING_SIZE_SURFACES = [
   ["app/trainers/new/page.tsx", "nuovo allenatore", "create"],
-  ["app/staff/new/page.tsx", "nuovo staff", "create"],
+  ["components/staff/v2/staff-form.tsx", "nuovo staff e cassetti della scheda staff", "create"],
   ["app/soci/new/page.tsx", "nuovo socio", "create"],
-  ["app/trainers/[id]/page.tsx", "scheda allenatore", "detail"],
-  ["app/staff/[id]/page.tsx", "scheda staff", "detail"],
+  /* La scheda allenatore V2 corregge le taglie in un cassetto: i campi vivono li. */
+  ["app/trainers/[id]/page.tsx", "scheda allenatore", "detail", "components/trainer/v2/trainer-section-drawer.tsx"],
+  /* La scheda staff V2 corregge le taglie in un cassetto, i cui campi vivono nel modulo condiviso. */
+  ["app/staff/[id]/page.tsx", "scheda staff", "detail", "components/staff/v2/staff-form.tsx"],
   ["app/soci/[id]/page.tsx", "scheda socio", "detail"],
 ];
 
 test("le taglie si raccolgono alla creazione e si correggono dalla scheda", () => {
-  for (const [file, label] of CLOTHING_SIZE_SURFACES) {
+  for (const [file, label, , fieldsFile] of CLOTHING_SIZE_SURFACES) {
     assert.match(
-      read(file),
+      read(fieldsFile ?? file),
       /<ClothingSizesFields/,
       `${label} (${file}) deve montare il campo taglie condiviso`,
     );
@@ -365,6 +369,7 @@ test("il sesso si normalizza in un posto solo", () => {
   */
   for (const file of [
     "app/trainers/[id]/page.tsx",
+    "components/trainer/v2/trainer-section-drawer.tsx",
     "app/staff/[id]/page.tsx",
     "app/soci/[id]/page.tsx",
     "components/forms/person-identity-fields.tsx",
@@ -486,10 +491,11 @@ test("la scheda socio carica tutti i campi che la creazione scrive", () => {
  */
 const RESIDENCE_SURFACES = [
   ["app/trainers/new/page.tsx", "nuovo allenatore"],
-  ["app/staff/new/page.tsx", "nuovo staff"],
+  ["components/staff/v2/staff-form.tsx", "nuovo staff e cassetti della scheda staff"],
   ["app/soci/new/page.tsx", "nuovo socio"],
-  ["app/trainers/[id]/page.tsx", "scheda allenatore"],
-  ["app/staff/[id]/page.tsx", "scheda staff"],
+  /* La scheda allenatore V2 monta la residenza nel cassetto dei contatti. */
+  ["components/trainer/v2/trainer-section-drawer.tsx", "scheda allenatore (cassetti di modifica)"],
+  /* La scheda staff V2 monta la residenza dal modulo condiviso qui sopra. */
   ["app/soci/[id]/page.tsx", "scheda socio"],
 ];
 

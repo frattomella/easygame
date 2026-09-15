@@ -490,8 +490,57 @@ const TABELLA = {
     canonico: false,
     impatto: "presentazione + conio",
   },
+  /*
+    Web V2: la scheda atleta monta le sezioni da `profile/v2/`. I due file
+    qui sotto **leggono** la proiezione (le righe dei tutori, il registro dei
+    soli recapiti gia risolto dal server) per disegnarla e per decidere se
+    l'avviso «nessun genitore» compare; le decisioni restano nella pagina e
+    nelle primitive.
+  */
+  "src/components/athletes/profile/v2/AthleteProfileSections.tsx": {
+    azione: "scheda atleta V2: mostra i tutori e il loro accesso",
+    verso: "read",
+    autorita: "proiezione",
+    tenant: "scope della sessione",
+    permesso: "athletes.read",
+    canonico: false,
+    impatto: "presentazione",
+  },
+  "src/components/athletes/profile/v2/athlete-record-alerts.ts": {
+    azione: "scheda atleta V2: avviso «nessun genitore» sotto il nome",
+    verso: "read",
+    autorita: "proiezione",
+    tenant: "scope della sessione",
+    permesso: "athletes.read",
+    canonico: false,
+    impatto: "presentazione",
+  },
   "src/app/trainers/[id]/page.tsx": {
     azione: "scheda allenatore: conia inviti",
+    verso: "read",
+    autorita: "proiezione",
+    tenant: "scope della sessione",
+    permesso: "accounts.trainer.manage",
+    canonico: false,
+    impatto: "conio",
+  },
+  /*
+    Web V2: la scheda allenatore monta il pannello «Accesso EasyGame» da
+    `trainer/v2/`. Il modello legge il gettone d'invito per dirne lo stato,
+    il pannello lo conia e lo revoca con le stesse rotte della V1: nessuna
+    riga di tutore viene toccata (un allenatore non ha tutori).
+  */
+  "src/components/trainer/v2/trainer-record-model.ts": {
+    azione: "scheda allenatore V2: stato del gettone d'invito",
+    verso: "read",
+    autorita: "proiezione",
+    tenant: "scope della sessione",
+    permesso: "accounts.trainer.manage",
+    canonico: false,
+    impatto: "presentazione",
+  },
+  "src/components/trainer/v2/trainer-access-panel.tsx": {
+    azione: "scheda allenatore V2: conia e revoca inviti",
     verso: "read",
     autorita: "proiezione",
     tenant: "scope della sessione",

@@ -294,8 +294,12 @@ test("con due certificati per lo stesso atleta vale il piu recente", () => {
 const read = (relative) =>
   readFileSync(path.join(process.cwd(), relative), "utf8");
 
+/*
+  Dal Web V2 la pagina `/dashboard` e un involucro: la lettura vive in
+  `ClubDashboard`, che disegna anche la rotta legacy `/dashboard/<id>`.
+*/
 test("la dashboard non rilegge cio che ha gia", () => {
-  const page = read("src/app/dashboard/page.tsx");
+  const page = read("src/components/dashboard/v2/ClubDashboard.tsx");
 
   assert.match(page, /loadClubDashboardOverview\(activeClubId\)/);
   assert.equal(
@@ -308,21 +312,31 @@ test("la dashboard non rilegge cio che ha gia", () => {
     false,
     "gli atleti arrivano dalla lettura sola",
   );
-  assert.match(page, /source="provided"/, "gli avvisi non si rileggono");
-  assert.equal(
-    /<MetricsOverview[\s\S]{0,400}organizationId=/.test(page),
-    false,
-    "con organizationId il componente riparte a leggere per conto suo",
+  assert.match(
+    page,
+    /<CertificateAlertCards alerts=\{certificateAlerts\}/,
+    "gli avvisi non si rileggono: arrivano gia calcolati da buildCertificateAlerts",
   );
+  assert.match(
+    page,
+    /<DashboardKpiBar[\s\S]{0,200}metrics=\{metrics\}/,
+    "i KPI arrivano da buildDashboardMetrics, non da una lettura propria",
+  );
+  for (const route of [
+    "src/app/dashboard/page.tsx",
+    "src/app/dashboard/[dashboardId]/page.tsx",
+  ]) {
+    assert.match(read(route), /<ClubDashboard \/>/, `${route}: una dashboard sola, non due`);
+  }
 });
 
 test("il riquadro allenamenti non aspetta 300 ms prima di partire", () => {
-  const widget = read("src/components/dashboard/UpcomingTrainings.tsx");
+  const widget = read("src/components/dashboard/v2/today-trainings.ts");
 
   assert.equal(
     /debounce\(/.test(widget),
     false,
     "alla prima apertura non c'e niente da accorpare",
   );
-  assert.match(widget, /getClubAthletes\(orgId, \{ view: "summary" \}\)/);
+  assert.match(widget, /getClubAthletes\(clubId, \{ view: "summary" \}\)/);
 });

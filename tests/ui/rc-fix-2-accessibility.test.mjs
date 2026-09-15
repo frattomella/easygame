@@ -47,10 +47,14 @@ test("ogni casella di selezione dice cosa sta selezionando", () => {
     E il nome della riga e la persona, non il suo id: «Seleziona Mario Rossi»
     e una frase, «Seleziona a1b2c3» no.
   */
+  /*
+    Lo staff e passato al `DataGrid` condiviso, che nomina le proprie caselle
+    («Seleziona la riga», «Seleziona la pagina»): la sua tabella V1 non c'e
+    piu e non compare qui.
+  */
   for (const [file, label] of [
     ["app/trainers/page.tsx", "allenatori"],
     ["app/soci/page.tsx", "soci"],
-    ["components/staff/StaffTable.tsx", "staff"],
   ]) {
     assert.equal(
       /<SelectRowCheckbox[\s\S]{0,200}?label=\{String\(/.test(read(file)),
@@ -126,15 +130,44 @@ test("l'anteprima dei dati letti prende il fuoco e si annuncia", () => {
  * `div` e `onClick` si vede uguale e non si apre con la tastiera.
  */
 test("i menu delle azioni si aprono da tastiera perche sono quelli condivisi", () => {
-  for (const file of [
-    "app/trainers/page.tsx",
-    "app/staff/page.tsx",
-    "app/soci/page.tsx",
-  ]) {
+  for (const file of ["app/soci/page.tsx"]) {
     const source = read(file);
 
     assert.match(source, /<DropdownMenuTrigger asChild>/);
     assert.match(source, /<DropdownMenuItem/);
+    assert.equal(
+      /<div[^>]*role="menu"/.test(source),
+      false,
+      `${file}: nessun menu fatto a mano`,
+    );
+  }
+
+  /*
+    Le pagine Web V2 usano il menu delle primitive del design system
+    (`Menu`/`MenuTrigger`/`MenuItem` su Radix): stessa navigazione da
+    tastiera, altro nome.
+  */
+  for (const file of ["app/staff/page.tsx"]) {
+    const source = read(file);
+
+    assert.match(source, /<MenuTrigger asChild>/);
+    assert.match(source, /<MenuItem/);
+    assert.equal(
+      /<div[^>]*role="menu"/.test(source),
+      false,
+    );
+  }
+
+  /*
+    L'elenco Allenatori non monta un menu proprio: azioni di riga, azioni di
+    massa e ambiti di export sono i menu del `DataGrid` condiviso.
+  */
+  for (const file of ["app/trainers/page.tsx"]) {
+    const source = read(file);
+
+    assert.match(source, /<DataGrid/);
+    assert.match(source, /rowActions={rowActions}/);
+    assert.equal(/<DropdownMenu/.test(source), false, `${file}: nessun secondo menu accanto a quello della griglia`);
     assert.equal(
       /<div[^>]*role="menu"/.test(source),
       false,

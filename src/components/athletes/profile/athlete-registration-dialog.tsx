@@ -1,35 +1,29 @@
 "use client";
 
 import React from "react";
-import { Button } from "@/components/ui/button";
+import { Drawer } from "@/components/web/overlays/Drawer";
+import { Button } from "@/components/web/primitives/Button";
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
+  DateInput,
+  Field,
+  FieldSizeProvider,
+  FormGrid,
   Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+  TextInput,
+  Textarea,
+} from "@/components/web/forms/Field";
 import type { ClubFederation } from "@/lib/club-federations";
+import { FileInput } from "./v2/FileInput";
 
 /**
- * **La finestra di un tesseramento: crea e corregge** (N2, N4).
+ * **Il cassetto di un tesseramento: crea e corregge** (N2, N4).
  *
- * Estratta con il proprio pannello da `app/athletes/[id]/page.tsx`, sotto il
- * tetto di righe (WP-19).
+ * Sette campi: un cassetto da 480 (guideline 08 §8.5), con la guardia sulle
+ * modifiche non salvate.
  *
  * Due cose che qui non sono cosmetiche.
  *
- * **La tendina porta identificativi.** Il `value` di ogni voce e l'`id` della
+ * **La tendina porta identificativi.** Il valore di ogni voce e l'`id` della
  * federazione, non il suo nome: il nome e la scritta. Prima il valore *era* la
  * scritta, quindi rinominare un'affiliazione in `/organization` orfanava ogni
  * tesseramento gia registrato — e nessuno se ne accorgeva, perche la scheda
@@ -72,125 +66,97 @@ export function AthleteRegistrationDialog({
   hasExistingFile: boolean;
   onSave: () => void;
 }) {
-  const patch = (changes: Partial<RegistrationDraft>) =>
+  const [dirty, setDirty] = React.useState(false);
+  React.useEffect(() => {
+    if (!open) setDirty(false);
+  }, [open]);
+
+  const patch = (changes: Partial<RegistrationDraft>) => {
+    setDirty(true);
     onDraftChange({ ...draft, ...changes });
+  };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>
-            {isEditing ? "Modifica Tesseramento" : "Nuovo Tesseramento"}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4 py-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label>Federazione/Ente *</Label>
-              <Select
-                value={draft.federation}
-                onValueChange={(value) => patch({ federation: value })}
-              >
-                <SelectTrigger className="mt-2">
-                  <SelectValue placeholder="Seleziona federazione o ente" />
-                </SelectTrigger>
-                <SelectContent>
-                  {federations.map((federation) => (
-                    <SelectItem key={federation.id} value={federation.id}>
-                      {federation.name}
-                      {federation.registrationNumber
-                        ? ` · n. ${federation.registrationNumber}`
-                        : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {federations.length === 0 && (
-                <p className="mt-2 text-xs text-amber-600">
-                  Nessuna federazione registrata nel club. Aggiungile prima
-                  nella pagina Club, scheda «Federazione».
-                </p>
-              )}
-            </div>
-            <div>
-              <Label>Numero Tessera</Label>
-              <Input
-                value={draft.number}
-                onChange={(e) => patch({ number: e.target.value })}
-                className="mt-2"
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label>Data Emissione</Label>
-              <Input
-                type="date"
-                value={draft.issueDate}
-                onChange={(e) => patch({ issueDate: e.target.value })}
-                className="mt-2"
-              />
-            </div>
-            <div>
-              <Label>Data Scadenza</Label>
-              <Input
-                type="date"
-                value={draft.expiryDate}
-                onChange={(e) => patch({ expiryDate: e.target.value })}
-                className="mt-2"
-              />
-            </div>
-          </div>
-          <div>
-            <Label>Stato</Label>
-            <Select
-              value={draft.status}
-              onValueChange={(value) => patch({ status: value })}
-            >
-              <SelectTrigger className="mt-2">
-                <SelectValue placeholder="Seleziona stato" />
-              </SelectTrigger>
-              <SelectContent>
-                {REGISTRATION_STATUSES.map((status) => (
-                  <SelectItem key={status} value={status}>
-                    {status}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Note</Label>
-            <Textarea
-              value={draft.notes}
-              onChange={(e) => patch({ notes: e.target.value })}
-              className="mt-2"
-            />
-          </div>
-          <div>
-            <Label>{hasExistingFile ? "Sostituisci allegato" : "Allegato"}</Label>
-            <Input
-              type="file"
-              onChange={(e) => patch({ file: e.target.files?.[0] || null })}
-              className="mt-2"
-            />
-            {hasExistingFile && !draft.file ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Un allegato e gia presente. Sceglierne uno nuovo lo sostituisce;
-                lasciando vuoto resta quello.
-              </p>
-            ) : null}
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+    <Drawer
+      open={open}
+      onOpenChange={onOpenChange}
+      width="default"
+      eyebrow="Tesseramento"
+      title={isEditing ? "Modifica tesseramento" : "Nuovo tesseramento"}
+      dirty={dirty}
+      footer={
+        <>
+          <Button variant="primary" onClick={onSave}>
+            {isEditing ? "Salva modifiche" : "Salva tesseramento"}
+          </Button>
+          <Button variant="secondary" onClick={() => onOpenChange(false)}>
             Annulla
           </Button>
-          <Button onClick={onSave} className="bg-blue-600 hover:bg-blue-700">
-            {isEditing ? "Salva modifiche" : "Salva Tesseramento"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </>
+      }
+    >
+      <FieldSizeProvider size="sm">
+        <div className="flex flex-col gap-5">
+          <Field
+            label="Federazione/Ente"
+            required
+            htmlFor="registration-federation"
+            warning={
+              federations.length === 0
+                ? "Nessuna federazione registrata nel club. Aggiungile prima nella pagina Club, scheda «Federazione»."
+                : undefined
+            }
+          >
+            <Select
+              id="registration-federation"
+              value={draft.federation}
+              onValueChange={(value) => patch({ federation: value })}
+              placeholder="Seleziona federazione o ente"
+              options={federations.map((federation) => ({
+                /* Il valore e l'identificativo, non la scritta (N2). */
+                value: federation.id,
+                label: federation.registrationNumber
+                  ? `${federation.name} · n. ${federation.registrationNumber}`
+                  : federation.name,
+              }))}
+            />
+          </Field>
+          <Field label="Numero tessera" htmlFor="registration-number" width="20ch" helper="Facoltativo: la federazione lo emette dopo.">
+            <TextInput id="registration-number" value={draft.number} onChange={(e) => patch({ number: e.target.value })} />
+          </Field>
+          <FormGrid columns={2}>
+            <Field label="Data emissione" htmlFor="registration-issue">
+              <DateInput id="registration-issue" value={draft.issueDate} onChange={(e) => patch({ issueDate: e.target.value })} />
+            </Field>
+            <Field label="Data scadenza" htmlFor="registration-expiry">
+              <DateInput id="registration-expiry" value={draft.expiryDate} onChange={(e) => patch({ expiryDate: e.target.value })} />
+            </Field>
+          </FormGrid>
+          <Field label="Stato" htmlFor="registration-status">
+            <Select
+              id="registration-status"
+              value={draft.status}
+              onValueChange={(value) => patch({ status: value })}
+              placeholder="Seleziona stato"
+              options={REGISTRATION_STATUSES.map((status) => ({ value: status, label: status }))}
+            />
+          </Field>
+          <Field label="Note" htmlFor="registration-notes">
+            <Textarea id="registration-notes" value={draft.notes} onChange={(e) => patch({ notes: e.target.value })} />
+          </Field>
+          <Field
+            label={hasExistingFile ? "Sostituisci allegato" : "Allegato"}
+            htmlFor="registration-file"
+            helper={
+              hasExistingFile && !draft.file
+                ? "Un allegato è già presente. Sceglierne uno nuovo lo sostituisce; lasciando vuoto resta quello."
+                : undefined
+            }
+          >
+            <FileInput id="registration-file" file={draft.file} onFileChange={(file) => patch({ file })} />
+          </Field>
+        </div>
+      </FieldSizeProvider>
+    </Drawer>
   );
 }

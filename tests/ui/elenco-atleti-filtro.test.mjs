@@ -94,16 +94,28 @@ test("W6-02 · il vaglio di stato si applica anche quando comanda il server", ()
     "serve un vaglio di stato condiviso fra i due rami",
   );
 
+  /*
+    Nel Web V2 le righe passano al DataGrid da `filteredAthletes`, che e un
+    `useMemo`: dentro, il ramo paginato vaglia lo stato prima di tutto il
+    resto (sede e gruppo). Sotto la soglia lo stato lo filtra la griglia con
+    la vista «Attivi».
+  */
   assert.match(
     sorgente,
-    /const filteredAthletes = paginated\s*\n\s*\? athletes\.filter\(matchesStatusFilter\)/,
+    /const inStato = paginated\s*\n\s*\? athletes\.filter\(matchesStatusFilter\)/,
     "il ramo paginato deve applicarlo: e cio che toglie il lampo iniziale",
   );
 
   assert.equal(
-    /const filteredAthletes = paginated\s*\n\s*\? athletes\s*\n/.test(sorgente),
+    /const inStato = paginated\s*\n\s*\? athletes\s*\n/.test(sorgente),
     false,
     "il ramo paginato non puo restituire le righe cosi come sono arrivate",
+  );
+
+  assert.match(
+    sorgente,
+    /rows=\{filteredAthletes\}/,
+    "la griglia riceve le righe gia vagliate, non `athletes`",
   );
 });
 
@@ -123,34 +135,62 @@ test("W6-03 · nessuna schermata scrive il nome di un'azione dentro lo stato", (
   );
 });
 
-test("W6-04 · l'elenco offre un filtro per ognuno dei quattro stati", () => {
+test("W6-04 · l'elenco offre un filtro per ognuno dei quattro stati", async () => {
   const sorgente = leggi(ELENCO);
 
-  for (const stato of ATHLETE_STATUSES) {
-    assert.ok(
-      sorgente.includes(`setStatusFilter("${stato}")`),
-      `manca il filtro per lo stato ${stato}`,
-    );
-  }
+  /*
+    Nel Web V2 il filtro di stato ha due sedi, e in tutte e due si **itera
+    sul vocabolario** invece di scrivere quattro pulsanti a mano — che era
+    esattamente il modo in cui tre stati erano diventati quattro etichette.
 
-  assert.ok(
-    sorgente.includes('setStatusFilter("all")'),
+    1. Sotto la soglia di paginazione: le viste di sistema della griglia,
+       una per stato, piu «Tutti» che la griglia mette sempre per prima.
+    2. Sopra la soglia: la banda d'archivio dentro il pannello, con un
+       segmento per stato piu «Tutti», che comanda la query del server.
+  */
+  const { ATHLETE_STATUS_VIEWS } = await import(
+    "../../src/components/athletes/v2/athlete-grid-model.ts"
+  );
+  for (const stato of ATHLETE_STATUSES) {
+    const vista = ATHLETE_STATUS_VIEWS.find(
+      (view) => view.filters.stato === stato,
+    );
+    assert.ok(vista, `manca la vista per lo stato ${stato}`);
+    assert.equal(vista.label, ATHLETE_STATUS_PLURAL_LABELS[stato]);
+  }
+  assert.equal(
+    ATHLETE_STATUS_VIEWS.filter((view) => view.isDefault).map((v) => v.filters.stato).join(","),
+    "active",
+    "«Attivi» e la vista di partenza, come il filtro della V1",
+  );
+
+  assert.match(
+    sorgente,
+    /ATHLETE_STATUSES\.map\(\(stato\) => \(\{\s*value: stato,\s*label: ATHLETE_STATUS_PLURAL_LABELS\[stato\],/,
+    "la banda d'archivio offre un segmento per stato, dal vocabolario",
+  );
+  assert.match(
+    sorgente,
+    /\{ value: "all", label: "Tutti" \}/,
     "manca il filtro «tutti»",
+  );
+  assert.match(
+    sorgente,
+    /status: statusFilter,/,
+    "lo stato scelto nella banda deve viaggiare nella query del server",
   );
 
   /*
     Le due etichette che prima valevano per lo stesso valore devono ora venire
     dal vocabolario, dove non possono ripetersi.
   */
-  assert.ok(sorgente.includes("ATHLETE_STATUS_PLURAL_LABELS.loan"));
-  assert.ok(sorgente.includes("ATHLETE_STATUS_PLURAL_LABELS.inactive"));
   assert.notEqual(
     ATHLETE_STATUS_PLURAL_LABELS.loan,
     ATHLETE_STATUS_PLURAL_LABELS.inactive,
   );
 });
 
-test("W6-04 · l'elenco non tiene una copia propria del vocabolario", () => {
+test("W6-04 · l'elenco non tiene una copia propria del vocabolario", async () => {
   const sorgente = leggi(ELENCO);
 
   assert.match(
@@ -194,14 +234,45 @@ test("W6-04 · l'elenco non tiene una copia propria del vocabolario", () => {
     E il verso positivo: la cella **deve** leggere il vocabolario. Vietare le
     scritte sbagliate non basta — un quinto stato scritto a mano domani non
     somiglierebbe a nessuna di quelle.
+
+    Nel Web V2 la cella e una `StatusPill`, e l'etichetta viene dal sistema
+    di stato (`src/lib/web/status.ts`) attraverso **una** mappa dai quattro
+    stati dell'atleta alle quattro pillole — `ATHLETE_STATUS_PILL`, chiusa
+    sul tipo `AthleteStatus`, quindi un quinto stato non compila finche non
+    ha la sua pillola. L'export, invece, continua a scrivere l'etichetta
+    della V1 (`ATHLETE_STATUS_LABELS`), cosi un CSV di ieri e uno di oggi si
+    leggono uguali.
   */
+  const colonne = leggi("components/athletes/v2/athletes-grid-columns.tsx")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
   assert.ok(
-    codice.includes("ATHLETE_STATUS_LABELS[athlete.status]"),
-    "la riga dell'elenco prende l'etichetta dal vocabolario, non da un ternario",
+    colonne.includes("ATHLETE_STATUS_PILL[row.status]"),
+    "la riga dell'elenco prende la pillola dalla mappa, non da un ternario",
   );
   assert.ok(
-    codice.includes("ATHLETE_STATUS_TONE[athlete.status]"),
-    "e anche il colore: era stato scritto per questo e non lo chiamava nessuno",
+    colonne.includes("ATHLETE_STATUS_LABELS[row.status]"),
+    "l'export prende l'etichetta dal vocabolario",
+  );
+  for (const scritta of ["In Prestito", "Atleti in Prestito", "Atleti Attivi"]) {
+    assert.equal(colonne.includes(scritta), false, `«${scritta}» scritta a mano nelle colonne`);
+  }
+
+  const { ATHLETE_STATUS_PILL } = await import(
+    "../../src/components/athletes/v2/athlete-grid-model.ts"
+  );
+  const { PERSON_STATUS } = await import("../../src/lib/web/status.ts");
+  assert.deepEqual(
+    Object.keys(ATHLETE_STATUS_PILL).sort(),
+    [...ATHLETE_STATUSES].sort(),
+    "una pillola per ognuno dei quattro stati, e nessuna in piu",
+  );
+  assert.equal(ATHLETE_STATUS_PILL.loan, PERSON_STATUS.on_loan);
+  assert.equal(ATHLETE_STATUS_PILL.inactive, PERSON_STATUS.inactive);
+  assert.notEqual(
+    ATHLETE_STATUS_PILL.loan.label,
+    ATHLETE_STATUS_PILL.inactive.label,
+    "«In prestito» e «Disattivato» sono due pillole diverse: era lo scambio W6-04",
   );
 });
 
@@ -228,15 +299,27 @@ test("W6-07 · una cancellazione irreversibile non passa dal confirm del browser
 });
 
 test("W6-07 · la conferma dice cosa si perde, non solo che e irreversibile", () => {
-  for (const file of [ELENCO, SCHEDA]) {
-    const sorgente = leggi(file);
-    assert.ok(
-      sorgente.includes("Eliminare questo atleta?"),
-      `${file}: manca il dialogo di conferma sulla cancellazione dell'atleta`,
-    );
-    assert.ok(
-      sorgente.includes("certificati medici collegati"),
-      `${file}: la conferma deve nominare le conseguenze`,
-    );
-  }
+  const elenco = leggi(ELENCO);
+  assert.ok(
+    elenco.includes("Eliminare questo atleta?"),
+    `${ELENCO}: manca il dialogo di conferma sulla cancellazione dell'atleta`,
+  );
+  assert.ok(
+    elenco.includes("certificati medici collegati"),
+    `${ELENCO}: la conferma deve nominare le conseguenze`,
+  );
+
+  /*
+    La scheda V2 usa il modale distruttivo del sistema (08 §8.9): il titolo
+    nomina la persona e il blocco rosso elenca **cosa se ne va**.
+  */
+  const scheda = leggi(SCHEDA);
+  assert.ok(
+    scheda.includes("title: `Eliminare ${nome}?`"),
+    `${SCHEDA}: manca il dialogo di conferma sulla cancellazione dell'atleta`,
+  );
+  assert.ok(
+    scheda.includes("consequences: ["),
+    `${SCHEDA}: la conferma deve nominare le conseguenze`,
+  );
 });

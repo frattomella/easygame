@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Plus } from "lucide-react";
 import {
   findCategoryForBirthDate,
   formatCategoryBirthYears,
@@ -9,17 +10,27 @@ import {
   buildRegistrationFederationReference,
   type ClubFederation,
 } from "@/lib/club-federations";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast-notification";
+import { Button } from "@/components/web/primitives/Button";
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+  Panel,
+  PanelHeader,
+  InsetBlock,
+} from "@/components/web/primitives/Surface";
+import { Checkbox } from "@/components/web/primitives/Controls";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { CollapsedSection } from "@/components/web/record/Record";
+import { DirtyGuardDialog } from "@/components/web/overlays/Modal";
+import {
+  controlClasses,
+  DateInput,
+  Field,
+  FormGrid,
+  Select,
+  Textarea,
+  TextInput,
+  ValidationSummary,
+} from "@/components/web/forms/Field";
 import { AssistedAddressFields } from "@/components/forms/assisted-anagrafica";
 import { PersonIdentityFields } from "@/components/forms/person-identity-fields";
 import {
@@ -35,6 +46,7 @@ import {
   DEFAULT_CLOTHING_SIZES,
   type ClothingSizes,
 } from "@/lib/clothing-sizes";
+import { cn } from "@/lib/utils";
 
 /**
  * Il modulo di iscrizione di un nuovo atleta.
@@ -60,6 +72,13 @@ import {
  * Le sezioni usano i componenti condivisi del Blocco 7 — codice fiscale
  * assistito con comune di nascita, telefono internazionale, indirizzo
  * assistito, taglie, lettura del documento — invece di reimplementarli.
+ *
+ * **Nel Web V2** (pattern 6, «Full-page form»): un pannello sempre aperto con
+ * l'identita e la categoria, poi le otto sezioni come `CollapsedSection`
+ * (chiuse di default, stato ricordato per utente), e la barra delle azioni
+ * appiccicata in fondo con la nota «Modifiche non salvate». I campi che il
+ * modulo disegna da se sono le primitive di `@/components/web/forms/Field`; i
+ * blocchi condivisi con le altre nove anagrafiche restano quelli, avvolti.
  */
 
 interface AthleteCreateFormProps {
@@ -69,6 +88,8 @@ interface AthleteCreateFormProps {
   onCancel?: () => void;
   /** Nasconde i pulsanti in fondo quando la pagina ne ha gia in cima. */
   showFooterActions?: boolean;
+  /** Avvisa la pagina quando ci sono modifiche non salvate (guardia sul ritorno). */
+  onDirtyChange?: (dirty: boolean) => void;
   categories: {
     id: string;
     name: string;
@@ -203,22 +224,76 @@ const getInitialFormState = (): AthleteDraft => ({
   registrationExpiryDate: "",
 });
 
+/*
+  Le tendine del Web V2 non accettano un valore vuoto (Radix): «automatica»,
+  «nessuno» e «seleziona» viaggiano con un valore sentinella e tornano a
+  stringa vuota nello stato, cosi il payload resta quello di sempre.
+*/
+const AUTO_CATEGORY = "__auto__";
+const NO_FEDERATION = "__none__";
+const NO_RELATIONSHIP = "__none__";
+
+const RELATIONSHIP_OPTIONS = [
+  { value: NO_RELATIONSHIP, label: "Seleziona" },
+  { value: "Padre", label: "Padre" },
+  { value: "Madre", label: "Madre" },
+  { value: "Tutore Legale", label: "Tutore Legale" },
+  { value: "Nonno", label: "Nonno" },
+  { value: "Nonna", label: "Nonna" },
+  { value: "Altro", label: "Altro" },
+];
+
+const REGISTRATION_STATUS_OPTIONS = [
+  { value: "In corso", label: "In corso" },
+  { value: "Attivo", label: "Attivo" },
+  { value: "Scaduto", label: "Scaduto" },
+];
+
+/**
+ * Le sezioni chiuse di default. `recordType` e la chiave della preferenza
+ * `egw.<recordType>.sections`: chi apre sempre «Contatti» se la ritrova
+ * aperta, senza che cio cambi il modulo per chi ha fretta.
+ */
+const SECTIONS_PREFERENCE = "atleta-nuovo";
+
+/** Il campo condiviso della V1 con l'aspetto del campo V2. */
+const v2InputClassName = cn(controlClasses("md"), "focus-visible:ring-0");
+
 export function AthleteCreateForm({
   formId = "athlete-create-form",
   onSubmit,
   onCancel,
   showFooterActions = true,
+  onDirtyChange,
   categories = [],
   federations = [],
 }: AthleteCreateFormProps) {
   const { showToast } = useToast();
   const [formData, setFormData] = useState<AthleteDraft>(getInitialFormState());
   const [isSaving, setIsSaving] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<
+    Array<{ id?: string; label: string }>
+  >([]);
+  const [guardOpen, setGuardOpen] = useState(false);
 
   const suggestedCategory = useMemo(
     () => findCategoryForBirthDate(formData.birthDate, categories),
     [formData.birthDate, categories],
   );
+
+  /*
+    Sporco = diverso dallo stato iniziale. Un confronto strutturale, non un
+    contatore di eventi: chi scrive e poi cancella non ha modifiche.
+  */
+  const initialSerialized = useMemo(
+    () => JSON.stringify(getInitialFormState()),
+    [],
+  );
+  const dirty = JSON.stringify(formData) !== initialSerialized;
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   const set = (patch: Partial<AthleteDraft>) =>
     setFormData((previous) => ({ ...previous, ...patch }));
@@ -262,9 +337,31 @@ export function AthleteCreateForm({
       !formData.lastName.trim() ||
       !formData.birthDate
     ) {
+      /*
+        Il riepilogo in cima al modulo elenca i campi da controllare e li
+        raggiunge con un clic; il toast resta perche chi e in fondo alla
+        pagina lo vede comunque.
+      */
+      setValidationErrors(
+        [
+          !formData.firstName.trim()
+            ? { id: "athlete-create-first-name", label: "Nome" }
+            : null,
+          !formData.lastName.trim()
+            ? { id: "athlete-create-last-name", label: "Cognome" }
+            : null,
+          !formData.birthDate
+            ? { id: "athlete-create-birth-date", label: "Data di nascita" }
+            : null,
+        ].filter(
+          (item): item is { id: string; label: string } => item !== null,
+        ),
+      );
       showToast("error", "Nome, cognome e data di nascita sono obbligatori");
       return;
     }
+
+    setValidationErrors([]);
 
     /*
       L'ente si risolve **una volta**, sul registro del club, e cio che viaggia
@@ -357,11 +454,56 @@ export function AthleteCreateForm({
     }
   };
 
+  const requestCancel = () => {
+    if (!onCancel) return;
+    if (dirty) {
+      setGuardOpen(true);
+      return;
+    }
+    onCancel();
+  };
+
+  const categoryOptions = useMemo(
+    () => [
+      { value: AUTO_CATEGORY, label: "Automatica per anno di nascita" },
+      ...categories.map((category) => ({
+        value: category.id,
+        label: `${category.name} - ${formatCategoryBirthYears(category)}`,
+      })),
+    ],
+    [categories],
+  );
+
+  const federationOptions = useMemo(
+    () => [
+      { value: NO_FEDERATION, label: "Nessun tesseramento" },
+      ...federations.map((federation) => ({
+        value: federation.id,
+        label: federation.name,
+      })),
+    ],
+    [federations],
+  );
+
   return (
-    <form id={formId} onSubmit={handleSubmit} className="space-y-5">
+    <form
+      id={formId}
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-[18px]"
+    >
+      <ValidationSummary errors={validationErrors} />
+
+      <Panel as="section">
+        <PanelHeader
+          eyebrow="Anagrafica"
+          title="Chi è l'atleta"
+          description="Tre campi obbligatori; tutto il resto si può aggiungere ora o dalla scheda."
+        />
+
         <DocumentExtractionField
           currentValues={{ ...formData }}
           onApply={(patch) => set(patch as Partial<AthleteDraft>)}
+          className="mb-5"
         />
 
         {/*
@@ -380,480 +522,496 @@ export function AthleteCreateForm({
           onChange={(patch) => set(patch as Partial<AthleteDraft>)}
         />
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="categoryId">Categoria</Label>
-            <select
+        <FormGrid className="mt-5">
+          <Field
+            label="Categoria"
+            htmlFor="categoryId"
+            helper={
+              suggestedCategory && !formData.categoryId ? (
+                <>
+                  Categoria suggerita in automatico:{" "}
+                  <span className="font-semibold text-egw-ink">
+                    {suggestedCategory.name}
+                  </span>
+                </>
+              ) : undefined
+            }
+          >
+            <Select
               id="categoryId"
               name="categoryId"
-              value={formData.categoryId}
-              onChange={handleChange}
-              className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            >
-              <option value="">Automatica per anno di nascita</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name} - {formatCategoryBirthYears(category)}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
+              value={formData.categoryId || AUTO_CATEGORY}
+              onValueChange={(next) =>
+                set({ categoryId: next === AUTO_CATEGORY ? "" : next })
+              }
+              options={categoryOptions}
+            />
+          </Field>
+        </FormGrid>
 
         {/*
           Categorie secondarie. Un atleta che si allena con due gruppi lo fa
           dal primo giorno, non da quando qualcuno riapre la scheda.
         */}
         {secondaryCategoryOptions.length ? (
-          <div className="space-y-2">
-            <Label>Altre categorie</Label>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {secondaryCategoryOptions.map((category) => (
-                <label
-                  key={`athlete-create-secondary-${category.id}`}
-                  className="flex cursor-pointer items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                >
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={formData.secondaryCategoryIds.includes(category.id)}
-                    onChange={(event) =>
-                      set({
-                        secondaryCategoryIds: event.target.checked
-                          ? [...formData.secondaryCategoryIds, category.id]
-                          : formData.secondaryCategoryIds.filter(
-                              (id) => id !== category.id,
-                            ),
-                      })
-                    }
-                  />
-                  <span>{category.name}</span>
-                </label>
-              ))}
-            </div>
+          <div className="mt-5">
+            <Field label="Altre categorie">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 laptop:grid-cols-3">
+                {secondaryCategoryOptions.map((category) => (
+                  <label
+                    key={`athlete-create-secondary-${category.id}`}
+                    className="flex min-h-[42px] cursor-pointer items-center gap-2.5 rounded-egw-control border border-egw-field-border bg-egw-page-100 px-3 font-brand text-[13px] font-medium text-egw-ink hover:border-egw-control-border"
+                  >
+                    <Checkbox
+                      size={16}
+                      checked={formData.secondaryCategoryIds.includes(
+                        category.id,
+                      )}
+                      onChange={(event) =>
+                        set({
+                          secondaryCategoryIds: event.target.checked
+                            ? [...formData.secondaryCategoryIds, category.id]
+                            : formData.secondaryCategoryIds.filter(
+                                (id) => id !== category.id,
+                              ),
+                        })
+                      }
+                    />
+                    <span className="egw-ellipsis">{category.name}</span>
+                  </label>
+                ))}
+              </div>
+            </Field>
           </div>
         ) : null}
+      </Panel>
 
-        {suggestedCategory && !formData.categoryId ? (
-          <p className="text-sm text-muted-foreground">
-            Categoria suggerita in automatico:{" "}
-            <span className="font-medium text-foreground">
-              {suggestedCategory.name}
-            </span>
-          </p>
-        ) : null}
+      {/*
+        Tutto il resto e facoltativo e sta chiuso: la pagina resta corta come
+        prima per chi vuole solo creare l'atleta.
+      */}
+      <CollapsedSection
+        id="anagrafica"
+        recordType={SECTIONS_PREFERENCE}
+        title="Altri dati anagrafici"
+      >
+        <FormGrid>
+          <Field label="Nazionalità" htmlFor="nationality">
+            <CapitalizedInput
+              id="nationality"
+              name="nationality"
+              className={v2InputClassName}
+              value={formData.nationality}
+              onChange={handleChange}
+              onValueChange={(value) => set({ nationality: value })}
+            />
+          </Field>
+        </FormGrid>
+      </CollapsedSection>
 
-        {/*
-          Tutto il resto e facoltativo e sta chiuso: la dialog resta corta come
-          prima per chi vuole solo creare l'atleta.
-        */}
-        <Accordion type="multiple" className="w-full">
-          <AccordionItem value="anagrafica">
-            <AccordionTrigger>Altri dati anagrafici</AccordionTrigger>
-            <AccordionContent className="space-y-4 pt-2">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="nationality">Nazionalita</Label>
-                  <CapitalizedInput
-                    id="nationality"
-                    name="nationality"
-                    value={formData.nationality}
-                    onChange={handleChange}
-                    onValueChange={(value) => set({ nationality: value })}
-                  />
-                </div>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
+      <CollapsedSection
+        id="contatti"
+        recordType={SECTIONS_PREFERENCE}
+        title="Contatti"
+      >
+        <FormGrid>
+          <Field label="Email" htmlFor="email">
+            <TextInput
+              id="email"
+              name="email"
+              type="email"
+              value={formData.email}
+              onChange={handleChange}
+              placeholder="mario.rossi@example.org"
+            />
+          </Field>
 
-          <AccordionItem value="contatti">
-            <AccordionTrigger>Contatti</AccordionTrigger>
-            <AccordionContent className="space-y-4 pt-2">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    name="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    placeholder="mario.rossi@example.org"
-                  />
-                </div>
+          <PhoneField
+            id="athlete-create-phone"
+            value={formData.phone}
+            onChange={(value) => set({ phone: value })}
+          />
+        </FormGrid>
+      </CollapsedSection>
 
-                <PhoneField
-                  id="athlete-create-phone"
-                  value={formData.phone}
-                  onChange={(value) => set({ phone: value })}
-                />
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-
-          <AccordionItem value="residenza">
-            <AccordionTrigger>Residenza</AccordionTrigger>
-            <AccordionContent className="space-y-4 pt-2">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_120px]">
-                <div className="space-y-2">
-                  <Label htmlFor="address">Via o piazza</Label>
-                  <CapitalizedInput
-                    id="address"
-                    name="address"
-                    value={formData.address}
-                    onChange={handleChange}
-                    onValueChange={(value) => set({ address: value })}
-                    placeholder="Via Roma"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="streetNumber">Numero</Label>
-                  <Input
-                    id="streetNumber"
-                    name="streetNumber"
-                    value={formData.streetNumber}
-                    onChange={handleChange}
-                    placeholder="12"
-                  />
-                </div>
-              </div>
-
-              <AssistedAddressFields
-                idPrefix="athlete-create-address"
-                values={{
-                  postalCode: formData.postalCode,
-                  city: formData.city,
-                  province: formData.province,
-                  region: formData.region,
-                  country: formData.country,
-                }}
-                onChange={(patch) => set(patch as Partial<AthleteDraft>)}
-              />
-            </AccordionContent>
-          </AccordionItem>
-
-          <AccordionItem value="sanitari">
-            <AccordionTrigger>Dati sanitari</AccordionTrigger>
-            <AccordionContent className="space-y-4 pt-2">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="medicalCertExpiry">
-                    Scadenza certificato medico
-                  </Label>
-                  <Input
-                    id="medicalCertExpiry"
-                    name="medicalCertExpiry"
-                    type="date"
-                    value={formData.medicalCertExpiry}
-                    onChange={handleChange}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="bloodType">Gruppo sanguigno</Label>
-                  <Input
-                    id="bloodType"
-                    name="bloodType"
-                    value={formData.bloodType}
-                    onChange={handleChange}
-                    placeholder="0+"
-                  />
-                </div>
-
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="allergies">Allergie</Label>
-                  <Input
-                    id="allergies"
-                    name="allergies"
-                    value={formData.allergies}
-                    onChange={handleChange}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="emergencyContact">
-                    Contatto di emergenza
-                  </Label>
-                  <CapitalizedInput
-                    id="emergencyContact"
-                    name="emergencyContact"
-                    value={formData.emergencyContact}
-                    onChange={handleChange}
-                    onValueChange={(value) => set({ emergencyContact: value })}
-                  />
-                </div>
-
-                <PhoneField
-                  id="athlete-create-emergency-phone"
-                  label="Telefono di emergenza"
-                  value={formData.emergencyPhone}
-                  onChange={(value) => set({ emergencyPhone: value })}
-                />
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-
-          {/*
-            Il numero di maglia non si chiede all'iscrizione (ADR-0057): non e
-            un dato della persona, e un'assegnazione che appartiene a un gruppo
-            di numerazione, ha una stagione e puo essere gia occupata.
-            Chiederlo qui produceva un numero che nessuna regola aveva
-            verificato, e che l'assegnazione vera avrebbe poi contraddetto.
-          */}
-          <AccordionItem value="squadra">
-            <AccordionTrigger>Taglie</AccordionTrigger>
-            <AccordionContent className="space-y-4 pt-2">
-              <ClothingSizesFields
-                idPrefix="athlete-create-clothing"
-                value={formData.clothingSizes}
-                onChange={(next) => set({ clothingSizes: next })}
-                person={{
-                  gender: formData.gender,
-                  birthDate: formData.birthDate,
-                }}
-              />
-            </AccordionContent>
-          </AccordionItem>
-
-          {/*
-            Genitori e tutori. Per un minore sono il recapito che serve
-            davvero, e finora si potevano inserire solo dopo, aprendo la
-            scheda: cioe il secondo giro che questo form esiste per togliere.
-          */}
-          <AccordionItem value="genitori">
-            <AccordionTrigger>Genitori e tutori</AccordionTrigger>
-            <AccordionContent className="space-y-4 pt-2">
-              {formData.guardians.map((guardian, index) => (
-                <div
-                  key={`guardian-${index}`}
-                  className="space-y-3 rounded-lg border border-slate-200 p-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-slate-700">
-                      Genitore/tutore {index + 1}
-                    </p>
-                    {formData.guardians.length > 1 ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                        onClick={() =>
-                          set({
-                            guardians: formData.guardians.filter(
-                              (_, position) => position !== index,
-                            ),
-                          })
-                        }
-                      >
-                        Togli
-                      </Button>
-                    ) : null}
-                  </div>
-
-                  <PersonIdentityFields
-                    idPrefix={`guardian-${index}`}
-                    values={readPersonIdentity(
-                      guardian,
-                      LEGACY_PERSON_NAME_KEYS,
-                    )}
-                    onChange={(patch) =>
-                      updateGuardian(
-                        index,
-                        writePersonIdentity(patch, LEGACY_PERSON_NAME_KEYS),
-                      )
-                    }
-                  />
-
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor={`guardian-${index}-relationship`}>
-                        Parentela
-                      </Label>
-                      <select
-                        id={`guardian-${index}-relationship`}
-                        value={guardian.relationship}
-                        onChange={(event) =>
-                          updateGuardian(index, { relationship: event.target.value })
-                        }
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      >
-                        <option value="">Seleziona</option>
-                        <option value="Padre">Padre</option>
-                        <option value="Madre">Madre</option>
-                        <option value="Tutore Legale">Tutore Legale</option>
-                        <option value="Nonno">Nonno</option>
-                        <option value="Nonna">Nonna</option>
-                        <option value="Altro">Altro</option>
-                      </select>
-                    </div>
-
-                    <PhoneField
-                      id={`guardian-${index}-phone`}
-                      label="Telefono"
-                      value={guardian.phone}
-                      onChange={(value) => updateGuardian(index, { phone: value })}
-                    />
-
-                    <div className="space-y-2">
-                      <Label htmlFor={`guardian-${index}-email`}>Email</Label>
-                      <Input
-                        id={`guardian-${index}-email`}
-                        type="email"
-                        value={guardian.email}
-                        onChange={(event) =>
-                          updateGuardian(index, { email: event.target.value })
-                        }
-                        placeholder="genitore@esempio.it"
-                      />
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  set({ guardians: [...formData.guardians, createEmptyGuardian()] })
-                }
-              >
-                Aggiungi genitore/tutore
-              </Button>
-            </AccordionContent>
-          </AccordionItem>
-
-          {/*
-            Tesseramento. Il numero **non** e obbligatorio: un tesseramento si
-            registra a inizio stagione e la federazione emette il numero dopo
-            (Blocco 7, punto 9). Senza la federazione invece il record non
-            dice niente, e non viene salvato.
-          */}
-          <AccordionItem value="tesseramento">
-            <AccordionTrigger>Tesseramento</AccordionTrigger>
-            <AccordionContent className="space-y-4 pt-2">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="registrationFederation">
-                    Federazione o ente
-                  </Label>
-                  <select
-                    id="registrationFederation"
-                    name="registrationFederation"
-                    value={formData.registrationFederation}
-                    onChange={handleChange}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                  >
-                    <option value="">Nessun tesseramento</option>
-                    {federations.map((federation) => (
-                      <option key={federation.id} value={federation.id}>
-                        {federation.name}
-                      </option>
-                    ))}
-                  </select>
-                  {federations.length === 0 ? (
-                    <p className="text-xs text-amber-600">
-                      Nessuna federazione registrata nel club: aggiungila nella
-                      pagina Club prima di tesserare.
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="registrationNumber">
-                    Numero tessera
-                    <span className="ml-1 text-xs font-normal text-muted-foreground">
-                      (non obbligatorio)
-                    </span>
-                  </Label>
-                  <Input
-                    id="registrationNumber"
-                    name="registrationNumber"
-                    className="eg-tabular"
-                    value={formData.registrationNumber}
-                    onChange={handleChange}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="registrationStatus">Stato</Label>
-                  <select
-                    id="registrationStatus"
-                    name="registrationStatus"
-                    value={formData.registrationStatus}
-                    onChange={handleChange}
-                    className="h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  >
-                    <option value="In corso">In corso</option>
-                    <option value="Attivo">Attivo</option>
-                    <option value="Scaduto">Scaduto</option>
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="registrationIssueDate">Data di rilascio</Label>
-                  <Input
-                    id="registrationIssueDate"
-                    name="registrationIssueDate"
-                    type="date"
-                    value={formData.registrationIssueDate}
-                    onChange={handleChange}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="registrationExpiryDate">Scadenza</Label>
-                  <Input
-                    id="registrationExpiryDate"
-                    name="registrationExpiryDate"
-                    type="date"
-                    value={formData.registrationExpiryDate}
-                    onChange={handleChange}
-                  />
-                </div>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-
-          <AccordionItem value="note">
-            <AccordionTrigger>Note</AccordionTrigger>
-            <AccordionContent className="pt-2">
-              <Textarea
-                id="notes"
-                name="notes"
-                rows={3}
-                value={formData.notes}
+      <CollapsedSection
+        id="residenza"
+        recordType={SECTIONS_PREFERENCE}
+        title="Residenza"
+      >
+        <div className="flex flex-col gap-5">
+          <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-[1fr_140px]">
+            <Field label="Via o piazza" htmlFor="address">
+              <CapitalizedInput
+                id="address"
+                name="address"
+                className={v2InputClassName}
+                value={formData.address}
                 onChange={handleChange}
-                placeholder="Annotazioni sull'atleta"
+                onValueChange={(value) => set({ address: value })}
+                placeholder="Via Roma"
               />
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
+            </Field>
 
-      {showFooterActions ? (
-        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-          {onCancel ? (
+            <Field label="Numero" htmlFor="streetNumber">
+              <TextInput
+                id="streetNumber"
+                name="streetNumber"
+                value={formData.streetNumber}
+                onChange={handleChange}
+                placeholder="12"
+              />
+            </Field>
+          </div>
+
+          <AssistedAddressFields
+            idPrefix="athlete-create-address"
+            values={{
+              postalCode: formData.postalCode,
+              city: formData.city,
+              province: formData.province,
+              region: formData.region,
+              country: formData.country,
+            }}
+            onChange={(patch) => set(patch as Partial<AthleteDraft>)}
+          />
+        </div>
+      </CollapsedSection>
+
+      <CollapsedSection
+        id="sanitari"
+        recordType={SECTIONS_PREFERENCE}
+        title="Dati sanitari"
+      >
+        <FormGrid>
+          <Field
+            label="Scadenza certificato medico"
+            htmlFor="medicalCertExpiry"
+          >
+            <DateInput
+              id="medicalCertExpiry"
+              name="medicalCertExpiry"
+              value={formData.medicalCertExpiry}
+              onChange={handleChange}
+            />
+          </Field>
+
+          <Field label="Gruppo sanguigno" htmlFor="bloodType">
+            <TextInput
+              id="bloodType"
+              name="bloodType"
+              value={formData.bloodType}
+              onChange={handleChange}
+              placeholder="0+"
+            />
+          </Field>
+
+          <Field
+            label="Allergie"
+            htmlFor="allergies"
+            className="laptop:col-span-2"
+          >
+            <TextInput
+              id="allergies"
+              name="allergies"
+              value={formData.allergies}
+              onChange={handleChange}
+            />
+          </Field>
+
+          <Field label="Contatto di emergenza" htmlFor="emergencyContact">
+            <CapitalizedInput
+              id="emergencyContact"
+              name="emergencyContact"
+              className={v2InputClassName}
+              value={formData.emergencyContact}
+              onChange={handleChange}
+              onValueChange={(value) => set({ emergencyContact: value })}
+            />
+          </Field>
+
+          <PhoneField
+            id="athlete-create-emergency-phone"
+            label="Telefono di emergenza"
+            value={formData.emergencyPhone}
+            onChange={(value) => set({ emergencyPhone: value })}
+          />
+        </FormGrid>
+      </CollapsedSection>
+
+      {/*
+        Il numero di maglia non si chiede all'iscrizione (ADR-0057): non e
+        un dato della persona, e un'assegnazione che appartiene a un gruppo
+        di numerazione, ha una stagione e puo essere gia occupata.
+        Chiederlo qui produceva un numero che nessuna regola aveva
+        verificato, e che l'assegnazione vera avrebbe poi contraddetto.
+      */}
+      <CollapsedSection
+        id="squadra"
+        recordType={SECTIONS_PREFERENCE}
+        title="Taglie"
+      >
+        <ClothingSizesFields
+          idPrefix="athlete-create-clothing"
+          value={formData.clothingSizes}
+          onChange={(next) => set({ clothingSizes: next })}
+          person={{
+            gender: formData.gender,
+            birthDate: formData.birthDate,
+          }}
+        />
+      </CollapsedSection>
+
+      {/*
+        Genitori e tutori. Per un minore sono il recapito che serve
+        davvero, e finora si potevano inserire solo dopo, aprendo la
+        scheda: cioe il secondo giro che questo form esiste per togliere.
+      */}
+      <CollapsedSection
+        id="genitori"
+        recordType={SECTIONS_PREFERENCE}
+        title="Genitori e tutori"
+        count={formData.guardians.filter(guardianHasContent).length || null}
+      >
+        <div className="flex flex-col gap-4">
+          {formData.guardians.map((guardian, index) => (
+            <InsetBlock
+              key={`guardian-${index}`}
+              className="flex flex-col gap-4"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p className="font-brand text-[13.5px] font-bold text-egw-ink">
+                  Genitore/tutore {index + 1}
+                </p>
+                {formData.guardians.length > 1 ? (
+                  <Button
+                    type="button"
+                    variant="danger"
+                    size="xs"
+                    onClick={() =>
+                      set({
+                        guardians: formData.guardians.filter(
+                          (_, position) => position !== index,
+                        ),
+                      })
+                    }
+                  >
+                    Togli
+                  </Button>
+                ) : null}
+              </div>
+
+              <PersonIdentityFields
+                idPrefix={`guardian-${index}`}
+                values={readPersonIdentity(guardian, LEGACY_PERSON_NAME_KEYS)}
+                onChange={(patch) =>
+                  updateGuardian(
+                    index,
+                    writePersonIdentity(patch, LEGACY_PERSON_NAME_KEYS),
+                  )
+                }
+              />
+
+              <FormGrid>
+                <Field
+                  label="Parentela"
+                  htmlFor={`guardian-${index}-relationship`}
+                >
+                  <Select
+                    id={`guardian-${index}-relationship`}
+                    value={guardian.relationship || NO_RELATIONSHIP}
+                    onValueChange={(next) =>
+                      updateGuardian(index, {
+                        relationship: next === NO_RELATIONSHIP ? "" : next,
+                      })
+                    }
+                    options={RELATIONSHIP_OPTIONS}
+                  />
+                </Field>
+
+                <PhoneField
+                  id={`guardian-${index}-phone`}
+                  label="Telefono"
+                  value={guardian.phone}
+                  onChange={(value) => updateGuardian(index, { phone: value })}
+                />
+
+                <Field label="Email" htmlFor={`guardian-${index}-email`}>
+                  <TextInput
+                    id={`guardian-${index}-email`}
+                    type="email"
+                    value={guardian.email}
+                    onChange={(event) =>
+                      updateGuardian(index, { email: event.target.value })
+                    }
+                    placeholder="genitore@esempio.it"
+                  />
+                </Field>
+              </FormGrid>
+            </InsetBlock>
+          ))}
+
+          <div>
             <Button
               type="button"
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={onCancel}
-              disabled={isSaving}
+              variant="secondary"
+              size="sm"
+              icon={<Plus />}
+              onClick={() =>
+                set({
+                  guardians: [...formData.guardians, createEmptyGuardian()],
+                })
+              }
             >
-              Annulla
+              Aggiungi genitore/tutore
             </Button>
+          </div>
+        </div>
+      </CollapsedSection>
+
+      {/*
+        Tesseramento. Il numero **non** e obbligatorio: un tesseramento si
+        registra a inizio stagione e la federazione emette il numero dopo
+        (Blocco 7, punto 9). Senza la federazione invece il record non
+        dice niente, e non viene salvato.
+      */}
+      <CollapsedSection
+        id="tesseramento"
+        recordType={SECTIONS_PREFERENCE}
+        title="Tesseramento"
+      >
+        <div className="flex flex-col gap-5">
+          {federations.length === 0 ? (
+            <AlertBlock
+              severity="warning"
+              title="Nessuna federazione registrata nel club"
+            >
+              Aggiungila nella pagina Club prima di tesserare.
+            </AlertBlock>
           ) : null}
-          <Button
-            type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-700 sm:w-auto"
-            disabled={isSaving}
+
+          <FormGrid>
+            <Field label="Federazione o ente" htmlFor="registrationFederation">
+              <Select
+                id="registrationFederation"
+                name="registrationFederation"
+                value={formData.registrationFederation || NO_FEDERATION}
+                onValueChange={(next) =>
+                  set({
+                    registrationFederation: next === NO_FEDERATION ? "" : next,
+                  })
+                }
+                options={federationOptions}
+              />
+            </Field>
+
+            <Field
+              label="Numero tessera"
+              htmlFor="registrationNumber"
+              helper="Numero non obbligatorio: la federazione lo emette dopo."
+            >
+              <TextInput
+                id="registrationNumber"
+                name="registrationNumber"
+                className="egw-num"
+                value={formData.registrationNumber}
+                onChange={handleChange}
+              />
+            </Field>
+
+            <Field label="Stato" htmlFor="registrationStatus">
+              <Select
+                id="registrationStatus"
+                name="registrationStatus"
+                value={formData.registrationStatus}
+                onValueChange={(next) => set({ registrationStatus: next })}
+                options={REGISTRATION_STATUS_OPTIONS}
+              />
+            </Field>
+
+            <Field label="Data di rilascio" htmlFor="registrationIssueDate">
+              <DateInput
+                id="registrationIssueDate"
+                name="registrationIssueDate"
+                value={formData.registrationIssueDate}
+                onChange={handleChange}
+              />
+            </Field>
+
+            <Field label="Scadenza" htmlFor="registrationExpiryDate">
+              <DateInput
+                id="registrationExpiryDate"
+                name="registrationExpiryDate"
+                value={formData.registrationExpiryDate}
+                onChange={handleChange}
+              />
+            </Field>
+          </FormGrid>
+        </div>
+      </CollapsedSection>
+
+      <CollapsedSection id="note" recordType={SECTIONS_PREFERENCE} title="Note">
+        <Field label="Note" htmlFor="notes">
+          <Textarea
+            id="notes"
+            name="notes"
+            rows={3}
+            value={formData.notes}
+            onChange={handleChange}
+            placeholder="Annotazioni sull'atleta"
+          />
+        </Field>
+      </CollapsedSection>
+
+      {showFooterActions ? (
+        /*
+          La barra delle azioni resta in vista in fondo (pattern 6): Salva e
+          l'unico gradiente della schermata, Annulla e secondario, e la nota
+          ambra dice se c'e qualcosa da perdere.
+        */
+        <div className="sticky bottom-0 z-[5] flex flex-wrap items-center justify-between gap-3 rounded-egw-panel-sm border border-egw-panel-border bg-white px-4 py-3 shadow-egw-plane-1">
+          <span
+            className={cn(
+              "font-brand text-[12.5px] font-semibold",
+              dirty ? "text-egw-amber-ink" : "text-egw-ink-42",
+            )}
+            role="status"
+            aria-live="polite"
           >
-            {isSaving ? "Salvataggio…" : "Salva atleta"}
-          </Button>
+            {dirty ? "Modifiche non salvate" : "Nessuna modifica"}
+          </span>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            {onCancel ? (
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full sm:w-auto"
+                onClick={requestCancel}
+                disabled={isSaving}
+              >
+                Annulla
+              </Button>
+            ) : null}
+            <Button
+              type="submit"
+              variant="primary"
+              className="w-full sm:w-auto"
+              loading={isSaving}
+            >
+              {isSaving ? "Salvataggio…" : "Salva atleta"}
+            </Button>
+          </div>
         </div>
       ) : null}
+
+      <DirtyGuardDialog
+        open={guardOpen}
+        onOpenChange={setGuardOpen}
+        onDiscard={() => {
+          setGuardOpen(false);
+          onCancel?.();
+        }}
+      />
     </form>
   );
 }

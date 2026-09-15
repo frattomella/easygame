@@ -1146,7 +1146,8 @@ test("«Invia credenziali» non e piu un pulsante che mente", () => {
       "components",
       "athletes",
       "profile",
-      "athlete-profile-header.tsx",
+      "v2",
+      "AthleteRecordHeader.tsx",
     ),
     "utf8",
   );

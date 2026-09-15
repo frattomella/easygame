@@ -8,69 +8,35 @@ import {
   DashboardPageContainer,
   dashboardMainClassName,
 } from "@/components/dashboard/dashboard-page-container";
-import { SharedPageHeader } from "@/components/dashboard/shared-page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
-  Search,
-  Plus,
-  FileHeart,
-  MoreVertical,
-  Trash2,
+  ArrowRight,
+  ArrowUpRight,
+  BarChart3,
   CheckSquare,
-  ListChecks,
+  MoreHorizontal,
+  Search,
+  Trash2,
+  Upload,
   UserCheck,
   UserMinus,
   UserX,
-  Settings,
-  CheckCircle2,
-  X,
-  ChevronDown,
-  ChevronRight,
-  Eye,
-  EyeOff,
-  Download,
-  Upload,
-  BarChart3,
-  FileSpreadsheet,
+  Users,
 } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  ConfirmDialog,
-} from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useGlobalLoading } from "@/components/providers/GlobalLoadingProvider";
-import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 import {
   ATHLETE_BULK_STATUS_ACTIONS,
   ATHLETE_STATUS_HEADINGS,
   ATHLETE_STATUS_LABELS,
   ATHLETE_STATUSES,
   ATHLETE_STATUS_PLURAL_LABELS,
-  ATHLETE_STATUS_TONE,
   normalizeAthleteStatus,
   type AthleteBulkStatusAction,
   type AthleteStatus,
   type AthleteStatusFilter,
 } from "@/lib/athletes/status";
-import { EntityIcon } from "@/components/ui/entity-icon";
 import {
   findCategoryForBirthDate,
   formatCategoryBirthYears,
@@ -91,7 +57,6 @@ import {
 } from "@/lib/athlete-name-utils";
 import {
   getClubAthletesPage,
-  addClubAthlete,
   addClubAthletesBatch,
   updateClubAthlete,
   deleteClubAthlete,
@@ -111,22 +76,48 @@ import {
   buildSiteIndex,
   compareCategoryGroups,
   getActiveCategoryGroups,
-  getActiveClubSites,
   getMembershipGroupId,
-  isMultiSiteClub,
   normalizeClubSites,
   recordMatchesSite,
   UNASSIGNED_SITE_LABEL,
   type CategoryGroup,
   type ClubSite,
 } from "@/lib/club-sites";
-import { CategoryGroupFilter, SiteFilter } from "@/components/sites/site-filter";
 import { supabase } from "@/lib/supabase";
+import { PageHeader, HeaderStat } from "@/components/web/page/PageHeader";
+import { Button, IconButton } from "@/components/web/primitives/Button";
+import { Eyebrow } from "@/components/web/primitives/Surface";
+import { SegmentedControl } from "@/components/web/primitives/Controls";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuTrigger,
+} from "@/components/web/primitives/Overlays";
+import { ConfirmDialog, DangerConfirmDialog } from "@/components/web/overlays/Modal";
+import { EmptyStateCard } from "@/components/web/page/Cards";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type {
+  BulkActionDef,
+  ExportRequest,
+  GroupDef,
+  RowActionDef,
+} from "@/components/web/datagrid/types";
+import { formatInteger } from "@/lib/web/format";
+import {
+  ATHLETE_CERTIFICATE_VIEWS,
+  ATHLETE_VIEWS,
+  athleteRowKey,
+  buildAthleteFilters,
+  categoryDotColor,
+  type Athlete,
+} from "@/components/athletes/v2/athlete-grid-model";
+import { buildAthleteColumns } from "@/components/athletes/v2/athletes-grid-columns";
+import {
+  GroupContextControl,
+  SiteContextControl,
+} from "@/components/athletes/v2/athletes-context-controls";
+import { BulkCategoryDrawer } from "@/components/athletes/v2/bulk-category-drawer";
 
 import type {
   AthleteImportOutcome,
@@ -141,37 +132,13 @@ const AthleteImportDialog = dynamic(
   { ssr: false },
 );
 
-interface Athlete {
-  id: string;
-  name: string;
-  firstName: string;
-  lastName: string;
-  categoryId: string | null;
-  categoryLabel: string;
-  membershipType: "primary" | "secondary";
-  /** Sede in cui l'atleta svolge la categoria di questa riga (ADR-0038). */
-  siteId: string;
-  siteName: string;
-  /**
-   * Il **gruppo operativo** di questa riga: la coppia (categoria, sede), cioe
-   * la squadra concreta. E l'unita con cui la pagina raggruppa gli elenchi,
-   * perche `Pulcini · Scauri` e `Pulcini · Santi Cosma` sono due liste di
-   * lavoro distinte e non due righe della stessa (ADR-0055).
-   */
-  groupId: string;
-  primaryCategoryLabel?: string;
-  allCategoryLabels: string[];
-  age: number;
-  status: AthleteStatus;
-  medicalCertExpiry: string;
-  birthDate?: string;
-  avatar?: string;
-  accessCode?: string;
-  jerseyNumber?: string;
-  registrationComplete: boolean;
-}
-
 /*
+  L'elenco Atleti nel Web V2 (guideline 07, pattern 1 «Operational list»):
+  intestazione di pagina con i numeri e i controlli di contesto, poi **il**
+  DataGrid. La logica dati e la stessa della V1 — stesse funzioni, stessi
+  endpoint, stessa risoluzione dei bersagli — e vive qui; cio che disegna le
+  colonne, i filtri e le viste sta in `src/components/athletes/v2/`.
+
   Il nome di un'azione e il nome di uno stato sono due vocabolari diversi.
   Confonderli era il difetto W6-03: `action: "activate"` finiva tale e quale
   in `athletes.status`, e quegli atleti sparivano da ogni filtro perche
@@ -215,7 +182,7 @@ const normalizeCategoryKey = (value: string) =>
     .trim()
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/\s+/g, " ");
 
 const createCategoryIdFromName = (value: string) =>
@@ -223,7 +190,7 @@ const createCategoryIdFromName = (value: string) =>
     .trim()
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")}-${Date.now().toString(36).slice(-6)}`;
 
@@ -266,9 +233,10 @@ const coerceBoolean = (value: unknown) => {
  *
  * E il tetto che il server accetta (`MAX_PAGE_SIZE`), e non e scelto per
  * caso: sotto questa soglia l'archivio intero arriva in una richiesta sola e
- * la pagina si comporta come si e sempre comportata — ricerca, raggruppamento
- * ed export nel browser, che con centocinquanta righe e piu rapido di un giro
- * sulla rete. Sopra, la pagina passa a chiedere i filtri al server.
+ * la griglia si comporta come si e sempre comportata — ricerca, filtri,
+ * raggruppamento ed export nel browser, che con centocinquanta righe e piu
+ * rapido di un giro sulla rete. Sopra, la pagina passa a chiedere stato e
+ * ricerca al server.
  */
 const ATHLETE_PAGE_SIZE = 200;
 
@@ -282,23 +250,6 @@ const ATHLETE_PAGE_SIZE = 200;
 const STATUS_FILTER_HEADINGS = ATHLETE_STATUS_HEADINGS;
 
 /**
- * Il colore dell'icona di stato, dal tono che il vocabolario gia dichiara.
- *
- * `ATHLETE_STATUS_TONE` esisteva dalla Wave 6 e **non lo chiamava nessuno**:
- * era stato scritto proprio per far combaciare i quattro stati ovunque
- * compaiano, e la riga dell'elenco continuava a decidere da se — sbagliando.
- */
-const STATUS_ICON_TONE: Record<
-  (typeof ATHLETE_STATUS_TONE)[keyof typeof ATHLETE_STATUS_TONE],
-  string
-> = {
-  success: "text-green-500",
-  warning: "text-red-500",
-  info: "text-blue-500",
-  muted: "text-gray-500",
-};
-
-/**
  * L'indirizzo dell'iscrizione di un nuovo atleta.
  *
  * Il club viaggia nell'indirizzo, come per allenatori e soci: chi apre la
@@ -307,6 +258,9 @@ const STATUS_ICON_TONE: Record<
  */
 const buildNewAthleteHref = (clubId?: string | null) =>
   clubId ? `/athletes/new?clubId=${encodeURIComponent(clubId)}` : "/athletes/new";
+
+const buildAthleteProfileHref = (athleteId: string, clubId?: string | null) =>
+  `/athletes/${athleteId}?clubId=${encodeURIComponent(clubId || "")}`;
 
 /**
  * Da righe del database a righe della tabella.
@@ -398,26 +352,36 @@ const buildAthleteRows = (
     });
   });
 
+/** Il tono del numero di stato nell'intestazione (guideline 09 §9.2). */
+const STATUS_STAT_TONE: Record<AthleteStatus, "green" | "red" | "blue" | "ink"> = {
+  active: "green",
+  suspended: "red",
+  loan: "blue",
+  inactive: "ink",
+};
+
 export default function AthletesPage() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [athletes, setAthletes] = React.useState<Athlete[]>([]);
   const [categories, setCategories] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [showImportAthletesModal, setShowImportAthletesModal] =
     useState(false);
-  const [showCustomizeColumnsModal, setShowCustomizeColumnsModal] =
-    useState(false);
-  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
-    new Set(),
-  );
-  const [selectedAthleteIds, setSelectedAthleteIds] = useState<Set<string>>(
+  /**
+   * La selezione della griglia, per **chiave di riga** (una tessera per
+   * riga). Gli atleti — le persone — si ricavano deduplicando per `id` nel
+   * momento in cui si risolvono i bersagli (`risolviBersagliMassivi`).
+   */
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(
     new Set(),
   );
   const [pendingBulkAction, setPendingBulkAction] =
     useState<PendingBulkAction | null>(null);
+  const [bulkRunning, setBulkRunning] = useState(false);
   const [showBulkCategoryDialog, setShowBulkCategoryDialog] = useState(false);
-  const [bulkCategoryTargetId, setBulkCategoryTargetId] = useState("");
-  const [bulkSiteTargetId, setBulkSiteTargetId] = useState("");
+  /** Le righe su cui e stato chiesto «Cambia categoria», congelate all'apertura del cassetto. */
+  const [bulkCategoryRows, setBulkCategoryRows] = useState<Athlete[]>([]);
 
   const [sites, setSites] = useState<ClubSite[]>([]);
   const [siteFilter, setSiteFilter] = useState("");
@@ -433,15 +397,9 @@ export default function AthletesPage() {
    */
   const [groupFilter, setGroupFilter] = useState("");
   const [categoryGroups, setCategoryGroups] = useState<CategoryGroup[]>([]);
+  /** Il club risolto all'ultimo caricamento: serve ai collegamenti delle righe. */
+  const [resolvedClubId, setResolvedClubId] = useState<string | null>(null);
 
-  /**
-   * Le squadre fra cui si puo scegliere, adesso.
-   *
-   * Solo quelle configurate — un gruppo implicito e una categoria con un altro
-   * nome (ADR-0055) — e solo quelle della sede scelta, se una sede e scelta:
-   * e la strada **Sede → Gruppo**. Senza sede si vedono tutte, con la sede
-   * scritta nell'etichetta: e la strada **direttamente Gruppo**.
-   */
   /**
    * Come si scrive una categoria in questa pagina (N3): la sede si accosta
    * solo dove il nome ne nomina due. Le due sorgenti — catalogo e gruppi — la
@@ -452,6 +410,14 @@ export default function AthletesPage() {
     [categories, categoryGroups],
   );
 
+  /**
+   * Le squadre fra cui si puo scegliere, adesso.
+   *
+   * Solo quelle configurate — un gruppo implicito e una categoria con un altro
+   * nome (ADR-0055) — e solo quelle della sede scelta, se una sede e scelta:
+   * e la strada **Sede → Gruppo**. Senza sede si vedono tutte, con la sede
+   * scritta nell'etichetta: e la strada **direttamente Gruppo**.
+   */
   const groupOptions = useMemo(
     () =>
       getActiveCategoryGroups(categoryGroups)
@@ -505,49 +471,17 @@ export default function AthletesPage() {
   const [archiveTotal, setArchiveTotal] = useState<number | null>(null);
   const paginated = (archiveTotal ?? 0) > ATHLETE_PAGE_SIZE;
 
+  /**
+   * Lo stato chiesto al server quando l'archivio e paginato.
+   *
+   * Sotto la soglia lo stato e una **vista** della griglia («Attivi» e quella
+   * di partenza) e questo valore non comanda niente: il DataGrid filtra nel
+   * browser le righe che ha. Sopra la soglia la griglia non puo dire al server
+   * che cosa filtrare (il suo stato e interno), quindi lo stato si sceglie
+   * nella banda d'archivio dentro il pannello, e viaggia nella query.
+   */
   const [statusFilter, setStatusFilter] =
     useState<AthleteStatusFilter>("active");
-
-  // Default column preferences
-  const defaultColumns = {
-    name: true,
-    category: false,
-    age: false,
-    status: true,
-    medicalCert: true,
-    birthYear: true,
-    registrationComplete: false,
-    jerseyNumber: false,
-    columnSchemaVersion: 2,
-  };
-
-  // Load column preferences from localStorage
-  const loadColumnPreferences = (clubId: string) => {
-    if (typeof window !== "undefined" && clubId) {
-      const saved = localStorage.getItem(`athleteColumns_${clubId}`);
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          return {
-            ...defaultColumns,
-            ...parsed,
-            category:
-              parsed?.columnSchemaVersion === 2
-                ? Boolean(parsed.category)
-                : false,
-            age: false,
-            birthYear: true,
-            columnSchemaVersion: 2,
-          };
-        } catch (e) {
-          console.error("Error parsing column preferences:", e);
-        }
-      }
-    }
-    return defaultColumns;
-  };
-
-  const [visibleColumns, setVisibleColumns] = useState(defaultColumns);
 
   const { showToast } = useToast();
   const { activeClub, user } = useAuth();
@@ -590,6 +524,8 @@ export default function AthletesPage() {
 
     try {
       setLoading(true);
+      setLoadError(null);
+      setResolvedClubId(clubId);
 
       const [{ data: categoriesData }, { data: clubData }, athletesPage] =
         await Promise.all([
@@ -648,43 +584,24 @@ export default function AthletesPage() {
 
       transformedAthletes.sort(compareAthletesByLastName);
       setAthletes(transformedAthletes);
-      setSelectedAthleteIds((currentSelection) => {
+      setSelectedRowIds((currentSelection) => {
         const nextSelection = new Set<string>();
         transformedAthletes.forEach((athlete) => {
-          if (currentSelection.has(athlete.id)) {
-            nextSelection.add(athlete.id);
+          const key = athleteRowKey(athlete);
+          if (currentSelection.has(key)) {
+            nextSelection.add(key);
           }
         });
         return nextSelection;
       });
     } catch (error) {
       console.error("Error loading athletes data:", error);
+      setLoadError("Controlla la connessione e riprova.");
       showToast("error", "Errore nel caricamento dei dati");
     } finally {
       setLoading(false);
     }
   };
-
-  // Save column preferences to localStorage whenever they change
-  useEffect(() => {
-    if (typeof window !== "undefined" && activeClub?.id) {
-      localStorage.setItem(
-        `athleteColumns_${activeClub.id}`,
-        JSON.stringify(visibleColumns),
-      );
-    }
-  }, [visibleColumns, activeClub?.id]);
-
-  // Update column preferences when activeClub changes
-  useEffect(() => {
-    if (activeClub?.id) {
-      const savedPreferences = loadColumnPreferences(activeClub.id);
-      setVisibleColumns(savedPreferences);
-    } else {
-      // Reset to default when no club is selected
-      setVisibleColumns(defaultColumns);
-    }
-  }, [activeClub?.id]);
 
   /*
     **La richiesta piu recente e l'unica che ha ragione.**
@@ -1098,29 +1015,6 @@ export default function AthletesPage() {
     return { imported, failed };
   };
 
-  const formatDate = (dateString: string) => {
-    if (!dateString) {
-      return "-";
-    }
-
-    const date = new Date(dateString);
-    return date.toLocaleDateString("it-IT", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  const isCertificateExpired = (dateString: string) => {
-    if (!dateString) {
-      return false;
-    }
-
-    const expiryDate = new Date(dateString);
-    const today = new Date();
-    return expiryDate < today;
-  };
-
   // Function to update athlete status in database
   const updateAthleteStatus = async (
     athleteId: string,
@@ -1137,8 +1031,8 @@ export default function AthletesPage() {
       await updateClubAthlete(clubId, athleteId, { status: newStatus });
 
       // Update local state
-      setAthletes(
-        athletes.map((a) =>
+      setAthletes((current) =>
+        current.map((a) =>
           a.id === athleteId ? { ...a, status: newStatus } : a,
         ),
       );
@@ -1164,6 +1058,7 @@ export default function AthletesPage() {
     id: string;
     name: string;
   } | null>(null);
+  const [deletingAthlete, setDeletingAthlete] = useState(false);
 
   const deleteAthlete = (athleteId: string, athleteName: string) => {
     if (!resolveCurrentClubId()) {
@@ -1180,11 +1075,12 @@ export default function AthletesPage() {
     const athleteId = pending.id;
     const athleteName = pending.name;
 
+    setDeletingAthlete(true);
     try {
       await deleteClubAthlete(clubId, athleteId);
 
       // Update local state
-      setAthletes(athletes.filter((a) => a.id !== athleteId));
+      setAthletes((current) => current.filter((a) => a.id !== athleteId));
 
       showToast("success", `Atleta ${athleteName} eliminato con successo`);
     } catch (error: any) {
@@ -1207,77 +1103,14 @@ export default function AthletesPage() {
           : messaggio || "Errore nell'eliminazione dell'atleta",
       );
     } finally {
+      setDeletingAthlete(false);
       setPendingAthleteDeletion(null);
     }
   };
 
-  const toggleAthleteSelection = (athleteId: string, checked: boolean) => {
-    setSelectedAthleteIds((currentSelection) => {
-      const nextSelection = new Set(currentSelection);
-
-      if (checked) {
-        nextSelection.add(athleteId);
-      } else {
-        nextSelection.delete(athleteId);
-      }
-
-      return nextSelection;
-    });
-  };
-
-  const toggleManyAthletesSelection = (
-    athleteIds: string[],
-    checked: boolean,
-  ) => {
-    setSelectedAthleteIds((currentSelection) => {
-      const nextSelection = new Set(currentSelection);
-
-      athleteIds.forEach((athleteId) => {
-        if (checked) {
-          nextSelection.add(athleteId);
-        } else {
-          nextSelection.delete(athleteId);
-        }
-      });
-
-      return nextSelection;
-    });
-  };
-
   const clearAthleteSelection = () => {
-    setSelectedAthleteIds(new Set());
+    setSelectedRowIds(new Set());
   };
-
-
-  // Toggle category collapse
-  const toggleCategoryCollapse = (categoryId: string) => {
-    setCollapsedCategories((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(categoryId)) {
-        newSet.delete(categoryId);
-      } else {
-        newSet.add(categoryId);
-      }
-      return newSet;
-    });
-  };
-
-  /*
-    Con l'archivio grande i filtri li ha gia applicati il server, e rifarli
-    qui non toglierebbe niente: filtrerebbe una pagina gia filtrata, e la
-    differenza fra i due criteri — il server cerca su nome, cognome, codice e
-    numero, la pagina anche sull'etichetta di categoria — farebbe sparire
-    righe che il server ha appena scelto di mandare.
-  */
-  // Filter athletes by search and status
-  /*
-    La chiave si normalizza a NFC come i nomi salvati: sotto la soglia di
-    paginazione la ricerca la fa il browser, e senza questa riga il difetto
-    di «Niccolo con l'accento» resterebbe aperto proprio sui club piccoli —
-    quelli che non passano mai dalla ricerca del server. Vedi
-    `buildSearchFilter` in `src/lib/server/resources.ts`.
-  */
-  const normalizedQuery = searchQuery.normalize("NFC").toLowerCase();
 
   /*
     W6-02. Il filtro di stato si applica **sempre**, anche quando comanda il
@@ -1289,126 +1122,70 @@ export default function AthletesPage() {
     si vedeva entrando. Con il server che ha gia filtrato questo passaggio non
     toglie nulla: e un vaglio che non trova niente da togliere.
 
-    Gli altri quattro filtri restano condizionati, perche la ricerca del
-    server non e la stessa del browser — accenti, sinonimi — e rifarla qui
-    nasconderebbe righe che il server ha trovato apposta.
+    Sotto la soglia lo stato lo filtra la griglia (vista «Attivi» e filtro
+    «Stato»); qui restano sede e gruppo, che sono controlli di contesto della
+    pagina e valgono in tutti e due i rami: la sede guida sia la query server
+    sia il vaglio nel browser, e il gruppo non ha indulgenze — un atleta di
+    `Pulcini · Roma` non compare fra i `Pulcini · Aprilia`, nemmeno se la
+    categoria coincide.
   */
-  const matchesStatusFilter = (athlete: Athlete) =>
-    statusFilter === "all" || athlete.status === statusFilter;
+  const filteredAthletes = useMemo(() => {
+    const matchesStatusFilter = (athlete: Athlete) =>
+      statusFilter === "all" || athlete.status === statusFilter;
 
-  const filteredAthletes = paginated
-    ? athletes.filter(matchesStatusFilter)
-    : athletes.filter((athlete) => {
-    const matchesSearch =
-      athlete.name.toLowerCase().includes(normalizedQuery) ||
-      athlete.categoryLabel.toLowerCase().includes(normalizedQuery) ||
-      athlete.allCategoryLabels.some((label) =>
-        label.toLowerCase().includes(normalizedQuery),
+    const inStato = paginated
+      ? athletes.filter(matchesStatusFilter)
+      : athletes;
+
+    return inStato.filter((athlete) => {
+      // Sede vuota sulla riga significa «non dichiarata», non «nessuna»: resta
+      // visibile con qualunque filtro sede (ADR-0038).
+      const matchesSite = recordMatchesSite(
+        athlete.siteId ? [athlete.siteId] : [],
+        siteFilter,
       );
-
-    const matchesStatus = matchesStatusFilter(athlete);
-
-    // Sede vuota sulla riga significa «non dichiarata», non «nessuna»: resta
-    // visibile con qualunque filtro sede (ADR-0038).
-    const matchesSite = recordMatchesSite(
-      athlete.siteId ? [athlete.siteId] : [],
-      siteFilter,
-    );
-
-    /*
-      Il gruppo non ha indulgenze: un atleta di `Pulcini · Roma` non compare
-      fra i `Pulcini · Aprilia`, nemmeno se la categoria coincide. E
-      esattamente la contaminazione che un elenco operativo non deve avere.
-    */
-    const matchesGroup = !groupFilter || athlete.groupId === groupFilter;
-
-        return matchesSearch && matchesStatus && matchesSite && matchesGroup;
-      });
-
-  const selectedAthletesCount = selectedAthleteIds.size;
+      const matchesGroup = !groupFilter || athlete.groupId === groupFilter;
+      return matchesSite && matchesGroup;
+    });
+  }, [athletes, groupFilter, paginated, siteFilter, statusFilter]);
 
   /**
    * **Quante persone, non quante tessere** (P0-1).
    *
    * `athletes` e un elenco di **appartenenze**: chi si allena con due gruppi
-   * compare due volte, ed e una scelta voluta per la griglia — «visibili»
-   * conta le righe che si vedono. Ma «Totali» e il numero di atleti del club,
-   * e nel ramo paginato lo e davvero (`listMeta.total`, che il database conta
-   * sulle persone): nel ramo non paginato era `athletes.length`, cioe le
-   * tessere. Lo stesso riquadro cambiava significato a seconda della
+   * compare due volte, ed e una scelta voluta per la griglia — «righe» conta
+   * le righe che si vedono. Ma i numeri dell'intestazione sono persone, e nel
+   * ramo paginato lo sono davvero (`listMeta.total`, che il database conta
+   * sulle persone): nel ramo non paginato erano `athletes.length`, cioe le
+   * tessere. Lo stesso numero cambiava significato a seconda della
    * dimensione del club — quaranta atleti di cui otto in due categorie
    * diventavano «48» — ed e la forma esatta del difetto che P0-1 ha chiuso
    * sull'insieme bersaglio e non qui: «213 contro 245».
-   *
-   * Vale anche per il numero sul pulsante «Azioni su tutti»: l'insieme su cui
-   * si scrive e deduplicato per identificativo, quindi annunciarne uno piu
-   * grande e promettere un'operazione piu larga di quella che parte.
    */
   const totaleAtletiDistinti = React.useMemo(
     () => new Set(athletes.map((athlete) => athlete.id)).size,
     [athletes],
   );
 
-  const getAthleteStatusLabel = (status: Athlete["status"]) =>
-    ATHLETE_STATUS_LABELS[status];
-
-  const getVisibleAthleteExportColumns = () =>
-    [
-      { key: "name", label: "Atleta", enabled: true },
-      {
-        key: "category",
-        label: "Categoria",
-        enabled: visibleColumns.category,
-      },
-      { key: "age", label: "Eta", enabled: visibleColumns.age },
-      {
-        key: "birthYear",
-        label: "Anno di Nascita",
-        enabled: visibleColumns.birthYear,
-      },
-      { key: "status", label: "Stato", enabled: visibleColumns.status },
-      {
-        key: "medicalCert",
-        label: "Certificato Medico",
-        enabled: visibleColumns.medicalCert,
-      },
-      {
-        key: "registrationComplete",
-        label: "Iscrizione",
-        enabled: visibleColumns.registrationComplete,
-      },
-      {
-        key: "jerseyNumber",
-        label: "Numero Maglia",
-        enabled: visibleColumns.jerseyNumber,
-      },
-    ].filter((column) => column.enabled);
-
-  const getAthleteExportValue = (athlete: Athlete, key: string) => {
-    if (key === "name") return athlete.name;
-    if (key === "category") {
-      return athlete.membershipType === "secondary"
-        ? `${athlete.categoryLabel} (secondaria)`
-        : athlete.categoryLabel;
-    }
-    if (key === "age") return `${athlete.age} anni`;
-    if (key === "birthYear") {
-      return athlete.birthDate ? String(new Date(athlete.birthDate).getFullYear()) : "-";
-    }
-    if (key === "status") return getAthleteStatusLabel(athlete.status);
-    if (key === "medicalCert") {
-      return athlete.medicalCertExpiry
-        ? `${formatDate(athlete.medicalCertExpiry)}${
-            isCertificateExpired(athlete.medicalCertExpiry) ? " (scaduto)" : ""
-          }`
-        : "-";
-    }
-    if (key === "registrationComplete") {
-      return athlete.registrationComplete ? "Completa" : "Da completare";
-    }
-    if (key === "jerseyNumber") return athlete.jerseyNumber || "-";
-    return "-";
-  };
+  /*
+    W6-04. Erano tre conteggi scritti a mano, uno per stato. Gli stati sono
+    quattro, e si itera sul vocabolario: un quinto stato, il giorno che
+    servisse, si aggiunge in un posto solo e l'intestazione lo mostra da sola.
+  */
+  const conteggiPerStato = React.useMemo(
+    () =>
+      Object.fromEntries(
+        ATHLETE_STATUSES.map((stato) => [
+          stato,
+          new Set(
+            athletes
+              .filter((a) => a.status === stato)
+              .map((a) => a.id),
+          ).size,
+        ]),
+      ) as Record<AthleteStatus, number>,
+    [athletes],
+  );
 
   /**
    * Tutte le righe che l'export deve contenere.
@@ -1418,8 +1195,7 @@ export default function AthletesPage() {
    * filtrati» sarebbe una bugia in cima a un PDF. Le pagine restanti si
    * chiedono qui, una alla volta, e solo quando qualcuno preme Esporta — che
    * e il momento giusto per pagare quel costo.
-   */
-  /**
+   *
    * **Tutto l'insieme filtrato, e non gli conta niente la selezione.**
    *
    * E la meta di `collectAthletesForExport` che risponde a «tutti»: sta a se
@@ -1430,19 +1206,18 @@ export default function AthletesPage() {
    * non c'entra: il dialogo dice «tutti gli atleti registrati», e deve essere
    * vero anche quando una casella e spuntata.
    *
-   * Il difetto misurato: con una sola riga spuntata, «Rendi tutti attivi»
-   * toccava quella sola, e la conferma continuava a dire «tutti gli atleti
-   * registrati». Un'operazione che non tocca chi doveva toccare, e nessuno se
-   * ne accorge — che e la frase che sta gia scritta sopra
-   * `risolviBersagliMassivi`, sull'altro ramo dello stesso difetto.
+   * Sotto la soglia risponde `visibili`: le righe che la griglia sta
+   * mostrando con i suoi filtri, che sono gia tutto l'insieme.
    */
-  const collectFilteredAthletes = async (): Promise<Athlete[]> => {
+  const collectFilteredAthletes = async (
+    visibili: Athlete[] = filteredAthletes,
+  ): Promise<Athlete[]> => {
     if (!paginated || !listMeta) {
-      return filteredAthletes;
+      return visibili;
     }
 
     const clubId = resolveCurrentClubId();
-    if (!clubId) return filteredAthletes;
+    if (!clubId) return visibili;
 
     const siteIndex = buildSiteIndex(sites);
     const collected: Athlete[] = [];
@@ -1473,18 +1248,44 @@ export default function AthletesPage() {
   /**
    * Cio che l'export deve contenere: la selezione se c'e, altrimenti tutto
    * l'insieme filtrato.
+   *
+   * Con l'archivio paginato «tutto l'insieme filtrato» sono le pagine del
+   * server — ma solo se la griglia non ha stretto ulteriormente nel browser
+   * (un filtro di categoria o di certificato, che il server non conosce): in
+   * quel caso l'insieme e esattamente cio che la griglia mostra.
    */
-  const collectAthletesForExport = async (): Promise<Athlete[]> => {
-    if (selectedAthleteIds.size) {
-      return athletes.filter((athlete) => selectedAthleteIds.has(athlete.id));
+  const collectAthletesForExport = async (
+    request: ExportRequest<Athlete>,
+  ): Promise<Athlete[]> => {
+    if (selectedRowIds.size) {
+      return athletes.filter((athlete) =>
+        selectedRowIds.has(athleteRowKey(athlete)),
+      );
     }
 
-    return collectFilteredAthletes();
+    if (paginated && request.rows.length < filteredAthletes.length) {
+      return request.rows;
+    }
+
+    return collectFilteredAthletes(request.rows);
   };
 
-  const exportAthletesPdf = async () => {
-    const exportAthletes = await collectAthletesForExport();
-    const columns = getVisibleAthleteExportColumns();
+  const exportColumnsOf = (request: ExportRequest<Athlete>) =>
+    request.columns.map((column) => ({
+      key: column.id,
+      label:
+        column.label ?? (typeof column.header === "string" ? column.header : column.id),
+      value: (athlete: Athlete) => {
+        const raw = column.exportValue
+          ? column.exportValue(athlete)
+          : column.sortValue?.(athlete);
+        return raw === null || raw === undefined ? "-" : String(raw);
+      },
+    }));
+
+  const exportAthletesPdf = async (request: ExportRequest<Athlete>) => {
+    const exportAthletes = await collectAthletesForExport(request);
+    const columns = exportColumnsOf(request);
 
     if (!exportAthletes.length) {
       showToast("error", "Nessun atleta da esportare");
@@ -1498,13 +1299,10 @@ export default function AthletesPage() {
       rows: exportAthletes.map((athlete) => ({
         id: athlete.id,
         values: Object.fromEntries(
-          columns.map((column) => [
-            column.key,
-            getAthleteExportValue(athlete, column.key),
-          ]),
+          columns.map((column) => [column.key, column.value(athlete)]),
         ),
       })),
-      scopeLabel: selectedAthleteIds.size
+      scopeLabel: selectedRowIds.size
         ? describeSelection(exportAthletes.length, {
             one: "atleta",
             many: "atleti",
@@ -1529,9 +1327,9 @@ export default function AthletesPage() {
    * restanti si chiedono al server. Il tracciato — separatore, CRLF, BOM —
    * appartiene a `src/lib/csv.ts`: qui non si serializza niente a mano.
    */
-  const exportAthletesCsv = async () => {
-    const exportAthletes = await collectAthletesForExport();
-    const columns = getVisibleAthleteExportColumns();
+  const exportAthletesCsv = async (request: ExportRequest<Athlete>) => {
+    const exportAthletes = await collectAthletesForExport(request);
+    const columns = exportColumnsOf(request);
 
     if (!exportAthletes.length) {
       showToast("error", "Nessun atleta da esportare");
@@ -1540,15 +1338,20 @@ export default function AthletesPage() {
 
     const rows = exportAthletes.map((athlete) =>
       Object.fromEntries(
-        columns.map((column) => [
-          column.key,
-          getAthleteExportValue(athlete, column.key),
-        ]),
+        columns.map((column) => [column.key, column.value(athlete)]),
       ),
     );
 
     downloadCsv(csvFileName("Elenco Atleti"), toCsv(columns, rows));
     showToast("success", "CSV scaricato");
+  };
+
+  const handleExport = async (request: ExportRequest<Athlete>) => {
+    if (request.kind === "pdf") {
+      await exportAthletesPdf(request);
+      return;
+    }
+    await exportAthletesCsv(request);
   };
 
   const getBulkActionLabel = (action: BulkActionType) => {
@@ -1576,6 +1379,21 @@ export default function AthletesPage() {
   };
 
   /**
+   * L'ambito di un'azione chiesta dalla barra di massa.
+   *
+   * «Seleziona tutti i N» della griglia seleziona **le righe caricate**. Sotto
+   * la soglia sono gia tutto l'insieme filtrato. Sopra la soglia, quando la
+   * selezione copre ogni riga caricata, «tutti» vuol dire tutto l'archivio
+   * filtrato — e i bersagli si risolvono sulle pagine del server, come la V1
+   * faceva con «Azioni su tutti». Una selezione piu stretta (un filtro di
+   * categoria, una vista sul certificato) e esattamente cio che si e scelto.
+   */
+  const bulkScopeOf = (righe: Athlete[]): PendingBulkAction["scope"] =>
+    paginated && righe.length > 0 && righe.length >= filteredAthletes.length
+      ? "all"
+      : "selected";
+
+  /**
    * **Chi sara toccato, per davvero.**
    *
    * Per la selezione: gli identificativi scelti, resi distinti — la stessa
@@ -1590,20 +1408,21 @@ export default function AthletesPage() {
    */
   const risolviBersagliMassivi = async (
     scope: "selected" | "all",
+    righe: Athlete[],
   ): Promise<string[]> => {
     if (scope === "selected") {
-      return Array.from(new Set(Array.from(selectedAthleteIds)));
+      return Array.from(new Set(righe.map((athlete) => athlete.id))).filter(
+        Boolean,
+      );
     }
 
     /*
       **`collectFilteredAthletes`, non `collectAthletesForExport`.**
 
       La seconda risponde alla domanda dell'export, e la sua prima riga e «se
-      c'e una selezione, sono quelli»: chiamandola da qui, «Azioni su tutti»
-      con una casella spuntata toccava **quella sola**, mentre la conferma
-      diceva «tutti gli atleti registrati». Il menu e attivo a prescindere
-      dalla selezione, quindi il caso non e limite: e il gesto ordinario di chi
-      ha spuntato una riga, ha cambiato idea e ha aperto l'altro menu.
+      c'e una selezione, sono quelli»: chiamandola da qui, «tutti» con una
+      casella spuntata toccherebbe **quella sola**, mentre la conferma dice
+      «tutti gli atleti registrati».
     */
     const tutti = await collectFilteredAthletes();
     return Array.from(new Set(tutti.map((athlete) => athlete.id))).filter(
@@ -1617,6 +1436,7 @@ export default function AthletesPage() {
    */
   const apriAzioneMassiva = async (
     azione: Omit<PendingBulkAction, "targetIds">,
+    righe: Athlete[],
   ) => {
     /*
       **Se non si sa su chi si scrive, non si apre la conferma.**
@@ -1629,7 +1449,7 @@ export default function AthletesPage() {
     */
     let targetIds: string[] = [];
     try {
-      targetIds = await risolviBersagliMassivi(azione.scope);
+      targetIds = await risolviBersagliMassivi(azione.scope, righe);
     } catch (error) {
       console.error("Error resolving bulk athlete targets:", error);
       showToast(
@@ -1696,6 +1516,7 @@ export default function AthletesPage() {
       return;
     }
 
+    setBulkRunning(true);
     try {
       await runWithLoader(
         pendingBulkAction.action === "delete"
@@ -1827,6 +1648,7 @@ export default function AthletesPage() {
         "Errore durante l'esecuzione dell'operazione in blocco",
       );
     } finally {
+      setBulkRunning(false);
       setPendingBulkAction(null);
     }
   };
@@ -1841,7 +1663,8 @@ export default function AthletesPage() {
    * (ADR-0055).
    *
    * Una passata sola sulle righe gia filtrate: niente categorie x gruppi x
-   * atleti a ogni render.
+   * atleti a ogni render. Il risultato e un indice per chiave di gruppo, che
+   * il DataGrid interroga quando disegna l'intestazione di ogni gruppo.
    */
   const athleteGroups = useMemo(() => {
     const buckets = new Map<
@@ -1852,7 +1675,7 @@ export default function AthletesPage() {
         categoryName: string;
         siteId: string;
         siteName: string;
-        athletes: Athlete[];
+        count: number;
       }
     >();
 
@@ -1861,7 +1684,7 @@ export default function AthletesPage() {
       const bucket = buckets.get(id);
 
       if (bucket) {
-        bucket.athletes.push(athlete);
+        bucket.count += 1;
         return;
       }
 
@@ -1871,7 +1694,7 @@ export default function AthletesPage() {
         categoryName: athlete.categoryLabel || "Senza categoria",
         siteId: athlete.siteId,
         siteName: athlete.siteName,
-        athletes: [athlete],
+        count: 1,
       });
     });
 
@@ -1887,1056 +1710,538 @@ export default function AthletesPage() {
       groupCountByCategory.set(key, (groupCountByCategory.get(key) || 0) + 1);
     });
 
-    return groups
-      .map((group) => {
-        const key = group.categoryId || UNCATEGORIZED_CATEGORY_ID;
-        const needsSite = (groupCountByCategory.get(key) || 0) > 1;
+    const index = new Map<
+      string,
+      (typeof groups)[number] & { label: string; color: string | null }
+    >();
 
+    groups.forEach((group) => {
+      const key = group.categoryId || UNCATEGORIZED_CATEGORY_ID;
+      const needsSite = (groupCountByCategory.get(key) || 0) > 1;
+      const category = categories.find((item) => item.id === group.categoryId);
+
+      index.set(group.id, {
+        ...group,
+        color: category?.color ?? null,
+        label:
+          needsSite && (group.siteName || group.siteId)
+            ? buildCategoryGroupLabel(group.categoryName, group.siteName)
+            : needsSite
+              ? buildCategoryGroupLabel(
+                  group.categoryName,
+                  UNASSIGNED_SITE_LABEL,
+                )
+              : group.categoryName,
+      });
+    });
+
+    return index;
+  }, [categories, filteredAthletes]);
+
+  /* ── La configurazione della griglia ──────────────────────────────────── */
+  const columns = useMemo(
+    () =>
+      buildAthleteColumns({
+        clubId: resolvedClubId,
+        onOpen: (athlete) =>
+          router.push(buildAthleteProfileHref(athlete.id, resolvedClubId)),
+      }),
+    [resolvedClubId, router],
+  );
+
+  const filters = useMemo(
+    () =>
+      buildAthleteFilters({
+        includeStatus: !paginated,
+        /*
+          Le stesse etichette del cassetto «Cambia categoria» (N3): su un club
+          con due «Under 15» la sede fa parte del nome.
+        */
+        categoryOptions: categories.map((category) => ({
+          value: category.id,
+          label: categoryDisplay.label(category.id),
+        })),
+      }),
+    [categories, categoryDisplay, paginated],
+  );
+
+  const search = useMemo(
+    () =>
+      paginated
+        ? undefined
+        : {
+            placeholder: "Cerca per nome o cognome",
+            /*
+              La chiave si normalizza a NFC come i nomi salvati: sotto la soglia
+              di paginazione la ricerca la fa il browser, e senza questa riga il
+              difetto di «Niccolo con l'accento» resterebbe aperto proprio sui
+              club piccoli — quelli che non passano mai dalla ricerca del
+              server. Vedi `buildSearchFilter` in `src/lib/server/resources.ts`.
+            */
+            match: (athlete: Athlete, searchQuery: string) => {
+              const normalizedQuery = searchQuery.normalize("NFC").toLowerCase();
+              return (
+                athlete.name.toLowerCase().includes(normalizedQuery) ||
+                athlete.categoryLabel.toLowerCase().includes(normalizedQuery) ||
+                athlete.allCategoryLabels.some((label) =>
+                  label.toLowerCase().includes(normalizedQuery),
+                )
+              );
+            },
+          },
+    [paginated],
+  );
+
+  const groupBy = useMemo<GroupDef<Athlete>>(
+    () => ({
+      id: "gruppo",
+      label: "Categoria",
+      keyOf: (athlete) => athlete.groupId || UNCATEGORIZED_CATEGORY_ID,
+      render: (key) => {
+        const group = athleteGroups.get(key);
+        const canReport =
+          Boolean(group?.categoryId) && key !== UNCATEGORIZED_CATEGORY_ID;
         return {
-          ...group,
-          label:
-            needsSite && (group.siteName || group.siteId)
-              ? buildCategoryGroupLabel(group.categoryName, group.siteName)
-              : needsSite
-                ? buildCategoryGroupLabel(
-                    group.categoryName,
-                    UNASSIGNED_SITE_LABEL,
-                  )
-                : group.categoryName,
-        };
-      })
-      .sort((left, right) =>
-        compareCategoryGroups(
-          {
-            categoryName: left.categoryName,
-            siteName: left.siteName,
-            siteId: left.siteId,
-          },
-          {
-            categoryName: right.categoryName,
-            siteName: right.siteName,
-            siteId: right.siteId,
-          },
-        ),
-      );
-  }, [filteredAthletes]);
-
-  // Render athlete table for a category
-  const renderAthleteTable = (categoryAthletes: Athlete[]) => {
-    const categoryAthleteIds = categoryAthletes.map((athlete) => athlete.id);
-    const allCategorySelected =
-      categoryAthleteIds.length > 0 &&
-      categoryAthleteIds.every((athleteId) => selectedAthleteIds.has(athleteId));
-    const someCategorySelected =
-      !allCategorySelected &&
-      categoryAthleteIds.some((athleteId) => selectedAthleteIds.has(athleteId));
-
-    return (
-      <div className="overflow-x-auto">
-      <table className="w-full">
-        <thead>
-          <tr className="border-b">
-            <th className="w-12 py-3 px-4">
-              <Checkbox
-                checked={
-                  allCategorySelected
-                    ? true
-                    : someCategorySelected
-                      ? "indeterminate"
-                      : false
-                }
-                onCheckedChange={(checked) =>
-                  toggleManyAthletesSelection(categoryAthleteIds, Boolean(checked))
-                }
-                aria-label="Seleziona atleti della categoria"
-              />
-            </th>
-            <th className="text-left py-3 px-4 font-medium">Atleta</th>
-            {visibleColumns.category && (
-              <th className="text-left py-3 px-4 font-medium">Categoria</th>
-            )}
-            {visibleColumns.age && (
-              <th className="text-left py-3 px-4 font-medium">Età</th>
-            )}
-            {visibleColumns.birthYear && (
-              <th className="text-left py-3 px-4 font-medium">
-                Anno di Nascita
-              </th>
-            )}
-            {visibleColumns.status && (
-              <th className="text-left py-3 px-4 font-medium">Stato</th>
-            )}
-            {visibleColumns.medicalCert && (
-              <th className="text-left py-3 px-4 font-medium">
-                Certificato Medico
-              </th>
-            )}
-            {visibleColumns.registrationComplete && (
-              <th className="text-left py-3 px-4 font-medium">Iscrizione</th>
-            )}
-            {visibleColumns.jerseyNumber && (
-              <th className="text-left py-3 px-4 font-medium">Numero Maglia</th>
-            )}
-            <th className="text-left py-3 px-4 font-medium">Azioni</th>
-          </tr>
-        </thead>
-        <tbody>
-          {categoryAthletes.map((athlete) => (
-            <tr
-              key={athlete.id}
-              className="border-b hover:bg-gray-50 dark:hover:bg-gray-800"
+          label: group?.label ?? "Senza categoria",
+          dot: categoryDotColor(group?.color),
+          action: canReport ? (
+            <Button
+              variant="text"
+              size="xs"
+              icon={<BarChart3 />}
+              onClick={() =>
+                router.push(
+                  `/reports?report=categories&categoryId=${encodeURIComponent(group?.categoryId || "")}`,
+                )
+              }
             >
-              <td className="py-3 px-4">
-                <Checkbox
-                  checked={selectedAthleteIds.has(athlete.id)}
-                  onCheckedChange={(checked) =>
-                    toggleAthleteSelection(athlete.id, Boolean(checked))
-                  }
-                  aria-label={`Seleziona ${athlete.name}`}
-                />
-              </td>
-              <td className="py-3 px-4">
-                <div className="flex items-center gap-3">
-                  <Avatar>
-                    {athlete.avatar ? (
-                      <AvatarImage src={athlete.avatar} alt={athlete.name} />
-                    ) : (
-                      <AvatarFallback className="bg-transparent p-0">
-                        <EntityIcon
-                          type="athlete"
-                          label={athlete.name}
-                          className="h-full w-full border-0"
-                        />
-                      </AvatarFallback>
-                    )}
-                  </Avatar>
-                  <button
-                    onClick={() =>
-                      router.push(
-                        `/athletes/${athlete.id}?clubId=${resolveCurrentClubId() || ""}`,
-                      )
-                    }
-                    className="hover:text-blue-600 hover:underline cursor-pointer text-left"
-                  >
-                    <span>{athlete.name}</span>
-                    {athlete.membershipType === "secondary" ? (
-                      <span className="mt-1 block text-xs text-sky-600">
-                        Categoria primaria: {athlete.primaryCategoryLabel || "Non definita"}
-                      </span>
-                    ) : null}
-                  </button>
-                  {athlete.membershipType === "secondary" ? (
-                    <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">
-                      Secondaria
-                    </span>
-                  ) : null}
-                </div>
-              </td>
-              {visibleColumns.category && (
-                <td className="py-3 px-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span>{athlete.categoryLabel}</span>
-                    {athlete.membershipType === "primary" ? (
-                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                        Primaria
-                      </span>
-                    ) : null}
-                  </div>
-                </td>
-              )}
-              {visibleColumns.age && (
-                <td className="py-3 px-4">{athlete.age} anni</td>
-              )}
-              {visibleColumns.birthYear && (
-                <td className="py-3 px-4">
-                  {athlete.birthDate
-                    ? new Date(athlete.birthDate).getFullYear()
-                    : "-"}
-                </td>
-              )}
-              {visibleColumns.status && (
-                <td className="py-3 px-4">
-                  {/*
-                    **L'ultima copia del difetto W6-04** (PP-01 §D).
+              Report
+            </Button>
+          ) : null,
+        };
+      },
+      order: (left, right) => {
+        const a = athleteGroups.get(left);
+        const b = athleteGroups.get(right);
+        return compareCategoryGroups(
+          {
+            categoryName: a?.categoryName || "",
+            siteName: a?.siteName || "",
+            siteId: a?.siteId || "",
+          },
+          {
+            categoryName: b?.categoryName || "",
+            siteName: b?.siteName || "",
+            siteId: b?.siteId || "",
+          },
+        );
+      },
+    }),
+    [athleteGroups, router],
+  );
 
-                    Qui c'erano tre rami per quattro stati, e due erano
-                    scambiati: `inactive` stampava «In Prestito» e `loan`
-                    cadeva nel ramo finale e stampava «Sospeso». Filtrare per
-                    «In prestito» dava righe etichettate «Sospeso», e filtrare
-                    per «Disattivati» righe etichettate «In Prestito» — cioe
-                    esattamente cio che si legge come «il filtro mostra le
-                    persone sbagliate».
-                  */}
-                  <div className="flex items-center gap-1">
-                    {athlete.status === "active" ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <X
-                        className={`h-4 w-4 ${
-                          STATUS_ICON_TONE[ATHLETE_STATUS_TONE[athlete.status]]
-                        }`}
-                      />
-                    )}
-                    <span>{ATHLETE_STATUS_LABELS[athlete.status]}</span>
-                  </div>
-                </td>
-              )}
-              {visibleColumns.medicalCert && (
-                <td className="py-3 px-4">
-                  {athlete.medicalCertExpiry ? (
-                    <div className="flex items-center gap-2">
-                      <FileHeart
-                        className={`h-4 w-4 ${isCertificateExpired(athlete.medicalCertExpiry) ? "text-red-500" : "text-green-500"}`}
-                      />
-                      <span
-                        className={
-                          isCertificateExpired(athlete.medicalCertExpiry)
-                            ? "text-red-500"
-                            : ""
-                        }
-                      >
-                        {formatDate(athlete.medicalCertExpiry)}
-                      </span>
-                    </div>
-                  ) : (
-                    <span>-</span>
-                  )}
-                </td>
-              )}
-              {visibleColumns.registrationComplete && (
-                <td className="py-3 px-4">
-                  {athlete.registrationComplete ? (
-                    <CheckCircle2 className="h-5 w-5 text-green-500" />
-                  ) : (
-                    <X className="h-5 w-5 text-red-500" />
-                  )}
-                </td>
-              )}
-              {visibleColumns.jerseyNumber && (
-                <td className="py-3 px-4">{athlete.jerseyNumber || "-"}</td>
-              )}
-              <td className="py-3 px-4">
-                <div className="relative">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Azioni per ${athlete.name}`}
-                      >
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={() =>
-                          router.push(
-                            `/athletes/${athlete.id}?clubId=${resolveCurrentClubId() || ""}`,
-                          )
-                        }
-                      >
-                        Visualizza Profilo
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      {athlete.status === "active" ? (
-                        <>
-                          <DropdownMenuItem
-                            onClick={() =>
-                              updateAthleteStatus(athlete.id, "suspended")
-                            }
-                          >
-                            <UserX className="h-4 w-4 mr-2 text-amber-500" />
-                            Sospendi
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() =>
-                              updateAthleteStatus(athlete.id, "inactive")
-                            }
-                          >
-                            <UserMinus className="h-4 w-4 mr-2 text-gray-500" />
-                            Disattiva
-                          </DropdownMenuItem>
-                        </>
-                      ) : (
-                        <DropdownMenuItem
-                          onClick={() =>
-                            updateAthleteStatus(athlete.id, "active")
-                          }
-                        >
-                          <UserCheck className="h-4 w-4 mr-2 text-green-500" />
-                          Attiva
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        className="text-red-600"
-                        onClick={() => deleteAthlete(athlete.id, athlete.name)}
-                      >
-                        Elimina
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-    );
-  };
+  /*
+    Le azioni di riga e di massa sono chiusure sullo stato corrente e si
+    ricostruiscono a ogni render: la griglia le usa solo per disegnare, non
+    le mette in nessun `useMemo`. Memoizzarle qui vorrebbe dire far girare
+    un'azione su un elenco che non e piu quello a schermo.
+  */
+  const rowActions: RowActionDef<Athlete>[] = [
+      {
+        id: "apri",
+        label: "Apri scheda",
+        primary: true,
+        icon: <ArrowUpRight />,
+        onClick: (athlete) =>
+          router.push(buildAthleteProfileHref(athlete.id, resolvedClubId)),
+      },
+      {
+        id: "sospendi",
+        label: "Sospendi",
+        icon: <UserX />,
+        hidden: (athlete) => athlete.status !== "active",
+        onClick: (athlete) => void updateAthleteStatus(athlete.id, "suspended"),
+      },
+      {
+        id: "disattiva",
+        label: "Disattiva",
+        icon: <UserMinus />,
+        hidden: (athlete) => athlete.status !== "active",
+        onClick: (athlete) => void updateAthleteStatus(athlete.id, "inactive"),
+      },
+      {
+        id: "attiva",
+        label: "Attiva",
+        icon: <UserCheck />,
+        hidden: (athlete) => athlete.status === "active",
+        onClick: (athlete) => void updateAthleteStatus(athlete.id, "active"),
+      },
+      {
+        id: "elimina",
+        label: "Elimina",
+        tone: "danger",
+        icon: <Trash2 />,
+        onClick: (athlete) => deleteAthlete(athlete.id, athlete.name),
+      },
+  ];
+
+  const bulkActions: BulkActionDef<Athlete>[] = [
+      {
+        id: "attiva",
+        label: "Attiva",
+        icon: <UserCheck />,
+        onRun: (righe) =>
+          apriAzioneMassiva({ scope: bulkScopeOf(righe), action: "activate" }, righe),
+      },
+      {
+        id: "sospendi",
+        label: "Sospendi",
+        icon: <UserX />,
+        onRun: (righe) =>
+          apriAzioneMassiva({ scope: bulkScopeOf(righe), action: "suspend" }, righe),
+      },
+      {
+        id: "disattiva",
+        label: "Disattiva",
+        icon: <UserMinus />,
+        onRun: (righe) =>
+          apriAzioneMassiva({ scope: bulkScopeOf(righe), action: "deactivate" }, righe),
+      },
+      {
+        id: "categoria",
+        label: "Cambia categoria",
+        icon: <CheckSquare />,
+        /* Senza categorie non c'e dove spostare: l'azione e assente, non spenta. */
+        hidden: !categories.length,
+        onRun: (righe) => {
+          setBulkCategoryRows(righe);
+          setShowBulkCategoryDialog(true);
+        },
+      },
+      {
+        id: "elimina",
+        label: "Elimina",
+        tone: "danger",
+        icon: <Trash2 />,
+        onRun: (righe) =>
+          apriAzioneMassiva({ scope: bulkScopeOf(righe), action: "delete" }, righe),
+      },
+  ];
+
+  const bulkTargetCount = getBulkActionTargetIds().length;
+  const archiveEmpty =
+    !loading && !loadError && archiveTotal !== null && archiveTotal === 0 && athletes.length === 0;
+
+  /*
+    La banda d'archivio: compare solo sopra la soglia, dentro il pannello,
+    sopra le bande della griglia. Porta lo stato e la ricerca che il server
+    applica, e lo dice.
+  */
+  const archiveBand =
+    paginated && listMeta ? (
+      <div className="flex flex-col gap-3 border-b border-egw-hairline bg-egw-tint-blue px-4 py-3 lg:flex-row lg:items-center lg:gap-4">
+        <div className="min-w-0 flex-1">
+          <Eyebrow tone="blue">Archivio grande</Eyebrow>
+          <p className="mt-1 text-[12px] leading-[1.45] text-egw-ink-72">
+            {formatInteger(archiveTotal)} atleti in archivio: stato e ricerca passano dal
+            server, {ATHLETE_PAGE_SIZE} righe per volta. Con «seleziona tutti» le azioni
+            valgono per l&apos;intero archivio filtrato.
+          </p>
+        </div>
+        <div
+          role="group"
+          aria-label="Filtra per stato"
+          className="egw-scroll flex shrink-0 items-center overflow-x-auto"
+        >
+          <SegmentedControl<AthleteStatusFilter>
+            aria-label="Stato"
+            size="sm"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={[
+              ...ATHLETE_STATUSES.map((stato) => ({
+                value: stato,
+                label: ATHLETE_STATUS_PLURAL_LABELS[stato],
+              })),
+              { value: "all", label: "Tutti" },
+            ]}
+          />
+        </div>
+        <div className="flex h-8 min-w-[200px] items-center gap-2 rounded-egw-control border border-[rgba(11,26,58,.12)] bg-white px-2.5 focus-within:border-egw-blue focus-within:shadow-egw-focus lg:w-[260px]">
+          <Search className="h-3.5 w-3.5 shrink-0 text-egw-ink-42" />
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Cerca per nome o cognome"
+            aria-label="Cerca atleti"
+            className="min-w-0 flex-1 bg-transparent text-[12px] font-medium text-egw-ink outline-none placeholder:font-normal placeholder:text-egw-ink-42"
+          />
+        </div>
+      </div>
+    ) : null;
+
+  const newAthleteHref = buildNewAthleteHref(resolvedClubId || requestedClubId || activeClub?.id);
 
   return (
-    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header title="Atleti" />
         <main className={dashboardMainClassName}>
           <DashboardPageContainer>
-            <SharedPageHeader
+            <PageHeader
+              eyebrow="Persone"
               title="Atleti"
-              subtitle="Gestisci gli atleti tesserati del tuo club."
-            />
-            {/*
-              Una riga sola: cerca, filtra, aggiungi. Le quattro azioni
-              secondarie — colonne, report, export, import — stavano in fila
-              come la principale e su telefono riempivano due schermate.
-              Ora vivono in un menu e la barra ha una sola azione evidente.
-
-              `lg:flex-wrap` non e cosmesi: da quando il filtro Gruppo si e
-              aggiunto a quello Sede, a 1280 px i cinque blocchi chiedono piu
-              spazio di quanto la riga ne abbia, e senza andare a capo il
-              gruppo delle azioni veniva compresso sotto la sua larghezza —
-              con «Nuovo atleta» tagliato da `overflow-x-hidden` del main.
-            */}
-            <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center">
-              <div className="relative w-full lg:max-w-xs">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input
-                  placeholder="Cerca per nome o cognome"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
-                  aria-label="Cerca atleti"
-                />
-              </div>
-
-              <div className="eg-scroll-x -mx-1 px-1 lg:mx-0 lg:px-0">
-                <div
-                  role="group"
-                  aria-label="Filtra per stato"
-                  className="inline-flex gap-1 rounded-lg border border-slate-200 bg-white p-1"
-                >
-                  <Button
-                    variant={statusFilter === "active" ? "default" : "ghost"}
-                    size="sm"
-                    aria-pressed={statusFilter === "active"}
-                    onClick={() => setStatusFilter("active")}
-                    className="h-8 shrink-0 px-2.5 text-xs"
-                  >
-                    <Eye className="mr-1 h-3.5 w-3.5" />
-                    Attivi
-                  </Button>
-                  <Button
-                    variant={statusFilter === "suspended" ? "default" : "ghost"}
-                    size="sm"
-                    aria-pressed={statusFilter === "suspended"}
-                    onClick={() => setStatusFilter("suspended")}
-                    className="h-8 shrink-0 px-2.5 text-xs"
-                  >
-                    <UserX className="mr-1 h-3.5 w-3.5" />
-                    Sospesi
-                  </Button>
-                  {/*
-                    W6-04. Fino alla Wave 6 questo pulsante e quello sopra
-                    chiedevano lo **stesso** valore: `inactive` era «In
-                    Prestito» sulla riga e «Disattivati» qui. Il prestito ora
-                    e uno stato suo, e i due filtri mostrano due insiemi
-                    diversi.
-                  */}
-                  <Button
-                    variant={statusFilter === "loan" ? "default" : "ghost"}
-                    size="sm"
-                    aria-pressed={statusFilter === "loan"}
-                    onClick={() => setStatusFilter("loan")}
-                    className="h-8 shrink-0 px-2.5 text-xs"
-                  >
-                    <UserMinus className="mr-1 h-3.5 w-3.5" />
-                    {ATHLETE_STATUS_PLURAL_LABELS.loan}
-                  </Button>
-                  <Button
-                    variant={statusFilter === "inactive" ? "default" : "ghost"}
-                    size="sm"
-                    aria-pressed={statusFilter === "inactive"}
-                    onClick={() => setStatusFilter("inactive")}
-                    className="h-8 shrink-0 px-2.5 text-xs"
-                  >
-                    <EyeOff className="mr-1 h-3.5 w-3.5" />
-                    {ATHLETE_STATUS_PLURAL_LABELS.inactive}
-                  </Button>
-                  <Button
-                    variant={statusFilter === "all" ? "default" : "ghost"}
-                    size="sm"
-                    aria-pressed={statusFilter === "all"}
-                    onClick={() => setStatusFilter("all")}
-                    className="h-8 shrink-0 px-2.5 text-xs"
-                  >
-                    Tutti
-                  </Button>
-                </div>
-              </div>
-
-              <SiteFilter
-                sites={sites}
-                value={siteFilter}
-                onChange={setSiteFilter}
-                label="Sede"
-                id="athletes-site-filter"
-              />
-
-              {/*
-                Sede → Gruppo, oppure direttamente Gruppo. Con una sede scelta
-                questo elenco mostra solo le sue squadre; senza, le mostra
-                tutte con la sede nell'etichetta (RC Fix 2, punto 13).
-              */}
-              <CategoryGroupFilter
-                groups={groupOptions}
-                value={groupFilter}
-                onChange={setGroupFilter}
-                label="Gruppo"
-                id="athletes-group-filter"
-              />
-
-              <div className="flex shrink-0 items-center gap-2 lg:ml-auto">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="h-9">
-                      <MoreVertical className="mr-1.5 h-4 w-4" />
-                      Altre azioni
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuItem
-                      onClick={() => setShowCustomizeColumnsModal(true)}
-                    >
-                      <Settings className="mr-2 h-4 w-4" />
-                      Personalizza colonne
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => router.push("/reports?report=categories")}
-                    >
-                      <BarChart3 className="mr-2 h-4 w-4" />
-                      Report categorie
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => void exportAthletesPdf()}
-                      disabled={!filteredAthletes.length && !selectedAthleteIds.size}
-                    >
-                      <Download className="mr-2 h-4 w-4" />
-                      Esporta PDF
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => void exportAthletesCsv()}
-                      disabled={!filteredAthletes.length && !selectedAthleteIds.size}
-                    >
-                      <FileSpreadsheet className="mr-2 h-4 w-4" />
-                      Esporta CSV
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => setShowImportAthletesModal(true)}
-                    >
-                      <Upload className="mr-2 h-4 w-4" />
-                      Importa atleti
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-
-                <Button
-                  size="sm"
-                  className="h-9 flex-1 lg:flex-none"
-                  onClick={() => router.push(buildNewAthleteHref(resolveCurrentClubId()))}
-                >
-                  <Plus className="mr-1.5 h-4 w-4" />
-                  Nuovo atleta
-                </Button>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
-              {/*
-                Sopra la soglia di paginazione i tre conteggi si ricavavano da
-                `athletes`, che e **la pagina caricata**: su un club da 212
-                atleti tutti attivi la riga diceva «Atleti Attivi: 200», due
-                centimetri sopra la riga che diceva «212 atleti nell'archivio».
-                Quando il server sta paginando, il numero vero e quello che il
-                server ha contato — ed e gia filtrato per lo stato scelto,
-                quindi ne basta uno.
-              */}
-              <h2 className="text-xl font-semibold">
-                {paginated && listMeta ? (
+              description="Gestisci gli atleti tesserati del tuo club."
+              stats={
+                activeClub && !archiveEmpty ? (
+                  paginated && listMeta ? (
+                    <>
+                      <HeaderStat value={formatInteger(archiveTotal)} label="tesserati" />
+                      {/*
+                        Sopra la soglia di paginazione i conteggi si ricavavano
+                        da `athletes`, che e **la pagina caricata**: su un club
+                        da 212 atleti tutti attivi la riga diceva «Atleti
+                        Attivi: 200». Quando il server sta paginando, il numero
+                        vero e quello che il server ha contato — ed e gia
+                        filtrato per lo stato scelto, quindi ne basta uno.
+                      */}
+                      <HeaderStat
+                        value={formatInteger(listMeta.total)}
+                        label={STATUS_FILTER_HEADINGS[statusFilter]}
+                        tone={statusFilter === "all" ? "ink" : STATUS_STAT_TONE[statusFilter]}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <HeaderStat value={formatInteger(totaleAtletiDistinti)} label="tesserati" />
+                      {ATHLETE_STATUSES.map((stato) => (
+                        <HeaderStat
+                          key={stato}
+                          value={formatInteger(conteggiPerStato[stato])}
+                          label={ATHLETE_STATUS_PLURAL_LABELS[stato]}
+                          tone={STATUS_STAT_TONE[stato]}
+                        />
+                      ))}
+                    </>
+                  )
+                ) : null
+              }
+              context={
+                activeClub ? (
                   <>
-                    {STATUS_FILTER_HEADINGS[statusFilter]}: {listMeta.total}
-                  </>
-                ) : (
-                  <>
+                    <SiteContextControl
+                      sites={sites}
+                      value={siteFilter}
+                      onChange={setSiteFilter}
+                      id="athletes-site-filter"
+                    />
                     {/*
-                      Persone, non tessere: `athletes` porta una riga per
-                      appartenenza, e chi si allena con due gruppi si contava
-                      due volte in questa intestazione mentre nel ramo paginato
-                      lo stesso numero lo conta il database sulle persone.
+                      Sede → Gruppo, oppure direttamente Gruppo. Con una sede
+                      scelta questo elenco mostra solo le sue squadre; senza, le
+                      mostra tutte con la sede nell'etichetta (RC Fix 2, punto 13).
                     */}
-                    {ATHLETE_STATUSES.map((stato, indice) => (
-                      <React.Fragment key={stato}>
-                        {indice > 0 ? " | " : null}
-                        {ATHLETE_STATUS_HEADINGS[stato]}:{" "}
-                        {
-                          new Set(
-                            athletes
-                              .filter((a) => a.status === stato)
-                              .map((a) => a.id),
-                          ).size
-                        }
-                      </React.Fragment>
-                    ))}
+                    <GroupContextControl
+                      groups={groupOptions}
+                      value={groupFilter}
+                      onChange={setGroupFilter}
+                      id="athletes-group-filter"
+                    />
                   </>
-                )}
-              </h2>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-fit"
-                    disabled={!athletes.length}
-                  >
-                    <MoreVertical className="mr-1.5 h-3.5 w-3.5" />
-                    Azioni su tutti
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onClick={() =>
-                      apriAzioneMassiva({
-                        scope: "all",
-                        action: "activate",
-                      })
-                    }
-                  >
-                    <UserCheck className="mr-2 h-4 w-4 text-green-500" />
-                    Rendi tutti attivi
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() =>
-                      apriAzioneMassiva({
-                        scope: "all",
-                        action: "deactivate",
-                      })
-                    }
-                  >
-                    <UserMinus className="mr-2 h-4 w-4 text-gray-500" />
-                    Rendi tutti inattivi
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() =>
-                      apriAzioneMassiva({
-                        scope: "all",
-                        action: "suspend",
-                      })
-                    }
-                  >
-                    <UserX className="mr-2 h-4 w-4 text-amber-500" />
-                    Sospendi tutti
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-red-600"
-                    onClick={() =>
-                      apriAzioneMassiva({
-                        scope: "all",
-                        action: "delete",
-                      })
-                    }
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Elimina tutti
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            {selectedAthletesCount >= 2 ? (
-              <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                  <ListChecks className="h-4 w-4 text-slate-500" />
-                  <span>{selectedAthletesCount} atleti selezionati</span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8"
-                    onClick={() =>
-                      apriAzioneMassiva({
-                        scope: "selected",
-                        action: "activate",
-                      })
-                    }
-                  >
-                    <UserCheck className="mr-1.5 h-3.5 w-3.5 text-green-600" />
-                    Attiva
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8"
-                    onClick={() =>
-                      apriAzioneMassiva({
-                        scope: "selected",
-                        action: "deactivate",
-                      })
-                    }
-                  >
-                    <UserMinus className="mr-1.5 h-3.5 w-3.5 text-slate-500" />
-                    Inattiva
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8"
-                    onClick={() =>
-                      apriAzioneMassiva({
-                        scope: "selected",
-                        action: "suspend",
-                      })
-                    }
-                  >
-                    <UserX className="mr-1.5 h-3.5 w-3.5 text-amber-600" />
-                    Sospendi
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8"
-                    disabled={!categories.length}
-                    onClick={() => {
-                      setBulkCategoryTargetId("");
-                      setShowBulkCategoryDialog(true);
-                    }}
-                  >
-                    <CheckSquare className="mr-1.5 h-3.5 w-3.5 text-blue-600" />
-                    Cambia categoria
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-red-600 hover:text-red-700"
-                    onClick={() =>
-                      apriAzioneMassiva({
-                        scope: "selected",
-                        action: "delete",
-                      })
-                    }
-                  >
-                    <Trash2 className="mr-1.5 h-3.5 w-3.5" />
-                    Elimina
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-8"
-                    onClick={clearAthleteSelection}
-                  >
-                    <X className="mr-1.5 h-3.5 w-3.5" />
-                    Cancella selezione
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            <Card className="hidden">
-              <CardContent className="p-0">
-                <div className="grid gap-0 lg:grid-cols-[320px_minmax(0,1fr)]">
-                  <div className="border-b border-blue-100 bg-gradient-to-br from-blue-600 to-indigo-600 p-5 text-white lg:border-b-0 lg:border-r">
-                    <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.18em] text-blue-100">
-                      <ListChecks className="h-4 w-4" />
-                      Modifiche in blocco
-                    </div>
-                    <h3 className="mt-3 text-2xl font-semibold">
-                      Azioni selezione
-                    </h3>
-                    <p className="mt-2 text-sm leading-6 text-blue-50/90">
-                      Seleziona gli atleti dalla griglia e applica operazioni massive in modo chiaro e controllato.
-                    </p>
-                    <div className="mt-5 grid grid-cols-3 gap-3">
-                      <div className="rounded-2xl bg-white/12 p-3 backdrop-blur-sm">
-                        <p className="text-[11px] uppercase tracking-[0.16em] text-blue-100">
-                          Selezionati
-                        </p>
-                        <p className="mt-1 text-2xl font-semibold">
-                          {selectedAthletesCount}
-                        </p>
-                      </div>
-                      <div className="rounded-2xl bg-white/12 p-3 backdrop-blur-sm">
-                        <p className="text-[11px] uppercase tracking-[0.16em] text-blue-100">
-                          Visibili
-                        </p>
-                        <p className="mt-1 text-2xl font-semibold">
-                          {filteredAthletes.length}
-                        </p>
-                      </div>
-                      <div className="rounded-2xl bg-white/12 p-3 backdrop-blur-sm">
-                        <p className="text-[11px] uppercase tracking-[0.16em] text-blue-100">
-                          Totali
-                        </p>
-                        <p className="mt-1 text-2xl font-semibold">
-                          {/*
-                            Con l'archivio paginato «totali» e il conteggio
-                            del database, non delle righe caricate: mostrare
-                            duecento accanto a un elenco di duemila atleti
-                            sarebbe il numero sbagliato nel posto in cui si
-                            guarda per primo.
-                          */}
-                          {paginated && listMeta
-                            ? listMeta.total
-                            : totaleAtletiDistinti}
-                        </p>
-                      </div>
-                    </div>
+                ) : null
+              }
+              actions={
+                activeClub ? (
+                  <>
+                    <Menu>
+                      <MenuTrigger asChild>
+                        <IconButton aria-label="Altre azioni" variant="secondary" size="md">
+                          <MoreHorizontal />
+                        </IconButton>
+                      </MenuTrigger>
+                      <MenuContent align="end" width={220}>
+                        <MenuItem onSelect={() => router.push("/reports?report=categories")}>
+                          <BarChart3 />
+                          Report categorie
+                        </MenuItem>
+                        <MenuItem onSelect={() => setShowImportAthletesModal(true)}>
+                          <Upload />
+                          Importa atleti
+                        </MenuItem>
+                      </MenuContent>
+                    </Menu>
                     <Button
-                      variant="secondary"
-                      className="mt-5 w-full bg-white text-blue-700 hover:bg-blue-50"
-                      onClick={clearAthleteSelection}
-                      disabled={!selectedAthletesCount}
+                      variant="primary"
+                      trailingIcon={<ArrowRight />}
+                      onClick={() => router.push(newAthleteHref)}
                     >
-                      Cancella selezione
+                      Nuovo atleta
                     </Button>
-                  </div>
+                  </>
+                ) : null
+              }
+            />
 
-                  <div className="space-y-5 p-5">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-900">
-                        Azioni sui selezionati
-                      </p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        Le operazioni vengono applicate solo agli atleti marcati nella tabella.
-                      </p>
-                    </div>
-
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      <Button
-                        variant="outline"
-                        className="justify-start rounded-2xl border-green-200 bg-green-50/60 py-6 text-left text-green-800 hover:bg-green-100"
-                        disabled={!selectedAthletesCount}
-                        onClick={() =>
-                          apriAzioneMassiva({
-                            scope: "selected",
-                            action: "activate",
-                          })
-                        }
-                      >
-                        <UserCheck className="mr-2 h-4 w-4 text-green-600" />
-                        Attiva selezionati
-                      </Button>
-
-                      <Button
-                        variant="outline"
-                        className="justify-start rounded-2xl border-slate-200 bg-slate-50 py-6 text-left text-slate-700 hover:bg-slate-100"
-                        disabled={!selectedAthletesCount}
-                        onClick={() =>
-                          apriAzioneMassiva({
-                            scope: "selected",
-                            action: "deactivate",
-                          })
-                        }
-                      >
-                        <UserMinus className="mr-2 h-4 w-4 text-slate-500" />
-                        Inattiva selezionati
-                      </Button>
-
-                      <Button
-                        variant="outline"
-                        className="justify-start rounded-2xl border-amber-200 bg-amber-50 py-6 text-left text-amber-800 hover:bg-amber-100"
-                        disabled={!selectedAthletesCount}
-                        onClick={() =>
-                          apriAzioneMassiva({
-                            scope: "selected",
-                            action: "suspend",
-                          })
-                        }
-                      >
-                        <UserX className="mr-2 h-4 w-4 text-amber-600" />
-                        Sospendi selezionati
-                      </Button>
-
-                      <Button
-                        variant="outline"
-                        className="justify-start rounded-2xl border-blue-200 bg-blue-50 py-6 text-left text-blue-800 hover:bg-blue-100"
-                        disabled={!selectedAthletesCount || !categories.length}
-                        onClick={() => {
-                          setBulkCategoryTargetId("");
-                          setShowBulkCategoryDialog(true);
-                        }}
-                      >
-                        <CheckSquare className="mr-2 h-4 w-4 text-blue-600" />
-                        Cambia categoria
-                      </Button>
-
-                      <Button
-                        variant="outline"
-                        className="justify-start rounded-2xl border-red-200 bg-red-50 py-6 text-left text-red-700 hover:bg-red-100"
-                        disabled={!selectedAthletesCount}
-                        onClick={() =>
-                          apriAzioneMassiva({
-                            scope: "selected",
-                            action: "delete",
-                          })
-                        }
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Elimina selezionati
-                      </Button>
-                    </div>
-
-                    <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">
-                          Operazioni globali
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          Gestisci l’intera anagrafica del club con conferma prima dell’esecuzione.
-                        </p>
-                      </div>
-
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            className="bg-blue-600 hover:bg-blue-700"
-                            disabled={!athletes.length}
-                          >
-                            Azioni su tutti ({totaleAtletiDistinti})
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() =>
-                              apriAzioneMassiva({
-                                scope: "all",
-                                action: "activate",
-                              })
-                            }
-                          >
-                            <UserCheck className="mr-2 h-4 w-4 text-green-500" />
-                            Rendi tutti attivi
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() =>
-                              apriAzioneMassiva({
-                                scope: "all",
-                                action: "deactivate",
-                              })
-                            }
-                          >
-                            <UserMinus className="mr-2 h-4 w-4 text-gray-500" />
-                            Rendi tutti inattivi
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() =>
-                              apriAzioneMassiva({
-                                scope: "all",
-                                action: "suspend",
-                              })
-                            }
-                          >
-                            <UserX className="mr-2 h-4 w-4 text-amber-500" />
-                            Sospendi tutti
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-red-600"
-                            onClick={() =>
-                              apriAzioneMassiva({
-                                scope: "all",
-                                action: "delete",
-                              })
-                            }
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Elimina tutti
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {loading ? (
-              <div className="py-8">
-                <AppLoadingScreen
-                  compact
-                  title="EasyGame"
-                  subtitle="Caricamento lista atleti..."
-                  className="mx-auto max-w-md"
-                />
-              </div>
-            ) : !activeClub ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
-                  <UserCheck className="h-8 w-8 text-red-400" />
-                </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  Club non selezionato
-                </h3>
-                <p className="text-gray-500 mb-4">
-                  Seleziona un club per visualizzare e gestire gli atleti
-                </p>
-                <Button
-                  className="bg-blue-600 hover:bg-blue-700"
-                  onClick={() => (window.location.href = "/dashboard")}
-                >
-                  Vai alla Dashboard
-                </Button>
-              </div>
-            ) : filteredAthletes.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                  <UserCheck className="h-8 w-8 text-gray-400" />
-                </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  {statusFilter === "all"
-                    ? "Nessun atleta presente"
-                    : ATHLETE_STATUS_HEADINGS[statusFilter] +
-                      ": nessuno in elenco"}
-                </h3>
-                <p className="text-gray-500 mb-4">
-                  {statusFilter === "all"
-                    ? "Inizia aggiungendo il primo atleta al tuo club"
-                    : "Prova a cambiare il filtro per vedere altri atleti"}
-                </p>
-                {statusFilter === "all" && (
-                  <Button
-                    className="bg-blue-600 hover:bg-blue-700"
-                    onClick={() => router.push(buildNewAthleteHref(resolveCurrentClubId()))}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Aggiungi Primo Atleta
+            {!activeClub && !loading ? (
+              <EmptyStateCard
+                icon={<Users />}
+                iconTone="red"
+                title="Club non selezionato"
+                description="Seleziona un club per visualizzare e gestire gli atleti"
+                primary={
+                  <Button variant="neutral" onClick={() => router.push("/dashboard")}>
+                    Vai alla Dashboard
                   </Button>
-                )}
-              </div>
+                }
+              />
+            ) : archiveEmpty ? (
+              /*
+                Il modulo vuoto (pattern 8): un pannello solo, con la prima
+                azione. Niente griglia con le intestazioni sopra il nulla.
+              */
+              <EmptyStateCard
+                icon={<Users />}
+                title="Nessun atleta in archivio"
+                description="Inizia aggiungendo il primo atleta al tuo club, oppure importa un elenco da un file."
+                primary={
+                  <Button variant="neutral" onClick={() => router.push(newAthleteHref)}>
+                    Aggiungi il primo atleta
+                  </Button>
+                }
+                secondary={
+                  <Button
+                    variant="secondary"
+                    icon={<Upload />}
+                    onClick={() => setShowImportAthletesModal(true)}
+                  >
+                    Importa atleti
+                  </Button>
+                }
+              />
             ) : (
-              // Un gruppo operativo, un elenco: le squadre non si mescolano.
-              <div className="space-y-4">
-                {athleteGroups.map((group: (typeof athleteGroups)[number]) => {
-                  const isCollapsed = collapsedCategories.has(group.id);
-
-                  return (
-                    <Card key={group.id} className="overflow-hidden">
-                      <Collapsible
-                        open={!isCollapsed}
-                        onOpenChange={() => toggleCategoryCollapse(group.id)}
-                      >
-                        <CardHeader className="pb-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <CollapsibleTrigger asChild>
-                              <button
-                                type="button"
-                                className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                              >
-                                <CardTitle className="flex items-center gap-2">
-                                  {isCollapsed ? (
-                                    <ChevronRight className="h-5 w-5 text-gray-500" />
-                                  ) : (
-                                    <ChevronDown className="h-5 w-5 text-gray-500" />
-                                  )}
-                                  <span className="inline-block w-3 h-3 rounded-full bg-blue-500"></span>
-                                  {group.label} ({group.athletes.length})
-                                </CardTitle>
-                              </button>
-                            </CollapsibleTrigger>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="w-full sm:w-auto"
-                              disabled={
-                                !group.categoryId ||
-                                group.id === UNCATEGORIZED_CATEGORY_ID
-                              }
-                              onClick={() =>
-                                router.push(
-                                  `/reports?report=categories&categoryId=${encodeURIComponent(group.categoryId || "")}`,
-                                )
-                              }
-                            >
-                              <BarChart3 className="h-4 w-4 mr-2" />
-                              Report
-                            </Button>
-                          </div>
-                        </CardHeader>
-                        <CollapsibleContent>
-                          <CardContent>
-                            {renderAthleteTable(group.athletes)}
-                          </CardContent>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
-
-            {/*
-              **L'elenco e continuo, e in fondo dice a che punto sta.**
-
-              Qui c'erano «Precedente» e «Successiva». Su questa pagina
-              l'elenco e anche il posto in cui si spuntano le righe per
-              un'azione massiva, e cambiare pagina le portava via dagli occhi:
-              chi ne aveva scelte dodici non sapeva piu se fossero ancora
-              scelte. E su un telefono la paginazione classica e una cosa che
-              si impara, non una che si usa.
-
-              Restano due cose e nessuna e decorativa: il conteggio — quante
-              righe si stanno guardando su quante ce ne sono — e il pulsante,
-              che e la strada da tastiera e quella di chi non vuole aspettare
-              lo scorrimento.
-            */}
-            {paginated && listMeta ? (
-              <div className="mt-4 flex flex-col items-center gap-3 rounded-2xl border p-3">
+              <>
                 {/*
-                  Un pixel di altezza e tutta la larghezza: un nodo **senza
-                  area** non viene mai riferito come visibile, e l'osservatore
-                  resterebbe muto per sempre (misurato: 0×0, nessuno scatto).
+                  La chiave cambia con il ramo: la griglia sopra la soglia ha
+                  viste e filtri diversi (lo stato sta nella banda), e un
+                  rimontaggio e l'unico modo di non lasciarle in mano un filtro
+                  che non esiste piu.
                 */}
-                <div
-                  ref={sentinelloElenco}
-                  aria-hidden="true"
-                  className="h-px w-full"
+                <DataGrid<Athlete>
+                  key={paginated ? "atleti-archivio" : "atleti"}
+                  module="atleti"
+                  aria-label="Elenco atleti"
+                  rows={filteredAthletes}
+                  getRowId={athleteRowKey}
+                  rowLabel={(row) => getAthleteDisplayName(row)}
+                  totalCount={totaleAtletiDistinti}
+                  columns={columns}
+                  filters={filters}
+                  views={paginated ? ATHLETE_CERTIFICATE_VIEWS : ATHLETE_VIEWS}
+                  search={search}
+                  groupBy={groupBy}
+                  defaultGrouped
+                  bulkActions={bulkActions}
+                  rowActions={rowActions}
+                  onOpenRow={(athlete) =>
+                    router.push(buildAthleteProfileHref(athlete.id, resolvedClubId))
+                  }
+                  state={
+                    loadError
+                      ? "error"
+                      : loading || pageLoading
+                        ? "loading"
+                        : "ready"
+                  }
+                  errorMessage={loadError}
+                  onRetry={() => void refreshAthletesData()}
+                  empty={
+                    paginated
+                      ? {
+                          title:
+                            statusFilter === "all"
+                              ? "Nessun atleta corrisponde alla ricerca"
+                              : `${STATUS_FILTER_HEADINGS[statusFilter]}: nessuno in elenco`,
+                          description:
+                            "Prova a cambiare il filtro di stato o la ricerca per vedere altri atleti.",
+                          primary: (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => {
+                                setStatusFilter("all");
+                                setSearchQuery("");
+                              }}
+                            >
+                              Azzera stato e ricerca
+                            </Button>
+                          ),
+                        }
+                      : {
+                          title: "Nessun atleta in elenco",
+                          description:
+                            "Con la sede o il gruppo scelti non c'è nessun atleta: prova a cambiare il contesto.",
+                        }
+                  }
+                  export={{
+                    onExport: handleExport,
+                    kinds: ["csv", "pdf"],
+                    onImport: () => setShowImportAthletesModal(true),
+                  }}
+                  noun={{ singular: "atleta", plural: "atleti" }}
+                  selectedIds={selectedRowIds}
+                  onSelectionChange={setSelectedRowIds}
+                  banner={archiveBand}
+                  serverTotal={paginated ? listMeta?.total : undefined}
+                  defaultPageSize={50}
                 />
-                <p
-                  className="text-sm text-muted-foreground"
-                  data-testid="elenco-atleti-avanzamento"
-                  aria-live="polite"
-                >
-                  {filteredAthletes.length} di {listMeta.total} atleti
-                  {pageLoading ? " · caricamento…" : ""}
-                </p>
-                {listMeta.hasMore ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full sm:w-auto"
-                    data-testid="carica-altri-atleti"
-                    disabled={pageLoading}
-                    onClick={caricaAltriAtleti}
-                  >
-                    {pageLoading ? "Caricamento…" : "Carica altri atleti"}
-                  </Button>
+
+                {/*
+                  **L'elenco e continuo, e in fondo dice a che punto sta.**
+
+                  Sopra la soglia la griglia ha in mano le porzioni gia lette;
+                  qui c'e il sentinello che chiede la successiva quando si
+                  arriva in fondo, il conteggio — quante righe si stanno
+                  guardando su quante ce ne sono — e il pulsante, che e la
+                  strada da tastiera e quella di chi non vuole aspettare lo
+                  scorrimento.
+                */}
+                {paginated && listMeta ? (
+                  <div className="flex flex-col items-center gap-3">
+                    {/*
+                      Un pixel di altezza e tutta la larghezza: un nodo **senza
+                      area** non viene mai riferito come visibile, e
+                      l'osservatore resterebbe muto per sempre (misurato: 0×0,
+                      nessuno scatto).
+                    */}
+                    <div
+                      ref={sentinelloElenco}
+                      aria-hidden="true"
+                      className="h-px w-full"
+                    />
+                    <p
+                      className="egw-num font-brand text-[12px] text-egw-ink-62"
+                      data-testid="elenco-atleti-avanzamento"
+                      aria-live="polite"
+                    >
+                      {filteredAthletes.length} di {listMeta.total} atleti
+                      {pageLoading ? " · caricamento…" : ""}
+                    </p>
+                    {listMeta.hasMore ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        data-testid="carica-altri-atleti"
+                        loading={pageLoading}
+                        onClick={caricaAltriAtleti}
+                      >
+                        {pageLoading ? "Caricamento…" : "Carica altri atleti"}
+                      </Button>
+                    ) : null}
+                  </div>
                 ) : null}
-              </div>
-            ) : null}
+              </>
+            )}
           </DashboardPageContainer>
         </main>
       </div>
@@ -2955,231 +2260,79 @@ export default function AthletesPage() {
         />
       ) : null}
 
-      <Dialog
-        open={showCustomizeColumnsModal}
-        onOpenChange={setShowCustomizeColumnsModal}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Personalizza Colonne</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <p className="text-sm text-muted-foreground">
-              Seleziona le colonne da visualizzare nella tabella degli atleti
-            </p>
-            <div className="space-y-3">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="column-name"
-                  checked={visibleColumns.name}
-                  onCheckedChange={(checked) =>
-                    setVisibleColumns({ ...visibleColumns, name: !!checked })
-                  }
-                  disabled
-                />
-                <Label htmlFor="column-name">Nome Atleta (obbligatorio)</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="column-category"
-                  checked={visibleColumns.category}
-                  onCheckedChange={(checked) =>
-                    setVisibleColumns({
-                      ...visibleColumns,
-                      category: !!checked,
-                    })
-                  }
-                />
-                <Label htmlFor="column-category">Categoria</Label>
-              </div>
-              <div className="hidden">
-                <Checkbox
-                  id="column-age"
-                  checked={visibleColumns.age}
-                  onCheckedChange={(checked) =>
-                    setVisibleColumns({ ...visibleColumns, age: !!checked })
-                  }
-                />
-                <Label htmlFor="column-age">Età</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="column-birthYear"
-                  checked={visibleColumns.birthYear}
-                  onCheckedChange={(checked) =>
-                    setVisibleColumns({
-                      ...visibleColumns,
-                      birthYear: !!checked,
-                    })
-                  }
-                />
-                <Label htmlFor="column-birthYear">Anno di Nascita</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="column-status"
-                  checked={visibleColumns.status}
-                  onCheckedChange={(checked) =>
-                    setVisibleColumns({ ...visibleColumns, status: !!checked })
-                  }
-                />
-                <Label htmlFor="column-status">Stato</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="column-medicalCert"
-                  checked={visibleColumns.medicalCert}
-                  onCheckedChange={(checked) =>
-                    setVisibleColumns({
-                      ...visibleColumns,
-                      medicalCert: !!checked,
-                    })
-                  }
-                />
-                <Label htmlFor="column-medicalCert">Certificato Medico</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="column-registrationComplete"
-                  checked={visibleColumns.registrationComplete}
-                  onCheckedChange={(checked) =>
-                    setVisibleColumns({
-                      ...visibleColumns,
-                      registrationComplete: !!checked,
-                    })
-                  }
-                />
-                <Label htmlFor="column-registrationComplete">
-                  Iscrizione Completata
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="column-jerseyNumber"
-                  checked={visibleColumns.jerseyNumber}
-                  onCheckedChange={(checked) =>
-                    setVisibleColumns({
-                      ...visibleColumns,
-                      jerseyNumber: !!checked,
-                    })
-                  }
-                />
-                <Label htmlFor="column-jerseyNumber">Numero Maglia</Label>
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              onClick={() => setShowCustomizeColumnsModal(false)}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              Salva Preferenze
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
+      <BulkCategoryDrawer
         open={showBulkCategoryDialog}
         onOpenChange={setShowBulkCategoryDialog}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Cambia categoria agli atleti selezionati</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <p className="text-sm text-muted-foreground">
-              Seleziona la categoria di destinazione per gli atleti selezionati.
-            </p>
-            <div className="space-y-2">
-              <Label htmlFor="bulk-category-target">Nuova categoria</Label>
-              <select
-                id="bulk-category-target"
-                value={bulkCategoryTargetId}
-                onChange={(event) => setBulkCategoryTargetId(event.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="">Seleziona una categoria</option>
-                {/*
-                  **L azione piu rischiosa della pagina** (N3): sposta N atleti
-                  in una categoria scelta da una tendina, e su un club con due
-                  «Under 15» le due voci erano identiche.
-                */}
-                {categories.map((category) => (
-                  <option key={`bulk-category-${category.id}`} value={category.id}>
-                    {categoryDisplay.label(category.id)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/*
-              La sede in blocco esiste per un motivo solo: collocare il dato
-              storico. Un club che configura le sedi oggi ha centinaia di
-              atleti senza sede, e assegnarla scheda per scheda vuol dire non
-              assegnarla (ADR-0055).
-            */}
-            {isMultiSiteClub(sites) ? (
-              <div className="space-y-2">
-                <Label htmlFor="bulk-site-target">Sede</Label>
-                <select
-                  id="bulk-site-target"
-                  value={bulkSiteTargetId}
-                  onChange={(event) => setBulkSiteTargetId(event.target.value)}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Lascia la sede attuale</option>
-                  {getActiveClubSites(sites).map((site) => (
-                    <option key={`bulk-site-${site.id}`} value={site.id}>
-                      {site.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowBulkCategoryDialog(false)}
-            >
-              Annulla
-            </Button>
-            <Button
-              className="bg-blue-600 hover:bg-blue-700"
-              disabled={!bulkCategoryTargetId}
-              onClick={() => {
-                apriAzioneMassiva({
-                  scope: "selected",
-                  action: "changeCategory",
-                  targetCategoryId: bulkCategoryTargetId,
-                  targetSiteId: bulkSiteTargetId || null,
-                });
-                setShowBulkCategoryDialog(false);
-              }}
-            >
-              Continua
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <ConfirmDialog
-        isOpen={Boolean(pendingBulkAction)}
-        onClose={() => setPendingBulkAction(null)}
-        onConfirm={runBulkAction}
-        title="Conferma operazione in blocco"
-        description={getBulkActionDescription()}
-        confirmText="Sì, conferma"
-        cancelText="No, annulla"
-        type={pendingBulkAction?.action === "delete" ? "warning" : "question"}
+        categories={categories}
+        categoryLabel={(categoryId) => categoryDisplay.label(categoryId)}
+        sites={sites}
+        selectedCount={new Set(bulkCategoryRows.map((athlete) => athlete.id)).size}
+        onContinue={({ categoryId, siteId }) => {
+          setShowBulkCategoryDialog(false);
+          void apriAzioneMassiva(
+            {
+              scope: bulkScopeOf(bulkCategoryRows),
+              action: "changeCategory",
+              targetCategoryId: categoryId,
+              targetSiteId: siteId,
+            },
+            bulkCategoryRows,
+          );
+        }}
       />
 
+      {/*
+        Conferma proporzionata (guideline 10 §10.5, regola 9): un cambio di
+        stato o di categoria e notevole e reversibile → `ConfirmDialog`;
+        un'eliminazione in blocco e distruttiva e ampia → `DangerConfirmDialog`,
+        con la conferma scritta sopra i venti record.
+      */}
       <ConfirmDialog
-        isOpen={Boolean(pendingAthleteDeletion)}
-        onClose={() => setPendingAthleteDeletion(null)}
+        open={Boolean(pendingBulkAction) && pendingBulkAction?.action !== "delete"}
+        onOpenChange={(open) => {
+          if (!open && !bulkRunning) setPendingBulkAction(null);
+        }}
+        onConfirm={runBulkAction}
+        loading={bulkRunning}
+        title="Conferma operazione in blocco"
+        description={getBulkActionDescription()}
+        confirmLabel="Sì, conferma"
+        cancelLabel="No, annulla"
+      />
+
+      <DangerConfirmDialog
+        open={pendingBulkAction?.action === "delete"}
+        onOpenChange={(open) => {
+          if (!open && !bulkRunning) setPendingBulkAction(null);
+        }}
+        onConfirm={runBulkAction}
+        loading={bulkRunning}
+        title={
+          bulkTargetCount === 1
+            ? "Eliminare questo atleta?"
+            : `Eliminare ${formatInteger(bulkTargetCount)} atleti?`
+        }
+        description={getBulkActionDescription()}
+        consequences={[
+          "La scheda e le appartenenze alle categorie vengono rimosse.",
+          "Le rate e i movimenti già registrati restano in contabilità.",
+          "Chi ha file, consensi, richieste o consegne documentali non viene eliminato: si tratta dalla sezione «Dati personali» della sua scheda.",
+        ]}
+        confirmLabel={
+          bulkTargetCount === 1
+            ? "Elimina atleta"
+            : `Elimina ${formatInteger(bulkTargetCount)} atleti`
+        }
+        typedConfirmation={bulkTargetCount > 20 ? "ELIMINA" : undefined}
+      />
+
+      <DangerConfirmDialog
+        open={Boolean(pendingAthleteDeletion)}
+        onOpenChange={(open) => {
+          if (!open && !deletingAthlete) setPendingAthleteDeletion(null);
+        }}
         onConfirm={() => void confirmAthleteDeletion()}
-        type="error"
+        loading={deletingAthlete}
         title="Eliminare questo atleta?"
         description={
           /*
@@ -3190,15 +2343,14 @@ export default function AthletesPage() {
             ogni atleta reale. Adesso dice cosa succede, e dove sta l'altra
             strada.
           */
-          `Stai per eliminare ${pendingAthleteDeletion?.name ?? "questo atleta"}. ` +
-          "L'operazione non si annulla: la scheda e le appartenenze alle categorie " +
-          "vengono rimosse. Le rate e i movimenti gia registrati restano in " +
-          "contabilita. Se questa persona ha file, consensi, richieste o consegne " +
-          "documentali, l'eliminazione non parte: apri la sua scheda e usa la " +
-          "sezione «Dati personali»."
+          `Stai per eliminare ${pendingAthleteDeletion?.name ?? "questo atleta"}. L'operazione non si annulla.`
         }
-        confirmText="Elimina atleta"
-        cancelText="Annulla"
+        consequences={[
+          "La scheda e le appartenenze alle categorie vengono rimosse.",
+          "Le rate e i movimenti già registrati restano in contabilità.",
+          "Se questa persona ha file, consensi, richieste o consegne documentali, l'eliminazione non parte: apri la sua scheda e usa la sezione «Dati personali».",
+        ]}
+        confirmLabel="Elimina atleta"
       />
     </div>
   );

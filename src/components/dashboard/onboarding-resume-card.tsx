@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { Button } from "@/components/web/primitives/Button";
 import { apiRequest, readStoredActiveClub } from "@/lib/api/client";
 import {
   ONBOARDING_STEPS,
@@ -12,7 +13,6 @@ import {
   resumeOnboardingStep,
   type OnboardingState,
 } from "@/lib/onboarding";
-import { ArrowRight, Compass } from "lucide-react";
 
 /**
  * Ripresa della configurazione iniziale.
@@ -23,6 +23,9 @@ import { ArrowRight, Compass } from "lucide-react";
  *
  * Legge la sola colonna `settings` del club: e una riga in piu nella
  * dashboard, non deve costare come un caricamento (WP-36).
+ *
+ * Dal Web V2 e un blocco di avviso informativo in testa alla coda di lavoro
+ * della Dashboard (guideline 09 §9.6): conteggio, prossimo passo, un verbo.
  */
 export function OnboardingResumeCard() {
   const router = useRouter();
@@ -64,33 +67,24 @@ export function OnboardingResumeCard() {
   const nextStep = ONBOARDING_STEPS.find((step) => step.id === nextStepId);
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-blue-200 bg-blue-50/70 p-4 sm:flex-row sm:items-center">
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-blue-600 text-white">
-        <Compass className="h-5 w-5" aria-hidden />
-      </span>
-
-      <div className="min-w-0 flex-1">
-        <p className="font-medium text-slate-900">
-          {progress.completed === 0
-            ? "Configura il club in cinque passi"
-            : "Riprendi la configurazione iniziale"}
-        </p>
-        <p className="mt-0.5 text-sm text-slate-600">
-          <span className="eg-tabular">
-            {progress.completed}/{progress.total}
-          </span>{" "}
-          completati · prossimo passo: {nextStep?.title || "conclusione"}
-        </p>
-      </div>
-
-      <Button
-        type="button"
-        className="shrink-0"
-        onClick={() => router.push("/onboarding")}
-      >
-        Riprendi
-        <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
-      </Button>
-    </section>
+    <AlertBlock
+      severity="info"
+      role="status"
+      title={
+        progress.completed === 0
+          ? "Configura il club in cinque passi"
+          : "Riprendi la configurazione iniziale"
+      }
+      actions={
+        <Button variant="neutral" size="sm" onClick={() => router.push("/onboarding")}>
+          Riprendi
+        </Button>
+      }
+    >
+      <span className="egw-num">
+        {progress.completed}/{progress.total}
+      </span>{" "}
+      completati · prossimo passo: {nextStep?.title || "conclusione"}
+    </AlertBlock>
   );
 }

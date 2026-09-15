@@ -167,7 +167,11 @@ const read = (file) => readFileSync(path.join(SRC, file), "utf8");
  * reparto torna a esistere solo come stringa su un membro.
  */
 test("ogni schermata che salva un membro persiste il suo reparto", () => {
-  for (const file of ["app/staff/new/page.tsx", "app/staff/[id]/page.tsx"]) {
+  for (const file of [
+    "app/staff/new/page.tsx",
+    "app/staff/[id]/page.tsx",
+    "app/staff/[id]/edit/page.tsx",
+  ]) {
     assert.match(
       read(file),
       /ensureStaffDepartment\(/,
@@ -196,7 +200,9 @@ test("il modello dei reparti e definito in un posto solo", () => {
     "app/staff/page.tsx",
     "app/staff/[id]/page.tsx",
     "app/staff/new/page.tsx",
-    "components/staff/DepartmentManagement.tsx",
+    "app/staff/[id]/edit/page.tsx",
+    "components/staff/v2/departments-drawer.tsx",
+    "components/staff/v2/staff-form.tsx",
   ]) {
     assert.equal(
       /interface Department \{|interface StaffDepartment \{/.test(read(file)),

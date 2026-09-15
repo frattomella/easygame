@@ -1,7 +1,8 @@
 import Sidebar from "@/components/dashboard/Sidebar";
-import Header from "@/components/dashboard/Header";
+import { DashboardChrome } from "@/components/dashboard/v2/DashboardChrome";
 import { dashboardMainClassName } from "@/components/dashboard/dashboard-page-container";
 import { AccessAreaGuard } from "@/components/auth/access-area-guard";
+import { cn } from "@/lib/utils";
 
 export default function DashboardLayout({
   children,
@@ -10,7 +11,7 @@ export default function DashboardLayout({
 }) {
   return (
     <AccessAreaGuard>
-      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
+      <div className="flex h-[100dvh] bg-egw-page">
         {/*
           Una sola chrome, e i figli montati **una volta**.
 
@@ -23,8 +24,21 @@ export default function DashboardLayout({
         */}
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <Header title="Dashboard" />
-          <main className={dashboardMainClassName}>{children}</main>
+          {/*
+            Ambiente 2 (guideline 05 §5.1): la banda del cielo sta **dietro**
+            la topbar e dietro il `main`, in un contenitore relativo. Il main
+            e trasparente perche il fondo lo da il contenitore esterno
+            (`bg-egw-page`, lo stesso mist): sull'indice della Dashboard
+            `DashboardChrome` vi appoggia la banda e mette la topbar sul cielo;
+            su `/dashboard/access-management` non appoggia niente e la pagina
+            resta mist piatto come ogni pagina di lavoro.
+          */}
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <DashboardChrome />
+            <main className={cn(dashboardMainClassName, "bg-transparent")}>
+              {children}
+            </main>
+          </div>
         </div>
       </div>
     </AccessAreaGuard>

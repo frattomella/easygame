@@ -41,7 +41,17 @@ test("gli obbligatori restano nome, cognome e data di nascita", () => {
 test("il resto sta in sezioni, non in una pagina infinita", () => {
   const source = readCode(DIALOG);
 
-  assert.match(source, /<Accordion type="multiple"/);
+  /*
+    Nel Web V2 la fisarmonica e `CollapsedSection` (pattern 6): ogni sezione
+    e un pannello chiuso di default, e piu sezioni possono stare aperte
+    insieme — la stessa forma di `Accordion type="multiple"`.
+  */
+  assert.match(source, /<CollapsedSection/);
+  assert.equal(
+    /<CollapsedSection[^>]*defaultOpen/.test(source),
+    false,
+    "nessuna sezione e aperta di default: chi ha fretta fa i tre campi e salva",
+  );
   for (const section of [
     /*
       Da RC Fix 2 il blocco anagrafico non sta piu in una fisarmonica: i sei
@@ -135,7 +145,7 @@ test("l'iscrizione ha una pagina, come allenatori e soci", () => {
 
   assert.match(page, /<AthleteCreateForm/);
   assert.match(page, /<Sidebar \/>/);
-  assert.match(page, /<SharedPageHeader/);
+  assert.match(page, /<PageHeader/, "l'intestazione di pagina del Web V2");
 
   assert.equal(
     /<Modal/.test(read(DIALOG)),

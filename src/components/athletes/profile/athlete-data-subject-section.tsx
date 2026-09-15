@@ -1,39 +1,17 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { downloadClientFileUrl } from "@/lib/client-files";
-import {
-  AlertTriangle,
-  Download,
-  Eye,
-  FileWarning,
-  Loader2,
-  ShieldAlert,
-  Trash2,
-} from "lucide-react";
+import { AlertTriangle, Download, Eye, Trash2 } from "lucide-react";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { Modal } from "@/components/web/overlays/Modal";
+import { Button } from "@/components/web/primitives/Button";
+import { Checkbox } from "@/components/web/primitives/Controls";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { Eyebrow, InsetBlock } from "@/components/web/primitives/Surface";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { Field, TextInput, Textarea } from "@/components/web/forms/Field";
+import type { StatusSpec } from "@/lib/web/status";
 import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { apiRequest } from "@/lib/api/client";
@@ -127,12 +105,14 @@ const ETICHETTA_CLASSE: Record<Disposal, string> = {
   retain: "Resta intero: obbligo di conservazione",
 };
 
-const VARIANTE_CLASSE: Record<Disposal, "destructive" | "secondary" | "outline"> =
-  {
-    delete: "destructive",
-    anonymize: "secondary",
-    retain: "outline",
-  };
+const STATO_CLASSE: Record<Disposal, StatusSpec> = {
+  delete: { label: ETICHETTA_CLASSE.delete.toUpperCase(), weight: "urgent", hue: "red" },
+  anonymize: { label: ETICHETTA_CLASSE.anonymize.toUpperCase(), weight: "outline", hue: "amber" },
+  retain: { label: ETICHETTA_CLASSE.retain.toUpperCase(), weight: "quiet", hue: "neutral" },
+};
+
+/** La parola da scrivere per confermare (guideline 08 §8.9). */
+const PAROLA_DI_CONFERMA = "ELIMINA";
 
 /**
  * Il messaggio della guardia, riconosciuto.
@@ -166,6 +146,23 @@ export const messaggioDatiPersonali = (
       : "La trovi nella sezione «Dati personali» di questa scheda."
   }`;
 
+/**
+ * **Le stesse due chiavi, chieste una volta sola.**
+ *
+ * La scheda atleta monta la riga «Dati personali» solo a chi puo esportare o
+ * cancellare: senza questo gancio le chiavi finirebbero scritte due volte —
+ * qui e nella pagina — e una riga vuota comparirebbe a chi non ha niente da
+ * farci. La sezione si difende comunque da se (`return null` qui sotto):
+ * nascondere non e proteggere.
+ */
+export function usePuoTrattareDatiPersonali() {
+  const { activeClub } = useAuth();
+  return (
+    roleHasPermission(activeClub?.role, "data_subject.export") ||
+    roleHasPermission(activeClub?.role, "data_subject.erase")
+  );
+}
+
 export function AthleteDataSubjectSection({
   athleteId,
   athleteName,
@@ -188,6 +185,8 @@ export function AthleteDataSubjectSection({
   const [motivo, setMotivo] = useState("");
   const [rapporto, setRapporto] = useState<ErasureReport | null>(null);
   const [clinicoOmesso, setClinicoOmesso] = useState<boolean | null>(null);
+  const [parolaScritta, setParolaScritta] = useState("");
+  const annullaRef = useRef<HTMLButtonElement>(null);
 
   /*
     Le due chiavi che il server chiede davvero (`assertCanDispose`). Nasconderle
@@ -299,6 +298,7 @@ export function AthleteDataSubjectSection({
       setInventario(null);
       setRiconosceMinore(false);
       setMotivo("");
+      setParolaScritta("");
       showToast("success", "Dati personali trattati");
       onErased?.();
     } catch (caught: any) {
@@ -322,294 +322,294 @@ export function AthleteDataSubjectSection({
   const minoreDaRiconoscere = Boolean(inventario?.isMinor);
   const confermaAbilitata =
     Boolean(inventario) && (!minoreDaRiconoscere || riconosceMinore);
+  /*
+    La conferma scritta (guideline 08 §8.9): la cancellazione dei dati
+    personali e irreversibile e larga — tocca file, consensi, richieste e
+    moduli, non una riga sola — e in piu delle tre guardie della V1
+    (inventario, gettone, minore) chiede di scrivere la parola.
+  */
+  const parolaCoincide = parolaScritta === PAROLA_DI_CONFERMA;
 
   return (
-    <Card id="dati-personali" className="border-red-200 dark:border-red-900/60">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <ShieldAlert className="h-4 w-4" />
-          Dati personali
-        </CardTitle>
-        <CardDescription>
-          I dati di una persona non stanno tutti nella sua scheda: vivono anche
-          su file, consensi, richieste e moduli che cancellare l&apos;anagrafica
-          non tocca. Da qui si vede l&apos;elenco completo, lo si porta via, e lo
-          si distrugge — una volta sola e senza tornare indietro.
-        </CardDescription>
-      </CardHeader>
+    <div id="dati-personali" className="flex flex-col gap-4 scroll-mt-24">
+      <p className="font-brand text-[12.5px] leading-[1.55] text-egw-ink-62">
+        I dati di una persona non stanno tutti nella sua scheda: vivono anche
+        su file, consensi, richieste e moduli che cancellare l&apos;anagrafica
+        non tocca. Da qui si vede l&apos;elenco completo, lo si porta via, e lo
+        si distrugge — una volta sola e senza tornare indietro.
+      </p>
 
-      <CardContent className="space-y-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+        <Button
+          variant="secondary"
+          size="sm"
+          className="w-full sm:w-auto"
+          icon={<Eye />}
+          loading={caricamento}
+          onClick={() => void caricaInventario()}
+        >
+          {inventario ? "Aggiorna il riepilogo" : "Mostra cosa contiene"}
+        </Button>
+
+        {puoEsportare ? (
           <Button
-            variant="outline"
+            variant="secondary"
+            size="sm"
             className="w-full sm:w-auto"
-            onClick={() => void caricaInventario()}
-            disabled={caricamento}
+            icon={<Download />}
+            onClick={() => void esporta()}
+            disabled={inCorso}
           >
-            {caricamento ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Eye className="mr-2 h-4 w-4" />
-            )}
-            {inventario ? "Aggiorna il riepilogo" : "Mostra cosa contiene"}
+            Esporta i dati
           </Button>
-
-          {puoEsportare ? (
-            <Button
-              variant="outline"
-              className="w-full sm:w-auto"
-              onClick={() => void esporta()}
-              disabled={inCorso}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              Esporta i dati
-            </Button>
-          ) : null}
-
-          {puoCancellare ? (
-            <Button
-              variant="destructive"
-              className="w-full sm:w-auto"
-              onClick={() => setDialogoAperto(true)}
-              /*
-                Senza inventario il pulsante non si accende: il server
-                rifiuterebbe comunque per mancanza di gettone, e un pulsante
-                che porta a un errore prevedibile e un pulsante che mente.
-              */
-              disabled={!inventario || inCorso}
-              title={
-                inventario
-                  ? undefined
-                  : "Prima mostra cosa contiene il fascicolo"
-              }
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Cancella i dati personali
-            </Button>
-          ) : null}
-        </div>
-
-        {errore ? (
-          <p className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
-            {errore}
-          </p>
         ) : null}
 
-        {clinicoOmesso ? (
-          <p className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-            <FileWarning className="mt-0.5 h-4 w-4 shrink-0" />
-            {/*
-              L'export lo dichiara (`clinicalContentOmitted`) e la schermata non
-              lo tace: chi riceve un export che non dice cosa non contiene lo
-              crede completo.
-            */}
-            Il file scaricato <strong>non contiene il contenuto clinico</strong>
-            {" "}
-            (note, patologie, farmaci): serve il permesso di lettura del dato
-            sanitario.
-          </p>
+        {puoCancellare ? (
+          <Button
+            variant="danger"
+            size="sm"
+            className="w-full sm:w-auto"
+            icon={<Trash2 />}
+            onClick={() => setDialogoAperto(true)}
+            /*
+              Senza inventario il pulsante non si accende: il server
+              rifiuterebbe comunque per mancanza di gettone, e un pulsante
+              che porta a un errore prevedibile e un pulsante che mente.
+            */
+            disabled={!inventario || inCorso}
+            title={
+              inventario
+                ? undefined
+                : "Prima mostra cosa contiene il fascicolo"
+            }
+          >
+            Cancella i dati personali
+          </Button>
         ) : null}
+      </div>
 
-        {inventario ? (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium">
-                {inventario.subjectLabel}
-              </span>
-              {inventario.isMinor ? (
-                <Badge variant="destructive">Minorenne</Badge>
-              ) : null}
-              <Badge variant="outline">
-                {inventario.totals.rows} righe in tutto
-              </Badge>
-            </div>
+      {errore ? <AlertBlock severity="danger" title={errore} /> : null}
 
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <div className="rounded-md border p-3">
-                <p className="text-xs text-muted-foreground">Cancellate</p>
-                <p className="text-lg font-semibold">
-                  {inventario.totals.toDelete}
-                </p>
-              </div>
-              <div className="rounded-md border p-3">
-                <p className="text-xs text-muted-foreground">Anonimizzate</p>
-                <p className="text-lg font-semibold">
-                  {inventario.totals.toAnonymize}
-                </p>
-              </div>
-              <div className="rounded-md border p-3">
-                <p className="text-xs text-muted-foreground">Conservate</p>
-                <p className="text-lg font-semibold">
-                  {inventario.totals.retained}
-                </p>
-              </div>
-            </div>
+      {clinicoOmesso ? (
+        /*
+          L'export lo dichiara (`clinicalContentOmitted`) e la schermata non
+          lo tace: chi riceve un export che non dice cosa non contiene lo
+          crede completo.
+        */
+        <AlertBlock severity="warning" title="Il file scaricato non contiene il contenuto clinico">
+          Note, patologie e farmaci restano fuori: serve il permesso di lettura del dato sanitario.
+        </AlertBlock>
+      ) : null}
 
-            {/*
-              Una lista di schede e non una tabella: a 375 px una tabella a
-              quattro colonne o si taglia o si comprime fino a diventare
-              illeggibile, e questa e la schermata in cui la riga che non si
-              legge e quella che dice cosa non torna indietro.
-            */}
-            <ul className="space-y-2">
-              {inventario.slices
-                .filter((slice) => slice.count > 0)
-                .map((slice) => (
-                  <li
-                    key={slice.table}
-                    className="flex flex-col gap-1 rounded-md border p-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">{slice.label}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {slice.table}
-                        {slice.reason ? ` — ${slice.reason}` : ""}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <span className="text-sm tabular-nums">
-                        {slice.count}
-                      </span>
-                      <Badge variant={VARIANTE_CLASSE[slice.disposal]}>
-                        {ETICHETTA_CLASSE[slice.disposal]}
-                      </Badge>
-                    </div>
-                  </li>
-                ))}
-            </ul>
+      {inventario ? (
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-brand text-[13px] font-semibold text-egw-ink">
+              {inventario.subjectLabel}
+            </span>
+            {inventario.isMinor ? <DataChip tone="red" size="sm">Minorenne</DataChip> : null}
+            <DataChip size="sm">
+              <span className="egw-num">{inventario.totals.rows}</span> righe in tutto
+            </DataChip>
           </div>
-        ) : null}
 
-        {rapporto ? (
-          <div className="space-y-2 rounded-md border p-3">
-            <p className="text-sm font-medium">Cancellazione eseguita</p>
-            <p className="text-xs text-muted-foreground">
-              Cancellate{" "}
-              {Object.values(rapporto.deleted).reduce((a, b) => a + b, 0)} righe,
-              anonimizzate{" "}
-              {Object.values(rapporto.anonymized).reduce((a, b) => a + b, 0)}.
-              {rapporto.retained.length
-                ? ` Restano per obbligo di conservazione: ${rapporto.retained
-                    .map((slice) => `${slice.label} (${slice.count})`)
-                    .join(", ")}.`
-                : ""}
-            </p>
-            {rapporto.manualReview.length ? (
-              <p className="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-200">
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <InsetBlock className="p-3">
+              <Eyebrow>Cancellate</Eyebrow>
+              <p className="egw-num mt-1 font-brand text-[20px] font-extrabold text-egw-ink">
+                {inventario.totals.toDelete}
+              </p>
+            </InsetBlock>
+            <InsetBlock className="p-3">
+              <Eyebrow>Anonimizzate</Eyebrow>
+              <p className="egw-num mt-1 font-brand text-[20px] font-extrabold text-egw-ink">
+                {inventario.totals.toAnonymize}
+              </p>
+            </InsetBlock>
+            <InsetBlock className="p-3">
+              <Eyebrow>Conservate</Eyebrow>
+              <p className="egw-num mt-1 font-brand text-[20px] font-extrabold text-egw-ink">
+                {inventario.totals.retained}
+              </p>
+            </InsetBlock>
+          </div>
+
+          {/*
+            Un elenco di righe e non una tabella: a 375 px una tabella a
+            quattro colonne o si taglia o si comprime fino a diventare
+            illeggibile, e questa e la schermata in cui la riga che non si
+            legge e quella che dice cosa non torna indietro.
+          */}
+          <ul className="divide-y divide-egw-rule rounded-egw-field border border-egw-hairline bg-egw-page-100">
+            {inventario.slices
+              .filter((slice) => slice.count > 0)
+              .map((slice) => (
+                <li
+                  key={slice.table}
+                  className="flex flex-col gap-1 px-3.5 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+                >
+                  <div className="min-w-0">
+                    <p className="font-brand text-[13px] font-semibold text-egw-ink">{slice.label}</p>
+                    <p className="font-brand text-[11.5px] text-egw-ink-62">
+                      {slice.table}
+                      {slice.reason ? ` — ${slice.reason}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="egw-num font-brand text-[13px] font-bold text-egw-ink">
+                      {slice.count}
+                    </span>
+                    <StatusPill status={STATO_CLASSE[slice.disposal]} size="sm" />
+                  </div>
+                </li>
+              ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {rapporto ? (
+        <InsetBlock className="flex flex-col gap-1.5">
+          <p className="font-brand text-[13px] font-semibold text-egw-ink">Cancellazione eseguita</p>
+          <p className="font-brand text-[12px] text-egw-ink-62">
+            Cancellate{" "}
+            {Object.values(rapporto.deleted).reduce((a, b) => a + b, 0)} righe,
+            anonimizzate{" "}
+            {Object.values(rapporto.anonymized).reduce((a, b) => a + b, 0)}.
+            {rapporto.retained.length
+              ? ` Restano per obbligo di conservazione: ${rapporto.retained
+                  .map((slice) => `${slice.label} (${slice.count})`)
+                  .join(", ")}.`
+              : ""}
+          </p>
+          {rapporto.manualReview.length ? (
+            <p className="flex items-start gap-2 font-brand text-[12px] text-egw-amber-ink">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
                 {rapporto.manualReview.length} righe riguardano anche altre
                 persone e vanno rilette a mano:{" "}
                 {rapporto.manualReview
                   .map((riga) => `${riga.table} ${riga.id}`)
                   .join(", ")}
                 .
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-      </CardContent>
+              </span>
+            </p>
+          ) : null}
+        </InsetBlock>
+      ) : null}
 
       {/*
-        `AlertDialog` e la primitiva di conferma che il prodotto gia possiede —
-        la stessa di `/dashboard/access-management` e `/appuntamenti` — e non
+        Il modale distruttivo del sistema (guideline 08 §8.9): niente chiusura
+        sul velo, fuoco su «Annulla», il pulsante rosso a contorno — e non
         `window.confirm`, che il browser puo sopprimere dopo il primo uso e che
         dentro una webview puo non comparire affatto: l'operazione irreversibile
         partirebbe senza che nessuno abbia confermato niente.
+
+        Il dialogo non si chiude da solo: la chiusura la decide l'esito.
+        Chiudere prima della risposta lascerebbe l'operatore senza sapere se il
+        gettone e stato accettato.
       */}
-      <AlertDialog
+      <Modal
         open={dialogoAperto}
         onOpenChange={(aperto) => {
+          if (inCorso) return;
           setDialogoAperto(aperto);
-          if (!aperto) setRiconosceMinore(false);
+          if (!aperto) {
+            setRiconosceMinore(false);
+            setParolaScritta("");
+          }
         }}
-      >
-        <AlertDialogContent className="max-h-[85vh] overflow-y-auto">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              Cancellare i dati di{" "}
-              {inventario?.subjectLabel || athleteName || "questa persona"}?
-            </AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2 text-left">
-                <p>
-                  <strong>L&apos;operazione non si annulla.</strong>{" "}
-                  {inventario?.totals.toDelete ?? 0} righe vengono cancellate e{" "}
-                  {inventario?.totals.toAnonymize ?? 0} restano senza piu
-                  nominare nessuno — l&apos;anagrafica compresa, che resta come
-                  segnaposto finche esistono movimenti di denaro che la citano.
-                </p>
-                <p>
-                  {inventario?.totals.retained ?? 0} righe{" "}
-                  <strong>non</strong> vengono toccate: sono documenti fiscali,
-                  incassi e contributi che la societa e tenuta a conservare.
-                </p>
-                <p>
-                  I file depositati vengono rimossi anche dall&apos;archivio dei
-                  byte, e questo passo non e in una transazione: se si
-                  interrompe lascia meno dati, mai di piu, e ripetere
-                  l&apos;operazione la completa.
-                </p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <div className="space-y-3">
-            {minoreDaRiconoscere ? (
-              /*
-                Il server pretende `acknowledgeMinor` quando l'inventario dice
-                `isMinor` — e un'anagrafica **senza data di nascita** si tratta
-                come minore. La casella e qui perche la conferma la deve dare
-                una persona, non il codice che compone la richiesta.
-              */
-              <label className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm dark:border-red-900/60 dark:bg-red-950/30">
-                <Checkbox
-                  checked={riconosceMinore}
-                  onCheckedChange={(valore) =>
-                    setRiconosceMinore(valore === true)
-                  }
-                  aria-label="Confermo di aver letto cosa verra distrutto"
-                />
-                <span>
-                  Questa persona risulta <strong>minorenne</strong> (o non ha
-                  una data di nascita in archivio). Confermo di aver letto il
-                  riepilogo di cio che verra distrutto.
-                </span>
-              </label>
-            ) : null}
-
-            <div className="space-y-1">
-              <Label htmlFor="motivo-cancellazione">
-                Motivo (facoltativo, resta nel registro)
-              </Label>
-              <Textarea
-                id="motivo-cancellazione"
-                value={motivo}
-                onChange={(evento) => setMotivo(evento.target.value)}
-                placeholder="Es. richiesta della famiglia del 12/03"
-                rows={2}
-              />
-            </div>
-          </div>
-
-          <AlertDialogFooter>
-            <AlertDialogCancel>Annulla</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={!confermaAbilitata || inCorso}
-              onClick={(evento) => {
-                /*
-                  Il dialogo non si chiude da solo: la chiusura la decide
-                  l'esito. Chiudere prima della risposta lascerebbe l'operatore
-                  senza sapere se il gettone e stato accettato.
-                */
-                evento.preventDefault();
-                void cancella();
-              }}
+        tone="danger"
+        strict
+        icon={<AlertTriangle />}
+        initialFocusRef={annullaRef}
+        title={`Cancellare i dati di ${inventario?.subjectLabel || athleteName || "questa persona"}?`}
+        footer={
+          <>
+            <Button ref={annullaRef} variant="secondary" onClick={() => setDialogoAperto(false)} disabled={inCorso}>
+              Annulla
+            </Button>
+            <Button
+              variant="danger"
+              disabled={!confermaAbilitata || inCorso || !parolaCoincide}
+              loading={inCorso}
+              onClick={() => void cancella()}
             >
               Cancella definitivamente
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </Card>
+            </Button>
+          </>
+        }
+      >
+        <div className="rounded-egw-field border border-egw-tint-red-bd bg-egw-tint-red px-4 py-3 font-brand text-[12.5px] leading-[1.55] text-egw-ink">
+          <p>
+            <strong>L&apos;operazione non si annulla.</strong>{" "}
+            {inventario?.totals.toDelete ?? 0} righe vengono cancellate e{" "}
+            {inventario?.totals.toAnonymize ?? 0} restano senza piu nominare
+            nessuno — l&apos;anagrafica compresa, che resta come segnaposto
+            finche esistono movimenti di denaro che la citano.
+          </p>
+          <p className="mt-2">
+            {inventario?.totals.retained ?? 0} righe <strong>non</strong> vengono
+            toccate: sono documenti fiscali, incassi e contributi che la societa
+            e tenuta a conservare.
+          </p>
+          <p className="mt-2">
+            I file depositati vengono rimossi anche dall&apos;archivio dei byte,
+            e questo passo non e in una transazione: se si interrompe lascia
+            meno dati, mai di piu, e ripetere l&apos;operazione la completa.
+          </p>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-4">
+          {minoreDaRiconoscere ? (
+            /*
+              Il server pretende `acknowledgeMinor` quando l'inventario dice
+              `isMinor` — e un'anagrafica **senza data di nascita** si tratta
+              come minore. La casella e qui perche la conferma la deve dare
+              una persona, non il codice che compone la richiesta.
+            */
+            <label className="flex items-start gap-2.5 rounded-egw-field border border-egw-tint-red-bd bg-egw-tint-red p-3 font-brand text-[12.5px] leading-[1.5] text-egw-ink">
+              <Checkbox
+                className="mt-0.5"
+                checked={riconosceMinore}
+                onChange={(evento) => setRiconosceMinore(evento.target.checked)}
+                aria-label="Confermo di aver letto cosa verra distrutto"
+              />
+              <span>
+                Questa persona risulta <strong>minorenne</strong> (o non ha
+                una data di nascita in archivio). Confermo di aver letto il
+                riepilogo di cio che verra distrutto.
+              </span>
+            </label>
+          ) : null}
+
+          <Field label="Motivo" optional htmlFor="motivo-cancellazione" helper="Resta nel registro.">
+            <Textarea
+              id="motivo-cancellazione"
+              value={motivo}
+              onChange={(evento) => setMotivo(evento.target.value)}
+              placeholder="Es. richiesta della famiglia del 12/03"
+              rows={2}
+            />
+          </Field>
+
+          <Field
+            label={
+              <>
+                Scrivi <strong className="text-egw-ink">{PAROLA_DI_CONFERMA}</strong> per confermare
+              </>
+            }
+            htmlFor="parola-cancellazione"
+          >
+            <TextInput
+              id="parola-cancellazione"
+              value={parolaScritta}
+              onChange={(evento) => setParolaScritta(evento.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </Field>
+        </div>
+      </Modal>
+    </div>
   );
 }

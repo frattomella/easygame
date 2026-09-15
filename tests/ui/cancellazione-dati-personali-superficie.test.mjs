@@ -188,8 +188,14 @@ test("per un minore la conferma esplicita e obbligatoria e la da una persona", (
 });
 
 test("la conferma usa la primitiva del prodotto, non window.confirm", () => {
-  assert.match(sezione, /<AlertDialog\b/);
-  assert.match(sezione, /from "@\/components\/ui\/alert-dialog"/);
+  /*
+    Dal Web V2 la primitiva e il modale distruttivo del sistema
+    (`@/components/web/overlays/Modal`, guideline 08 §8.9): niente chiusura
+    sul velo, fuoco su «Annulla», e la parola da scrivere.
+  */
+  assert.match(sezione, /<Modal\b/);
+  assert.match(sezione, /from "@\/components\/web\/overlays\/Modal"/);
+  assert.match(sezione, /PAROLA_DI_CONFERMA/);
   assert.ok(
     !/window\.confirm|(?<![\w.])confirm\s*\(/.test(sezione),
     "il confirm del browser puo essere soppresso e in una webview puo non comparire",
@@ -235,9 +241,9 @@ test("i comandi si impilano a 375 px invece di uscire dallo schermo", () => {
     /grid-cols-1 gap-2 sm:grid-cols-3/,
     "i tre totali vanno in colonna sul telefono",
   );
-  assert.match(
-    sezione,
-    /max-h-\[85vh\] overflow-y-auto/,
-    "il dialogo con l'inventario deve poter scorrere su uno schermo basso",
-  );
+  /*
+    Il modale del sistema limita gia la propria altezza allo schermo e fa
+    scorrere il corpo (`max-h-[calc(100vh-48px)]` in `Modal`): qui basta che
+    la sezione lo usi, cosa che il controllo qui sopra gia misura.
+  */
 });

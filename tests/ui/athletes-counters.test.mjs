@@ -22,9 +22,15 @@ const source = readFileSync(
 );
 
 test("con la paginazione attiva il conteggio arriva dal server", () => {
+  /*
+    Nel Web V2 i numeri stanno nell'intestazione di pagina (`HeaderStat`):
+    sopra la soglia ce n'e uno solo per lo stato scelto, con il titolo del
+    vocabolario, e il valore e `listMeta.total` — cioe cio che il server ha
+    contato sulle persone.
+  */
   assert.match(
     source,
-    /\{paginated && listMeta \? \(\s*<>\s*\{STATUS_FILTER_HEADINGS\[statusFilter\]\}: \{listMeta\.total\}/,
+    /paginated && listMeta \? \([\s\S]{0,900}<HeaderStat\s+value=\{formatInteger\(listMeta\.total\)\}\s+label=\{STATUS_FILTER_HEADINGS\[statusFilter\]\}/,
     "sopra la soglia il numero deve essere quello contato dal server",
   );
 });
@@ -41,8 +47,13 @@ test("sotto la soglia i conteggi restano, perche li i dati ci sono tutti", () =>
   */
   assert.match(
     source,
-    /ATHLETE_STATUSES\.map\(\(stato, indice\) => \(/,
+    /const conteggiPerStato = React\.useMemo\(\s*\(\) =>\s*Object\.fromEntries\(\s*ATHLETE_STATUSES\.map\(\(stato\) => \[/,
     "i conteggi si ricavano dal vocabolario, non da un elenco scritto a mano",
+  );
+  assert.match(
+    source,
+    /\{ATHLETE_STATUSES\.map\(\(stato\) => \(\s*<HeaderStat/,
+    "e l'intestazione li mostra iterando sullo stesso vocabolario",
   );
   /*
     **E si contano le persone, non le tessere** (P0-1).
@@ -74,14 +85,29 @@ test("«Totali» conta persone anche senza paginazione", () => {
     /const totaleAtletiDistinti = React\.useMemo\(\s*\(\) => new Set\(athletes\.map\(\(athlete\) => athlete\.id\)\)\.size,/,
     "il totale distinto si calcola una volta, non a ogni punto in cui serve",
   );
+  /*
+    Nel Web V2 «Totali» e il numero «tesserati» dell'intestazione: sopra la
+    soglia e `archiveTotal` (il conteggio del database sulle persone), sotto
+    e il totale distinto.
+  */
   assert.match(
     source,
-    /\{paginated && listMeta\s*\? listMeta\.total\s*: totaleAtletiDistinti\}/,
+    /<HeaderStat value=\{formatInteger\(archiveTotal\)\} label="tesserati" \/>/,
+    "sopra la soglia il totale e quello dell'archivio, contato dal server",
   );
   assert.match(
     source,
-    /Azioni su tutti \(\{totaleAtletiDistinti\}\)/,
-    "il numero annunciato dal pulsante e l'insieme su cui si scrive, che e deduplicato",
+    /<HeaderStat value=\{formatInteger\(totaleAtletiDistinti\)\} label="tesserati" \/>/,
+    "sotto la soglia il totale e distinto per persona, non per tessera",
+  );
+  /*
+    Il numero annunciato nella conferma di un'azione di massa e l'insieme su
+    cui si scrive — i bersagli gia risolti e deduplicati — non le righe.
+  */
+  assert.match(
+    source,
+    /const athletesCount = targetIds\.length;/,
+    "la conferma conta i bersagli risolti, che sono persone",
   );
 });
 

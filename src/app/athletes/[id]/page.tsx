@@ -1,95 +1,16 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { normalizeDocumentKind } from "@/lib/documents/request-model";
-import dynamic from "next/dynamic";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import {
   DashboardPageContainer,
   dashboardMainClassName,
 } from "@/components/dashboard/dashboard-page-container";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { AvatarUpload } from "@/components/ui/avatar-upload";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Switch } from "@/components/ui/switch";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  ConfirmDialog,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Calendar,
-  Camera,
-  Mail,
-  Phone,
-  User,
-  MapPin,
-  Edit,
-  Trash2,
-  Share2,
-  FileText,
-  Heart,
-  DollarSign,
-  BarChart3,
-  Upload,
-  Plus,
-  X,
-  Users,
-  IdCard,
-  CalendarDays,
-  Globe,
-  Home,
-  Save,
-  CheckCircle2,
-  XCircle,
-  Download,
-  Eye,
-  Award,
-  Shirt,
-  Loader2,
-  Pencil,
-  RefreshCw,
-  Copy,
-  KeyRound,
-  Unlink2,
-} from "lucide-react";
+import { Plus, UserX } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AddCertificateForm } from "@/components/forms/AddCertificateForm";
-import { AssistedAddressFields } from "@/components/forms/assisted-anagrafica";
-import { PersonIdentityFields } from "@/components/forms/person-identity-fields";
-import {
-  LEGACY_PERSON_NAME_KEYS,
-  readPersonIdentity,
-  writePersonIdentity,
-} from "@/lib/person-identity";
 import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { resolveActiveClubId } from "@/lib/active-club";
@@ -99,15 +20,12 @@ import {
   compareCertificatesByExpiryDesc,
   getMedicalCertificateStatus,
 } from "@/lib/medical-certificates";
-import { CertificateAttachmentField } from "@/components/forms/certificate-attachment-field";
 import { uploadAttachmentReference } from "@/lib/api/attachments";
 import {
   PARENT_TOKEN_EXPIRY_HOURS,
   createParentAccessToken,
   formatParentAccessToken,
-  getGuardianAccessStatus,
   getGuardianDisplayName,
-  getGuardianTokenTiming,
   normalizeGuardianRows,
 } from "@/lib/athlete-guardians";
 import {
@@ -118,9 +36,7 @@ import {
   createEmptyMedicalVisit,
   createEmptyRegistration,
   getTodayDateString,
-  normalizeClubFederations,
 } from "@/lib/athlete-profile-fields";
-import { AthleteProfileHeader } from "@/components/athletes/profile/athlete-profile-header";
 import {
   AthleteAccountDialog,
   usePuoGestireAccessoAtleta,
@@ -129,23 +45,23 @@ import {
   AthleteDataSubjectSection,
   eDatiPersonaliDaSmaltire,
   messaggioDatiPersonali,
+  usePuoTrattareDatiPersonali,
 } from "@/components/athletes/profile/athlete-data-subject-section";
-import { AthleteProfileTabsBar } from "@/components/athletes/profile/athlete-profile-tabs";
 import { PersonCompensationTab } from "@/components/sport-work/PersonCompensationTab";
-import { resolveAthleteProfileTab } from "@/lib/athlete-profile-tabs";
-import { CapitalizedInput } from "@/components/forms/capitalized-input";
-import { DocumentExtractionField } from "@/components/forms/document-extraction-field";
-import { PhoneField } from "@/components/forms/phone-field";
+import {
+  ATHLETE_RECORD_SECTIONS,
+  resolveAthleteRecordTarget,
+  type AthleteRecordAreaValue,
+  type AthleteRecordTarget,
+} from "@/lib/athlete-profile-tabs";
 import {
   CLOTHING_SIZE_OPTIONS,
   DEFAULT_CLOTHING_SIZES,
   deriveClothingProfile,
 } from "@/lib/clothing-sizes";
-import { normalizeClubSites, type ClubSite } from "@/lib/club-sites";
-import { AthleteCategoriesPanel } from "@/components/athletes/profile/athlete-categories-panel";
+import { isMultiSiteClub, normalizeClubSites, type ClubSite } from "@/lib/club-sites";
 import { AthleteRegistrationsPanel } from "@/components/athletes/profile/athlete-registrations-panel";
 import { AthleteRegistrationDialog } from "@/components/athletes/profile/athlete-registration-dialog";
-import { CategoryLabel } from "@/components/categories/category-label";
 import {
   applyRegistrationEdit,
   buildRegistrationId,
@@ -155,6 +71,7 @@ import { AthleteCertificatesPanel } from "@/components/athletes/profile/athlete-
 import {
   buildRegistrationFederationReference,
   listClubFederations,
+  readRegistrationFederationLabel,
   type ClubFederation,
 } from "@/lib/club-federations";
 import {
@@ -166,11 +83,9 @@ import {
 import {
   normalizeKitAssignmentItems,
   normalizeKitAssignmentRecord,
-  normalizeKitComponents,
   normalizeKitRecord,
 } from "@/lib/clothing-kit-utils";
 import {
-  assignmentStatusLabels,
   canAssignNumber,
   normalizeClubClothingState,
   serializeClothingAssignment,
@@ -216,39 +131,94 @@ import {
   normalizePaymentPlans,
 } from "@/lib/payment-plan-utils";
 import { loadActiveSeasonPeriod } from "@/lib/club-profile";
-import {
-  getSharedDocumentStatusClassName,
-  getSharedDocumentStatusLabel,
-  getSharedDocumentTypeLabel,
-} from "@/lib/shared-documents";
-/*
-  W6-47. I tipi canonici vengono dal dominio documentale nuovo. Il vecchio
-  elenco viveva in `shared-documents.ts` — il file che la lane 5J deve
-  cancellare — e non conosceva ne la tessera sanitaria ne la delega, che sono
-  due dei documenti che una segreteria chiede piu spesso.
-*/
-import { DOCUMENT_KIND_OPTIONS } from "@/lib/documents/kind-catalog";
+import { normalizeActiveClubSeason } from "@/lib/club-seasons";
+import { normalizeAthleteStatus } from "@/lib/athletes/status";
 import { CompileFormDialog } from "@/components/forms/compile-form-dialog";
 import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
 import { apiRequest } from "@/lib/api/client";
-import type { KitComponent } from "@/components/forms/CustomKitComponentsBuilder";
-
-const CustomKitComponentsBuilder = dynamic(
-  () =>
-    import("@/components/forms/CustomKitComponentsBuilder").then(
-      (module) => module.CustomKitComponentsBuilder,
-    ),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="h-48 animate-pulse rounded-xl border bg-slate-100" />
-    ),
-  },
-);
+/* ── Web V2 ──────────────────────────────────────────────────────────── */
+import { CollapsedSection } from "@/components/web/record/Record";
+import { DetailCard, EmptyStateCard } from "@/components/web/page/Cards";
+import { Button } from "@/components/web/primitives/Button";
+import { Eyebrow, Hairline, Panel } from "@/components/web/primitives/Surface";
+import { Skeleton } from "@/components/web/primitives/Controls";
+import { ConfirmDialog, DangerConfirmDialog } from "@/components/web/overlays/Modal";
+import { formatDateShort, joinMeta } from "@/lib/web/format";
+import { readPreference, writePreference } from "@/lib/web/preferences";
+import { AthleteRecordHeader } from "@/components/athletes/profile/v2/AthleteRecordHeader";
+import {
+  countAlertsByArea,
+  deriveAthleteRecordAlerts,
+} from "@/components/athletes/profile/v2/athlete-record-alerts";
+import {
+  AthleteAnagraficaCard,
+  AthleteContattiCard,
+  AthleteGuardiansPanel,
+  AthleteIndirizzoFields,
+  summarizeAddress,
+} from "@/components/athletes/profile/v2/AthleteProfileSections";
+import {
+  AthleteCategoriesCard,
+  AthleteClothingPanel,
+  AthleteJerseyNumbersList,
+  AthleteKitAssignmentsList,
+} from "@/components/athletes/profile/v2/AthleteActivitySections";
+import {
+  AddAction,
+  AthleteAttestatiPanel,
+  AthleteHealthInfoCard,
+  AthleteMedicalVisitsList,
+} from "@/components/athletes/profile/v2/AthleteHealthSections";
+import {
+  AddDocumentAction,
+  AthleteIdentityDocumentFields,
+  AthleteSharedDocumentsPanel,
+  AthleteStoredDocumentsList,
+  summarizeIdentityDocument,
+} from "@/components/athletes/profile/v2/AthleteDocumentSections";
+import {
+  AthleteGuardianDrawer,
+  AthleteSectionEditDrawer,
+  type AthleteEditSection,
+} from "@/components/athletes/profile/v2/AthleteProfileDrawers";
+import {
+  AthleteAttachmentDrawer,
+  AthleteMedicalVisitDrawer,
+  AthleteOtherDocumentDrawer,
+  SharedDocumentRejectDialog,
+  SharedDocumentRequestDrawer,
+  SharedDocumentUploadDrawer,
+} from "@/components/athletes/profile/v2/AthleteDocumentDrawers";
+import {
+  AthleteJerseyNumberDrawer,
+  AthleteKitAssignmentDrawer,
+} from "@/components/athletes/profile/v2/AthleteActivityDrawers";
+import {
+  AthletePlanConfirmationDrawer,
+  AthletePlanEditor,
+  CreatePaymentsConfirmDialog,
+} from "@/components/athletes/profile/v2/AthleteAdministrationParts";
 
 const EMPTY_ATHLETE_CATEGORY_ANALYTICS: AthleteCategoryAnalyticsResult = {
   categories: [],
   unclassifiedEvents: [],
+};
+
+/**
+ * Le righe chiuse raggiungibili con un salto (avvisi, `?tab=`): dall'ancora
+ * del blocco all'`id` della `CollapsedSection`, che e cio che la preferenza
+ * `egw.atleta.sections` ricorda.
+ */
+const COLLAPSED_BY_ANCHOR: Partial<Record<string, string>> = {
+  [ATHLETE_RECORD_SECTIONS.indirizzo]: "indirizzo",
+  [ATHLETE_RECORD_SECTIONS.datiPersonali]: "dati-personali",
+  [ATHLETE_RECORD_SECTIONS.numeri]: "numeri-maglia",
+  [ATHLETE_RECORD_SECTIONS.kit]: "kit",
+  [ATHLETE_RECORD_SECTIONS.compensi]: "compensi",
+  [ATHLETE_RECORD_SECTIONS.visite]: "visite",
+  [ATHLETE_RECORD_SECTIONS.attestati]: "attestati",
+  [ATHLETE_RECORD_SECTIONS.identita]: "documento-identita",
+  [ATHLETE_RECORD_SECTIONS.altriDocumenti]: "altri-documenti",
 };
 
 export default function AthleteProfilePage() {
@@ -282,9 +252,24 @@ export default function AthleteProfilePage() {
   */
   const [pannelloAccessoAperto, setPannelloAccessoAperto] = useState(false);
   const puoGestireAccesso = usePuoGestireAccessoAtleta();
+  const puoTrattareDatiPersonali = usePuoTrattareDatiPersonali();
   const [clubId, setClubId] = useState<string | null>(clubIdFromUrl || null);
+  /*
+    Le quattro aree della scheda (09 §9.8). Il `?tab=` accetta sia il nome di
+    un'area sia una delle otto schede della V1, che atterra nella sezione che
+    la rappresenta; un valore sconosciuto ricade su «Profilo».
+  */
   const requestedTab = searchParams?.get("tab");
-  const initialTab = resolveAthleteProfileTab(requestedTab);
+  const [initialTarget] = useState(() => resolveAthleteRecordTarget(requestedTab));
+  const [area, setArea] = useState<AthleteRecordAreaValue>(initialTarget.area);
+  const [sectionsEpoch, setSectionsEpoch] = useState(0);
+  const [pendingScroll, setPendingScroll] = useState<string | null>(null);
+  const initialSectionHandled = useRef(false);
+  const [activeSeasonLabel, setActiveSeasonLabel] = useState<string | null>(null);
+  const [sharedRequestOpen, setSharedRequestOpen] = useState(false);
+  const [sharedUploadOpen, setSharedUploadOpen] = useState(false);
+  const [sharedRejectTarget, setSharedRejectTarget] = useState<string | null>(null);
+  const [sharedRejectReason, setSharedRejectReason] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [athlete, setAthlete] = useState<any>(null);
   const [clubCategoryOptions, setClubCategoryOptions] = useState<any[]>([]);
@@ -443,8 +428,6 @@ export default function AthleteProfilePage() {
     useState(createEmptyAttachment);
   const [newEnrollmentDocument, setNewEnrollmentDocument] =
     useState(createEmptyAttachment);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const avatarInputRef = useRef<HTMLInputElement>(null);
   const [paymentPlans, setPaymentPlans] = useState<any[]>([]);
   /*
     Periodo della stagione attiva: e il ripiego del pro-rata quando il piano
@@ -681,6 +664,10 @@ export default function AthleteProfilePage() {
 
         setAthlete({
           id: athleteData.id,
+          /* Lo stato ha un vocabolario solo (`athletes/status.ts`): la pillola lo legge, non lo cambia. */
+          status: normalizeAthleteStatus(
+            athleteRecord.status ?? athletePayload?.status,
+          ),
           name: normalizeTextValue(athleteData.firstName, "Nome non disponibile"),
           surname: normalizeTextValue(athleteData.lastName),
           jerseyNumber:
@@ -809,6 +796,9 @@ export default function AthleteProfilePage() {
         setCertificateFiles(normalizedCollections.certificateFiles);
         setClothingSizes(resolvedClothingSizes);
         setClubFederations(listClubFederations(clubRecord));
+        setActiveSeasonLabel(
+          clubRecord ? normalizeActiveClubSeason(clubRecord).activeSeasonLabel || null : null,
+        );
         setClubPaymentMethodChoices(
           getClubPaymentMethodChoices(clubRecord?.settings),
         );
@@ -1120,6 +1110,8 @@ export default function AthleteProfilePage() {
     description: string;
     confirmText: string;
     type: "warning" | "info" | "question" | "error";
+    /** Per la conferma distruttiva: le righe di «cosa se ne va». */
+    consequences?: string[];
     risolvi: (esito: boolean) => void;
   } | null>(null);
 
@@ -1128,6 +1120,7 @@ export default function AthleteProfilePage() {
     description: string;
     confirmText?: string;
     type?: "warning" | "info" | "question" | "error";
+    consequences?: string[];
   }) =>
     new Promise<boolean>((risolvi) => {
       setConfermaInSospeso({
@@ -1135,6 +1128,7 @@ export default function AthleteProfilePage() {
         description: richiesta.description,
         confirmText: richiesta.confirmText ?? "Conferma",
         type: richiesta.type ?? "warning",
+        consequences: richiesta.consequences,
         risolvi,
       });
     });
@@ -1150,7 +1144,7 @@ export default function AthleteProfilePage() {
     if (!clubId || !athleteId) return;
 
     const nome =
-      [athlete?.firstName, athlete?.lastName].filter(Boolean).join(" ") ||
+      [athlete?.name, athlete?.surname].filter(Boolean).join(" ") ||
       "questo atleta";
 
     /*
@@ -1167,15 +1161,16 @@ export default function AthleteProfilePage() {
     */
     const confermato = await richiediConferma({
       type: "error",
-      title: "Eliminare questo atleta?",
+      title: `Eliminare ${nome}?`,
       confirmText: "Elimina atleta",
-      description:
-        `Stai per eliminare ${nome}. L'operazione non si annulla: la scheda e ` +
-        "le appartenenze alle categorie vengono rimosse. Le rate e i movimenti " +
-        "gia registrati restano in contabilita. Se questa persona ha file, " +
-        "consensi, richieste o consegne documentali, l'eliminazione non parte: " +
-        "quei dati resterebbero in archivio slegati da tutto, e vanno trattati " +
-        "dalla sezione «Dati personali» di questa scheda.",
+      description: "Stai per eliminare la scheda di questo atleta.",
+      consequences: [
+        "La scheda e le appartenenze alle categorie vengono rimosse.",
+        "Le rate e i movimenti già registrati restano in contabilità.",
+        "Se questa persona ha file, consensi, richieste o consegne documentali, " +
+          "l'eliminazione non parte: quei dati resterebbero in archivio slegati da tutto, " +
+          "e vanno trattati dalla sezione «Dati personali» di questa scheda.",
+      ],
     });
     if (!confermato) return;
 
@@ -1571,13 +1566,6 @@ export default function AthleteProfilePage() {
       uploadDate: new Date().toISOString(),
     };
   };
-
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("it-IT", {
-      style: "currency",
-      currency: "EUR",
-      minimumFractionDigits: 2,
-    }).format(Number.isFinite(value) ? value : 0);
 
   const mergedPaymentRecords = React.useMemo(
     () => mergeAthletePayments(payments, athletePaymentRecords),
@@ -2306,6 +2294,16 @@ export default function AthleteProfilePage() {
 
   // Delete document
   const handleDeleteDocument = async (docId: string) => {
+    const documento = documents.find((d) => d.id === docId);
+    const confermato = await richiediConferma({
+      type: "error",
+      title: documento?.name ? `Eliminare «${documento.name}»?` : "Eliminare il documento?",
+      confirmText: "Elimina",
+      description: "Il documento viene tolto dalla scheda dell'atleta.",
+      consequences: [documento?.fileName || documento?.type || "Documento"],
+    });
+    if (!confermato) return;
+
     try {
       const nextDocuments = documents.filter((d) => d.id !== docId);
       await persistAthleteCollections({
@@ -2322,7 +2320,7 @@ export default function AthleteProfilePage() {
   const handleRequestSharedDocument = async () => {
     if (!requiredSharedDocument.title.trim()) {
       showToast("error", "Inserisci il titolo del documento richiesto");
-      return;
+      return false;
     }
 
     try {
@@ -2348,9 +2346,11 @@ export default function AthleteProfilePage() {
         description: "",
         dueDate: "",
       });
-      showToast("success", "Documento richiesto al parent");
+      showToast("success", "Documento richiesto alla famiglia");
+      return true;
     } catch (error: any) {
       showToast("error", error?.message || "Impossibile richiedere documento");
+      return false;
     } finally {
       setSharedDocumentBusy(false);
     }
@@ -2359,7 +2359,7 @@ export default function AthleteProfilePage() {
   const handleUploadClubSharedDocument = async () => {
     if (!clubSharedDocumentUpload.file) {
       showToast("error", "Seleziona un file da condividere");
-      return;
+      return false;
     }
 
     try {
@@ -2391,25 +2391,29 @@ export default function AthleteProfilePage() {
         description: "",
         file: null,
       });
-      showToast("success", "Documento condiviso con il parent");
+      showToast("success", "Documento condiviso con la famiglia");
+      return true;
     } catch (error: any) {
       showToast("error", error?.message || "Impossibile caricare documento");
+      return false;
     } finally {
       setSharedDocumentBusy(false);
     }
   };
 
+  /*
+    Il motivo del rifiuto arriva dal dialogo dell'applicazione
+    (`SharedDocumentRejectDialog`), non piu da `window.prompt`: era l'unico
+    punto della scheda che usava ancora un prompt nativo.
+  */
   const handleSharedDocumentAction = async (
     documentId: string,
     action: "approve" | "reject" | "remind" | "delete",
+    rejectionReason = "",
   ) => {
-    const rejectionReason =
-      action === "reject"
-        ? window.prompt("Motivo del rifiuto del documento") || ""
-        : "";
     if (action === "reject" && !rejectionReason.trim()) {
-      showToast("error", "Il motivo del rifiuto e obbligatorio");
-      return;
+      showToast("error", "Il motivo del rifiuto è obbligatorio");
+      return false;
     }
 
     try {
@@ -2441,8 +2445,10 @@ export default function AthleteProfilePage() {
               ? "Sollecito inviato"
               : "Documento archiviato",
       );
+      return true;
     } catch (error: any) {
       showToast("error", error?.message || "Azione documento non riuscita");
+      return false;
     } finally {
       setSharedDocumentBusy(false);
     }
@@ -2477,6 +2483,22 @@ export default function AthleteProfilePage() {
   };
 
   const removeGuardian = async (id: string) => {
+    const tutore = guardians.find((g) => g.id === id);
+    const nomeTutore = tutore ? getGuardianDisplayName(tutore) : "questo tutore";
+    const confermato = await richiediConferma({
+      type: "error",
+      title: `Rimuovere ${nomeTutore} dai tutori?`,
+      confirmText: "Rimuovi",
+      description: "Il tutore viene tolto dalla scheda dell'atleta.",
+      consequences: [
+        "Non riceve più comunicazioni, pagamenti e documenti di questo atleta.",
+        tutore?.linkedUserId || tutore?.linked_user_id
+          ? "L'account collegato perde l'accesso all'area famiglia per questo atleta."
+          : "Un token di accesso non ancora usato smette di valere.",
+      ],
+    });
+    if (!confermato) return;
+
     try {
       const nextGuardians = guardians.filter((g) => g.id !== id);
       await persistAthleteCollections({
@@ -2904,6 +2926,24 @@ export default function AthleteProfilePage() {
   };
 
   const removeRegistration = async (registrationId: string) => {
+    const tesseramento = registrations.find(
+      (registration) => String(registration.id || "") === registrationId,
+    );
+    const confermato = await richiediConferma({
+      type: "error",
+      title: "Eliminare il tesseramento?",
+      confirmText: "Elimina",
+      description: "Il tesseramento viene tolto dalla scheda dell'atleta.",
+      consequences: [
+        readRegistrationFederationLabel(tesseramento || {}, clubFederations) ||
+          "Ente non indicato",
+        tesseramento?.fileUrl
+          ? "L'allegato non sarà più raggiungibile dalla scheda."
+          : "Nessun allegato collegato.",
+      ],
+    });
+    if (!confermato) return;
+
     try {
       const nextRegistrations = registrations.filter(
         (registration) => registration.id !== registrationId,
@@ -3066,6 +3106,18 @@ export default function AthleteProfilePage() {
     collection: "identity" | "enrollment",
     documentId: string,
   ) => {
+    const documento = (collection === "identity" ? identityDocuments : enrollmentDocuments).find(
+      (document) => document.id === documentId,
+    );
+    const confermato = await richiediConferma({
+      type: "error",
+      title: "Eliminare l'allegato?",
+      confirmText: "Elimina",
+      description: "L'allegato viene tolto dalla scheda dell'atleta.",
+      consequences: [documento?.name || documento?.fileName || "Allegato"],
+    });
+    if (!confermato) return;
+
     try {
       if (collection === "identity") {
         const nextIdentityDocuments = identityDocuments.filter(
@@ -3304,19 +3356,6 @@ export default function AthleteProfilePage() {
     setJerseyNumberDraft(String(number));
   };
 
-  const clothingStatusBadgeClass = (status: string) => {
-    if (status === "delivered" || status === "received") {
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    }
-    if (status === "to_order" || status === "ordered" || status === "in_production") {
-      return "border-amber-200 bg-amber-50 text-amber-700";
-    }
-    if (status === "cancelled") {
-      return "border-red-200 bg-red-50 text-red-700";
-    }
-    return "border-blue-200 bg-blue-50 text-blue-700";
-  };
-
   const saveJerseyNumber = async () => {
     try {
       const effectiveClubId = athlete?.club_id || clubId;
@@ -3511,74 +3550,195 @@ export default function AthleteProfilePage() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header title="Profilo Atleta" />
-          <main className={dashboardMainClassName}>
-            <div className="flex justify-center items-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700"></div>
-            </div>
-          </main>
-        </div>
+  /* ── Web V2: aree, avvisi, salti di sezione ──────────────────────────── */
+
+  /**
+   * Il salto a una sezione: cambia area, apre la riga chiusa se serve e
+   * scorre fino al blocco. La striscia degli avvisi e i `?tab=` vecchi
+   * passano tutti da qui.
+   */
+  const goToSection = React.useCallback(
+    (target: AthleteRecordTarget) => {
+      setArea(target.area);
+      if (!target.section) return;
+      const collapsedId = COLLAPSED_BY_ANCHOR[target.section];
+      if (collapsedId) {
+        /*
+          Le righe chiuse ricordano lo stato per tipo di record
+          (`egw.atleta.sections`): si scrive la preferenza e si rimonta la
+          sezione, che al montaggio la rilegge aperta.
+        */
+        writePreference("atleta", "sections", {
+          ...readPreference<Record<string, boolean>>("atleta", "sections", {}),
+          [collapsedId]: true,
+        });
+        setSectionsEpoch((current) => current + 1);
+      }
+      setPendingScroll(target.section);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!pendingScroll || isLoading) return;
+    const frame = window.requestAnimationFrame(() => {
+      document
+        .getElementById(pendingScroll)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setPendingScroll(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [pendingScroll, isLoading, area, sectionsEpoch]);
+
+  /* Il `?tab=` dell'indirizzo atterra nella sezione giusta, una volta. */
+  useEffect(() => {
+    if (isLoading || !athlete || initialSectionHandled.current) return;
+    initialSectionHandled.current = true;
+    if (initialTarget.section) goToSection(initialTarget);
+  }, [athlete, goToSection, initialTarget, isLoading]);
+
+  const athleteIsMinor =
+    !athlete?.birthDate || calculateAgeFromBirthDate(athlete.birthDate) < 18;
+
+  const recordAlerts = React.useMemo(
+    () =>
+      athlete
+        ? deriveAthleteRecordAlerts({
+            certificates: medicalCertificates,
+            payments: mergedPaymentRecords,
+            enrollmentStatus: coerceBooleanField(athlete.enrollmentStatus),
+            guardians,
+            isMinor: athleteIsMinor,
+          })
+        : [],
+    [athlete, athleteIsMinor, guardians, medicalCertificates, mergedPaymentRecords],
+  );
+  const problemsByArea = React.useMemo(() => countAlertsByArea(recordAlerts), [recordAlerts]);
+
+  const primaryMembership = athleteCategoryMemberships.find((membership) => membership.isPrimary) || null;
+  const primarySiteLabel =
+    isMultiSiteClub(clubSites) && primaryMembership?.siteId
+      ? clubSites.find((site) => String(site.id) === String(primaryMembership.siteId))?.name || null
+      : null;
+
+  const openJerseyNumberDrawer = () => {
+    const selectedEntry =
+      athleteJerseyNumberDetails.primaryRecord ||
+      athleteJerseyAssignments.find((entry) => entry.groupId === defaultJerseyGroupId) ||
+      athleteJerseyAssignments[0];
+    setJerseyGroupDraft(selectedEntry?.groupId || defaultJerseyGroupId || "");
+    setJerseyNumberDraft(
+      selectedEntry?.number === null || selectedEntry?.number === undefined
+        ? jerseyNumberTileValue === null
+          ? ""
+          : String(jerseyNumberTileValue)
+        : String(selectedEntry.number),
+    );
+    setIsJerseyNumberDialogOpen(true);
+  };
+
+  const attestatiConseguiti = [
+    athlete?.blsd ? "BLSD" : null,
+    athlete?.firstAid ? "Primo soccorso" : null,
+    athlete?.fireSafety ? "Antincendio" : null,
+  ].filter(Boolean) as string[];
+
+  const shell = (title: string, content: React.ReactNode) => (
+    <div className="flex h-[100dvh] bg-egw-page">
+      <Sidebar />
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <Header title={title} />
+        <main className={dashboardMainClassName}>
+          <DashboardPageContainer>{content}</DashboardPageContainer>
+        </main>
       </div>
+    </div>
+  );
+
+  if (isLoading) {
+    /* Lo scheletro ha la forma di cio che arriva: intestazione, aree, pannelli. */
+    return shell(
+      "Scheda atleta",
+      <>
+        <Panel as="header" className="p-5 lg:p-6">
+          <div className="flex flex-wrap items-start gap-5">
+            <Skeleton className="h-[72px] w-[72px] rounded-egw-panel-sm" />
+            <div className="min-w-0 flex-1">
+              <Skeleton className="mb-2 h-3 w-40" />
+              <Skeleton className="h-7 w-64" />
+              <div className="mt-3 flex gap-2">
+                <Skeleton className="h-6 w-28" />
+                <Skeleton className="h-6 w-20" />
+              </div>
+            </div>
+            <Skeleton className="h-9 w-40" />
+          </div>
+          <div className="mt-4 flex justify-end">
+            <Skeleton className="h-9 w-[420px] max-w-full" />
+          </div>
+        </Panel>
+        <DetailCard title={<Skeleton className="h-4 w-40" />} loading />
+        <DetailCard title={<Skeleton className="h-4 w-32" />} loading columns={2} />
+      </>,
     );
   }
 
   if (!athlete) {
-    return (
-      <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header title="Atleta Non Trovato" />
-          <main className={dashboardMainClassName}>
-            <div className="flex flex-col items-center justify-center py-8">
-              <h2 className="text-xl font-semibold mb-4">Atleta non trovato</h2>
-              <Button onClick={() => router.push(clubId ? `/athletes?clubId=${clubId}` : "/athletes")}>
-                Torna alla lista atleti
-              </Button>
-            </div>
-          </main>
-        </div>
-      </div>
+    return shell(
+      "Atleta non trovato",
+      <EmptyStateCard
+        icon={<UserX />}
+        iconTone="neutral"
+        title="Atleta non trovato"
+        description="La scheda non esiste, non è più nel club attivo, o il collegamento è vecchio."
+        primary={
+          <Button variant="primary" onClick={() => router.push(clubId ? `/athletes?clubId=${clubId}` : "/athletes")}>
+            Torna alla lista atleti
+          </Button>
+        }
+      />,
     );
   }
 
   return (
-    <div className="flex h-[100dvh] bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-[100dvh] bg-egw-page">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header title="Profilo Atleta" />
+        <Header title="Scheda atleta" />
         <main className={dashboardMainClassName}>
-          <DashboardPageContainer className="max-w-7xl">
+          <DashboardPageContainer>
             {/*
-              **Le due sezioni che stavano qui sopra adesso non stanno piu qui**
-              (PP-01 §G e §I).
+              L'intestazione della scheda (09 §9.8): identita, chip, pillola
+              di stato, al piu due azioni piu il `···` — dove sta anche
+              «Elimina atleta», perche il pulsante rosso nell'intestazione e
+              deprecato — la striscia degli avvisi e lo switcher delle aree.
 
-              «Accesso EasyGame» e «Dati personali» occupavano insieme la prima
-              schermata di **ogni** atleta, per due cose che nella vita di
-              quell'atleta si fanno una volta sola — o mai. Chi apre una scheda
-              venti volte al giorno cerca l'anagrafica, e la trovava sotto due
-              pannelli di amministrazione.
-
-              L'accesso e ora un pulsante nell'intestazione che apre un dialogo;
-              i diritti dell'interessato stanno in fondo alla scheda «Generale».
-              **Nessuna delle due funzioni e stata tolta**, e nessuna guardia e
-              cambiata: e cambiato dove si clicca per arrivarci.
+              «Accesso EasyGame» resta un'azione dell'intestazione che apre
+              il pannello dedicato (PP-01 §G): compare solo a chi puo
+              gestirlo, e la chiave del permesso vive nel proprietario del
+              dominio, non qui.
             */}
-            <AthleteProfileHeader
+            <AthleteRecordHeader
+              athlete={athlete}
+              jerseyNumber={jerseyNumberTileValue}
+              categories={athleteCategoryMemberships}
               categoryCatalog={clubCategoryOptions}
               categoryGroups={clubCategoryGroups}
-              athlete={athlete}
-              categories={athleteCategoryMemberships}
-              onAvatarChange={handleAvatarChange}
+              siteLabel={primarySiteLabel}
+              seasonLabel={activeSeasonLabel}
+              status={athlete.status}
+              alerts={recordAlerts}
+              onAlertAction={goToSection}
+              area={area}
+              onAreaChange={setArea}
+              problemsByArea={problemsByArea}
               onOpenAccount={
                 athleteId && puoGestireAccesso
                   ? () => setPannelloAccessoAperto(true)
                   : null
               }
+              onEdit={() => handleEditSection("general")}
+              onAvatarChange={handleAvatarChange}
               onDelete={handleDeleteAthlete}
             />
 
@@ -3591,120 +3751,325 @@ export default function AthleteProfilePage() {
               />
             ) : null}
 
-            {/* Tabs */}
-            <Tabs defaultValue={initialTab} className="min-w-0">
-              <AthleteProfileTabsBar />
+            {/* ═══════════════════════════════════════════ area: Profilo ═══ */}
+            {area === "profilo" ? (
+              <div key={`profilo-${sectionsEpoch}`} className="flex flex-col gap-[18px]">
+                <div id={ATHLETE_RECORD_SECTIONS.anagrafica} className="scroll-mt-24">
+                  <AthleteAnagraficaCard
+                    athlete={athlete}
+                    memberships={athleteCategoryMemberships}
+                    categoryCatalog={clubCategoryOptions}
+                    categoryGroups={clubCategoryGroups}
+                    onEdit={() => handleEditSection("general")}
+                  />
+                </div>
 
-              {/* GENERALE TAB */}
-              <TabsContent value="generale" className="mt-4 space-y-6">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Informazioni Generali</CardTitle>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label="Modifica le informazioni generali"
-                      onClick={() => handleEditSection("general")}
+                <AthleteContattiCard athlete={athlete} onEdit={() => handleEditSection("contact")} />
+
+                <AthleteGuardiansPanel
+                  guardians={guardians}
+                  contactOnlyIdentities={recapitiSoloContatto}
+                  nowMs={nowMs}
+                  busyGuardianId={guardianAccessBusyId}
+                  onAdd={addGuardian}
+                  onEdit={(idx) => openEditGuardianModal(idx)}
+                  onRemove={(guardianId) => void removeGuardian(guardianId)}
+                  onGenerateToken={(guardianId) => void handleGenerateGuardianToken(guardianId)}
+                  onCopyToken={(token) => void copyGuardianAccessToken(token)}
+                  onDisconnect={(guardianId) => void handleDisconnectGuardianAccount(guardianId)}
+                />
+
+                <div id={ATHLETE_RECORD_SECTIONS.indirizzo} className="scroll-mt-24">
+                  <CollapsedSection
+                    id="indirizzo"
+                    recordType="atleta"
+                    title="Indirizzo"
+                    summary={summarizeAddress(athlete)}
+                    actions={
+                      <Button variant="secondary" size="sm" onClick={() => handleEditSection("address")}>
+                        Modifica
+                      </Button>
+                    }
+                  >
+                    <AthleteIndirizzoFields athlete={athlete} />
+                  </CollapsedSection>
+                </div>
+
+                {/*
+                  **I diritti dell'interessato, in coda a «Profilo»** (PP-01 §I).
+                  Non duplicano nessun campo della scheda: mostrano cosa esiste in
+                  archivio su questa persona e cosa succederebbe a cancellarlo. La
+                  guardia dell'eliminazione nomina questa sezione, e nominare un
+                  posto che si raggiunge senza cercarlo e cio che la rende una
+                  strada. Compare solo a chi ha una delle due chiavi
+                  (`data_subject.export` / `data_subject.erase`), lette dal
+                  proprietario del dominio.
+                */}
+                {athleteId && puoTrattareDatiPersonali ? (
+                  <div id={ATHLETE_RECORD_SECTIONS.datiPersonali} className="scroll-mt-24">
+                    <CollapsedSection
+                      id="dati-personali"
+                      recordType="atleta"
+                      title="Dati personali"
+                      summary="Inventario, esportazione e cancellazione dei dati dell'interessato (GDPR)."
                     >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Nome
-                        </h3>
-                        <p className="mt-1">{athlete.name}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Cognome
-                        </h3>
-                        <p className="mt-1">{athlete.surname}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Codice Fiscale
-                        </h3>
-                        <p className="mt-1">{athlete.fiscalCode || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Data di Nascita
-                        </h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                          <p>{formatDate(athlete.birthDate) || "-"}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Nazionalità
-                        </h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Globe className="h-4 w-4 text-muted-foreground" />
-                          <p>{athlete.nationality}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Comune
-                        </h3>
-                        <p className="mt-1">{athlete.birthPlace || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Sesso
-                        </h3>
-                        <p className="mt-1">{athlete.gender || "-"}</p>
-                      </div>
-                      <div className="md:col-span-2">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Categorie di Appartenenza
-                        </h3>
-                        <div className="flex flex-wrap gap-2 mt-1">
-                          {athleteCategoryMemberships.length > 0 ? (
-                            athleteCategoryMemberships.map((membership) => (
-                              <Badge
-                                key={`athlete-general-category-${membership.categoryId}`}
-                                variant="outline"
-                                className={
-                                  membership.isPrimary
-                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                    : "border-sky-200 bg-sky-50 text-sky-700"
-                                }
-                              >
-                                <CategoryLabel
-                                  category={{
-                                    categoryId: membership.categoryId,
-                                    categoryName: membership.categoryName,
-                                  }}
-                                  categories={clubCategoryOptions}
-                                  groups={clubCategoryGroups}
-                                />
-                                {membership.isPrimary ? " • Primaria" : " • Secondaria"}
-                              </Badge>
-                            ))
-                          ) : (
-                            <p className="text-sm text-muted-foreground">-</p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="md:col-span-3">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Note
-                        </h3>
-                        <p className="mt-1 text-sm">{athlete.notes || "-"}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                      <AthleteDataSubjectSection
+                        athleteId={athleteId}
+                        athleteName={athlete?.name || null}
+                        onErased={() =>
+                          router.push(
+                            clubId ? `/athletes?clubId=${clubId}` : "/athletes",
+                          )
+                        }
+                      />
+                    </CollapsedSection>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/* ═══════════════════════════════════ area: Attività sportiva ═══ */}
+            {area === "attivita" ? (
+              <div key={`attivita-${sectionsEpoch}`} className="flex flex-col gap-[18px]">
+                <AthleteCategoriesCard
+                  memberships={athleteCategoryMemberships}
+                  categoryCatalog={clubCategoryOptions}
+                  categoryGroups={clubCategoryGroups}
+                  sites={clubSites}
+                  onEdit={() => handleEditSection("general")}
+                />
+
+                {/*
+                  Le analitiche (presenze, convocazioni) sono il componente
+                  condiviso con la vista dell'allenatore: stesso componente,
+                  non una seconda stesura.
+                */}
+                <section id={ATHLETE_RECORD_SECTIONS.analitiche} className="scroll-mt-24">
+                  <Eyebrow className="mb-3">Presenze e convocazioni</Eyebrow>
+                  <AthleteCategoryAnalyticsSection analytics={athleteCategoryAnalytics} />
+                </section>
+
+                <AthleteClothingPanel
+                  sizes={clothingSizes}
+                  activeProfile={activeClothingProfile}
+                  options={activeClothingOptions}
+                  onChangeSizes={(next) => setClothingSizes({ ...clothingSizes, ...next })}
+                  onSaveSizes={() => void saveClothingSizes()}
+                  jersey={{
+                    value: jerseyNumberTileValue,
+                    groupName: primaryJerseyGroupName,
+                    summary: jerseyNumberSummary,
+                    hasDuplicate: hasDuplicateJerseyNumber,
+                    randomSuggestion: randomJerseyNumberSuggestion,
+                  }}
+                  onEditJersey={openJerseyNumberDrawer}
+                />
+
+                <div id={ATHLETE_RECORD_SECTIONS.numeri} className="scroll-mt-24">
+                  <CollapsedSection
+                    id="numeri-maglia"
+                    recordType="atleta"
+                    title="Numeri assegnati"
+                    count={athleteJerseyNumberDetails.records.filter((entry) => entry.number !== null).length}
+                    summary={jerseyNumberSummary}
+                  >
+                    <AthleteJerseyNumbersList
+                      records={athleteJerseyNumberDetails.records}
+                      groupById={jerseyGroupById}
+                      duplicateIds={new Set<string>(athleteJerseyNumberDetails.duplicateRecords.map((entry: any) => String(entry.id || `${entry.groupId}:${entry.number}`)))}
+                      randomSuggestion={randomJerseyNumberSuggestion}
+                    />
+                  </CollapsedSection>
+                </div>
+
+                <div id={ATHLETE_RECORD_SECTIONS.kit} className="scroll-mt-24">
+                  <CollapsedSection
+                    id="kit"
+                    recordType="atleta"
+                    title="Assegnazioni kit"
+                    count={athleteAssignments.length}
+                    summary={
+                      athleteAssignments.length
+                        ? joinMeta(`Ultima ${formatDateShort(athleteAssignments[0].createdAt)}`, athleteAssignments[0].kitName || "Articoli")
+                        : "Nessuna assegnazione registrata"
+                    }
+                    actions={
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={<Plus />}
+                        onClick={() => {
+                          resetNewKitAssignment();
+                          setIsNewKitAssignmentOpen(true);
+                        }}
+                      >
+                        Nuova assegnazione
+                      </Button>
+                    }
+                  >
+                    <AthleteKitAssignmentsList
+                      assignments={athleteAssignments}
+                      onUpdateStatus={(assignment, next) => void updateAthleteClothingAssignmentStatus(assignment, next)}
+                    />
+                  </CollapsedSection>
+                </div>
+              </div>
+            ) : null}
+
+            {/* ═══════════════════════════════════ area: Amministrazione ═══ */}
+            {area === "amministrazione" ? (
+              <div key={`amministrazione-${sectionsEpoch}`} className="flex flex-col gap-[18px]">
+                {/*
+                  Sei riquadri sono diventati sei sezioni con un ordine e una
+                  sola fonte per i numeri (ADR-0056): e il componente
+                  condiviso dell'iscrizione, che legge il registro rate dal
+                  dominio e non lo ricalcola qui.
+                */}
+                <section id={ATHLETE_RECORD_SECTIONS.iscrizione} className="scroll-mt-24">
+                  <Eyebrow className="mb-3">Iscrizione e quote</Eyebrow>
+                  <AthleteEnrollmentTab
+                    athleteId={athleteId}
+                    athleteName={getAthleteFullName()}
+                    enrollmentStatus={Boolean(athlete.enrollmentStatus)}
+                    enrollmentDate={athlete.enrollmentDate || ""}
+                    enrollmentNotes={athlete.enrollmentNotes || ""}
+                    isEnrollmentSaving={isEnrollmentSaving}
+                    onEnrollmentToggle={handleEnrollmentToggle}
+                    onEnrollmentDateChange={(value: string) =>
+                      setAthlete({ ...athlete, enrollmentDate: value })
+                    }
+                    onEnrollmentDateBlur={handleEnrollmentDateBlur}
+                    onEnrollmentNotesChange={(value: string) =>
+                      setAthlete({ ...athlete, enrollmentNotes: value })
+                    }
+                    onSaveEnrollment={async () => {
+                      try {
+                        setIsEnrollmentSaving(true);
+                        await saveEnrollmentProfile({}, "Dati iscrizione salvati");
+                      } catch (error) {
+                        console.error("Error saving enrollment profile:", error);
+                        showToast(
+                          "error",
+                          "Impossibile salvare i dati di iscrizione",
+                        );
+                      } finally {
+                        setIsEnrollmentSaving(false);
+                      }
+                    }}
+                    charges={athletePaymentRecords}
+                    methodChoices={clubPaymentMethodChoices}
+                    onLedgerChanged={handleLedgerChanged}
+                    onEditInstallment={(entry) => {
+                      const record = findPaymentRecordForLedger(entry);
+                      if (record) openPaymentEditDialog(record);
+                    }}
+                    onDeleteInstallment={(entry) => {
+                      const record = findPaymentRecordForLedger(entry);
+                      if (!record) return;
+
+                      /*
+                        Una rata su cui e gia entrato denaro non si cancella: si
+                        annulla, e resta nello storico (ADR-0036).
+                      */
+                      if (entry.paidAmount > 0) requestPaymentCancel(record);
+                      else requestPaymentDelete(record);
+                    }}
+                    onAddInstallment={() => setShowAddPaymentModal(true)}
+                    planName={selectedAthletePlan?.name || null}
+                    seasonLabel={
+                      athlete.subscriptionStartDate || athlete.enrollmentStartDate
+                        ? `Abbonamento dal ${formatDate(
+                            athlete.subscriptionStartDate ||
+                              athlete.enrollmentStartDate,
+                          )}`
+                        : null
+                    }
+                    onEditPlan={
+                      selectedAthletePlan
+                        ? () => openPlanConfirmationDialog(selectedAthletePlan.id)
+                        : undefined
+                    }
+                    breakdown={
+                      <EnrollmentPaymentBreakdown
+                        summary={expectedIncomeSummary}
+                        payments={mergedPaymentRecords}
+                        mode="club"
+                        showPaymentHistory={false}
+                        /*
+                          Pagato e residuo stanno nel riepilogo in cima: qui
+                          sarebbero un secondo calcolo che, su un atleta con voci
+                          fuori piano, lo contraddice (ADR-0056).
+                        */
+                        showSettlementTotals={false}
+                      />
+                    }
+                    planEditor={
+                      <AthletePlanEditor
+                        planValue={selectedPlanValue}
+                        plans={normalizedPaymentPlans}
+                        onPlanChange={(value) => {
+                          if (value === "none") {
+                            setAthlete({
+                              ...athlete,
+                              selectedPlan: "",
+                              selectedPlanId: "",
+                              subscriptionStartDate: "",
+                              enrollmentStartDate: "",
+                              manualEnrollmentAmount: "",
+                              selectedOptionalServiceIds: [],
+                            });
+                            return;
+                          }
+                          openPlanConfirmationDialog(value);
+                        }}
+                        discountValue={athlete.discount || ""}
+                        discounts={discounts}
+                        onDiscountChange={(value) =>
+                          setAthlete({ ...athlete, discount: value === "none" ? "" : value })
+                        }
+                        selectedPlan={selectedAthletePlan}
+                        requiredServices={requiredPlanServices}
+                        optionalServices={optionalPlanServices}
+                        selectedOptionalServiceIds={selectedOptionalServiceIdSet as Set<string>}
+                        proration={enrollmentProration}
+                      />
+                    }
+                    documents={enrollmentDocuments}
+                    onCompileForm={() => setCompileFormOpen(true)}
+                    onAddDocument={() => {
+                      setNewEnrollmentDocument(createEmptyAttachment());
+                      setShowAddEnrollmentDocumentModal(true);
+                    }}
+                    onViewDocument={(document: any) => {
+                      if (!openClientFileUrl(document.fileUrl)) {
+                        showToast(
+                          "error",
+                          "File documento iscrizione non disponibile",
+                        );
+                      }
+                    }}
+                    onDownloadDocument={(document: any) => {
+                      if (
+                        !downloadClientFileUrl(
+                          document.fileUrl,
+                          document.fileName || document.name,
+                        )
+                      ) {
+                        showToast(
+                          "error",
+                          "File documento iscrizione non disponibile",
+                        );
+                      }
+                    }}
+                    onRemoveDocument={(documentId: string) =>
+                      removeStoredDocument("enrollment", documentId)
+                    }
+                  />
+                </section>
 
                 <AthleteRegistrationsPanel
                   registrations={registrations}
                   federations={clubFederations}
-                  formatDate={formatDate}
                   onAdd={() => {
                     setRegistrationToEdit(null);
                     setNewRegistration(createEmptyRegistration());
@@ -3756,392 +4121,37 @@ export default function AthleteProfilePage() {
                 />
 
                 {/*
-                  **I diritti dell'interessato, in fondo a «Generale»**
-                  (PP-01 §I).
-
-                  Stavano sopra le schede, in una fascia rossa, prima
-                  dell'anagrafica. Non duplicano nessun campo di questa scheda —
-                  non mostrano dati anagrafici affatto, ma cosa esiste in
-                  archivio su questa persona e cosa succederebbe a cancellarlo —
-                  quindi lo spostamento e un trasloco, non una fusione.
-
-                  Stanno in coda a «Generale» e non in una scheda propria perche
-                  «Generale» e la scheda che si apre da sola: la guardia
-                  dell'eliminazione nomina questa sezione, e nominare un posto
-                  che si raggiunge senza cercarlo e cio che la rende una strada.
+                  Lavoro e compensi: il componente condiviso con allenatori e
+                  staff (`originType` diverso). Si difende da solo dal ruolo:
+                  a chi non puo vederlo dice perche.
                 */}
-                {athleteId ? (
-                  <AthleteDataSubjectSection
-                    athleteId={athleteId}
-                    athleteName={athlete?.name || null}
-                    onErased={() =>
-                      router.push(
-                        clubId ? `/athletes?clubId=${clubId}` : "/athletes",
-                      )
-                    }
-                  />
-                ) : null}
-              </TabsContent>
+                <div id={ATHLETE_RECORD_SECTIONS.compensi} className="scroll-mt-24">
+                  <CollapsedSection
+                    id="compensi"
+                    recordType="atleta"
+                    title="Lavoro e compensi"
+                    summary="Rapporti di lavoro sportivo, compensi maturati ed erogati, posizione fiscale."
+                  >
+                    <PersonCompensationTab
+                      originType="athlete"
+                      originId={athleteId}
+                      firstName={athlete?.firstName || athlete?.first_name}
+                      lastName={athlete?.lastName || athlete?.last_name}
+                      fiscalCode={athlete?.fiscalCode || athlete?.fiscal_code}
+                      email={athlete?.email}
+                      phone={athlete?.phone}
+                    />
+                  </CollapsedSection>
+                </div>
+              </div>
+            ) : null}
 
-              {/* CONTATTI TAB */}
-              <TabsContent value="contatti" className="mt-4 space-y-6">
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Contatto Atleta</CardTitle>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label="Modifica i contatti dell'atleta"
-                      onClick={() => handleEditSection("contact")}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Telefono
-                        </h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Phone className="h-4 w-4 text-muted-foreground" />
-                          <p>{athlete.phone || "-"}</p>
-                        </div>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Email
-                        </h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Mail className="h-4 w-4 text-muted-foreground" />
-                          <p>{athlete.email || "-"}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Guardians */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle className="flex items-center gap-2">
-                      <Users className="h-5 w-5" />
-                      Contatto Genitore o Tutore Legale
-                    </CardTitle>
-                    <Button size="sm" onClick={addGuardian}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Aggiungi
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    {guardians.length > 0 ? (
-                      <div className="space-y-4">
-                        {guardians.map((guardian, idx) => (
-                          <div
-                            key={guardian.id}
-                            className="p-4 border rounded-lg relative"
-                          >
-                            <div className="absolute top-2 right-2 flex gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                aria-label="Modifica questo genitore o tutore"
-                                onClick={() => openEditGuardianModal(idx)}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeGuardian(guardian.id)}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                              <div>
-                                <h4 className="text-sm font-medium text-muted-foreground">
-                                  Nome
-                                </h4>
-                                <p className="mt-1">{guardian.name || "-"}</p>
-                              </div>
-                              <div>
-                                <h4 className="text-sm font-medium text-muted-foreground">
-                                  Cognome
-                                </h4>
-                                <p className="mt-1">
-                                  {guardian.surname || "-"}
-                                </p>
-                              </div>
-                              <div>
-                                <h4 className="text-sm font-medium text-muted-foreground">
-                                  Parentela
-                                </h4>
-                                <p className="mt-1">
-                                  {guardian.relationship || "-"}
-                                </p>
-                              </div>
-                              <div>
-                                <h4 className="text-sm font-medium text-muted-foreground">
-                                  Codice Fiscale
-                                </h4>
-                                <p className="mt-1">
-                                  {guardian.fiscalCode || "-"}
-                                </p>
-                              </div>
-                              <div>
-                                <h4 className="text-sm font-medium text-muted-foreground">
-                                  Data di Nascita
-                                </h4>
-                                <p className="mt-1">
-                                  {formatDate(guardian.birthDate) || "-"}
-                                </p>
-                              </div>
-                              <div>
-                                <h4 className="text-sm font-medium text-muted-foreground">
-                                  Telefono
-                                </h4>
-                                <p className="mt-1">{guardian.phone || "-"}</p>
-                              </div>
-                              <div className="md:col-span-3">
-                                <h4 className="text-sm font-medium text-muted-foreground">
-                                  Email
-                                </h4>
-                                <p className="mt-1">{guardian.email || "-"}</p>
-                              </div>
-                            </div>
-                            {(() => {
-                              const accessStatus =
-                                getGuardianAccessStatus(guardian, Date.now(), recapitiSoloContatto);
-                              const tokenValue =
-                                guardian.parentAccessTokenValue ||
-                                guardian.parent_access_token_value ||
-                                guardian.accessTokenValue ||
-                                "";
-                              const linkedEmail =
-                                guardian.linkedUserEmail ||
-                                guardian.linked_user_email ||
-                                "";
-                              const expiresAt =
-                                guardian.parentAccessTokenExpiresAt ||
-                                guardian.parent_access_token_expires_at ||
-                                guardian.accessTokenExpiresAt ||
-                                null;
-                              const timing = getGuardianTokenTiming(
-                                guardian,
-                                nowMs,
-                              );
-                              const isBusy =
-                                guardianAccessBusyId === guardian.id;
-                              const isLinked = Boolean(
-                                guardian.linkedUserId ||
-                                  guardian.linked_user_id,
-                              );
-
-                              return (
-                                <div className="mt-4 space-y-3 border-t border-slate-200 pt-4">
-                                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                    <div>
-                                      <p className="text-sm font-semibold text-slate-900">
-                                        Accesso genitore
-                                      </p>
-                                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                                        <Badge className={accessStatus.className}>
-                                          {accessStatus.label}
-                                        </Badge>
-                                        {isLinked && linkedEmail ? (
-                                          <span className="text-sm text-slate-600">
-                                            {linkedEmail}
-                                          </span>
-                                        ) : null}
-                                      </div>
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                      {isLinked ? (
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="border-red-200 text-red-700 hover:bg-red-50"
-                                          disabled={isBusy}
-                                          onClick={() => {
-                                            void handleDisconnectGuardianAccount(
-                                              guardian.id,
-                                            );
-                                          }}
-                                        >
-                                          {isBusy ? (
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                          ) : (
-                                            <Unlink2 className="mr-2 h-4 w-4" />
-                                          )}
-                                          Scollega account
-                                        </Button>
-                                      ) : (
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          disabled={isBusy}
-                                          onClick={() => {
-                                            void handleGenerateGuardianToken(
-                                              guardian.id,
-                                            );
-                                          }}
-                                        >
-                                          {isBusy ? (
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                          ) : tokenValue ? (
-                                            <RefreshCw className="mr-2 h-4 w-4" />
-                                          ) : (
-                                            <KeyRound className="mr-2 h-4 w-4" />
-                                          )}
-                                          {tokenValue
-                                            ? "Rigenera token"
-                                            : "Genera token"}
-                                        </Button>
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  {tokenValue ? (
-                                    <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3">
-                                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                        <div>
-                                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">
-                                            Token genitore
-                                          </p>
-                                          <p className="mt-1 font-mono text-lg font-semibold text-slate-900">
-                                            {formatParentAccessToken(tokenValue)}
-                                          </p>
-                                        </div>
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() => {
-                                            void copyGuardianAccessToken(
-                                              tokenValue,
-                                            );
-                                          }}
-                                        >
-                                          <Copy className="mr-2 h-4 w-4" />
-                                          Copia token
-                                        </Button>
-                                      </div>
-                                      <div className="mt-3 space-y-2">
-                                        <div className="flex items-center justify-between text-xs text-slate-600">
-                                          <span>{timing.label}</span>
-                                          <span>
-                                            Scade{" "}
-                                            {expiresAt
-                                              ? new Date(
-                                                  expiresAt,
-                                                ).toLocaleString("it-IT")
-                                              : "-"}
-                                          </span>
-                                        </div>
-                                        <div className="h-2 overflow-hidden rounded-full bg-white">
-                                          <div
-                                            className={`h-full rounded-full ${
-                                              timing.isExpired
-                                                ? "bg-amber-500"
-                                                : "bg-blue-600"
-                                            }`}
-                                            style={{
-                                              width: `${timing.progress}%`,
-                                            }}
-                                          />
-                                        </div>
-                                      </div>
-                                    </div>
-                                  ) : null}
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-center text-muted-foreground py-4">
-                        Nessun genitore o tutore registrato
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Address */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle className="flex items-center gap-2">
-                      <Home className="h-5 w-5" />
-                      Indirizzo
-                    </CardTitle>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label="Modifica l'indirizzo"
-                      onClick={() => handleEditSection("address")}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Indirizzo
-                        </h3>
-                        <p className="mt-1">{athlete.address || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          N. Civico
-                        </h3>
-                        <p className="mt-1">{athlete.streetNumber || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Comune
-                        </h3>
-                        <p className="mt-1">{athlete.city || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          CAP
-                        </h3>
-                        <p className="mt-1">{athlete.postalCode || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Paese
-                        </h3>
-                        <p className="mt-1">{athlete.country}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Regione
-                        </h3>
-                        <p className="mt-1">{athlete.region || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Provincia
-                        </h3>
-                        <p className="mt-1">{athlete.province || "-"}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* DATI SANITARI TAB */}
-              <TabsContent
-                id="sanitari"
-                value="sanitari"
-                className="mt-4 space-y-6"
-              >
+            {/* ═══════════════════════════════ area: Documenti e sanità ═══ */}
+            {area === "documenti" ? (
+              <div key={`documenti-${sectionsEpoch}`} className="flex flex-col gap-[18px]">
                 <AthleteCertificatesPanel
                   certificates={medicalCertificates}
                   deletingCertificateId={deletingCertificateId}
-                  formatDate={formatDate}
                   onAdd={() => {
                     setCertificateToEdit(null);
                     setShowAddMedicalCertificateModal(true);
@@ -4183,2518 +4193,243 @@ export default function AthleteProfilePage() {
                   onDelete={(certificate) => setCertificateToDelete(certificate)}
                 />
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Visite Mediche</CardTitle>
-                    <Button size="sm" onClick={addMedicalVisit}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Aggiungi Visita
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left p-2">Titolo</th>
-                            <th className="text-left p-2">Descrizione</th>
-                            <th className="text-left p-2">Tipologia</th>
-                            <th className="text-left p-2">Esito</th>
-                            <th className="text-left p-2">Pagamento</th>
-                            <th className="text-left p-2">Luogo</th>
-                            <th className="text-left p-2">Data</th>
-                            <th className="text-left p-2">Azioni</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {medicalVisits.length > 0 ? (
-                            medicalVisits.map((visit) => (
-                              <tr key={visit.id} className="border-b">
-                                <td className="p-2">{visit.title}</td>
-                                <td className="p-2">{visit.description}</td>
-                                <td className="p-2">{visit.type}</td>
-                                <td className="p-2">{visit.outcome || "-"}</td>
-                                <td className="p-2">{visit.paidBy}</td>
-                                <td className="p-2">{visit.location}</td>
-                                <td className="p-2">
-                                  {formatDate(visit.date)}
-                                </td>
-                                <td className="p-2">
-                                  <div className="flex gap-1">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        if (
-                                          visit.fileUrl &&
-                                          !openClientFileUrl(visit.fileUrl)
-                                        ) {
-                                          showToast(
-                                            "error",
-                                            "Allegato della visita non disponibile",
-                                          );
-                                        }
-                                      }}
-                                    >
-                                      <Eye className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        if (
-                                          visit.fileUrl &&
-                                          !downloadClientFileUrl(
-                                            visit.fileUrl,
-                                            `visita-medica-${visit.title}`,
-                                          )
-                                        ) {
-                                          showToast(
-                                            "error",
-                                            "Allegato della visita non disponibile",
-                                          );
-                                        }
-                                      }}
-                                    >
-                                      <Download className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      disabled={
-                                        deletingMedicalVisitId === visit.id
-                                      }
-                                      onClick={() => setMedicalVisitToDelete(visit)}
-                                    >
-                                      {deletingMedicalVisitId === visit.id ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                      ) : (
-                                        <Trash2 className="h-4 w-4" />
-                                      )}
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td
-                                colSpan={8}
-                                className="p-4 text-center text-muted-foreground"
-                              >
-                                Nessuna visita medica registrata
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Certificates */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Award className="h-5 w-5" />
-                      Attestati
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-6">
-                      {/* BLSD */}
-                      <div className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between">
-                          <Label
-                            htmlFor="blsd"
-                            className="flex items-center gap-2 text-base font-medium"
-                          >
-                            <Award className="h-4 w-4 text-blue-500" />
-                            BLSD
-                          </Label>
-                          <Switch
-                            id="blsd"
-                            checked={athlete.blsd}
-                            onCheckedChange={(checked) =>
-                              setAthlete({ ...athlete, blsd: checked })
-                            }
-                          />
-                        </div>
-                        {athlete.blsd && (
-                          <div className="mt-4 border-t pt-4">
-                            <CertificateAttachmentField
-                              documentType="BLSD"
-                              owner={{ type: "athlete", id: athleteId, organizationId: clubId }}
-                              value={certificateFiles.blsd}
-                              onChange={(next) => saveCertificateFile("blsd", next)}
-                              person={{
-                                firstName: athlete?.name,
-                                lastName: athlete?.surname,
-                                fullName: athlete?.fullName,
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Primo Soccorso */}
-                      <div className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between">
-                          <Label
-                            htmlFor="firstAid"
-                            className="flex items-center gap-2 text-base font-medium"
-                          >
-                            <Award className="h-4 w-4 text-red-500" />
-                            Primo Soccorso
-                          </Label>
-                          <Switch
-                            id="firstAid"
-                            checked={athlete.firstAid}
-                            onCheckedChange={(checked) =>
-                              setAthlete({ ...athlete, firstAid: checked })
-                            }
-                          />
-                        </div>
-                        {athlete.firstAid && (
-                          <div className="mt-4 border-t pt-4">
-                            <CertificateAttachmentField
-                              documentType="Primo soccorso"
-                              owner={{ type: "athlete", id: athleteId, organizationId: clubId }}
-                              value={certificateFiles.firstAid}
-                              onChange={(next) => saveCertificateFile("firstAid", next)}
-                              person={{
-                                firstName: athlete?.name,
-                                lastName: athlete?.surname,
-                                fullName: athlete?.fullName,
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Antincendio */}
-                      <div className="border rounded-lg p-4">
-                        <div className="flex items-center justify-between">
-                          <Label
-                            htmlFor="fireSafety"
-                            className="flex items-center gap-2 text-base font-medium"
-                          >
-                            <Award className="h-4 w-4 text-orange-500" />
-                            Antincendio
-                          </Label>
-                          <Switch
-                            id="fireSafety"
-                            checked={athlete.fireSafety}
-                            onCheckedChange={(checked) =>
-                              setAthlete({ ...athlete, fireSafety: checked })
-                            }
-                          />
-                        </div>
-                        {athlete.fireSafety && (
-                          <div className="mt-4 border-t pt-4">
-                            <CertificateAttachmentField
-                              documentType="Antincendio"
-                              owner={{ type: "athlete", id: athleteId, organizationId: clubId }}
-                              value={certificateFiles.fireSafety}
-                              onChange={(next) => saveCertificateFile("fireSafety", next)}
-                              person={{
-                                firstName: athlete?.name,
-                                lastName: athlete?.surname,
-                                fullName: athlete?.fullName,
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Medical Info */}
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Anagrafica Sanitaria</CardTitle>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label="Modifica l'anagrafica sanitaria"
-                      onClick={() => handleEditSection("medical")}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Gruppo Sanguigno
-                        </h3>
-                        <p className="mt-1">{athlete.bloodType || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Allergie
-                        </h3>
-                        <p className="mt-1">{athlete.allergies || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Malattie Croniche
-                        </h3>
-                        <p className="mt-1">{athlete.chronicDiseases || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Farmaci
-                        </h3>
-                        <p className="mt-1">{athlete.medications || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Contatto di Emergenza
-                        </h3>
-                        <p className="mt-1">
-                          {athlete.emergencyContact || "-"}
-                        </p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Telefono di Emergenza
-                        </h3>
-                        <p className="mt-1">{athlete.emergencyPhone || "-"}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              {/* ISCRIZIONE E PAGAMENTI TAB */}
-              <TabsContent value="pagamenti" className="mt-4 space-y-6">
-                {/*
-                  Sei riquadri sono diventati sei sezioni con un ordine e una
-                  sola fonte per i numeri (ADR-0056). Il «Riepilogo Incasso»,
-                  lo «Storico Pagamenti» e la griglia dei totali dentro la
-                  configurazione del piano dicevano la stessa cosa in tre modi
-                  diversi, e non coincidevano sempre.
-                */}
-                <AthleteEnrollmentTab
+                <AthleteSharedDocumentsPanel
                   athleteId={athleteId}
-                  /* Leggeva `fullName`/`firstName`/`lastName`, che su questo
-                     oggetto non esistono (`setAthlete` porta `name` e
-                     `surname`): valeva `null` sempre, e ogni finestra della
-                     scheda restava senza nome. Composizione unica, gia qui. */
-                  athleteName={getAthleteFullName()}
-                  enrollmentStatus={Boolean(athlete.enrollmentStatus)}
-                  enrollmentDate={athlete.enrollmentDate || ""}
-                  enrollmentNotes={athlete.enrollmentNotes || ""}
-                  isEnrollmentSaving={isEnrollmentSaving}
-                  onEnrollmentToggle={handleEnrollmentToggle}
-                  onEnrollmentDateChange={(value: string) =>
-                    setAthlete({ ...athlete, enrollmentDate: value })
-                  }
-                  onEnrollmentDateBlur={handleEnrollmentDateBlur}
-                  onEnrollmentNotesChange={(value: string) =>
-                    setAthlete({ ...athlete, enrollmentNotes: value })
-                  }
-                  onSaveEnrollment={async () => {
-                    try {
-                      setIsEnrollmentSaving(true);
-                      await saveEnrollmentProfile({}, "Dati iscrizione salvati");
-                    } catch (error) {
-                      console.error("Error saving enrollment profile:", error);
-                      showToast(
-                        "error",
-                        "Impossibile salvare i dati di iscrizione",
-                      );
-                    } finally {
-                      setIsEnrollmentSaving(false);
-                    }
-                  }}
-                  charges={athletePaymentRecords}
-                  methodChoices={clubPaymentMethodChoices}
-                  onLedgerChanged={handleLedgerChanged}
-                  onEditInstallment={(entry) => {
-                    const record = findPaymentRecordForLedger(entry);
-                    if (record) openPaymentEditDialog(record);
-                  }}
-                  onDeleteInstallment={(entry) => {
-                    const record = findPaymentRecordForLedger(entry);
-                    if (!record) return;
-
-                    /*
-                      Una rata su cui e gia entrato denaro non si cancella: si
-                      annulla, e resta nello storico (ADR-0036).
-                    */
-                    if (entry.paidAmount > 0) requestPaymentCancel(record);
-                    else requestPaymentDelete(record);
-                  }}
-                  onAddInstallment={() => setShowAddPaymentModal(true)}
-                  planName={selectedAthletePlan?.name || null}
-                  seasonLabel={
-                    athlete.subscriptionStartDate || athlete.enrollmentStartDate
-                      ? `Abbonamento dal ${formatDate(
-                          athlete.subscriptionStartDate ||
-                            athlete.enrollmentStartDate,
-                        )}`
-                      : null
-                  }
-                  onEditPlan={
-                    selectedAthletePlan
-                      ? () => openPlanConfirmationDialog(selectedAthletePlan.id)
-                      : undefined
-                  }
-                  breakdown={
-                    <EnrollmentPaymentBreakdown
-                      summary={expectedIncomeSummary}
-                      payments={mergedPaymentRecords}
-                      mode="club"
-                      showPaymentHistory={false}
-                      /*
-                        Pagato e residuo stanno nel riepilogo in cima: qui
-                        sarebbero un secondo calcolo che, su un atleta con voci
-                        fuori piano, lo contraddice (ADR-0056).
-                      */
-                      showSettlementTotals={false}
-                    />
-                  }
-                  planEditor={
-                    <div className="space-y-4">
-                      <div>
-                        <Label>Piano di pagamento</Label>
-                        <Select
-                          value={selectedPlanValue}
-                          onValueChange={(value) => {
-                            if (value === "none") {
-                              setAthlete({
-                                ...athlete,
-                                selectedPlan: "",
-                                selectedPlanId: "",
-                                subscriptionStartDate: "",
-                                enrollmentStartDate: "",
-                                manualEnrollmentAmount: "",
-                                selectedOptionalServiceIds: [],
-                              });
-                              return;
-                            }
-
-                            openPlanConfirmationDialog(value);
-                          }}
-                        >
-                          <SelectTrigger className="mt-2">
-                            <SelectValue placeholder="Seleziona un piano di pagamento" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Nessun piano</SelectItem>
-                            {normalizedPaymentPlans
-                              .filter((plan) => plan.active)
-                              .map((plan) => (
-                                <SelectItem key={plan.id} value={plan.id}>
-                                  {plan.name} - {formatCurrency(plan.totalAmount)}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div>
-                        <Label>Sconto applicato</Label>
-                        <Select
-                          value={athlete.discount || "none"}
-                          onValueChange={(value) =>
-                            setAthlete({
-                              ...athlete,
-                              discount: value === "none" ? "" : value,
-                            })
-                          }
-                        >
-                          <SelectTrigger className="mt-2">
-                            <SelectValue placeholder="Seleziona uno sconto" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Nessuno sconto</SelectItem>
-                            {discounts
-                              .filter(
-                                (discount: any) => discount.active !== false,
-                              )
-                              .map((discount: any) => (
-                                <SelectItem
-                                  key={discount.id}
-                                  value={
-                                    discount.title || discount.name || discount.id
-                                  }
-                                >
-                                  {discount.title || discount.name}{" "}
-                                  {discount.type === "percentage" && discount.value
-                                    ? `- ${discount.value}%`
-                                    : ""}{" "}
-                                  {discount.type === "fixed" && discount.value
-                                    ? `- €${discount.value}`
-                                    : ""}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {selectedAthletePlan ? (
-                        <div className="space-y-3 rounded-lg border bg-slate-50 p-3 text-sm dark:bg-slate-900/40">
-                          <div>
-                            <p className="font-medium">Servizi</p>
-                            <p className="text-xs text-muted-foreground">
-                              Gli obbligatori sono sempre inclusi. Gli opzionali
-                              valgono solo per questo atleta e si cambiano dalla
-                              conferma del piano.
-                            </p>
-                          </div>
-
-                          <div className="space-y-2">
-                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Obbligatori
-                            </p>
-                            {requiredPlanServices.length > 0 ? (
-                              requiredPlanServices.map((service) => (
-                                <div
-                                  key={service.id}
-                                  className="flex justify-between gap-3 rounded-md bg-white px-3 py-2 dark:bg-slate-950"
-                                >
-                                  <span className="min-w-0 truncate text-slate-700 dark:text-slate-200">
-                                    {service.name}
-                                  </span>
-                                  <span className="shrink-0 font-medium">
-                                    {formatCurrency(service.price)}
-                                  </span>
-                                </div>
-                              ))
-                            ) : (
-                              <p className="text-xs text-muted-foreground">
-                                Nessun servizio obbligatorio.
-                              </p>
-                            )}
-                          </div>
-
-                          {optionalPlanServices.length > 0 ? (
-                            <div className="space-y-2">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                Opzionali
-                              </p>
-                              {optionalPlanServices.map((service) => (
-                                <label
-                                  key={service.id}
-                                  className="flex items-center justify-between gap-3 rounded-md bg-white px-3 py-2 dark:bg-slate-950"
-                                >
-                                  <span className="flex min-w-0 items-center gap-2">
-                                    <Checkbox
-                                      checked={selectedOptionalServiceIdSet.has(
-                                        service.id,
-                                      )}
-                                      disabled
-                                    />
-                                    <span className="min-w-0">
-                                      <span className="block truncate font-medium text-slate-800 dark:text-slate-200">
-                                        {service.name}
-                                      </span>
-                                      {service.description ? (
-                                        <span className="block truncate text-xs text-muted-foreground">
-                                          {service.description}
-                                        </span>
-                                      ) : null}
-                                    </span>
-                                  </span>
-                                  <span className="shrink-0 font-medium">
-                                    {formatCurrency(service.price)}
-                                  </span>
-                                </label>
-                              ))}
-                            </div>
-                          ) : null}
-
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Pro-rata
-                            </p>
-                            {/*
-                              Quattro situazioni diverse dicevano tutte «non
-                              applicato»: piano senza pro-rata, acceso senza
-                              metodo, periodo mancante, e piano non ancora
-                              scelto. Si risolvono in tre posti diversi:
-                              `describeProrationResult` le distingue.
-                            */}
-                            <p
-                              className={
-                                enrollmentProration.tone === "applied"
-                                  ? "mt-1 text-sm font-medium text-emerald-700"
-                                  : enrollmentProration.tone === "warning"
-                                    ? "mt-1 text-sm font-medium text-amber-700"
-                                    : "mt-1 text-sm text-muted-foreground"
-                              }
-                            >
-                              {enrollmentProration.label}
-                            </p>
-                            {enrollmentProration.detail ? (
-                              <p className="mt-1 text-sm text-muted-foreground">
-                                {enrollmentProration.detail}
-                              </p>
-                            ) : null}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  }
-                  documents={enrollmentDocuments}
+                  documents={sharedDocuments}
+                  busy={sharedDocumentBusy}
+                  onRefresh={() => void refreshSharedDocuments()}
+                  onRequest={() => setSharedRequestOpen(true)}
+                  onUpload={() => setSharedUploadOpen(true)}
                   onCompileForm={() => setCompileFormOpen(true)}
-                  onAddDocument={() => {
-                    setNewEnrollmentDocument(createEmptyAttachment());
-                    setShowAddEnrollmentDocumentModal(true);
+                  onApprove={(documentId) => void handleSharedDocumentAction(documentId, "approve")}
+                  onReject={(documentId) => {
+                    setSharedRejectReason("");
+                    setSharedRejectTarget(documentId);
                   }}
-                  onViewDocument={(document: any) => {
-                    if (!openClientFileUrl(document.fileUrl)) {
-                      showToast(
-                        "error",
-                        "File documento iscrizione non disponibile",
-                      );
-                    }
-                  }}
-                  onDownloadDocument={(document: any) => {
-                    if (
-                      !downloadClientFileUrl(
-                        document.fileUrl,
-                        document.fileName || document.name,
-                      )
-                    ) {
-                      showToast(
-                        "error",
-                        "File documento iscrizione non disponibile",
-                      );
-                    }
-                  }}
-                  onRemoveDocument={(documentId: string) =>
-                    removeStoredDocument("enrollment", documentId)
-                  }
+                  onRemind={(documentId) => void handleSharedDocumentAction(documentId, "remind")}
+                  onDelete={(documentId) => void handleSharedDocumentAction(documentId, "delete")}
                 />
-              </TabsContent>
 
-              {/* ABBIGLIAMENTO TAB */}
-              <TabsContent value="abbigliamento" className="mt-4 space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Taglie</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      {/* Container taglie */}
-                      <div className="md:col-span-3">
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                          <div>
-                            <Label>Profilo Taglie</Label>
-                            <Select
-                              value={activeClothingProfile}
-                              onValueChange={(value) =>
-                                setClothingSizes({
-                                  ...clothingSizes,
-                                  profile: value,
-                                  shirtSize: "",
-                                  pantsSize: "",
-                                  shoeSize: "",
-                                })
-                              }
-                            >
-                              <SelectTrigger className="mt-2">
-                                <SelectValue placeholder="Seleziona profilo" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {[
-                                  "BAMBINO",
-                                  "BAMBINA",
-                                  "UOMO",
-                                  "DONNA",
-                                ].map((profile) => (
-                                  <SelectItem key={profile} value={profile}>
-                                    {profile}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label>Taglia Maglietta</Label>
-                            <Select
-                              value={clothingSizes.shirtSize || ""}
-                              onValueChange={(v) =>
-                                setClothingSizes({
-                                  ...clothingSizes,
-                                  shirtSize: v,
-                                })
-                              }
-                            >
-                              <SelectTrigger className="mt-2">
-                                <SelectValue placeholder="Seleziona" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {activeClothingOptions.shirt.map((size) => (
-                                  <SelectItem key={size} value={size}>
-                                    {size}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label>Taglia Pantaloni</Label>
-                            <Select
-                              value={clothingSizes.pantsSize || ""}
-                              onValueChange={(v) =>
-                                setClothingSizes({
-                                  ...clothingSizes,
-                                  pantsSize: v,
-                                })
-                              }
-                            >
-                              <SelectTrigger className="mt-2">
-                                <SelectValue placeholder="Seleziona" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {activeClothingOptions.pants.map((size) => (
-                                  <SelectItem key={size} value={size}>
-                                    {size}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label>Taglia Scarpe</Label>
-                            <Select
-                              value={clothingSizes.shoeSize || ""}
-                              onValueChange={(v) =>
-                                setClothingSizes({
-                                  ...clothingSizes,
-                                  shoeSize: v,
-                                })
-                              }
-                            >
-                              <SelectTrigger className="mt-2">
-                                <SelectValue placeholder="Seleziona" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {activeClothingOptions.shoes.map((size) => (
-                                  <SelectItem key={size} value={size}>
-                                    {size}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        </div>
-                      </div>
+                <AthleteHealthInfoCard athlete={athlete} onEdit={() => handleEditSection("medical")} />
 
-                      {/* Riquadro numero maglia */}
-                      <div className="md:col-span-1">
-                        <Label>Numero maglia</Label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const selectedEntry =
-                              athleteJerseyNumberDetails.primaryRecord ||
-                              athleteJerseyAssignments.find(
-                                (entry) => entry.groupId === defaultJerseyGroupId,
-                              ) || athleteJerseyAssignments[0];
-                            setJerseyGroupDraft(
-                              selectedEntry?.groupId ||
-                                defaultJerseyGroupId ||
-                                "",
-                            );
-                            setJerseyNumberDraft(
-                              selectedEntry?.number === null ||
-                                selectedEntry?.number === undefined
-                                ? jerseyNumberTileValue === null
-                                  ? ""
-                                  : String(jerseyNumberTileValue)
-                                : String(selectedEntry.number),
-                            );
-                            setIsJerseyNumberDialogOpen(true);
-                          }}
-                          className="mt-2 w-full group rounded-xl border bg-background shadow-sm hover:shadow-md transition overflow-hidden"
-                          aria-label="Modifica numero maglia"
-                        >
-                          <div className="relative aspect-[4/3] w-full">
-                            <div className="absolute inset-0 bg-gradient-to-br from-blue-500 via-blue-600 to-blue-800" />
-                            <div className="absolute inset-0 opacity-20">
-                              <div className="absolute -top-6 -right-6 w-28 h-28 rounded-full bg-white/30" />
-                              <div className="absolute -bottom-8 -left-8 w-36 h-36 rounded-full bg-white/20" />
-                            </div>
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <div className="relative flex items-center justify-center">
-                                <Shirt className="h-20 w-20 text-white/30" />
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                  <span className="text-4xl font-extrabold tracking-tight text-white drop-shadow-sm">
-                                    {jerseyNumberTileValue === null ||
-                                    jerseyNumberTileValue === undefined
-                                      ? "—"
-                                      : String(jerseyNumberTileValue).slice(
-                                          0,
-                                          3,
-                                        )}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                          <div className="p-3 text-left">
-                            <div className="mb-2 flex flex-wrap gap-1">
-                              <Badge variant="secondary">
-                                {primaryJerseyGroupName}
-                              </Badge>
-                              {hasDuplicateJerseyNumber ? (
-                                <Badge className="bg-amber-100 text-amber-800">
-                                  Duplicato
-                                </Badge>
-                              ) : null}
-                              {randomJerseyNumberSuggestion !== null ? (
-                                <Badge className="bg-blue-100 text-blue-800">
-                                  Random: {randomJerseyNumberSuggestion}
-                                </Badge>
-                              ) : null}
-                            </div>
-                            <p className="text-xs text-muted-foreground">
-                              {jerseyNumberSummary}
-                            </p>
-                          </div>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end mt-4">
-                      <Button
-                        onClick={saveClothingSizes}
-                        className="bg-blue-600 hover:bg-blue-700"
-                      >
-                        Salva taglie
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Numeri assegnati</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {athleteJerseyNumberDetails.records.length ? (
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                        {athleteJerseyNumberDetails.records
-                          .filter((entry) => entry.number !== null)
-                          .map((entry) => {
-                            const group = entry.groupId
-                              ? jerseyGroupById.get(entry.groupId)
-                              : null;
-                            const duplicated =
-                              athleteJerseyNumberDetails.duplicateRecords.some(
-                                (duplicate) => duplicate.id === entry.id,
-                              );
-                          return (
-                            <div
-                              key={entry.id || `${entry.groupId}:${entry.number}`}
-                              className="rounded-lg border bg-white p-4"
-                            >
-                              <p className="text-sm text-muted-foreground">
-                                {group?.name || "Senza gruppo"}
-                              </p>
-                              <p className="mt-1 text-3xl font-semibold">
-                                {entry.number}
-                              </p>
-                              <div className="mt-2 flex flex-wrap gap-1">
-                                <Badge variant="secondary">
-                                  {entry.source === "clothing_assignment"
-                                    ? "Da assegnazione kit"
-                                    : "Manuale"}
-                                </Badge>
-                                {duplicated ? (
-                                  <Badge className="bg-amber-100 text-amber-800">
-                                    Duplicato
-                                  </Badge>
-                                ) : null}
-                              </div>
-                              <p className="mt-2 text-xs text-muted-foreground">
-                                {group?.season || "Numero legato al gruppo"}
-                              </p>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                        Nessun numero assegnato a gruppi numerazione.
-                        {randomJerseyNumberSuggestion !== null ? (
-                          <span className="mt-2 block">
-                            Numero random disponibile:{" "}
-                            <strong>{randomJerseyNumberSuggestion}</strong>
-                          </span>
-                        ) : null}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle>Assegnazioni kit</CardTitle>
-                      <Button
-                        className="bg-blue-600 hover:bg-blue-700"
-                        onClick={() => {
-                          resetNewKitAssignment();
-                          setIsNewKitAssignmentOpen(true);
-                        }}
-                      >
-                        + Nuova assegnazione
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-muted/50">
-                          <tr className="border-b">
-                            <th className="text-left p-2">Data</th>
-                            <th className="text-left p-2">Kit/Articoli</th>
-                            <th className="text-left p-2">Dettagli</th>
-                            <th className="text-left p-2">Origine</th>
-                            <th className="text-left p-2">Stato</th>
-                            <th className="text-left p-2">Azioni</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {athleteAssignments.length ? (
-                            athleteAssignments.map((a: ClothingAssignment) => (
-                              <tr key={a.id} className="border-b align-top">
-                                <td className="p-2">
-                                  {formatDate(a.createdAt)}
-                                </td>
-                                <td className="p-2">
-                                  <div className="font-medium">
-                                    {a.kitName || "Articoli"}
-                                  </div>
-                                  {a.notes ? (
-                                    <div className="mt-1 text-xs text-muted-foreground">
-                                      {a.notes}
-                                    </div>
-                                  ) : null}
-                                </td>
-                                <td className="p-2">
-                                  <div className="space-y-2">
-                                    {(a.items || []).map((it) => (
-                                      <div
-                                        key={it.id}
-                                        className="rounded-md border bg-white p-2"
-                                      >
-                                        <div className="font-medium">
-                                          {it.name}
-                                        </div>
-                                        <div className="mt-1 flex flex-wrap gap-1">
-                                          {[it.size, it.color, it.variant]
-                                            .filter(Boolean)
-                                            .map((value) => (
-                                              <Badge
-                                                key={String(value)}
-                                                variant="secondary"
-                                                className="text-xs"
-                                              >
-                                                {value}
-                                              </Badge>
-                                            ))}
-                                          {it.number !== null &&
-                                          it.number !== undefined ? (
-                                            <Badge className="border-blue-200 bg-blue-50 text-blue-700">
-                                              n.{it.number}
-                                            </Badge>
-                                          ) : null}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </td>
-                                <td className="p-2">
-                                  {a.source === "inventory"
-                                    ? "Magazzino"
-                                    : a.source === "supplier_order"
-                                      ? "Fornitore"
-                                      : "Manuale"}
-                                </td>
-                                <td className="p-2">
-                                  <Badge
-                                    variant="outline"
-                                    className={clothingStatusBadgeClass(a.status)}
-                                  >
-                                    {assignmentStatusLabels[a.status]}
-                                  </Badge>
-                                </td>
-                                <td className="p-2">
-                                  <div className="flex flex-wrap gap-2">
-                                    {a.status !== "delivered" &&
-                                    a.status !== "cancelled" ? (
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() =>
-                                          updateAthleteClothingAssignmentStatus(
-                                            a,
-                                            "delivered",
-                                          )
-                                        }
-                                      >
-                                        Consegnato
-                                      </Button>
-                                    ) : null}
-                                    {a.status !== "cancelled" ? (
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() =>
-                                          updateAthleteClothingAssignmentStatus(
-                                            a,
-                                            "cancelled",
-                                          )
-                                        }
-                                      >
-                                        Annulla
-                                      </Button>
-                                    ) : null}
-                                  </div>
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td
-                                colSpan={6}
-                                className="p-4 text-center text-muted-foreground"
-                              >
-                                Nessuna assegnazione registrata
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Dialog Nuova Assegnazione */}
-                <Dialog
-                  open={isNewKitAssignmentOpen}
-                  onOpenChange={setIsNewKitAssignmentOpen}
-                >
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Nuova assegnazione</DialogTitle>
-                    </DialogHeader>
-
-                    <div className="space-y-4 py-2">
-                      <div>
-                        <Label>Tipo assegnazione</Label>
-                        <div className="flex gap-4 mt-2">
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="radio"
-                              id="ass-kit"
-                              name="assType"
-                              value="kit"
-                              checked={
-                                newKitAssignment.assignmentType === "kit"
-                              }
-                              onChange={(e) =>
-                                setNewKitAssignment({
-                                  ...newKitAssignment,
-                                  assignmentType: e.target.value,
-                                })
-                              }
-                            />
-                            <Label htmlFor="ass-kit">Kit completo</Label>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <input
-                              type="radio"
-                              id="ass-comp"
-                              name="assType"
-                              value="components"
-                              checked={
-                                newKitAssignment.assignmentType === "components"
-                              }
-                              onChange={(e) =>
-                                setNewKitAssignment({
-                                  ...newKitAssignment,
-                                  assignmentType: e.target.value,
-                                })
-                              }
-                            />
-                            <Label htmlFor="ass-comp">Componenti singoli</Label>
-                          </div>
-                        </div>
-                      </div>
-
-                      {newKitAssignment.assignmentType === "kit" ? (
-                        <div className="space-y-4">
-                          <Label>Seleziona kit</Label>
-                          <Select
-                            value={newKitAssignment.kitId}
-                            onValueChange={(val) => {
-                              const selectedKit = clothingKits.find(
-                                (k: any) => k.id === val,
-                              );
-                              setNewKitAssignment({
-                                ...newKitAssignment,
-                                kitId: val,
-                                components: buildAthleteKitBuilderComponents(
-                                  selectedKit?.components,
-                                ),
-                              });
-                            }}
-                          >
-                            <SelectTrigger className="mt-2">
-                              <SelectValue placeholder="Seleziona kit" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {clothingKits.map((k: any) => (
-                                <SelectItem key={k.id} value={k.id}>
-                                  {k.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {newKitAssignment.kitId && (
-                            <div>
-                              <Label>Dettaglio assegnazione</Label>
-                              <div className="mt-2 rounded-xl border bg-slate-50/60 p-4">
-                                <CustomKitComponentsBuilder
-                                  value={newKitAssignment.components}
-                                  onChange={(components) =>
-                                    setNewKitAssignment({
-                                      ...newKitAssignment,
-                                      components,
-                                    })
-                                  }
-                                  defaultComponents={buildAthleteKitBuilderComponents(
-                                    clothingKits.find(
-                                      (k: any) => k.id === newKitAssignment.kitId,
-                                    )?.components,
-                                  )}
-                                  availableSizes={athleteAssignmentSizeOptions}
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div>
-                          <Label>Componenti singoli</Label>
-                          <div className="mt-2 rounded-xl border bg-slate-50/60 p-4">
-                            <CustomKitComponentsBuilder
-                              value={newKitAssignment.components}
-                              onChange={(components) =>
-                                setNewKitAssignment({
-                                  ...newKitAssignment,
-                                  components,
-                                })
-                              }
-                              availableSizes={athleteAssignmentSizeOptions}
-                            />
-                          </div>
-                          <p className="mt-2 text-xs text-muted-foreground">
-                            Durante l&apos;assegnazione puoi definire taglie e
-                            numero maglia del singolo atleta.
-                          </p>
-                        </div>
-                      )}
-
-                      <div>
-                        <Label>Note</Label>
-                        <Textarea
-                          className="mt-2"
-                          value={newKitAssignment.notes}
-                          onChange={(e) =>
-                            setNewKitAssignment({
-                              ...newKitAssignment,
-                              notes: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          onClick={() => setIsNewKitAssignmentOpen(false)}
-                        >
-                          Annulla
-                        </Button>
-                        <Button
-                          className="bg-blue-600 hover:bg-blue-700"
-                          onClick={addAthleteKitAssignment}
-                          disabled={
-                            newKitAssignment.assignmentType === "kit"
-                              ? !newKitAssignment.kitId
-                              : !(newKitAssignment.components || []).length
-                          }
-                        >
-                          Conferma
-                        </Button>
-                      </div>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              </TabsContent>
-
-              {/* DOCUMENTI TAB */}
-              <TabsContent value="documenti" className="mt-4 space-y-6">
-                <Card>
-                  <CardHeader>
-                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <CardTitle>Documenti condivisi con parent</CardTitle>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Richiedi, condividi, approva o rifiuta i documenti visibili alla famiglia.
-                        </p>
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void refreshSharedDocuments()}
-                        disabled={sharedDocumentBusy}
-                      >
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                        Aggiorna
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="grid gap-4 xl:grid-cols-3">
-                      <div className="rounded-lg border p-4">
-                        <h3 className="font-semibold text-slate-900">Richiedi documento</h3>
-                        <div className="mt-4 grid gap-3">
-                          <Input
-                            placeholder="Titolo documento"
-                            value={requiredSharedDocument.title}
-                            onChange={(event) =>
-                              setRequiredSharedDocument((current) => ({
-                                ...current,
-                                title: event.target.value,
-                              }))
-                            }
-                          />
-                          <Select
-                            value={requiredSharedDocument.documentType}
-                            onValueChange={(value) =>
-                              setRequiredSharedDocument((current) => ({
-                                ...current,
-                                documentType: value,
-                              }))
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Tipo documento" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {DOCUMENT_KIND_OPTIONS.map((type) => (
-                                <SelectItem key={type.value} value={type.value}>
-                                  {type.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Input
-                            type="date"
-                            value={requiredSharedDocument.dueDate}
-                            onChange={(event) =>
-                              setRequiredSharedDocument((current) => ({
-                                ...current,
-                                dueDate: event.target.value,
-                              }))
-                            }
-                          />
-                          <Textarea
-                            placeholder="Note per il parent"
-                            value={requiredSharedDocument.description}
-                            onChange={(event) =>
-                              setRequiredSharedDocument((current) => ({
-                                ...current,
-                                description: event.target.value,
-                              }))
-                            }
-                          />
-                          <Button onClick={handleRequestSharedDocument} disabled={sharedDocumentBusy}>
-                            <FileText className="mr-2 h-4 w-4" />
-                            Richiedi al parent
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border p-4">
-                        <h3 className="font-semibold text-slate-900">Carica documento club</h3>
-                        <div className="mt-4 grid gap-3">
-                          <Input
-                            placeholder="Titolo documento"
-                            value={clubSharedDocumentUpload.title}
-                            onChange={(event) =>
-                              setClubSharedDocumentUpload((current) => ({
-                                ...current,
-                                title: event.target.value,
-                              }))
-                            }
-                          />
-                          <Select
-                            value={clubSharedDocumentUpload.documentType}
-                            onValueChange={(value) =>
-                              setClubSharedDocumentUpload((current) => ({
-                                ...current,
-                                documentType: value,
-                              }))
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Tipo documento" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {DOCUMENT_KIND_OPTIONS.map((type) => (
-                                <SelectItem key={type.value} value={type.value}>
-                                  {type.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Input
-                            type="file"
-                            accept=".pdf,image/jpeg,image/png,image/heic,image/heif"
-                            onChange={(event) =>
-                              setClubSharedDocumentUpload((current) => ({
-                                ...current,
-                                file: event.target.files?.[0] || null,
-                              }))
-                            }
-                          />
-                          <Textarea
-                            placeholder="Descrizione"
-                            value={clubSharedDocumentUpload.description}
-                            onChange={(event) =>
-                              setClubSharedDocumentUpload((current) => ({
-                                ...current,
-                                description: event.target.value,
-                              }))
-                            }
-                          />
-                          <Button onClick={handleUploadClubSharedDocument} disabled={sharedDocumentBusy}>
-                            <Upload className="mr-2 h-4 w-4" />
-                            Condividi con parent
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border p-4">
-                        <h3 className="font-semibold text-slate-900">Compila un modulo</h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          L&apos;atleta e gia selezionato e i dati che EasyGame
-                          conosce arrivano precompilati.
-                        </p>
-                        <div className="mt-4">
-                          <Button
-                            className="w-full"
-                            onClick={() => setCompileFormOpen(true)}
-                          >
-                            <FileText className="mr-2 h-4 w-4" />
-                            Compila modulo
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {sharedDocuments.length === 0 ? (
-                      <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-                        Nessun documento condiviso o richiesto.
-                      </div>
-                    ) : (
-                      <div className="grid gap-3">
-                        {sharedDocuments.map((document) => (
-                          <div key={document.id} className="rounded-lg border bg-white p-4">
-                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                              <div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <p className="font-semibold text-slate-900">{document.title}</p>
-                                  <Badge
-                                    variant="outline"
-                                    className={getSharedDocumentStatusClassName(document.status)}
-                                  >
-                                    {getSharedDocumentStatusLabel(document.status)}
-                                  </Badge>
-                                  <Badge variant="secondary">
-                                    {getSharedDocumentTypeLabel(document.documentType)}
-                                  </Badge>
-                                </div>
-                                <p className="mt-1 text-sm text-muted-foreground">
-                                  {document.uploadedByRole === "parent"
-                                    ? "Caricato dal parent"
-                                    : "Creato dal club"}
-                                  {document.fileName ? ` - ${document.fileName}` : ""}
-                                </p>
-                                {document.description ? (
-                                  <p className="mt-2 text-sm">{document.description}</p>
-                                ) : null}
-                                {document.dueDate ? (
-                                  <p className="mt-1 text-xs text-muted-foreground">
-                                    Scadenza: {formatDate(document.dueDate)}
-                                  </p>
-                                ) : null}
-                                {document.rejectionReason ? (
-                                  <p className="mt-1 text-xs font-medium text-red-600">
-                                    Motivo rifiuto: {document.rejectionReason}
-                                  </p>
-                                ) : null}
-                              </div>
-
-                              <div className="flex flex-wrap gap-2 md:justify-end">
-                                {document.assetId ? (
-                                  <>
-                                    <Button variant="outline" size="sm" asChild>
-                                      <a
-                                        href={`/api/athletes/${athleteId}/documents/${document.id}/file`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                      >
-                                        <Eye className="mr-2 h-4 w-4" />
-                                        Visualizza
-                                      </a>
-                                    </Button>
-                                    <Button variant="outline" size="sm" asChild>
-                                      <a
-                                        /*
-                                          `?download` distingue le due azioni
-                                          lato server: prima i due pulsanti
-                                          puntavano allo stesso indirizzo e la
-                                          rotta rispondeva sempre «scarica»,
-                                          quindi «Visualizza» non mostrava
-                                          niente (RC Fix 1, punto 8).
-                                        */
-                                        href={`/api/athletes/${athleteId}/documents/${document.id}/file?download=1`}
-                                        download={document.fileName || document.title}
-                                      >
-                                        <Download className="mr-2 h-4 w-4" />
-                                        Scarica
-                                      </a>
-                                    </Button>
-                                  </>
-                                ) : null}
-                                {document.uploadedByRole === "parent" &&
-                                ["under_review", "uploaded", "rejected"].includes(
-                                  String(document.status || ""),
-                                ) ? (
-                                  <>
-                                    <Button
-                                      size="sm"
-                                      onClick={() =>
-                                        handleSharedDocumentAction(document.id, "approve")
-                                      }
-                                      disabled={sharedDocumentBusy}
-                                    >
-                                      Approva
-                                    </Button>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() =>
-                                        handleSharedDocumentAction(document.id, "reject")
-                                      }
-                                      disabled={sharedDocumentBusy}
-                                    >
-                                      Rifiuta
-                                    </Button>
-                                  </>
-                                ) : null}
-                                {/*
-                                  W6-50. `expired` mancava, e proprio le
-                                  richieste **scadute** sono quelle da
-                                  sollecitare: il pulsante spariva esattamente
-                                  dove serviva. Lo stato lo calcola il dominio
-                                  da quando `getSharedDocumentStatusLabel` lo
-                                  conosce.
-                                */}
-                                {["required", "rejected", "expired"].includes(
-                                  String(document.status || ""),
-                                ) ? (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() =>
-                                      handleSharedDocumentAction(document.id, "remind")
-                                    }
-                                    disabled={sharedDocumentBusy}
-                                  >
-                                    Sollecita
-                                  </Button>
-                                ) : null}
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    handleSharedDocumentAction(document.id, "delete")
-                                  }
-                                  disabled={sharedDocumentBusy}
-                                >
-                                  <Trash2 className="h-4 w-4 text-red-500" />
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Documento di Identità</CardTitle>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label="Modifica il documento di identita"
-                        onClick={() => handleEditSection("identity")}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Tipo di Documento
-                        </h3>
-                        <p className="mt-1">{athlete.documentType || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Numero Documento
-                        </h3>
-                        <p className="mt-1">{athlete.documentNumber || "-"}</p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Rilascio
-                        </h3>
-                        <p className="mt-1">
-                          {formatDate(athlete.documentIssue) || "-"}
-                        </p>
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Scadenza
-                        </h3>
-                        <p className="mt-1">
-                          {formatDate(athlete.documentExpiry) || "-"}
-                        </p>
-                      </div>
-                      <div className="md:col-span-2">
-                        <h3 className="text-sm font-medium text-muted-foreground">
-                          Scadenza Permesso di Soggiorno
-                        </h3>
-                        <p className="mt-1">
-                          {formatDate(athlete.residencePermitExpiry) || "-"}
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Allegati Documento di Identita</CardTitle>
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setNewIdentityDocument(createEmptyAttachment());
-                        setShowAddIdentityDocumentModal(true);
+                <div id={ATHLETE_RECORD_SECTIONS.visite} className="scroll-mt-24">
+                  <CollapsedSection
+                    id="visite"
+                    recordType="atleta"
+                    title="Visite mediche"
+                    count={medicalVisits.length}
+                    summary={
+                      medicalVisits.length
+                        ? joinMeta(medicalVisits[medicalVisits.length - 1]?.title, medicalVisits[medicalVisits.length - 1]?.date ? formatDateShort(medicalVisits[medicalVisits.length - 1].date) : null)
+                        : "Nessuna visita medica registrata"
+                    }
+                    actions={<AddAction label="Aggiungi visita" onClick={addMedicalVisit} />}
+                  >
+                    <AthleteMedicalVisitsList
+                      visits={medicalVisits}
+                      deletingId={deletingMedicalVisitId}
+                      onView={(visit) => {
+                        if (visit.fileUrl && !openClientFileUrl(visit.fileUrl)) {
+                          showToast("error", "Allegato della visita non disponibile");
+                        }
                       }}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Aggiungi Allegato
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left p-2">Nome</th>
-                            <th className="text-left p-2">Tipo</th>
-                            <th className="text-left p-2">Data Caricamento</th>
-                            <th className="text-left p-2">Azioni</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {identityDocuments.length > 0 ? (
-                            identityDocuments.map((document) => (
-                              <tr key={document.id} className="border-b">
-                                <td className="p-2">{document.name}</td>
-                                <td className="p-2">
-                                  {document.type || "Documento Identita"}
-                                </td>
-                                <td className="p-2">
-                                  {formatDate(document.uploadDate)}
-                                </td>
-                                <td className="p-2">
-                                  <div className="flex gap-1">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        if (
-                                          !openClientFileUrl(document.fileUrl)
-                                        ) {
-                                          showToast(
-                                            "error",
-                                            "File documento non disponibile",
-                                          );
-                                        }
-                                      }}
-                                    >
-                                      <Eye className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        if (
-                                          !downloadClientFileUrl(
-                                            document.fileUrl,
-                                            document.fileName || document.name,
-                                          )
-                                        ) {
-                                          showToast(
-                                            "error",
-                                            "File documento non disponibile",
-                                          );
-                                        }
-                                      }}
-                                    >
-                                      <Download className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() =>
-                                        removeStoredDocument(
-                                          "identity",
-                                          document.id,
-                                        )
-                                      }
-                                    >
-                                      <Trash2 className="h-4 w-4 text-red-500" />
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td
-                                colSpan={4}
-                                className="p-4 text-center text-muted-foreground"
-                              >
-                                Nessun allegato documento caricato
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
+                      onDownload={(visit) => {
+                        if (
+                          visit.fileUrl &&
+                          !downloadClientFileUrl(visit.fileUrl, `visita-medica-${visit.title}`)
+                        ) {
+                          showToast("error", "Allegato della visita non disponibile");
+                        }
+                      }}
+                      onDelete={(visit) => setMedicalVisitToDelete(visit)}
+                    />
+                  </CollapsedSection>
+                </div>
 
-                <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle>Altri Documenti</CardTitle>
-                    <Button
-                      size="sm"
-                      onClick={() => setShowAddDocumentModal(true)}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Aggiungi Documento
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left p-2">Nome</th>
-                            <th className="text-left p-2">Tipo</th>
-                            <th className="text-left p-2">Data Caricamento</th>
-                            <th className="text-left p-2">Azioni</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {documents.length > 0 ? (
-                            documents.map((doc, idx) => (
-                              <tr key={idx} className="border-b">
-                                <td className="p-2">{doc.name}</td>
-                                <td className="p-2">{doc.type}</td>
-                                <td className="p-2">
-                                  {formatDate(doc.uploadDate)}
-                                </td>
-                                <td className="p-2">
-                                  <div className="flex gap-1">
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        if (!openClientFileUrl(doc.fileUrl)) {
-                                          showToast(
-                                            "error",
-                                            "File documento non disponibile",
-                                          );
-                                        }
-                                      }}
-                                    >
-                                      <Eye className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => {
-                                        if (
-                                          !downloadClientFileUrl(
-                                            doc.fileUrl,
-                                            doc.fileName || doc.name,
-                                          )
-                                        ) {
-                                          showToast(
-                                            "error",
-                                            "File documento non disponibile",
-                                          );
-                                        }
-                                      }}
-                                    >
-                                      <Download className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() =>
-                                        handleDeleteDocument(doc.id)
-                                      }
-                                    >
-                                      <Trash2 className="h-4 w-4 text-red-500" />
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td
-                                colSpan={4}
-                                className="p-4 text-center text-muted-foreground"
-                              >
-                                Nessun documento caricato
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+                <div id={ATHLETE_RECORD_SECTIONS.attestati} className="scroll-mt-24">
+                  <CollapsedSection
+                    id="attestati"
+                    recordType="atleta"
+                    title="Attestati"
+                    count={attestatiConseguiti.length}
+                    summary={attestatiConseguiti.length ? attestatiConseguiti.join(" · ") : "Nessun attestato conseguito"}
+                  >
+                    <AthleteAttestatiPanel
+                      athlete={athlete}
+                      athleteId={athleteId}
+                      clubId={clubId}
+                      certificateFiles={certificateFiles}
+                      onToggle={(field, checked) => setAthlete({ ...athlete, [field]: checked })}
+                      onFileChange={(key, next) => void saveCertificateFile(key, next)}
+                    />
+                  </CollapsedSection>
+                </div>
 
-              {/* ANALITICHE TAB */}
-              <TabsContent value="analitiche" className="mt-4 space-y-6">
-                <AthleteCategoryAnalyticsSection
-                  analytics={athleteCategoryAnalytics}
-                />
-              </TabsContent>
+                <div id={ATHLETE_RECORD_SECTIONS.identita} className="scroll-mt-24">
+                  <CollapsedSection
+                    id="documento-identita"
+                    recordType="atleta"
+                    title="Documento di identità"
+                    count={identityDocuments.length}
+                    summary={summarizeIdentityDocument(athlete)}
+                    actions={
+                      <>
+                        <AddDocumentAction
+                          label="Aggiungi allegato"
+                          onClick={() => {
+                            setNewIdentityDocument(createEmptyAttachment());
+                            setShowAddIdentityDocumentModal(true);
+                          }}
+                        />
+                        <Button variant="secondary" size="sm" onClick={() => handleEditSection("identity")}>
+                          Modifica
+                        </Button>
+                      </>
+                    }
+                  >
+                    <AthleteIdentityDocumentFields athlete={athlete} />
+                    <Hairline className="my-5" />
+                    <Eyebrow className="mb-3">Allegati del documento</Eyebrow>
+                    <AthleteStoredDocumentsList
+                      aria-label="Allegati del documento di identità"
+                      documents={identityDocuments}
+                      fallbackType="Documento identità"
+                      empty="Nessun allegato documento caricato"
+                      onView={(document) => {
+                        if (!openClientFileUrl(document.fileUrl)) {
+                          showToast("error", "File documento non disponibile");
+                        }
+                      }}
+                      onDownload={(document) => {
+                        if (!downloadClientFileUrl(document.fileUrl, document.fileName || document.name)) {
+                          showToast("error", "File documento non disponibile");
+                        }
+                      }}
+                      onDelete={(document) => void removeStoredDocument("identity", document.id)}
+                    />
+                  </CollapsedSection>
+                </div>
 
-              {/* LAVORO E COMPENSI */}
-              <TabsContent value="lavoro" className="mt-4 space-y-6">
-                <PersonCompensationTab
-                  originType="athlete"
-                  originId={athleteId}
-                  firstName={athlete?.firstName || athlete?.first_name}
-                  lastName={athlete?.lastName || athlete?.last_name}
-                  fiscalCode={athlete?.fiscalCode || athlete?.fiscal_code}
-                  email={athlete?.email}
-                  phone={athlete?.phone}
-                />
-              </TabsContent>
-            </Tabs>
+                <div id={ATHLETE_RECORD_SECTIONS.altriDocumenti} className="scroll-mt-24">
+                  <CollapsedSection
+                    id="altri-documenti"
+                    recordType="atleta"
+                    title="Altri documenti"
+                    count={documents.length}
+                    summary={documents.length ? documents.map((doc) => doc.name).filter(Boolean).slice(0, 3).join(" · ") : "Nessun documento caricato"}
+                    actions={<AddDocumentAction label="Aggiungi documento" onClick={() => setShowAddDocumentModal(true)} />}
+                  >
+                    <AthleteStoredDocumentsList
+                      aria-label="Altri documenti"
+                      documents={documents}
+                      fallbackType="Documento"
+                      empty="Nessun documento caricato"
+                      onView={(doc) => {
+                        if (!openClientFileUrl(doc.fileUrl)) {
+                          showToast("error", "File documento non disponibile");
+                        }
+                      }}
+                      onDownload={(doc) => {
+                        if (!downloadClientFileUrl(doc.fileUrl, doc.fileName || doc.name)) {
+                          showToast("error", "File documento non disponibile");
+                        }
+                      }}
+                      onDelete={(doc) => void handleDeleteDocument(doc.id)}
+                    />
+                  </CollapsedSection>
+                </div>
+              </div>
+            ) : null}
           </DashboardPageContainer>
         </main>
       </div>
 
-      {/* Edit Section Modal */}
-      <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {editingSection === "general" && "Modifica Informazioni Generali"}
-              {editingSection === "contact" && "Modifica Contatti"}
-              {editingSection === "address" && "Modifica Indirizzo"}
-              {editingSection === "medical" && "Modifica Dati Sanitari"}
-              {editingSection === "identity" &&
-                "Modifica Documento di Identità"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {editingSection === "general" && (
-              <>
-                {/*
-                  I sei campi di identita, nell'ordine condiviso (RC Fix 2,
-                  punto 1). La nazionalita stava fra la data di nascita e il
-                  sesso, e il luogo di nascita non era un campo: era la
-                  ricerca nascosta dentro il codice fiscale, cioe **dopo** il
-                  risultato del calcolo che e proprio lei a rendere possibile.
-                */}
-                <PersonIdentityFields
-                  idPrefix="athlete-edit"
-                  values={readPersonIdentity(
-                    editFormData,
-                    LEGACY_PERSON_NAME_KEYS,
-                  )}
-                  onChange={(patch) =>
-                    setEditFormData((current: any) => ({
-                      ...current,
-                      ...writePersonIdentity(patch, LEGACY_PERSON_NAME_KEYS),
-                    }))
-                  }
-                />
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <Label>Nazionalità</Label>
-                    <CapitalizedInput
-                      value={editFormData.nationality || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          nationality: e.target.value,
-                        })
-                      }
-                      onValueChange={(value) =>
-                        setEditFormData({ ...editFormData, nationality: value })
-                      }
-                    />
-                  </div>
-                </div>
-                <AthleteCategoriesPanel
-                  groups={clubCategoryGroups}
-                  categories={clubCategoryOptions}
-                  memberships={editCategoryMemberships}
-                  primaryCategoryId={primaryEditCategoryId}
-                  primarySiteId={primaryEditSiteId}
-                  sites={clubSites}
-                  onPrimaryCategoryChange={handlePrimaryCategoryChange}
-                  onPrimarySiteChange={handlePrimarySiteChange}
-                  onToggleSecondaryCategory={handleToggleSecondaryCategory}
-                />
-                <div>
-                  <Label>Note</Label>
-                  <Textarea
-                    value={editFormData.notes || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        notes: e.target.value,
-                      })
-                    }
-                    rows={3}
-                  />
-                </div>
-              </>
-            )}
-
-            {editingSection === "contact" && (
-              <>
-                <div>
-                  <PhoneField
-                    label="Telefono"
-                    value={editFormData.phone || ""}
-                    onChange={(value) =>
-                      setEditFormData({ ...editFormData, phone: value })
-                    }
-                  />
-                </div>
-                <div>
-                  <Label>Email</Label>
-                  <Input
-                    type="email"
-                    value={editFormData.email || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        email: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-              </>
-            )}
-
-            {editingSection === "address" && (
-              <>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                  <div className="sm:col-span-2">
-                    <Label>Indirizzo</Label>
-                    <CapitalizedInput
-                      value={editFormData.address || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          address: e.target.value,
-                        })
-                      }
-                      onValueChange={(value) =>
-                        setEditFormData({ ...editFormData, address: value })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <Label>N. Civico</Label>
-                    <Input
-                      value={editFormData.streetNumber || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          streetNumber: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-                <AssistedAddressFields
-                  idPrefix="athlete-residence"
-                  values={{
-                    postalCode: editFormData.postalCode,
-                    city: editFormData.city,
-                    province: editFormData.province,
-                    region: editFormData.region,
-                    country: editFormData.country,
-                  }}
-                  onChange={(patch) =>
-                    setEditFormData((current: any) => ({ ...current, ...patch }))
-                  }
-                />
-              </>
-            )}
-
-            {editingSection === "medical" && (
-              <>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <Label>Gruppo Sanguigno</Label>
-                    <Select
-                      value={editFormData.bloodType || ""}
-                      onValueChange={(value) =>
-                        setEditFormData({ ...editFormData, bloodType: value })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleziona" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="A+">A+</SelectItem>
-                        <SelectItem value="A-">A-</SelectItem>
-                        <SelectItem value="B+">B+</SelectItem>
-                        <SelectItem value="B-">B-</SelectItem>
-                        <SelectItem value="AB+">AB+</SelectItem>
-                        <SelectItem value="AB-">AB-</SelectItem>
-                        <SelectItem value="0+">0+</SelectItem>
-                        <SelectItem value="0-">0-</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Allergie</Label>
-                    <Input
-                      value={editFormData.allergies || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          allergies: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-                <div>
-                  <Label>Malattie Croniche</Label>
-                  <Textarea
-                    value={editFormData.chronicDiseases || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        chronicDiseases: e.target.value,
-                      })
-                    }
-                    rows={2}
-                  />
-                </div>
-                <div>
-                  <Label>Farmaci</Label>
-                  <Textarea
-                    value={editFormData.medications || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        medications: e.target.value,
-                      })
-                    }
-                    rows={2}
-                  />
-                </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <Label>Contatto di Emergenza</Label>
-                    <CapitalizedInput
-                      value={editFormData.emergencyContact || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          emergencyContact: e.target.value,
-                        })
-                      }
-                      onValueChange={(value) =>
-                        setEditFormData({ ...editFormData, emergencyContact: value })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <PhoneField
-                      label="Telefono di Emergenza"
-                      value={editFormData.emergencyPhone || ""}
-                      onChange={(value) =>
-                        setEditFormData({ ...editFormData, emergencyPhone: value })
-                      }
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-
-            {editingSection === "identity" && (
-              <>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <Label>Tipo di Documento</Label>
-                    <Select
-                      value={editFormData.documentType || ""}
-                      onValueChange={(value) =>
-                        setEditFormData({
-                          ...editFormData,
-                          documentType: value,
-                        })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleziona" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Carta d'identità">
-                          Carta d&apos;identità
-                        </SelectItem>
-                        <SelectItem value="Passaporto">Passaporto</SelectItem>
-                        <SelectItem value="Patente">Patente</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Numero Documento</Label>
-                    <Input
-                      value={editFormData.documentNumber || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          documentNumber: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <Label>Data Rilascio</Label>
-                    <Input
-                      type="date"
-                      value={editFormData.documentIssue || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          documentIssue: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <Label>Data Scadenza</Label>
-                    <Input
-                      type="date"
-                      value={editFormData.documentExpiry || ""}
-                      onChange={(e) =>
-                        setEditFormData({
-                          ...editFormData,
-                          documentExpiry: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-                <div>
-                  <Label>Scadenza Permesso di Soggiorno</Label>
-                  <Input
-                    type="date"
-                    value={editFormData.residencePermitExpiry || ""}
-                    onChange={(e) =>
-                      setEditFormData({
-                        ...editFormData,
-                        residencePermitExpiry: e.target.value,
-                      })
-                    }
-                  />
-                </div>
-              </>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={handleCancelEdit}>
-              Annulla
-            </Button>
-            <Button
-              onClick={handleSaveSection}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              <Save className="h-4 w-4 mr-2" />
-              Salva
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Jersey Number Dialog */}
-      <Dialog
-        open={isJerseyNumberDialogOpen}
-        onOpenChange={(open) => {
-          setIsJerseyNumberDialogOpen(open);
-          if (open) {
-            const selectedEntry =
-              athleteJerseyNumberDetails.primaryRecord ||
-              athleteJerseyAssignments.find(
-                (entry) => entry.groupId === defaultJerseyGroupId,
-              ) || athleteJerseyAssignments[0];
-            setJerseyGroupDraft(
-              selectedEntry?.groupId || defaultJerseyGroupId || "",
-            );
-            setJerseyNumberDraft(
-              selectedEntry?.number === null ||
-                selectedEntry?.number === undefined
-                ? jerseyNumberTileValue === null
-                  ? ""
-                  : String(jerseyNumberTileValue)
-                : String(selectedEntry.number),
-            );
-          }
+      {/* ══════════════════════════════════ cassetti e conferme ═══ */}
+      <AthleteSectionEditDrawer
+        section={editingSection as AthleteEditSection | null}
+        open={showEditModal}
+        onOpenChange={setShowEditModal}
+        formData={editFormData}
+        setFormData={setEditFormData}
+        categories={{
+          groups: clubCategoryGroups,
+          catalog: clubCategoryOptions,
+          memberships: editCategoryMemberships,
+          primaryCategoryId: primaryEditCategoryId,
+          primarySiteId: primaryEditSiteId,
+          sites: clubSites,
+          onPrimaryCategoryChange: handlePrimaryCategoryChange,
+          onPrimarySiteChange: handlePrimarySiteChange,
+          onToggleSecondaryCategory: handleToggleSecondaryCategory,
         }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Numero maglia</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div>
-              <Label>Gruppo numerazione</Label>
-              <Select
-                value={jerseyGroupDraft}
-                onValueChange={(value) => {
-                  const existing = athleteJerseyNumberDetails.records.find(
-                    (entry) => entry.groupId === value && entry.number !== null,
-                  );
-                  setJerseyGroupDraft(value);
-                  setJerseyNumberDraft(
-                    existing?.number === null || existing?.number === undefined
-                      ? ""
-                      : String(existing.number),
-                  );
-                }}
-              >
-                <SelectTrigger className="mt-2">
-                  <SelectValue placeholder="Seleziona gruppo" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clothingState.numberingGroups.map((group) => (
-                    <SelectItem key={group.id} value={group.id}>
-                      {group.name}
-                      {group.season ? ` - ${group.season}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {!clothingState.numberingGroups.length ? (
-                <p className="mt-2 text-xs text-amber-700">
-                  Crea prima un gruppo numerazione dalla pagina Abbigliamento.
-                </p>
-              ) : null}
-            </div>
-            <div>
-              <Label>Numero (max 3 cifre)</Label>
-              <div className="mt-2 flex gap-2">
-                <Input
-                  inputMode="numeric"
-                  placeholder="Es. 7, 23, 101"
-                  value={jerseyNumberDraft}
-                  onChange={(e) =>
-                    setJerseyNumberDraft(sanitizeJerseyDraft(e.target.value))
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") saveJerseyNumber();
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={fillRandomJerseyDraft}
-                  disabled={!clothingState.numberingGroups.length}
-                >
-                  Random
-                </Button>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Il numero viene sincronizzato con la pagina Abbigliamento.
-                Eventuali duplicati nel gruppo vengono segnalati nella scheda.
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setIsJerseyNumberDialogOpen(false)}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={saveJerseyNumber}
-              disabled={!jerseyGroupDraft && clothingState.numberingGroups.length > 0}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              <Save className="h-4 w-4 mr-2" />
-              Salva
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onSave={handleSaveSection}
+        onCancel={handleCancelEdit}
+      />
 
-      <Dialog
+      <AthleteJerseyNumberDrawer
+        open={isJerseyNumberDialogOpen}
+        onOpenChange={setIsJerseyNumberDialogOpen}
+        groups={clothingState.numberingGroups}
+        groupId={jerseyGroupDraft}
+        onGroupChange={(value) => {
+          const existing = athleteJerseyNumberDetails.records.find(
+            (entry) => entry.groupId === value && entry.number !== null,
+          );
+          setJerseyGroupDraft(value);
+          setJerseyNumberDraft(
+            existing?.number === null || existing?.number === undefined
+              ? ""
+              : String(existing.number),
+          );
+        }}
+        number={jerseyNumberDraft}
+        onNumberChange={(value) => setJerseyNumberDraft(sanitizeJerseyDraft(value))}
+        onRandom={fillRandomJerseyDraft}
+        onSave={saveJerseyNumber}
+      />
+
+      <AthleteKitAssignmentDrawer
+        open={isNewKitAssignmentOpen}
+        onOpenChange={setIsNewKitAssignmentOpen}
+        draft={newKitAssignment}
+        setDraft={setNewKitAssignment}
+        kits={clothingKits}
+        availableSizes={athleteAssignmentSizeOptions}
+        onConfirm={addAthleteKitAssignment}
+      />
+
+      <AthletePlanConfirmationDrawer
         open={showPlanConfirmDialog}
-        onOpenChange={setShowPlanConfirmDialog}
-      >
-        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Conferma piano / abbonamento</DialogTitle>
-          </DialogHeader>
-          {planConfirmationPlan && planConfirmationDraft ? (
-            <div className="space-y-5 py-2">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <Label>Data inizio abbonamento</Label>
-                  <Input
-                    type="date"
-                    value={planConfirmationDraft.subscriptionStartDate}
-                    onChange={(event) =>
-                      setPlanConfirmationDraft((current) =>
-                        current
-                          ? {
-                              ...current,
-                              subscriptionStartDate: event.target.value,
-                            }
-                          : current,
-                      )
-                    }
-                    className="mt-2"
-                  />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Default da Data iscrizione atleta, modificabile per questo piano.
-                  </p>
-                </div>
-                {planConfirmationPlan.proration.allowManualOverride ? (
-                  <div>
-                    <Label>Importo personalizzato</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={planConfirmationDraft.manualEnrollmentAmount}
-                      onChange={(event) =>
-                        setPlanConfirmationDraft((current) =>
-                          current
-                            ? {
-                                ...current,
-                                manualEnrollmentAmount: event.target.value,
-                              }
-                            : current,
-                        )
-                      }
-                      placeholder="Lascia vuoto per calcolo automatico"
-                      className="mt-2"
-                    />
-                  </div>
-                ) : null}
-              </div>
+        onOpenChange={(open) => {
+          setShowPlanConfirmDialog(open);
+          if (!open) setPlanConfirmationDraft(null);
+        }}
+        plan={planConfirmationPlan}
+        draft={planConfirmationDraft}
+        setDraft={setPlanConfirmationDraft}
+        requiredServices={planConfirmationRequiredServices}
+        optionalServices={planConfirmationOptionalServices}
+        baseTotal={planConfirmationBaseTotal}
+        grossAmount={planConfirmationSummary?.grossAmount || 0}
+        totalDiscounts={planConfirmationSummary?.totalDiscounts || 0}
+        expectedTotal={planConfirmationSummary?.expectedTotal || 0}
+        prorationApplied={Boolean(planConfirmationSummary?.prorationResult?.applied)}
+        proration={planConfirmationProration}
+        prorationWarning={planConfirmationSummary?.prorationResult?.warning || null}
+        previewWarnings={planConfirmationInstallmentPreview.warnings}
+        installments={planConfirmationInstallmentPreview.installments}
+        saving={isEnrollmentSaving}
+        onContinue={handleContinuePlanConfirmation}
+      />
 
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border p-4">
-                  <p className="font-semibold">Servizi obbligatori</p>
-                  <div className="mt-3 space-y-2">
-                    {planConfirmationRequiredServices.length > 0 ? (
-                      planConfirmationRequiredServices.map((service) => (
-                        <div
-                          key={service.id}
-                          className="flex items-start justify-between gap-3 rounded-md bg-slate-50 px-3 py-2"
-                        >
-                          <div>
-                            <p className="font-medium">{service.name}</p>
-                            {service.description ? (
-                              <p className="text-xs text-muted-foreground">
-                                {service.description}
-                              </p>
-                            ) : null}
-                          </div>
-                          <span className="font-semibold">
-                            {formatCurrency(service.price)}
-                          </span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        Nessun servizio obbligatorio.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="rounded-lg border p-4">
-                  <p className="font-semibold">Servizi opzionali</p>
-                  <div className="mt-3 space-y-2">
-                    {planConfirmationOptionalServices.length > 0 ? (
-                      planConfirmationOptionalServices.map((service) => (
-                        <label
-                          key={service.id}
-                          className="flex items-start justify-between gap-3 rounded-md bg-slate-50 px-3 py-2"
-                        >
-                          <span className="flex min-w-0 items-start gap-2">
-                            <Checkbox
-                              checked={planConfirmationDraft.selectedOptionalServiceIds.includes(
-                                service.id,
-                              )}
-                              onCheckedChange={(checked) =>
-                                setPlanConfirmationDraft((current) => {
-                                  if (!current) return current;
-                                  const nextIds = new Set(
-                                    current.selectedOptionalServiceIds,
-                                  );
-                                  if (checked === true) {
-                                    nextIds.add(service.id);
-                                  } else {
-                                    nextIds.delete(service.id);
-                                  }
-                                  return {
-                                    ...current,
-                                    selectedOptionalServiceIds:
-                                      Array.from(nextIds),
-                                  };
-                                })
-                              }
-                            />
-                            <span>
-                              <span className="block font-medium">
-                                {service.name}
-                              </span>
-                              {service.description ? (
-                                <span className="block text-xs text-muted-foreground">
-                                  {service.description}
-                                </span>
-                              ) : null}
-                            </span>
-                          </span>
-                          <span className="font-semibold">
-                            {formatCurrency(service.price)}
-                          </span>
-                        </label>
-                      ))
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        Nessun servizio opzionale.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-4">
-                <div className="rounded-lg bg-slate-50 p-3">
-                  <p className="text-xs text-muted-foreground">Servizi</p>
-                  <p className="text-lg font-semibold">
-                    {formatCurrency(planConfirmationBaseTotal)}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-blue-50 p-3">
-                  <p className="text-xs text-muted-foreground">Pro-rata</p>
-                  <p className="text-lg font-semibold text-blue-700">
-                    {planConfirmationSummary?.prorationResult?.applied
-                      ? formatCurrency(planConfirmationSummary.grossAmount)
-                      : planConfirmationProration.label}
-                  </p>
-                  {planConfirmationProration.detail ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {planConfirmationProration.detail}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="rounded-lg bg-amber-50 p-3">
-                  <p className="text-xs text-muted-foreground">Sconti</p>
-                  <p className="text-lg font-semibold text-amber-700">
-                    -{formatCurrency(planConfirmationSummary?.totalDiscounts || 0)}
-                  </p>
-                </div>
-                <div className="rounded-lg bg-green-50 p-3">
-                  <p className="text-xs text-muted-foreground">Totale finale</p>
-                  <p className="text-lg font-semibold text-green-700">
-                    {formatCurrency(planConfirmationSummary?.expectedTotal || 0)}
-                  </p>
-                </div>
-              </div>
-
-              {planConfirmationSummary?.prorationResult?.warning ? (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                  {planConfirmationSummary.prorationResult.warning}
-                </div>
-              ) : null}
-              {planConfirmationInstallmentPreview.warnings.length > 0 ? (
-                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                  {planConfirmationInstallmentPreview.warnings[0]}
-                </div>
-              ) : null}
-
-              <div className="rounded-lg border p-4">
-                <p className="font-semibold">Anteprima pagamenti</p>
-                <div className="mt-3 space-y-2">
-                  {planConfirmationInstallmentPreview.installments.map(
-                    (installment) => (
-                      <div
-                        key={installment.id}
-                        className="grid gap-2 rounded-md bg-slate-50 px-3 py-2 text-sm md:grid-cols-[1fr_auto_auto]"
-                      >
-                        <span className="font-medium">{installment.label}</span>
-                        <span>
-                          Scadenza {formatDate(installment.dueDate || "")}
-                        </span>
-                        <span className="font-semibold">
-                          {formatCurrency(installment.amount)}
-                        </span>
-                      </div>
-                    ),
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : null}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowPlanConfirmDialog(false);
-                setPlanConfirmationDraft(null);
-              }}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={handleContinuePlanConfirmation}
-              disabled={
-                isEnrollmentSaving ||
-                planConfirmationInstallmentPreview.warnings.length > 0
-              }
-            >
-              Continua
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
+      <CreatePaymentsConfirmDialog
         open={showCreatePaymentsDialog}
         onOpenChange={setShowCreatePaymentsDialog}
-      >
-        <DialogContent className="sm:max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Creare i pagamenti?</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              Verranno creati{" "}
-              {planConfirmationInstallmentPreview.installments.length} pagamenti
-              in attesa nello storico dell&apos;atleta.
-            </p>
-            <div className="overflow-x-auto rounded-lg border">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-slate-50">
-                    <th className="p-2 text-left">Rata</th>
-                    <th className="p-2 text-left">Descrizione</th>
-                    <th className="p-2 text-left">Importo</th>
-                    <th className="p-2 text-left">Scadenza</th>
-                    <th className="p-2 text-left">Stato iniziale</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {planConfirmationInstallmentPreview.installments.map(
-                    (installment, index) => (
-                      <tr key={installment.id} className="border-b">
-                        <td className="p-2">{index + 1}</td>
-                        <td className="p-2">
-                          {planConfirmationPlan?.name || "Piano"} -{" "}
-                          {installment.label}
-                        </td>
-                        <td className="p-2">
-                          {formatCurrency(installment.amount)}
-                        </td>
-                        <td className="p-2">
-                          {formatDate(installment.dueDate || "")}
-                        </td>
-                        <td className="p-2">
-                          <Badge className="border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50">
-                            In attesa
-                          </Badge>
-                        </td>
-                      </tr>
-                    ),
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowCreatePaymentsDialog(false)}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={confirmEnrollmentPlanAssignment}
-              disabled={isEnrollmentSaving}
-            >
-              {isEnrollmentSaving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : null}
-              Conferma e crea pagamenti
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        planName={planConfirmationPlan?.name || null}
+        installments={planConfirmationInstallmentPreview.installments}
+        saving={isEnrollmentSaving}
+        onConfirm={confirmEnrollmentPlanAssignment}
+      />
 
       {/*
         Le finestre dei pagamenti vivono in un componente a parte: sono
@@ -6720,82 +4455,13 @@ export default function AthleteProfilePage() {
         onSavePayment={() => void handleSavePayment()}
       />
 
-      {/* Add Document Modal */}
-      <Dialog
+      <AthleteOtherDocumentDrawer
         open={showAddDocumentModal}
         onOpenChange={setShowAddDocumentModal}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Aggiungi Documento</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <Label>Nome Documento *</Label>
-              <Input
-                value={newDocument.name}
-                onChange={(e) =>
-                  setNewDocument({ ...newDocument, name: e.target.value })
-                }
-                placeholder="Es: Certificato medico"
-              />
-            </div>
-            <div>
-              <Label>Tipo Documento *</Label>
-              <Select
-                value={newDocument.type}
-                onValueChange={(value) =>
-                  setNewDocument({ ...newDocument, type: value })
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleziona tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Certificato Medico">
-                    Certificato Medico
-                  </SelectItem>
-                  <SelectItem value="Documento Identità">
-                    Documento Identità
-                  </SelectItem>
-                  <SelectItem value="Tesserino">Tesserino</SelectItem>
-                  <SelectItem value="Liberatoria">Liberatoria</SelectItem>
-                  <SelectItem value="Privacy">Privacy</SelectItem>
-                  <SelectItem value="Altro">Altro</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>File (opzionale)</Label>
-              <Input
-                type="file"
-                ref={fileInputRef}
-                onChange={(e) =>
-                  setNewDocument({
-                    ...newDocument,
-                    file: e.target.files?.[0] || null,
-                  })
-                }
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowAddDocumentModal(false)}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={handleAddDocument}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Aggiungi
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        draft={newDocument}
+        setDraft={setNewDocument}
+        onSave={handleAddDocument}
+      />
 
       <AthleteRegistrationDialog
         open={showAddRegistrationModal}
@@ -6831,316 +4497,59 @@ export default function AthleteProfilePage() {
         lockAthleteSelection
       />
 
-      <AlertDialog
+      <DangerConfirmDialog
         open={Boolean(certificateToDelete)}
         onOpenChange={(open) => {
-          if (!open && !deletingCertificateId) {
-            setCertificateToDelete(null);
-          }
+          if (!open && !deletingCertificateId) setCertificateToDelete(null);
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Eliminare il certificato medico?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Il certificato verra rimosso dalla scheda sanitaria dell&apos;atleta.
-              L&apos;operazione non puo essere annullata.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={Boolean(deletingCertificateId)}>
-              Annulla
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
-              disabled={Boolean(deletingCertificateId)}
-              onClick={(event) => {
-                event.preventDefault();
-                void deleteMedicalCertificate();
-              }}
-            >
-              {deletingCertificateId ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : null}
-              Elimina
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title="Eliminare il certificato medico?"
+        description="Il certificato verrà rimosso dalla scheda sanitaria dell'atleta."
+        consequences={[
+          `${certificateToDelete?.type || "Certificato medico"}${certificateToDelete?.expiryDate ? ` · scadenza ${formatDateShort(certificateToDelete.expiryDate)}` : ""}`,
+          "Se era l'ultimo valido, la scheda torna a segnalare il certificato mancante.",
+        ]}
+        confirmLabel="Elimina"
+        loading={Boolean(deletingCertificateId)}
+        onConfirm={deleteMedicalCertificate}
+      />
 
-      <AlertDialog
+      <DangerConfirmDialog
         open={Boolean(medicalVisitToDelete)}
         onOpenChange={(open) => {
-          if (!open && !deletingMedicalVisitId) {
-            setMedicalVisitToDelete(null);
-          }
+          if (!open && !deletingMedicalVisitId) setMedicalVisitToDelete(null);
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Eliminare la visita medica?</AlertDialogTitle>
-            <AlertDialogDescription>
-              La visita medica verra rimossa dalla scheda dell&apos;atleta.
-              L&apos;operazione non puo essere annullata.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={Boolean(deletingMedicalVisitId)}>
-              Annulla
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
-              disabled={Boolean(deletingMedicalVisitId)}
-              onClick={(event) => {
-                event.preventDefault();
-                if (medicalVisitToDelete?.id) {
-                  void removeMedicalVisit(medicalVisitToDelete.id);
-                }
-              }}
-            >
-              {deletingMedicalVisitId ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : null}
-              Elimina
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        title="Eliminare la visita medica?"
+        description="La visita medica verrà rimossa dalla scheda dell'atleta."
+        consequences={[
+          joinMeta(medicalVisitToDelete?.title || "Visita medica", medicalVisitToDelete?.date ? formatDateShort(medicalVisitToDelete.date) : null),
+          medicalVisitToDelete?.fileUrl ? "L'allegato della visita non sarà più raggiungibile dalla scheda." : "Nessun allegato collegato.",
+        ]}
+        confirmLabel="Elimina"
+        loading={Boolean(deletingMedicalVisitId)}
+        onConfirm={() => {
+          if (medicalVisitToDelete?.id) void removeMedicalVisit(medicalVisitToDelete.id);
+        }}
+      />
 
-      <Dialog
+      <AthleteMedicalVisitDrawer
         open={showAddMedicalVisitModal}
         onOpenChange={setShowAddMedicalVisitModal}
-      >
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Nuova Visita Medica</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label>Titolo *</Label>
-                <Input
-                  value={newMedicalVisit.title}
-                  onChange={(e) =>
-                    setNewMedicalVisit({
-                      ...newMedicalVisit,
-                      title: e.target.value,
-                    })
-                  }
-                  className="mt-2"
-                />
-              </div>
-              <div>
-                <Label>Data *</Label>
-                <Input
-                  type="date"
-                  value={newMedicalVisit.date}
-                  onChange={(e) =>
-                    setNewMedicalVisit({
-                      ...newMedicalVisit,
-                      date: e.target.value,
-                    })
-                  }
-                  className="mt-2"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label>Tipologia</Label>
-                <Select
-                  value={newMedicalVisit.type}
-                  onValueChange={(value) =>
-                    setNewMedicalVisit({
-                      ...newMedicalVisit,
-                      type: value,
-                    })
-                  }
-                >
-                  <SelectTrigger className="mt-2">
-                    <SelectValue placeholder="Seleziona tipologia" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Agonistica">Agonistica</SelectItem>
-                    <SelectItem value="Non Agonistica">
-                      Non agonistica
-                    </SelectItem>
-                    <SelectItem value="Controllo">Controllo</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Pagamento</Label>
-                <Select
-                  value={newMedicalVisit.paidBy}
-                  onValueChange={(value) =>
-                    setNewMedicalVisit({
-                      ...newMedicalVisit,
-                      paidBy: value,
-                    })
-                  }
-                >
-                  <SelectTrigger className="mt-2">
-                    <SelectValue placeholder="Chi paga" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="atleta">Atleta</SelectItem>
-                    <SelectItem value="club">Club</SelectItem>
-                    <SelectItem value="famiglia">Famiglia</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Esito</Label>
-                <Input
-                  value={newMedicalVisit.outcome}
-                  onChange={(e) =>
-                    setNewMedicalVisit({
-                      ...newMedicalVisit,
-                      outcome: e.target.value,
-                    })
-                  }
-                  className="mt-2"
-                  placeholder="Es. Idoneo"
-                />
-              </div>
-            </div>
-            <div>
-              <Label>Luogo</Label>
-              <Input
-                value={newMedicalVisit.location}
-                onChange={(e) =>
-                  setNewMedicalVisit({
-                    ...newMedicalVisit,
-                    location: e.target.value,
-                  })
-                }
-                className="mt-2"
-              />
-            </div>
-            <div>
-              <Label>Descrizione</Label>
-              <Textarea
-                value={newMedicalVisit.description}
-                onChange={(e) =>
-                  setNewMedicalVisit({
-                    ...newMedicalVisit,
-                    description: e.target.value,
-                  })
-                }
-                className="mt-2"
-              />
-            </div>
-            <div>
-              <Label>Allegato Visita</Label>
-              <Input
-                type="file"
-                onChange={(e) =>
-                  setNewMedicalVisit({
-                    ...newMedicalVisit,
-                    file: e.target.files?.[0] || null,
-                  })
-                }
-                className="mt-2"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowAddMedicalVisitModal(false)}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={handleSaveMedicalVisit}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              Salva Visita
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        draft={newMedicalVisit}
+        setDraft={setNewMedicalVisit}
+        onSave={handleSaveMedicalVisit}
+      />
 
-      <Dialog
+      <AthleteAttachmentDrawer
         open={showAddIdentityDocumentModal}
         onOpenChange={setShowAddIdentityDocumentModal}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Aggiungi Allegato Documento</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <Label>Nome Documento *</Label>
-              <Input
-                value={newIdentityDocument.name}
-                onChange={(e) =>
-                  setNewIdentityDocument({
-                    ...newIdentityDocument,
-                    name: e.target.value,
-                  })
-                }
-                className="mt-2"
-              />
-            </div>
-            <div>
-              <Label>Tipo</Label>
-              <Input
-                value={newIdentityDocument.type}
-                onChange={(e) =>
-                  setNewIdentityDocument({
-                    ...newIdentityDocument,
-                    type: e.target.value,
-                  })
-                }
-                className="mt-2"
-                placeholder="Es. Fronte carta identita"
-              />
-            </div>
-            <div>
-              <Label>Note</Label>
-              <Textarea
-                value={newIdentityDocument.notes}
-                onChange={(e) =>
-                  setNewIdentityDocument({
-                    ...newIdentityDocument,
-                    notes: e.target.value,
-                  })
-                }
-                className="mt-2"
-              />
-            </div>
-            <div>
-              <Label>File *</Label>
-              <Input
-                type="file"
-                onChange={(e) =>
-                  setNewIdentityDocument({
-                    ...newIdentityDocument,
-                    file: e.target.files?.[0] || null,
-                  })
-                }
-                className="mt-2"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowAddIdentityDocumentModal(false)}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={handleSaveIdentityDocument}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              Salva Allegato
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        eyebrow="Documento di identità"
+        title="Aggiungi allegato documento"
+        typePlaceholder="Es. Fronte carta identità"
+        draft={newIdentityDocument}
+        setDraft={setNewIdentityDocument}
+        onSave={handleSaveIdentityDocument}
+        saveLabel="Salva allegato"
+      />
 
       {/*
         La compilazione non scrive: apre la stessa revisione della coda
@@ -7155,210 +4564,100 @@ export default function AthleteProfilePage() {
         onCompleted={() => setAthleteDataVersion((current) => current + 1)}
       />
 
-      <Dialog
+      <AthleteAttachmentDrawer
         open={showAddEnrollmentDocumentModal}
         onOpenChange={setShowAddEnrollmentDocumentModal}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Aggiungi Documento Iscrizione</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <Label>Nome Documento *</Label>
-              <Input
-                value={newEnrollmentDocument.name}
-                onChange={(e) =>
-                  setNewEnrollmentDocument({
-                    ...newEnrollmentDocument,
-                    name: e.target.value,
-                  })
-                }
-                className="mt-2"
-              />
-            </div>
-            <div>
-              <Label>Tipo</Label>
-              <Input
-                value={newEnrollmentDocument.type}
-                onChange={(e) =>
-                  setNewEnrollmentDocument({
-                    ...newEnrollmentDocument,
-                    type: e.target.value,
-                  })
-                }
-                className="mt-2"
-                placeholder="Es. Modulo iscrizione firmato"
-              />
-            </div>
-            <div>
-              <Label>Note</Label>
-              <Textarea
-                value={newEnrollmentDocument.notes}
-                onChange={(e) =>
-                  setNewEnrollmentDocument({
-                    ...newEnrollmentDocument,
-                    notes: e.target.value,
-                  })
-                }
-                className="mt-2"
-              />
-            </div>
-            <div>
-              <Label>File *</Label>
-              <Input
-                type="file"
-                onChange={(e) =>
-                  setNewEnrollmentDocument({
-                    ...newEnrollmentDocument,
-                    file: e.target.files?.[0] || null,
-                  })
-                }
-                className="mt-2"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowAddEnrollmentDocumentModal(false)}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={handleSaveEnrollmentDocument}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              Salva Documento
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        eyebrow="Iscrizione"
+        title="Aggiungi documento iscrizione"
+        typePlaceholder="Es. Modulo iscrizione firmato"
+        draft={newEnrollmentDocument}
+        setDraft={setNewEnrollmentDocument}
+        onSave={handleSaveEnrollmentDocument}
+        saveLabel="Salva documento"
+      />
 
-      {/* Add/Edit Guardian Modal */}
-      <Dialog
+      <AthleteGuardianDrawer
         open={showAddGuardianModal}
         onOpenChange={setShowAddGuardianModal}
-      >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              {editingGuardianIndex !== null
-                ? "Modifica Tutore"
-                : "Aggiungi Tutore"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {/*
-              Un genitore ha un documento d'identita come chiunque altro, e
-              trascriverlo a mano e lo stesso lavoro che si e tolto agli
-              atleti, agli allenatori, allo staff e ai soci. Stesso
-              componente, stesso flusso: si legge, si vede cosa e stato letto,
-              si sceglie cosa applicare.
-            */}
-            <DocumentExtractionField
-              currentValues={guardianExtractionValues}
-              onApply={(patch) =>
-                setNewGuardian((current: any) => ({
-                  ...current,
-                  ...applyExtractionToGuardian(patch),
-                }))
-              }
-            />
+        isEditing={editingGuardianIndex !== null}
+        draft={newGuardian}
+        setDraft={setNewGuardian}
+        extractionValues={guardianExtractionValues}
+        applyExtraction={applyExtractionToGuardian}
+        onSave={handleAddGuardian}
+      />
 
-            {/*
-              Un genitore e una persona fisica come le altre: stesso blocco,
-              stesso ordine. Qui parentela e telefono stavano fra il cognome e
-              la data di nascita.
-            */}
-            <PersonIdentityFields
-              idPrefix="guardian"
-              values={readPersonIdentity(newGuardian, LEGACY_PERSON_NAME_KEYS)}
-              required={{ firstName: true, lastName: true }}
-              onChange={(patch) =>
-                setNewGuardian((current: any) => ({
-                  ...current,
-                  ...writePersonIdentity(patch, LEGACY_PERSON_NAME_KEYS),
-                }))
-              }
-            />
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <Label>Parentela</Label>
-                <Select
-                  value={newGuardian.relationship}
-                  onValueChange={(value) =>
-                    setNewGuardian({ ...newGuardian, relationship: value })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleziona" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Padre">Padre</SelectItem>
-                    <SelectItem value="Madre">Madre</SelectItem>
-                    <SelectItem value="Tutore Legale">Tutore Legale</SelectItem>
-                    <SelectItem value="Nonno">Nonno</SelectItem>
-                    <SelectItem value="Nonna">Nonna</SelectItem>
-                    <SelectItem value="Altro">Altro</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <PhoneField
-                  label="Telefono"
-                  value={newGuardian.phone}
-                  onChange={(value) =>
-                    setNewGuardian({ ...newGuardian, phone: value })
-                  }
-                />
-              </div>
-            </div>
-            <div>
-              <Label>Email</Label>
-              <Input
-                type="email"
-                value={newGuardian.email}
-                onChange={(e) =>
-                  setNewGuardian({ ...newGuardian, email: e.target.value })
-                }
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowAddGuardianModal(false)}
-            >
-              Annulla
-            </Button>
-            <Button
-              onClick={handleAddGuardian}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              <Save className="h-4 w-4 mr-2" />
-              {editingGuardianIndex !== null ? "Salva" : "Aggiungi"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SharedDocumentRequestDrawer
+        open={sharedRequestOpen}
+        onOpenChange={setSharedRequestOpen}
+        draft={requiredSharedDocument}
+        setDraft={setRequiredSharedDocument}
+        busy={sharedDocumentBusy}
+        onSubmit={async () => {
+          const ok = await handleRequestSharedDocument();
+          if (ok) setSharedRequestOpen(false);
+        }}
+      />
+
+      <SharedDocumentUploadDrawer
+        open={sharedUploadOpen}
+        onOpenChange={setSharedUploadOpen}
+        draft={clubSharedDocumentUpload}
+        setDraft={setClubSharedDocumentUpload}
+        busy={sharedDocumentBusy}
+        onSubmit={async () => {
+          const ok = await handleUploadClubSharedDocument();
+          if (ok) setSharedUploadOpen(false);
+        }}
+      />
+
+      <SharedDocumentRejectDialog
+        open={Boolean(sharedRejectTarget)}
+        onOpenChange={(open) => {
+          if (!open && !sharedDocumentBusy) setSharedRejectTarget(null);
+        }}
+        reason={sharedRejectReason}
+        onReasonChange={setSharedRejectReason}
+        busy={sharedDocumentBusy}
+        onConfirm={async () => {
+          if (!sharedRejectTarget) return;
+          const ok = await handleSharedDocumentAction(sharedRejectTarget, "reject", sharedRejectReason);
+          if (ok) setSharedRejectTarget(null);
+        }}
+      />
 
       {/*
-        W6-07. Le tre azioni irreversibili di questa scheda passano da qui.
-        Il `confirm()` del browser non dice cosa si perde, il browser lo puo
-        sopprimere dopo il primo uso, e dentro una webview puo non comparire
-        affatto: l'operazione partirebbe senza che nessuno abbia confermato.
+        W6-07. Le azioni irreversibili di questa scheda passano da qui: la
+        conferma e proporzionata al gesto (08 §8.9) — notevole → conferma
+        semplice, distruttiva → il modale rosso con «cosa se ne va» — e mai
+        `window.confirm`, che il browser puo sopprimere dopo il primo uso e
+        che dentro una webview puo non comparire affatto.
       */}
-      <ConfirmDialog
-        isOpen={Boolean(confermaInSospeso)}
-        onClose={() => chiudiConferma(false)}
-        onConfirm={() => chiudiConferma(true)}
-        type={confermaInSospeso?.type ?? "warning"}
-        title={confermaInSospeso?.title ?? ""}
-        description={confermaInSospeso?.description ?? ""}
-        confirmText={confermaInSospeso?.confirmText ?? "Conferma"}
-        cancelText="Annulla"
-      />
+      {confermaInSospeso?.type === "error" ? (
+        <DangerConfirmDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) chiudiConferma(false);
+          }}
+          title={confermaInSospeso.title}
+          description={confermaInSospeso.description}
+          consequences={confermaInSospeso.consequences}
+          confirmLabel={confermaInSospeso.confirmText}
+          onConfirm={() => chiudiConferma(true)}
+        />
+      ) : (
+        <ConfirmDialog
+          open={Boolean(confermaInSospeso)}
+          onOpenChange={(open) => {
+            if (!open) chiudiConferma(false);
+          }}
+          title={confermaInSospeso?.title ?? ""}
+          description={confermaInSospeso?.description ?? ""}
+          confirmLabel={confermaInSospeso?.confirmText ?? "Conferma"}
+          tone="neutral"
+          onConfirm={() => chiudiConferma(true)}
+        />
+      )}
     </div>
   );
 }

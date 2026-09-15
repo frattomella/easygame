@@ -1,47 +1,42 @@
 "use client";
 
 import React from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Download, Eye, Pencil, Plus, Trash2 } from "lucide-react";
+import { Button, IconButton } from "@/components/web/primitives/Button";
+import { StatusPill } from "@/components/web/primitives/StatusPill";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { joinMeta } from "@/lib/web/format";
 import {
   readRegistrationFederationLabel,
   type ClubFederation,
 } from "@/lib/club-federations";
+import { ATHLETE_RECORD_SECTIONS } from "@/lib/athlete-profile-tabs";
+import {
+  RecordRowList,
+  RecordSection,
+  dateOrMissing,
+  registrationStatus,
+} from "./v2/record-primitives";
 
 /**
- * **I tesseramenti di un atleta** (N2, N4).
+ * **I tesseramenti di un atleta** (N2, N4), nella forma della scheda V2.
  *
- * Estratto da `app/athletes/[id]/page.tsx`, che sta sotto un tetto di righe
- * (WP-19): il pannello va cresciuto — modifica, allegato, ente — e crescerlo
- * in pagina l'avrebbe sfondato. Come gli altri pannelli non possiede lo stato:
- * riceve le righe e restituisce le intenzioni.
+ * Come gli altri pannelli non possiede lo stato: riceve le righe e
+ * restituisce le intenzioni.
  *
- * Tre difetti che questa estrazione chiude.
+ * Tre regole che questo pannello mantiene.
  *
- * **«Visualizza» e «Scarica» comparivano sempre** (N4). Erano due pulsanti
- * incondizionati che, senza file, aprivano un avviso: e la forma piu comune di
- * bugia dell'interfaccia — un'azione offerta che non puo riuscire. Il numero di
- * tessera e facoltativo di proposito (un tesseramento si registra prima che la
- * federazione emetta il numero), e l'allegato lo e altrettanto, quindi la riga
- * **senza file era il caso ordinario**, non il limite. `src/lib/client-files.ts`
- * lo dice gia in testa: «se compare Visualizza, il file si deve vedere».
+ * **«Visualizza» e «Scarica» compaiono solo se il file c'e** (N4). Il numero
+ * di tessera e facoltativo di proposito (un tesseramento si registra prima che
+ * la federazione emetta il numero), e l'allegato lo e altrettanto: la riga
+ * **senza file e il caso ordinario**, non il limite.
  *
- * **Non si poteva correggere niente** (N4). C'erano solo aggiunta e
- * cancellazione: correggere una data, o allegare il documento arrivato dopo,
- * voleva dire cancellare il tesseramento e rifarlo — perdendo la riga e
- * lasciando orfano l'allegato di prima.
+ * **Si puo correggere** (N4): una data sbagliata o il documento arrivato dopo
+ * non costringono a cancellare e rifare.
  *
- * **L'ente era una stringa** (N2). Ora si legge dal registro del club per
- * identificativo; l'etichetta congelata sulla riga resta il ripiego per gli
- * enti che il club ha poi tolto, perche uno storico deve poter dire cosa fu
- * vero.
+ * **L'ente si legge per identificativo** (N2), dal registro del club;
+ * l'etichetta congelata sulla riga resta il ripiego per gli enti che il club
+ * ha poi tolto, perche uno storico deve poter dire cosa fu vero.
  */
 
 export type AthleteRegistration = {
@@ -57,18 +52,10 @@ export type AthleteRegistration = {
   fileUrl?: string | null;
 };
 
-const badgeClassName = (status: unknown) => {
-  const value = String(status || "");
-  if (value === "In corso") return "bg-green-500";
-  if (value === "Scaduto") return "bg-red-500";
-  return "bg-yellow-500";
-};
-
 export function AthleteRegistrationsPanel({
   registrations,
   federations,
   canManage = true,
-  formatDate,
   onAdd,
   onEdit,
   onView,
@@ -79,7 +66,8 @@ export function AthleteRegistrationsPanel({
   /** Le federazioni configurate dal club, gia risolte con il loro id. */
   federations: readonly ClubFederation[];
   canManage?: boolean;
-  formatDate: (value: any) => string;
+  /** Mantenuto per compatibilita di firma: le date si formattano con il sistema. */
+  formatDate?: (value: any) => string;
   onAdd: () => void;
   onEdit: (registration: AthleteRegistration) => void;
   onView: (registration: AthleteRegistration) => void;
@@ -89,136 +77,75 @@ export function AthleteRegistrationsPanel({
   const rows = Array.isArray(registrations) ? registrations : [];
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Tesseramento</CardTitle>
-        {canManage ? (
-          <Button size="sm" onClick={onAdd}>
-            <Plus className="h-4 w-4 mr-2" />
-            Aggiungi Tesseramento
+    <RecordSection
+      id={ATHLETE_RECORD_SECTIONS.tesseramenti}
+      eyebrow="Federazioni"
+      title="Tesseramenti"
+      actions={
+        canManage ? (
+          <Button variant="secondary" size="sm" icon={<Plus />} onClick={onAdd}>
+            Aggiungi tesseramento
           </Button>
-        ) : null}
-      </CardHeader>
-      <CardContent>
-        {/*
-          Nessuna federazione configurata: il club non puo tesserare nessuno, e
-          dirlo qui evita che qualcuno apra la finestra per scoprire una tendina
-          vuota.
-        */}
-        {federations.length === 0 ? (
-          <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-            Nessuna federazione o ente registrato nel club. Aggiungili nella
-            pagina Club, scheda «Federazione», prima di registrare un
-            tesseramento.
-          </p>
-        ) : null}
+        ) : null
+      }
+    >
+      {/*
+        Nessuna federazione configurata: il club non puo tesserare nessuno, e
+        dirlo qui evita che qualcuno apra la finestra per scoprire una tendina
+        vuota.
+      */}
+      {federations.length === 0 ? (
+        <AlertBlock severity="warning" title="Nessuna federazione o ente registrato nel club" className="mb-4">
+          Aggiungili nella pagina Club, scheda «Federazione», prima di registrare un tesseramento.
+        </AlertBlock>
+      ) : null}
 
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left p-2">Federazione/Ente</th>
-                <th className="text-left p-2">Numero</th>
-                <th className="text-left p-2">Scadenza</th>
-                <th className="text-left p-2">Stato</th>
-                <th className="text-left p-2">Allegato</th>
-                <th className="text-left p-2">Azioni</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length > 0 ? (
-                rows.map((registration, index) => {
-                  const federationLabel =
-                    readRegistrationFederationLabel(registration, federations) ||
-                    "-";
-                  const hasFile = Boolean(
-                    String(registration.fileUrl || "").trim(),
-                  );
+      <RecordRowList
+        aria-label="Tesseramenti"
+        rows={rows.map((registration, index) => {
+          const federationLabel =
+            readRegistrationFederationLabel(registration, federations) || "Ente non indicato";
+          const hasFile = Boolean(String(registration.fileUrl || "").trim());
 
-                  return (
-                    <tr key={registration.id || index} className="border-b">
-                      <td className="p-2">{federationLabel}</td>
-                      <td className="p-2">{registration.number || "-"}</td>
-                      <td className="p-2">
-                        {formatDate(registration.expiryDate) || "-"}
-                      </td>
-                      <td className="p-2">
-                        <Badge className={badgeClassName(registration.status)}>
-                          {registration.status || "-"}
-                        </Badge>
-                      </td>
-                      <td className="p-2">
-                        {/*
-                          Le due azioni sul file compaiono **solo se il file
-                          c'e**. Prima comparivano sempre e producevano un
-                          avviso: un'azione offerta che non puo riuscire.
-                        */}
-                        {hasFile ? (
-                          <div className="flex flex-wrap gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              aria-label={`Visualizza l'allegato del tesseramento ${federationLabel}`}
-                              onClick={() => onView(registration)}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              aria-label={`Scarica l'allegato del tesseramento ${federationLabel}`}
-                              onClick={() => onDownload(registration)}
-                            >
-                              <Download className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">
-                            Nessun allegato
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-2">
-                        {canManage ? (
-                          <div className="flex flex-wrap gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              aria-label={`Modifica il tesseramento ${federationLabel}`}
-                              onClick={() => onEdit(registration)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              aria-label={`Elimina il tesseramento ${federationLabel}`}
-                              onClick={() => onDelete(registration)}
-                            >
-                              <Trash2 className="h-4 w-4 text-red-500" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="p-4 text-center text-muted-foreground"
-                  >
-                    Nessun tesseramento registrato
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
+          return {
+            id: String(registration.id || index),
+            title: federationLabel,
+            meta: joinMeta(
+              registration.number ? `n. ${registration.number}` : "numero non ancora emesso",
+              registration.expiryDate ? `scade ${dateOrMissing(registration.expiryDate)}` : null,
+              hasFile ? null : "Nessun allegato",
+            ),
+            detail: registration.notes || null,
+            status: <StatusPill status={registrationStatus(registration.status)} size="sm" />,
+            actions: (
+              <>
+                {/* Le due azioni sul file compaiono **solo se il file c'e**. */}
+                {hasFile ? (
+                  <>
+                    <IconButton aria-label={`Visualizza l'allegato del tesseramento ${federationLabel}`} onClick={() => onView(registration)}>
+                      <Eye />
+                    </IconButton>
+                    <IconButton aria-label={`Scarica l'allegato del tesseramento ${federationLabel}`} onClick={() => onDownload(registration)}>
+                      <Download />
+                    </IconButton>
+                  </>
+                ) : null}
+                {canManage ? (
+                  <>
+                    <IconButton aria-label={`Modifica il tesseramento ${federationLabel}`} onClick={() => onEdit(registration)}>
+                      <Pencil />
+                    </IconButton>
+                    <IconButton aria-label={`Elimina il tesseramento ${federationLabel}`} onClick={() => onDelete(registration)}>
+                      <Trash2 />
+                    </IconButton>
+                  </>
+                ) : null}
+              </>
+            ),
+          };
+        })}
+        empty="Nessun tesseramento registrato"
+      />
+    </RecordSection>
   );
 }

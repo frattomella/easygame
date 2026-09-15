@@ -1,47 +1,23 @@
 "use client";
 
 import React from "react";
-import {
-  Download,
-  Eye,
-  FileText,
-  Loader2,
-  Plus,
-  RefreshCw,
-  Trash2,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Download, Eye, FileText, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { DataGrid } from "@/components/web/datagrid/DataGrid";
+import type { ColumnDef, RowActionDef } from "@/components/web/datagrid/types";
+import { Button } from "@/components/web/primitives/Button";
+import { StatusPill } from "@/components/web/primitives/StatusPill";
+import { Drawer } from "@/components/web/overlays/Drawer";
+import { DangerConfirmDialog } from "@/components/web/overlays/Modal";
+import { DateInput, Field, FieldSizeProvider, Select, TextInput } from "@/components/web/forms/Field";
 import { useToast } from "@/components/ui/toast-notification";
 import { ATTACHMENT_ACCEPT_ATTRIBUTE } from "@/lib/attachments";
-import {
-  replaceAttachment,
-  uploadAttachmentReference,
-} from "@/lib/api/attachments";
+import { replaceAttachment, uploadAttachmentReference } from "@/lib/api/attachments";
 import { parseAttachmentReference } from "@/lib/attachments";
 import { downloadAttachment, openClientFileUrl } from "@/lib/client-files";
 import { todayLocalDateOnly } from "@/lib/date-only";
+import { formatDateShort } from "@/lib/web/format";
+import { CERTIFICATE_STATUS, STATUS_UNKNOWN, type StatusSpec } from "@/lib/web/status";
 import {
-  TRAINER_DOCUMENT_STATUS_CLASSES,
-  TRAINER_DOCUMENT_STATUS_LABELS,
   TRAINER_DOCUMENT_TYPES,
   normalizeTrainerDocumentType,
   removeTrainerDocument,
@@ -50,31 +26,30 @@ import {
   trainerDocumentTypeLabel,
   upsertTrainerDocument,
   type TrainerDocument,
+  type TrainerDocumentStatus,
   type TrainerDocumentTypeId,
 } from "@/lib/trainer-documents";
 
 /**
- * I documenti di un allenatore: **una griglia sola**.
+ * I documenti di un allenatore: **una griglia sola**, quella del sistema.
  *
  * Prima c'erano due pagine dedicate (`/trainers/:id/contracts` e la sua
  * `/upload`), un riquadro nella scheda che ne mostrava tre senza poterli
  * aprire, e tre posti diversi in cui il documento poteva finire. Nessuno dei
  * tre gesti funzionava: vedi `src/lib/trainer-documents.ts`.
  *
- * Qui c'e una tabella e una finestra leggera per aggiungere. I byte passano
- * da Attachment Core — nessuna seconda logica documentale, nessun file dentro
- * il record — e la riga dell'allenatore conserva solo il riferimento.
+ * I byte passano da Attachment Core — nessuna seconda logica documentale,
+ * nessun file dentro il record — e la riga dell'allenatore conserva solo il
+ * riferimento. Il caricamento vive in un cassetto da 480; l'eliminazione
+ * chiede conferma con il modale distruttivo del sistema.
  */
 
-const formatDate = (value: string) => {
-  if (!value) return "-";
-  const date = new Date(`${value}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleDateString("it-IT", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+const DOCUMENT_STATUS: Record<TrainerDocumentStatus, StatusSpec> = {
+  valid: CERTIFICATE_STATUS.valid,
+  expiring: CERTIFICATE_STATUS.expiring,
+  expired: CERTIFICATE_STATUS.expired,
+  "no-expiry": STATUS_UNKNOWN,
+  "missing-file": CERTIFICATE_STATUS.missing,
 };
 
 const createDocumentId = () =>
@@ -110,8 +85,11 @@ export function TrainerDocumentsPanel({
   const { showToast } = useToast();
   const [addOpen, setAddOpen] = React.useState(false);
   const [draft, setDraft] = React.useState(emptyDraft);
+  const [dirty, setDirty] = React.useState(false);
+  const [fileError, setFileError] = React.useState<string | null>(null);
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
+  const [deleteTarget, setDeleteTarget] = React.useState<TrainerDocument | null>(null);
   const replaceInputRef = React.useRef<HTMLInputElement | null>(null);
   const replaceTargetRef = React.useRef<TrainerDocument | null>(null);
 
@@ -127,18 +105,22 @@ export function TrainerDocumentsPanel({
   };
 
   const handleDownload = (document: TrainerDocument) => {
-    const ok = downloadAttachment(
-      document.fileUrl,
-      trainerDocumentDownloadName(document, trainerName),
-    );
+    const ok = downloadAttachment(document.fileUrl, trainerDocumentDownloadName(document, trainerName));
     if (!ok) {
       showToast("error", "Il file di questo documento non e disponibile.");
     }
   };
 
+  const openAdd = () => {
+    setDraft(emptyDraft());
+    setDirty(false);
+    setFileError(null);
+    setAddOpen(true);
+  };
+
   const handleAdd = async () => {
     if (!draft.file) {
-      showToast("error", "Scegli il file da caricare");
+      setFileError("Scegli il file da caricare");
       return;
     }
     if (!organizationId) {
@@ -172,22 +154,18 @@ export function TrainerDocumentsPanel({
       };
 
       await onPersist(upsertTrainerDocument(documents, document));
+      setDirty(false);
       setAddOpen(false);
       setDraft(emptyDraft());
       showToast("success", "Documento caricato");
     } catch (error: any) {
-      showToast(
-        "error",
-        error?.message || "Non sono riuscito a caricare il documento",
-      );
+      showToast("error", error?.message || "Non sono riuscito a caricare il documento");
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleReplacePicked = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleReplacePicked = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     const target = replaceTargetRef.current;
@@ -231,171 +209,156 @@ export function TrainerDocumentsPanel({
       );
       showToast("success", "Documento sostituito");
     } catch (error: any) {
-      showToast(
-        "error",
-        error?.message || "Non sono riuscito a sostituire il documento",
-      );
+      showToast("error", error?.message || "Non sono riuscito a sostituire il documento");
     } finally {
       setBusyId(null);
     }
   };
 
-  const handleDelete = async (document: TrainerDocument) => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Eliminare «${document.title}»?`)
-    ) {
-      return;
-    }
-
+  const handleDelete = async () => {
+    const document = deleteTarget;
+    if (!document) return;
     setBusyId(document.id);
     try {
       await onPersist(removeTrainerDocument(documents, document.id));
       showToast("success", "Documento eliminato");
+      setDeleteTarget(null);
     } catch (error: any) {
-      showToast(
-        "error",
-        error?.message || "Non sono riuscito a eliminare il documento",
-      );
+      showToast("error", error?.message || "Non sono riuscito a eliminare il documento");
     } finally {
       setBusyId(null);
     }
   };
 
+  const columns = React.useMemo<ColumnDef<TrainerDocument>[]>(
+    () => [
+      {
+        id: "type",
+        header: "Tipo",
+        kind: "text",
+        locked: true,
+        width: 1.3,
+        minWidth: 150,
+        cell: (document) => (
+          <span className="block min-w-0">
+            <span className="egw-ellipsis block font-semibold">{document.typeLabel}</span>
+            {document.title && document.title !== document.fileName ? (
+              <span className="egw-ellipsis block text-[10.5px] text-egw-ink-62">{document.title}</span>
+            ) : null}
+          </span>
+        ),
+        sortValue: (document) => document.typeLabel,
+        title: (document) => document.title || document.typeLabel,
+      },
+      {
+        id: "fileName",
+        header: "Nome file",
+        kind: "text",
+        width: 1.6,
+        minWidth: 160,
+        cell: (document) => <span className="egw-ellipsis block">{document.fileName}</span>,
+        sortValue: (document) => document.fileName,
+        title: (document) => document.fileName,
+      },
+      {
+        id: "uploadedAt",
+        header: "Caricato",
+        kind: "date",
+        width: 0.9,
+        minWidth: 110,
+        cell: (document) => <span className="egw-num">{formatDateShort(document.uploadedAt)}</span>,
+        sortValue: (document) => document.uploadedAt || null,
+      },
+      {
+        id: "expiryDate",
+        header: "Scadenza",
+        kind: "date",
+        width: 0.9,
+        minWidth: 110,
+        cell: (document) => <span className="egw-num">{formatDateShort(document.expiryDate)}</span>,
+        sortValue: (document) => document.expiryDate || null,
+      },
+      {
+        id: "status",
+        header: "Stato",
+        kind: "status",
+        width: 1,
+        minWidth: 120,
+        cell: (document) => <StatusPill status={DOCUMENT_STATUS[resolveTrainerDocumentStatus(document)]} />,
+        sortValue: (document) => resolveTrainerDocumentStatus(document),
+        exportValue: (document) => DOCUMENT_STATUS[resolveTrainerDocumentStatus(document)].label,
+      },
+    ],
+    [],
+  );
+
+  const rowActions = React.useMemo<RowActionDef<TrainerDocument>[]>(
+    () => [
+      { id: "view", label: "Visualizza", icon: <Eye />, primary: true, onClick: handleView },
+      { id: "download", label: "Scarica", icon: <Download />, onClick: handleDownload },
+      {
+        id: "replace",
+        label: "Sostituisci",
+        icon: <RefreshCw />,
+        hidden: () => !canWrite,
+        onClick: (document) => {
+          if (busyId) return;
+          replaceTargetRef.current = document;
+          replaceInputRef.current?.click();
+        },
+      },
+      {
+        id: "delete",
+        label: "Elimina",
+        icon: <Trash2 />,
+        tone: "danger",
+        hidden: () => !canWrite,
+        onClick: (document) => setDeleteTarget(document),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [busyId, canWrite, documents, trainerName],
+  );
+
   return (
-    <Card>
-      <CardHeader className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-        <CardTitle className="flex items-center gap-2">
-          <FileText className="h-5 w-5" />
-          Documenti
-        </CardTitle>
-        {canWrite ? (
-          <Button
-            onClick={() => {
-              setDraft(emptyDraft());
-              setAddOpen(true);
-            }}
-            className="w-full justify-center gap-2 bg-blue-600 hover:bg-blue-700 sm:w-auto"
-          >
-            <Plus className="h-4 w-4" />
-            Aggiungi documento
-          </Button>
-        ) : null}
-      </CardHeader>
-
-      <CardContent>
-        {documents.length === 0 ? (
-          <div className="py-8 text-center text-muted-foreground">
-            <FileText className="mx-auto mb-3 h-10 w-10 opacity-50" />
-            <p>Nessun documento caricato</p>
+    <>
+      <DataGrid<TrainerDocument>
+        module="allenatore-documenti"
+        aria-label="Documenti dell'allenatore"
+        rows={documents}
+        getRowId={(document) => document.id}
+        columns={columns}
+        defaultSort={{ columnId: "uploadedAt", direction: "desc" }}
+        noun={{ singular: "documento", plural: "documenti" }}
+        rowActions={rowActions}
+        canSelect={false}
+        hideViews
+        hideFooter={documents.length <= 25}
+        persist={false}
+        banner={
+          <div className="flex flex-col items-start justify-between gap-3 border-b border-egw-hairline px-4 py-3 sm:flex-row sm:items-center">
+            <div>
+              <p className="font-brand text-[15px] font-bold text-egw-ink">Documenti</p>
+              <p className="font-brand text-[12px] text-egw-ink-62">Contratti, documento d&apos;identità, certificati e assicurazione.</p>
+            </div>
+            {canWrite ? (
+              <Button variant="neutral" size="sm" icon={<Plus />} onClick={openAdd} className="w-full justify-center sm:w-auto">
+                Aggiungi documento
+              </Button>
+            ) : null}
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[44rem] text-sm">
-              <thead>
-                <tr className="border-b text-left text-xs uppercase tracking-wide text-slate-500">
-                  <th className="py-2 pr-3 font-medium">Tipo</th>
-                  <th className="py-2 pr-3 font-medium">Nome file</th>
-                  <th className="py-2 pr-3 font-medium">Caricato</th>
-                  <th className="py-2 pr-3 font-medium">Scadenza</th>
-                  <th className="py-2 pr-3 font-medium">Stato</th>
-                  <th className="py-2 text-right font-medium">Azioni</th>
-                </tr>
-              </thead>
-              <tbody>
-                {documents.map((document) => {
-                  const status = resolveTrainerDocumentStatus(document);
-                  const busy = busyId === document.id;
-
-                  return (
-                    <tr key={document.id} className="border-b last:border-0">
-                      <td className="py-2 pr-3">
-                        <span className="font-medium">{document.typeLabel}</span>
-                        {document.title &&
-                        document.title !== document.fileName ? (
-                          <span className="block text-xs text-muted-foreground">
-                            {document.title}
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="max-w-[16rem] truncate py-2 pr-3">
-                        {document.fileName}
-                      </td>
-                      <td className="whitespace-nowrap py-2 pr-3 eg-tabular">
-                        {formatDate(document.uploadedAt)}
-                      </td>
-                      <td className="whitespace-nowrap py-2 pr-3 eg-tabular">
-                        {formatDate(document.expiryDate)}
-                      </td>
-                      <td className="py-2 pr-3">
-                        <Badge
-                          variant="outline"
-                          className={TRAINER_DOCUMENT_STATUS_CLASSES[status]}
-                        >
-                          {TRAINER_DOCUMENT_STATUS_LABELS[status]}
-                        </Badge>
-                      </td>
-                      <td className="py-2">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Visualizza"
-                            aria-label={`Visualizza ${document.title}`}
-                            onClick={() => handleView(document)}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Scarica"
-                            aria-label={`Scarica ${document.title}`}
-                            onClick={() => handleDownload(document)}
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
-                          {canWrite ? (
-                            <>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                title="Sostituisci"
-                                aria-label={`Sostituisci ${document.title}`}
-                                disabled={busy}
-                                onClick={() => {
-                                  replaceTargetRef.current = document;
-                                  replaceInputRef.current?.click();
-                                }}
-                              >
-                                {busy ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <RefreshCw className="h-4 w-4" />
-                                )}
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                title="Elimina"
-                                aria-label={`Elimina ${document.title}`}
-                                disabled={busy}
-                                onClick={() => handleDelete(document)}
-                              >
-                                <Trash2 className="h-4 w-4 text-red-600" />
-                              </Button>
-                            </>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
+        }
+        empty={{
+          icon: <FileText />,
+          title: "Nessun documento caricato",
+          description: "Il file resta collegato a questo allenatore e non entra nella sua scheda.",
+          primary: canWrite ? (
+            <Button variant="neutral" size="sm" icon={<Plus />} onClick={openAdd}>
+              Aggiungi documento
+            </Button>
+          ) : undefined,
+        }}
+      />
 
       <input
         ref={replaceInputRef}
@@ -405,112 +368,97 @@ export function TrainerDocumentsPanel({
         onChange={handleReplacePicked}
       />
 
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Nuovo documento</DialogTitle>
-            <DialogDescription>
-              Il file resta collegato a questo allenatore e non entra nella sua
-              scheda.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="trainer-document-type">Tipo</Label>
-              <Select
-                value={draft.type}
-                onValueChange={(value) =>
-                  setDraft((current) => ({
-                    ...current,
-                    type: normalizeTrainerDocumentType(value),
-                  }))
-                }
-              >
-                <SelectTrigger id="trainer-document-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TRAINER_DOCUMENT_TYPES.map((type) => (
-                    <SelectItem key={type.id} value={type.id}>
-                      {type.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="trainer-document-title">
-                Titolo <span className="text-muted-foreground">(facoltativo)</span>
-              </Label>
-              <Input
-                id="trainer-document-title"
-                value={draft.title}
-                placeholder="Se lo lasci vuoto uso il nome del file"
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    title: event.target.value,
-                  }))
-                }
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="trainer-document-expiry">
-                Scadenza{" "}
-                <span className="text-muted-foreground">(facoltativa)</span>
-              </Label>
-              <Input
-                id="trainer-document-expiry"
-                type="date"
-                value={draft.expiryDate}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    expiryDate: event.target.value,
-                  }))
-                }
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="trainer-document-file">File</Label>
-              <Input
-                id="trainer-document-file"
-                type="file"
-                accept={ATTACHMENT_ACCEPT_ATTRIBUTE}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    file: event.target.files?.[0] || null,
-                  }))
-                }
-              />
-              <p className="text-xs text-muted-foreground">
-                PDF, immagini e documenti Office, fino a 10 MB.
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setAddOpen(false)}
-              disabled={isSaving}
-            >
-              Annulla
-            </Button>
-            <Button onClick={handleAdd} disabled={isSaving || !draft.file}>
-              {isSaving ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : null}
+      <Drawer
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        width="default"
+        eyebrow="Documenti"
+        title="Nuovo documento"
+        description="Il file resta collegato a questo allenatore e non entra nella sua scheda."
+        dirty={dirty}
+        locked={isSaving}
+        footer={
+          <>
+            <Button variant="primary" onClick={() => void handleAdd()} loading={isSaving}>
               Carica
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </Card>
+            <Button variant="secondary" onClick={() => setAddOpen(false)} disabled={isSaving}>
+              Annulla
+            </Button>
+          </>
+        }
+      >
+        <FieldSizeProvider size="sm">
+          <div className="flex flex-col gap-5">
+            <Field label="Tipo" htmlFor="trainer-document-type" required>
+              <Select
+                id="trainer-document-type"
+                value={draft.type}
+                onValueChange={(value) => {
+                  setDirty(true);
+                  setDraft((current) => ({ ...current, type: normalizeTrainerDocumentType(value) }));
+                }}
+                options={TRAINER_DOCUMENT_TYPES.map((type) => ({ value: type.id, label: type.label }))}
+              />
+            </Field>
+            <Field label="Titolo" htmlFor="trainer-document-title" optional helper="Se lo lasci vuoto uso il nome del file">
+              <TextInput
+                id="trainer-document-title"
+                value={draft.title}
+                onChange={(event) => {
+                  setDirty(true);
+                  setDraft((current) => ({ ...current, title: event.target.value }));
+                }}
+              />
+            </Field>
+            <Field label="Scadenza" htmlFor="trainer-document-expiry" optional width="20ch">
+              <DateInput
+                id="trainer-document-expiry"
+                value={draft.expiryDate}
+                onChange={(event) => {
+                  setDirty(true);
+                  setDraft((current) => ({ ...current, expiryDate: event.target.value }));
+                }}
+              />
+            </Field>
+            <Field label="File" htmlFor="trainer-document-file" required error={fileError} helper="PDF, immagini e documenti Office, fino a 10 MB.">
+              <label
+                htmlFor="trainer-document-file"
+                className="flex h-[42px] cursor-pointer items-center overflow-hidden rounded-egw-control border border-egw-field-border bg-white font-brand text-[12.5px] focus-within:border-egw-blue focus-within:shadow-egw-focus"
+              >
+                <span className="flex h-full shrink-0 items-center bg-egw-page-100 px-3 font-semibold text-egw-ink">Scegli il file</span>
+                <span className={draft.file ? "egw-ellipsis px-3 text-egw-ink" : "egw-ellipsis px-3 text-egw-ink-42"}>
+                  {draft.file ? draft.file.name : "Nessun file scelto"}
+                </span>
+                <input
+                  id="trainer-document-file"
+                  type="file"
+                  accept={ATTACHMENT_ACCEPT_ATTRIBUTE}
+                  className="sr-only"
+                  onChange={(event) => {
+                    setDirty(true);
+                    setFileError(null);
+                    setDraft((current) => ({ ...current, file: event.target.files?.[0] || null }));
+                  }}
+                />
+              </label>
+            </Field>
+          </div>
+        </FieldSizeProvider>
+      </Drawer>
+
+      <DangerConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        title={`Eliminare «${deleteTarget?.title ?? "questo documento"}»?`}
+        description="Il documento viene tolto dalla scheda dell'allenatore."
+        consequences={deleteTarget ? [`${deleteTarget.typeLabel} · ${deleteTarget.fileName}`] : []}
+        confirmLabel="Elimina"
+        loading={Boolean(deleteTarget && busyId === deleteTarget.id)}
+        onConfirm={handleDelete}
+      />
+    </>
   );
 }

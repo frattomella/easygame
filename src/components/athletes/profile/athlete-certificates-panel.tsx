@@ -1,21 +1,22 @@
 "use client";
 
 import React from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Download, Eye, Pencil, Plus, Trash2 } from "lucide-react";
+import { Button, IconButton } from "@/components/web/primitives/Button";
+import { StatusPill } from "@/components/web/primitives/StatusPill";
+import { joinMeta } from "@/lib/web/format";
+import { ATHLETE_RECORD_SECTIONS } from "@/lib/athlete-profile-tabs";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Download, Eye, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+  RecordRowList,
+  RecordSection,
+  dateOrMissing,
+  medicalCertificateStatus,
+} from "./v2/record-primitives";
 
 /**
- * **I certificati medici di un atleta** (N5).
+ * **I certificati medici di un atleta** (N5), nella forma della scheda V2.
  *
- * Estratto da `app/athletes/[id]/page.tsx`, che sta sotto un tetto di righe
- * (WP-19). Come gli altri pannelli non possiede lo stato: riceve le righe e
+ * Come gli altri pannelli non possiede lo stato: riceve le righe e
  * restituisce le intenzioni, cosi la pagina resta l'unico posto che decide
  * come si salvano.
  *
@@ -23,6 +24,10 @@ import { Download, Eye, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
  * scheda mostra quando non ce n'e nessuno valido. Per questo non offre ne
  * modifica ne cancellazione — non c'e niente da correggere e niente da
  * togliere — ed e la ragione per cui `isVirtualMissing` esiste.
+ *
+ * Lo stato non si scrive qui: arriva da `getMedicalCertificateStatus`
+ * (`valid` · `expiring` · `expired`) e la pillola lo traduce con il
+ * vocabolario del sistema (`CERTIFICATE_STATUS`).
  */
 
 export type AthleteCertificateRow = {
@@ -34,24 +39,9 @@ export type AthleteCertificateRow = {
   fileUrl?: string | null;
 };
 
-const statusBadgeClassName = (status: unknown) => {
-  const value = String(status || "");
-  if (value === "valid") return "bg-green-500 text-white";
-  if (value === "expiring") return "bg-amber-500 text-white";
-  return "bg-red-500 text-white";
-};
-
-const statusLabel = (status: unknown) => {
-  const value = String(status || "");
-  if (value === "valid") return "Valido";
-  if (value === "expiring") return "In scadenza";
-  return "Scaduto";
-};
-
 export function AthleteCertificatesPanel({
   certificates,
   deletingCertificateId,
-  formatDate,
   onAdd,
   onEdit,
   onView,
@@ -60,7 +50,8 @@ export function AthleteCertificatesPanel({
 }: {
   certificates: AthleteCertificateRow[];
   deletingCertificateId?: string | null;
-  formatDate: (value: any) => string;
+  /** Mantenuto per compatibilita di firma: le date si formattano con il sistema. */
+  formatDate?: (value: any) => string;
   onAdd: () => void;
   onEdit: (certificate: AthleteCertificateRow) => void;
   onView: (certificate: AthleteCertificateRow) => void;
@@ -70,127 +61,65 @@ export function AthleteCertificatesPanel({
   const rows = Array.isArray(certificates) ? certificates : [];
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Certificati Medici</CardTitle>
-        <Button size="sm" onClick={onAdd}>
-          <Plus className="h-4 w-4 mr-2" />
+    <RecordSection
+      id={ATHLETE_RECORD_SECTIONS.certificati}
+      eyebrow="Sanità"
+      title="Certificati medici"
+      actions={
+        <Button variant="secondary" size="sm" icon={<Plus />} onClick={onAdd}>
           Aggiungi certificato medico
         </Button>
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left p-2">Tipo</th>
-                <th className="text-left p-2">Emissione</th>
-                <th className="text-left p-2">Scadenza</th>
-                <th className="text-left p-2">Stato</th>
-                <th className="text-left p-2">Azioni</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length > 0 ? (
-                rows.map((certificate) => {
-                  const isVirtualMissing =
-                    certificate.status === "missing" ||
-                    String(certificate.id || "").startsWith("missing-");
-                  const hasFile = Boolean(
-                    String(certificate.fileUrl || "").trim(),
-                  );
+      }
+    >
+      <RecordRowList
+        aria-label="Certificati medici"
+        rows={rows.map((certificate, index) => {
+          const isVirtualMissing =
+            certificate.status === "missing" ||
+            String(certificate.id || "").startsWith("missing-");
+          const hasFile = Boolean(String(certificate.fileUrl || "").trim());
+          const label = certificate.type || "Certificato medico";
 
-                  return (
-                    <tr key={certificate.id} className="border-b">
-                      <td className="p-2">{certificate.type}</td>
-                      <td className="p-2">
-                        {certificate.issueDate
-                          ? formatDate(certificate.issueDate)
-                          : "-"}
-                      </td>
-                      <td className="p-2">
-                        {certificate.expiryDate
-                          ? formatDate(certificate.expiryDate)
-                          : "-"}
-                      </td>
-                      <td className="p-2">
-                        <Badge
-                          className={statusBadgeClassName(certificate.status)}
-                        >
-                          {statusLabel(certificate.status)}
-                        </Badge>
-                      </td>
-                      <td className="p-2">
-                        <div className="flex flex-wrap gap-2">
-                          {hasFile ? (
-                            <>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => onView(certificate)}
-                              >
-                                <Eye className="h-4 w-4 mr-2" />
-                                Visualizza
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => onDownload(certificate)}
-                              >
-                                <Download className="h-4 w-4 mr-2" />
-                                Scarica
-                              </Button>
-                            </>
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                          {!isVirtualMissing ? (
-                            <>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => onEdit(certificate)}
-                              >
-                                <Pencil className="h-4 w-4 mr-2" />
-                                Modifica
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-red-600 hover:text-red-700"
-                                disabled={
-                                  deletingCertificateId === certificate.id
-                                }
-                                onClick={() => onDelete(certificate)}
-                              >
-                                {deletingCertificateId === certificate.id ? (
-                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-4 w-4 mr-2" />
-                                )}
-                                Elimina
-                              </Button>
-                            </>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="p-4 text-center text-muted-foreground"
-                  >
-                    Nessun certificato medico registrato
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
+          return {
+            id: String(certificate.id || index),
+            title: label,
+            meta: joinMeta(
+              certificate.issueDate ? `Emesso ${dateOrMissing(certificate.issueDate)}` : null,
+              certificate.expiryDate ? `Scade ${dateOrMissing(certificate.expiryDate)}` : null,
+            ),
+            status: <StatusPill status={medicalCertificateStatus(certificate.status)} size="sm" />,
+            actions: (
+              <>
+                {hasFile ? (
+                  <>
+                    <IconButton aria-label={`Visualizza il certificato ${label}`} onClick={() => onView(certificate)}>
+                      <Eye />
+                    </IconButton>
+                    <IconButton aria-label={`Scarica il certificato ${label}`} onClick={() => onDownload(certificate)}>
+                      <Download />
+                    </IconButton>
+                  </>
+                ) : null}
+                {!isVirtualMissing ? (
+                  <>
+                    <IconButton aria-label={`Modifica il certificato ${label}`} onClick={() => onEdit(certificate)}>
+                      <Pencil />
+                    </IconButton>
+                    <IconButton
+                      aria-label={`Elimina il certificato ${label}`}
+                      loading={deletingCertificateId === certificate.id}
+                      onClick={() => onDelete(certificate)}
+                    >
+                      <Trash2 />
+                    </IconButton>
+                  </>
+                ) : null}
+              </>
+            ),
+          };
+        })}
+        empty="Nessun certificato medico registrato"
+      />
+    </RecordSection>
   );
 }
