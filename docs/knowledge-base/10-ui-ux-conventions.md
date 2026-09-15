@@ -42,7 +42,7 @@ pagina deve sempre poter rispondere a «quale club, quale stagione».
 
 ### La scheda Stagioni (Blocco 6)
 
-`src/components/organization/season-manager.tsx`, montata da
+`src/components/organization/v2/season-manager.tsx`, montata da
 `/organization?tab=stagioni`. Regole che valgono anche per chi la modifichera:
 
 - **niente logica in `page.tsx`.** La pagina Organizzazione ha nove schede: la
@@ -740,12 +740,31 @@ Staff (elenco, nuovo, scheda, modifica), Allenamenti, Categorie, Certificati
 medici, Prima nota (con Rate e Previsti), Report, Procure, Gare (elenco e
 scheda), Calendario (settimana e mese), Soci (libro, scheda, modifica),
 Strutture (elenco e scheda a aree), Iscrizioni (piani, sconti, bandi),
-Sponsor. Il guscio vale su **tutte** le pagine di gestione anche dove il
-corpo e ancora V1 (Abbigliamento, Documenti, Modulistica, Consensi,
-Segreteria, Appuntamenti, Comunicazioni, Notifiche, Lavoro sportivo, Club,
-Impostazioni, Ruoli e accessi, Permessi allenatore, Registro attivita, HUB,
-Account) — vedi [20](20-work-packages.md). Accesso e registrazione stanno
-nell'ambiente 3 («fuori dal club», cielo pieno).
+Sponsor, Documenti (coda di revisione), Modulistica (modelli, catalogo,
+moduli online, generati — gli editor `DocumentEditor`, `FormBuilder`,
+`BulkGenerationDialog` e `SubmissionReviewDialog` restano V1 avvolti),
+Consensi, Segreteria (appuntamenti con rail settimana e ispettore, note,
+orari di apertura), Disponibilita appuntamenti, Comunicazioni (massiva,
+bacheca, automazioni), Notifiche, HUB, Registro attivita (che ora monta il
+guscio), Lavoro sportivo (cruscotto, rapporti, scheda del rapporto, compensi,
+scadenze, adempimenti: le sotto-rotte restano URL e la navigazione e un
+`SegmentedControl` in `sport-work/v2/sport-work-shell.tsx`), Club (nove
+sezioni, pattern 5, `?tab=` con alias), Impostazioni, Ruoli e accessi
+(pattern 10: griglia accessi + griglia ruoli, ispettore, cassetti 720/480),
+Permessi allenatore (pattern 5), Account (ambiente 3: la home tiene i due
+elenchi di club come pannelli di righe, non DataGrid, perche si usa dal
+telefono), Abbigliamento (sei aree in `?area=`). **Tutte le pagine di
+gestione hanno il corpo V2**; restano V1 le aree allenatore, famiglia e
+atleta, i pannelli pagamenti/fatturazione della scheda Club
+(`src/components/payments/*`) e la scheda «Lavoro e compensi» delle schede
+persona — vedi [20](20-work-packages.md). Accesso, registrazione e Account
+stanno nell'ambiente 3 («fuori dal club», cielo pieno).
+
+Gli stati di dominio che `src/lib/web/status.ts` non porta ancora
+(documenti, modulistica, consensi, appuntamenti, comunicazioni, lavoro
+sportivo, magazzino, recapiti) vivono come spec locali `{label, weight,
+hue}` accanto alla pagina: si promuovono nella mappa unica alla seconda
+pagina che li chiede (D-RD-12 in [16](16-technical-debt.md)).
 
 ## Tipografia: le regole definitive
 
@@ -1120,7 +1139,7 @@ giorno in cui il club configura le sedi ([ADR-0038](18-decision-log.md)).
 ## Le consegne si registrano dal telefono (Workstream B, 2026-08-26)
 
 Il dialogo consegne di un kit
-(`src/components/clothing/kit-delivery-dialog.tsx`) e a **schede impilate** e
+(`src/components/clothing/v2/kit-delivery-drawer.tsx`, cassetto 480) e a **blocchi impilati** e
 non a tabella. Non e una preferenza estetica: le consegne si registrano in
 magazzino, con il telefono in mano, ed e la schermata che a 375 px deve
 funzionare per prima. Una tabella con sei colonne per articolo li sarebbe

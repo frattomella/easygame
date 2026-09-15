@@ -38,7 +38,8 @@ easygame/
 | `src/components/account/` | Home account e le sue dialog (crea club, profilo, riscatta accesso) | Ridisegnata nel Blocco 4 |
 | `src/components/brand/` | Marchio SVG e identita di club | |
 | `src/components/platform-admin/` | Shell della console di piattaforma | Nessun riferimento alle risorse di club |
-| `src/components/organization/` | Scheda Stagioni della pagina Organizzazione (`season-manager.tsx`) | Blocco 6, vedi [10](10-ui-ux-conventions.md) |
+| `src/components/organization/v2/` | La scheda Club al Web V2: sezioni del profilo, federazioni, stagioni (`season-manager.tsx`), firma, profilo fiscale, causali, `capability-gate.tsx` | Blocco 6, vedi [10](10-ui-ux-conventions.md) |
+| `src/components/settings/v2/` | Impostazioni (notifiche, sistema, sicurezza) | |
 | `src/components/sites/` | Filtro sede, anagrafica sedi, editor dei gruppi operativi | Workstream B, [ADR-0038](18-decision-log.md). `SiteFilter` non si monta se il club non e multi-sede |
 | `src/components/clothing/` | Dialogo consegne di un kit, a schede impilate | Workstream B. Usabile da telefono: le consegne si registrano in magazzino |
 | `src/data/` | Tabelle di riferimento pubbliche versionate (comuni ISTAT) | Blocco 7, generate da `scripts/`, vedi [06](06-data-model.md) |
@@ -137,7 +138,7 @@ cleanup 2026-08-22).
 | `src/lib/server/einvoice.ts` | Preparazione del tracciato. `transmitEInvoice` esiste per dire di no in un posto solo |
 | `src/lib/navigation/external-link.ts` | Proprietario unico dell'apertura di un indirizzo esterno |
 | `src/components/platform-admin/payments-billing-section.tsx` | La console «Pagamenti & Billing», quattro schede |
-| `src/components/fiscal/FiscalProfilePanel.tsx` | Il profilo fiscale nella pagina Organizzazione |
+| `src/components/organization/v2/fiscal-profile-panel.tsx` | Il profilo fiscale nella pagina Club |
 
 ---
 

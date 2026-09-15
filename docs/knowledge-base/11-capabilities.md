@@ -166,7 +166,7 @@ Classificazione:
 | **Riepilogo gestionale** | COMPLETE | `src/lib/accounting/reporting.ts` (puro) + `src/lib/server/accounting-reports.ts` + `GET /api/v1/accounting/reports` + la sezione dentro `/reports`. **Cassa e competenza restano separate**: incassato e pagato da una parte, crediti verso le famiglie, insoluti, contributi attesi e compensi maturati dall'altra, e **nessun campo li somma** (chiude D-2). Un giroconto non e ne entrata ne uscita — la liquidita non cambia — ma si vede nel flusso del conto. Filtri per date, **anno fiscale e stagione insieme** (due assi diversi: la stagione 2026/27 contiene il 2026 e il 2027), conto, causale, sede (solo club multi-sede, ADR-0038), verso e classificazione; confronto fra due periodi solo fra grandezze omogenee. Raggruppa per causale, `reporting_bucket`, conto, mese, origine e classificazione, e **dichiara quante righe sono `unspecified`** invece di nasconderle in un totale. Ogni riquadro porta il **proprietario** del numero e la sua grandezza (`DASHBOARD_KPIS`); «debiti verso fornitori» non esiste e non viene inventato. **Non e un documento ufficiale**: il titolo e «Riepilogo gestionale», la pagina lo dichiara in una riga e nessuna etichetta usa «ufficiale», «conforme», «a norma» o «per il deposito» |
 | **Checkout online (PSP)** | **MISSING** | `PAYMENT_PROVIDER_REGISTRY` ha PayPal, Postepay, Mastercard tutti con `isImplemented: false`. `POST /api/payments/create-checkout-session` risponde **501**. Il webhook non verifica firme e non gestisce eventi (3 TODO) |
 | Fee di piattaforma | PARTIAL | `calculatePlatformFee` implementata e usata nei metadata, ma non c'e incasso reale |
-| Abbonamenti / HUB extra | MISSING | `/hub` (607 righe) e un catalogo **statico**: nessuna chiamata dati, nessuna persistenza |
+| Abbonamenti / HUB extra | MISSING | `/hub` e un catalogo **statico** (`src/components/hub/v2/hub-content.ts`): nessuna chiamata dati, nessuna persistenza; dal Web V2 i pulsanti «Acquista» e «Invia feedback/proposta», che fingevano un invio, non ci sono piu — resta il contatto reale (ADR-0014) |
 
 
 ## Contabilita dopo la remediation della Wave 4 (2026-08-30)
@@ -223,7 +223,7 @@ funzionava e non si vedeva.
 | Gestione iscrizioni | PARTIAL | `/registration-management` (3.301 righe) con solo 2 chiamate dati: gran parte dello stato e locale |
 | Gestione accessi al club | MOCK | `/dashboard/access-management` e una schermata con tre nomi cablati e un token generato dal browser: **nessun effetto sull'autorizzazione**. I ruoli personalizzati sono un requisito definitivo di prodotto ed entrano fra i blocker obbligatori della Wave 6 pre-production |
 | Permessi trainer | COMPLETE | `/permissions` → `trainer-permissions-page`, `trainer-dashboard-permissions.ts`. Fino alla Wave 5 la configurazione **non raggiungeva la sessione dell'allenatore**: si leggeva da `GET /api/v1/clubs`, che al ruolo risponde 403, e l'errore inghiottito faceva ricadere sui default (D-2). Ora passa da `GET /api/v1/trainer/preferences` |
-| Impostazioni club | COMPLETE | `/settings` su `clubs.settings` |
+| Impostazioni club | COMPLETE | `/settings` su `clubs.settings` (notifiche e sistema); la sezione Sicurezza non cambia password ne PIN — la V1 scriveva solo due timestamp — e rimanda a `/auth/forgot-password` e `/account` |
 | Anagrafica societaria | COMPLETE | `/organization` |
 
 ## Area genitore e atleta

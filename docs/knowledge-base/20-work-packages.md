@@ -1089,7 +1089,7 @@ attive insieme.
    riepilogo calcolato dallo stesso codice che poi esegue la copia
    (`preview`).
 5. **Procedura guidata** in `/organization?tab=stagioni`
-   (`src/components/organization/season-manager.tsx`): periodo → cosa
+   (`src/components/organization/v2/season-manager.tsx`): periodo → cosa
    riportare → riepilogo → conferma, con l'elenco esplicito di cio che resta
    globale e di cio che non viene mai riportato.
 
@@ -1125,7 +1125,7 @@ condivisa colocata alle rotte.
 **File.** `src/lib/club-seasons.ts`, `src/lib/server/seasons.ts`,
 `src/lib/server/resources.ts`, `src/lib/server/audit.ts`,
 `src/app/api/v1/seasons/**`, `src/lib/api/seasons.ts`,
-`src/lib/api/registry.ts`, `src/components/organization/season-manager.tsx`,
+`src/lib/api/registry.ts`, `src/components/organization/v2/season-manager.tsx` (oggi),
 `src/app/organization/page.tsx`, [06](06-data-model.md),
 [09](09-api-conventions.md), [10](10-ui-ux-conventions.md),
 [11](11-capabilities.md), [15](15-testing.md), [16](16-technical-debt.md),
@@ -1916,7 +1916,7 @@ articoli si consegnano uno alla volta.
 
 **Scope.** `src/lib/club-sites.ts` (nuovo), `src/lib/clothing-delivery.ts`
 (nuovo), `src/components/sites/*` (nuovi),
-`src/components/clothing/kit-delivery-dialog.tsx` (nuovo),
+`src/components/clothing/kit-delivery-dialog.tsx` (nuovo; oggi `clothing/v2/kit-delivery-drawer.tsx`),
 `src/components/athletes/profile/athlete-categories-panel.tsx` (nuovo),
 `athlete-category-memberships.ts`, `structures-utils.ts`,
 `clothing-inventory-utils.ts`, `jersey-numbering-utils.ts`, `club-seasons.ts`,
@@ -2323,7 +2323,10 @@ Fortitudo non e mai stato toccato. Decisione: [ADR-0184](18-decision-log.md).
 | Wave D — Gare (+scheda, convocazioni), Calendario (settimana/mese), Soci (+scheda, `/soci/[id]/edit`), Strutture (+scheda a aree), Iscrizioni, Sponsor (`docs/redesign/audit/wave-d-*.md`, test `*-v2-parita`) | **Chiuso** — GAP dichiarati: «Invia promemoria» delle convocazioni (in V1 solo un toast senza API) non ricostruito; `/registration-management` non e un elenco di iscrizioni per atleta e non lo e mai stato (vedi lotto sotto) |
 | Accesso e registrazione nell'ambiente 3 («fuori dal club») | **Chiuso** |
 | Griglia «Iscrizioni per atleta» (stato `ENROLMENT_STATUS` per atleta e stagione, con piano e rate) — nei mockup, senza corrispondenza nel modello dati (l'iscrizione e un booleano sull'atleta) | **Aperto** — decisione di prodotto prima del codice: o una proiezione in sola lettura da atleti + rate, o un'entita nuova (schema) |
-| Pagine con il corpo ancora V1 (guscio gia V2): Abbigliamento, Documenti, Modulistica, Consensi, Segreteria, Appuntamenti, Comunicazioni (3), Notifiche, Lavoro sportivo (5), Club, Impostazioni, Ruoli e accessi, Permessi allenatore, Registro attivita, HUB, Account, area allenatore/famiglia/atleta | **Aperto** — stessa procedura: audit → brief → migrazione → parita |
+| Wave E — Documenti, Modulistica, Consensi, Segreteria, Disponibilita appuntamenti, Comunicazioni (3), Notifiche, HUB, Registro attivita, Lavoro sportivo (6), Club, Impostazioni, Ruoli e accessi, Permessi allenatore, Account, Abbigliamento (`docs/redesign/audit/wave-e-*.md`, un test `*-v2-parita` per rotta; 24 componenti V1 rimossi) | **Chiuso** — GAP dichiarati, tutti difetti V1: HUB «Acquista»/«Invia feedback»/«Invia proposta» erano inerti (rimossi, resta il contatto reale); «Atleta collegato» del desk mai inviato (tolto); scheda Sicurezza di Impostazioni non cambiava password ne PIN (sostituita da link a `/auth/forgot-password` e `/account`); ricarica pagina al cambio lingua senza traduzioni; «Invia promemoria» convocazioni |
+| Editor V1 avvolti dentro pagine V2: `DocumentEditor`, `FormBuilder` (+ satelliti), `BulkGenerationDialog`, `SubmissionReviewDialog` (Modulistica); `src/components/payments/*` (scheda Club, sezioni Pagamenti e Account e fatturazione); `PersonCompensationTab` + `PersonPositionCard` + `DeclarationDialog` (scheda «Lavoro e compensi» di atleti, allenatori, staff) | **Aperto** — un WP per famiglia: foglio visuale e builder V2; pannelli pagamenti V2; tab compensi che riusa `PositionSection`/`DeclarationDrawer` di `sport-work/v2` |
+| Capacita che l'API offre e nessuna schermata apre (gia in V1): sollecito documentale (`remindDocumentRequest`), `PATCH /api/v1/announcements/:id`, `installments/:id/cancel`, rimborso `REJECTED`, `createManualObligation`, `PATCH people/:id` (blocchi CF/P.IVA dell'attivazione) | **Aperto** — decisioni di prodotto, una porta ciascuna |
+| Area allenatore, famiglia, atleta (`/trainer-dashboard`, `/parent-view`, `/athlete-dashboard`, `/pay`, `/iscrizione`, onboarding) | **Aperto** — fuori dal perimetro gestionale dei mockup; stessa procedura quando il design le copre |
 | Blocchi anagrafici condivisi ancora V1 dentro moduli V2 (`PersonIdentityFields`, `PersonResidenceFields`, `PhoneField`, `ClothingSizesFields`, `DocumentExtractionField`, `AssistedAddressFields`) | **Aperto** — una migrazione sola per tutti (D-RD-1 in [16](16-technical-debt.md)) |
 | Candidati alle fondamenta emersi dalle migrazioni (guscio di azione di massa guidata, `RailPanel`, `RecordRowList`/`FieldList`/`RecordSection`, `FileInput`, righe ripetibili nel cassetto, cassetto a modi, `SiteContextControl`, KPI a piano 0, filtri server-side nel DataGrid; dalla Wave D: i tre hook `use*ClubId`, `MonthGrid`, dialogo di storno, stati delle prenotazioni e degli incassi sponsor — D-RD-10) | **Aperto** — vivono oggi accanto alle pagine (`src/components/<dominio>/v2/`); si promuovono quando una seconda pagina li chiede (D-RD-2) |
 | Tavolozza dei comandi ⌘K (§6.6) | **Aperto** — la ricerca porta a `/athletes?q=`; non si costruisce una seconda ricerca |
