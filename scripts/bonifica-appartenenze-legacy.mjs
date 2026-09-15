@@ -468,6 +468,11 @@ const esegui = async () => {
     await client.query("COMMIT");
     const dir = path.join(OUT, RUN_ID);
     fs.mkdirSync(dir, { recursive: true });
+    /* Il pacchetto di ritorno vive sotto il run_id eseguito: `--annulla <RUN_ID>` lo trova qui. */
+    for (const nome of ["piano.json", "prima.json", "inverso.json"]) {
+      const sorgente = path.join(OUT, pianoDryRun.runId, nome);
+      if (fs.existsSync(sorgente) && sorgente !== path.join(dir, nome)) fs.copyFileSync(sorgente, path.join(dir, nome));
+    }
     fs.writeFileSync(path.join(dir, "esecuzione.json"), JSON.stringify({ runId: RUN_ID, dryRun: pianoDryRun.runId, snapshot: SNAPSHOT, club: CLUB, conteggi: piano.conteggi, controlli, eseguito: new Date().toISOString() }, null, 2));
     console.log(`COMMIT. ${piano.mutazioni.length} mutazioni, audit in ${TABELLA_AUDIT} con run_id ${RUN_ID}.`);
     return 0;

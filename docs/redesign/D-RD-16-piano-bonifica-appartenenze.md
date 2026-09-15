@@ -1,12 +1,12 @@
 # D-RD-16 — Piano di bonifica delle righe storiche di `athlete_category_memberships`
 
-> **Stato: STRUMENTI PRONTI, DRY-RUN ESEGUITO, NESSUNA SCRITTURA.**
+> **Stato: ESEGUITO sul redesign (`web-redesign-staging`) il 2026-09-16, run `20260916-fortitudo-write-1`, §14. Lo staging Fortitudo NON e stato toccato: per quello serve un'altra autorizzazione e la modifica di `BRANCH_AMMESSI`.**
 > Redatto il 2026-09-15 sulla copia del pilota nel branch Neon
 > `web-redesign-staging` (`br-hidden-salad-alm93r7e`), in sola lettura.
 > Lo script esiste (`scripts/bonifica-appartenenze-legacy.mjs`), il dry-run
 > e stato eseguito (§13) e la copia di sicurezza esiste (§7). L'esecuzione
-> richiede un'autorizzazione esplicita separata (CLAUDE.md §8, ADR-0185):
-> **non e stata data**.
+> per il redesign e stata autorizzata per iscritto (conferma R3 compresa) ed
+> eseguita; per lo staging Fortitudo **non e stata data**.
 
 ## 0. Perche e perche adesso
 
@@ -305,10 +305,9 @@ Poi, come passi **separati e a loro volta autorizzati**:
       fixture (`tests/scripts/bonifica-appartenenze-legacy.test.mjs`, 14).
 - [x] Copia di sicurezza del branch del redesign (§7.1).
 - [x] Dry-run sul redesign (§13).
-- [ ] Conferma a mano della riga `7fdcf885-…` (R3): il fascicolo e
-      `.codex-scratch/drd16/20260915-fortitudo-dryrun-1/traccia-7fdcf885-….md`.
-- [ ] Autorizzazione esplicita per l'**esecuzione** su `web-redesign-staging`.
-- [ ] Rapporto dell'esecuzione (conteggi §4, validazioni §9, parita §11).
+- [x] Conferma a mano della riga `7fdcf885-…` (R3): DELETE, data per iscritto il 2026-09-16.
+- [x] Autorizzazione esplicita per l'**esecuzione** su `web-redesign-staging` (2026-09-16).
+- [x] Rapporto dell'esecuzione (§14).
 - [ ] Autorizzazione esplicita **separata** per lo staging Fortitudo (e la
       modifica di `BRANCH_AMMESSI`).
 
@@ -572,3 +571,35 @@ si capisce quella colonna (fase B), poi si ripianifica.
 | `bf5b190e-3e8a-4b83-bb65-09cfa07b6f0c` | `f2560d16-cfde-4d07-8a56-68213efd409f` | Under 19 Regionale | no | `category-1787322586145-tnn8ibt` | R1 | DELETE (gemella) |
 | (colonna `athletes.category_id`) | `a166b943-19d0-4e15-bfc9-8a40fb78c8b0` | Under 14 Gold | primaria | (primaria dell'atleta) | colonna | UPDATE `athletes.category_id`/`category_name` |
 | (colonna `athletes.category_id`) | `2947d805-df94-43fd-94a6-4920489339ef` | Pulcini - S. Cosma | primaria | (primaria dell'atleta) | colonna | UPDATE `athletes.category_id`/`category_name` |
+
+## 14. Esecuzione del 2026-09-16 sul redesign (`20260916-fortitudo-write-1`)
+
+Bersaglio: progetto Neon `dark-sunset-10312993`, branch `web-redesign-staging`
+(`br-hidden-salad-alm93r7e`), endpoint diretto. Copia di sicurezza
+`br-soft-bread-al8kcvmh`. Piano approvato `20260915-fortitudo-dryrun-1`,
+R3 `7fdcf885-…` confermata come DELETE. Una transazione, **COMMIT**.
+
+| misura | prima | dopo |
+| --- | ---: | ---: |
+| righe `athlete_category_memberships` del club | 428 | **216** |
+| righe fuori catalogo | 213 | **0** |
+| primarie | 213 | **213** |
+| atleti con 0 o 2 primarie | 0 | 0 |
+| `athletes.category_id` fuori catalogo | 2 | **0** |
+| `athletes.category_id` diverso dalla primaria | 1 | **0** |
+
+Eseguite: DELETE 212, UPDATE `category_id` 1 (`36bb34af-…` → `j8liup8`),
+UPDATE `athletes` 2. Audit: 215 righe in `bonifica_appartenenze_audit` con
+`run_id = 20260916-fortitudo-write-1`, tutte con `prima`; V6 = 0 righe fuori
+club. V1–V6 lette dal database dopo il COMMIT: tutte OK. Secondo dry-run sul
+database bonificato: 0 mutazioni, 0 revisioni; censimento: 0 riferimenti.
+Pacchetto di ritorno in `.codex-scratch/drd16/20260916-fortitudo-write-1/`
+(`inverso.json`: 212 INSERT + 3 UPDATE; `prima.json`: 428 righe, 213 atleti,
+211 proiezioni) — `--annulla 20260916-fortitudo-write-1` con le stesse guardie.
+UAT di dominio con le funzioni dell'app sui dati reali: 2 opzioni Pulcini
+(`Pulcini · S. Cosma`, `Pulcini · Scauri`), 2 Scoiattoli, nessun fantasma,
+nessun id grezzo in 36 etichette, gruppi storici inattivi non attivi, atleta
+R3 con primaria `Pulcini · S. Cosma` e nessuna secondaria «Pulcini»; su 213
+atleti 0 secondarie uguali alla primaria, 0 pendenti, 0 id grezzi.
+Organizzazione `ef5317db-…`: invariata (12 righe, 7 storiche). Restano le
+fasi B (proiezioni `athletes.data`) e C (nomi stantii), separate.
