@@ -104,6 +104,15 @@ Gli endpoint esclusi dal punto 3 sono elencati in `SESSION_LIFECYCLE_PATHS`
 
 ## Componenti
 
+- **Web V2 (2026-09-15, ADR-0184).** Il guscio delle pagine di gestione e in
+  `src/components/web/shell/`; `src/components/dashboard/{Sidebar,Header,
+  shared-page-header,dashboard-page-container}.tsx` sono riesportazioni verso
+  di esso, cosi le ~45 pagine che li montano non cambiano. `ShellProvider`
+  (in `AppClientProviders`) tiene lo stato della barra (compressa, cassetti
+  globali, ⌘J/⌘K). Le pagine migrate compongono `DataGrid`, `PageHeader`,
+  `Drawer` e le altre primitive di `src/components/web/` — inventario in
+  [10](10-ui-ux-conventions.md) §Web V2.
+
 - `src/components/ui/` — 58 file: primitive shadcn/ui piu componenti custom
   (`chat.tsx`, `avatar-upload.tsx`, `toast-notification.tsx`,
   `mobile-header.tsx`). 18 primitive non sono referenziate da nessuna pagina.
