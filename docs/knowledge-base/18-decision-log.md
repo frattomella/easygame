@@ -11625,3 +11625,58 @@ sovrapposizione, invariati), typecheck, lint, build. Nessun dato toccato:
 la sonda su Fortitudo Scauri e stata di sola lettura.
 
 ---
+
+## ADR-0184 — Redesign Web V2 (EGDS v3.1.0): due fonti di verita, guscio portato dietro le porte esistenti, ambiente di prova isolato
+
+**Data:** 2026-09-15
+
+**Contesto.** Il redesign della Web App arriva come esportazione Claude Design
+(`design-source/web/`, EGDS v3.1.0: guideline `05`–`10`, tavola Direction v3
+«Iterazione 4», frame EGShell/EGRecord/EGAthlete). I mockup mostrano poche
+pagine e non tutte le capacita; la V1 e in uso da Fortitudo Scauri su
+`easygame-staging` e deve restare intatta.
+
+**Decisione.**
+
+1. **Due fonti di verita.** Per le *funzionalita* vale il codice esistente
+   (rotte, API, permessi, validazioni, test): nessuna capacita sparisce perche
+   un mockup non la disegna; si ricostruisce con i pattern del sistema. Per
+   *aspetto, parole e forma dell'interazione* valgono le guideline `05`–`10`
+   e i mockup, con la precedenza scritta in `10-handoff.md` §10.2. Prima di
+   sostituire una pagina si scrive il suo inventario funzionale
+   (`docs/redesign/audit/`), e la migrazione segue
+   `docs/redesign/MIGRATION-BRIEF.md`.
+2. **Fondamenta una volta sola.** Token (`src/styles/egw-tokens.css`, copia di
+   `design-source/tokens/web.css`), primitive, overlay, moduli, card, scheda e
+   la griglia unica vivono in `src/components/web/` e `src/lib/web/`. Nessun
+   modulo disegna una seconda tabella, un secondo cassetto, un secondo
+   sistema di stato (`src/lib/web/status.ts` e l'unico posto delle etichette).
+3. **Il guscio si porta dietro le porte esistenti.** Le 45 pagine che montano
+   `Sidebar`, `Header`, `DashboardPageContainer` e `SharedPageHeader` da
+   `src/components/dashboard/*` non vengono toccate: quei file diventano
+   riesportazioni del guscio V2 (`src/components/web/shell/`). Le voci di
+   navigazione stanno in `web/shell/navigation.ts` (sei gruppi, tutte le
+   destinazioni V1, filtro per ruolo con `canAccessPath` e la matrice
+   contabile per «Prima nota»).
+4. **Sotto i 1024 px resta la barra mobile V1.** La guideline `05` §5.8 dichiara
+   il gestionale non supportato sotto i 1152 px; CLAUDE.md (ADR-0025) impone
+   che ogni pagina resti usabile a 375 e 768 px, e il prodotto lo e gia. Il
+   vincolo del prodotto vince: la barra laterale V2 si disegna da `lg` in su
+   (compressa di default sotto i 1280), sotto vale `MobileTopBar`, che riceve
+   le stesse destinazioni (il test `navigazione-sotto-1024-e-768` lo fa
+   valere).
+5. **Ambiente isolato.** Il redesign si sviluppa su `feat/web-redesign`
+   (biforcato dal commit `768ef05` in produzione su `easygame-staging`), si
+   pubblica sul progetto Vercel `easygame-redesign-staging` e scrive sul
+   branch Neon `web-redesign-staging`. Niente del redesign tocca
+   `easygame-staging` ne il branch Neon `production` (`docs/redesign/DEPLOY.md`).
+6. **Etichette decise dal prodotto.** Dove una decisione documentata dice gia
+   come si chiama una cosa (PP-01 §M: «Ruoli e accessi» e «Permessi
+   allenatore»), il nome del prodotto vale sul nome del mockup.
+
+**Conseguenze.** Le pagine migrano una alla volta, a parita verificata, e la
+V1 specifica di una pagina si rimuove dopo la migrazione (git e lo staging
+Fortitudo conservano la versione precedente). Le tre deroghe al design
+(mobile sotto i 1024, cassetto Azioni rapide che apre il modulo della pagina
+invece di un modulo compatto interno, `Ruoli e accessi`) sono scritte qui e
+non altrove.
