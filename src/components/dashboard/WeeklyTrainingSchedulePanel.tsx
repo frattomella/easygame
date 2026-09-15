@@ -45,6 +45,7 @@ import {
   resolveTrainingWeekday,
 } from "@/lib/training-utils";
 import { TrainingScheduleAutomationPanel } from "@/components/trainer/TrainingScheduleAutomationPanel";
+import { useConfirm } from "@/components/web/overlays/useConfirm";
 import {
   Pencil,
   Plus,
@@ -169,6 +170,11 @@ export function WeeklyTrainingSchedule({
   allowDragDrop = true,
   onTrainingsGenerated = () => {},
 }: WeeklyTrainingSchedulePanelProps) {
+  /*
+    Le conferme (conflitto d'orario, sede incrociata, rimozione) passano dal
+    dialogo del sistema invece che da `window.confirm` (guideline 08 §8.9).
+  */
+  const [confirm, confirmDialog] = useConfirm();
   const { showToast } = useToast();
   const { activeClub } = useAuth();
   const [schedule, setSchedule] = React.useState<WeeklyTrainingItem[]>([]);
@@ -683,7 +689,7 @@ export function WeeklyTrainingSchedule({
     setSchedule((current) => current.filter((item) => item.id !== itemId));
   };
 
-  const addScheduleItem = () => {
+  const addScheduleItem = async () => {
     const normalizedNewTraining = hydrateStructureAndField(
       normalizeScheduleItem(newTraining),
     );
@@ -712,12 +718,18 @@ export function WeeklyTrainingSchedule({
     }
 
     const conflictMessage = buildConflictMessage(normalizedNewTraining);
-    if (conflictMessage && !window.confirm(conflictMessage)) {
+    if (
+      conflictMessage &&
+      !(await confirm({ title: "Orario in conflitto", description: conflictMessage, confirmLabel: "Inserisci comunque" }))
+    ) {
       return;
     }
 
     const crossSiteMessage = buildCrossSiteWarning(normalizedNewTraining);
-    if (crossSiteMessage && !window.confirm(crossSiteMessage)) {
+    if (
+      crossSiteMessage &&
+      !(await confirm({ title: "Struttura di un'altra sede", description: crossSiteMessage, confirmLabel: "Conferma" }))
+    ) {
       return;
     }
 
@@ -739,7 +751,7 @@ export function WeeklyTrainingSchedule({
     setShowEditDialog(true);
   };
 
-  const saveEditedTraining = () => {
+  const saveEditedTraining = async () => {
     if (!editingTraining) {
       return;
     }
@@ -775,7 +787,10 @@ export function WeeklyTrainingSchedule({
       normalizedEditingTraining,
       normalizedEditingTraining.id,
     );
-    if (conflictMessage && !window.confirm(conflictMessage)) {
+    if (
+      conflictMessage &&
+      !(await confirm({ title: "Orario in conflitto", description: conflictMessage, confirmLabel: "Inserisci comunque" }))
+    ) {
       return;
     }
 
@@ -789,7 +804,10 @@ export function WeeklyTrainingSchedule({
       editingOriginalStructureIdRef.current
     ) {
       const crossSiteMessage = buildCrossSiteWarning(normalizedEditingTraining);
-      if (crossSiteMessage && !window.confirm(crossSiteMessage)) {
+      if (
+        crossSiteMessage &&
+        !(await confirm({ title: "Struttura di un'altra sede", description: crossSiteMessage, confirmLabel: "Conferma" }))
+      ) {
         return;
       }
     }
@@ -803,7 +821,7 @@ export function WeeklyTrainingSchedule({
     setEditingTraining(null);
   };
 
-  const moveScheduleItem = (
+  const moveScheduleItem = async (
     itemId: string,
     day: string,
     structureId: string,
@@ -822,7 +840,10 @@ export function WeeklyTrainingSchedule({
     });
     const conflictMessage = buildConflictMessage(nextItem, itemId);
 
-    if (conflictMessage && !window.confirm(conflictMessage)) {
+    if (
+      conflictMessage &&
+      !(await confirm({ title: "Orario in conflitto", description: conflictMessage, confirmLabel: "Inserisci comunque" }))
+    ) {
       return;
     }
 
@@ -1002,6 +1023,7 @@ export function WeeklyTrainingSchedule({
 
   return (
     <div className="space-y-5">
+      {confirmDialog}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -1687,12 +1709,15 @@ export function WeeklyTrainingSchedule({
             <Button
               variant="outline"
               className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
-              onClick={() => {
+              onClick={async () => {
                 if (
                   editingTraining &&
-                  window.confirm(
-                    "Vuoi eliminare questo allenamento dal programma settimanale?",
-                  )
+                  (await confirm({
+                    title: "Eliminare questo allenamento dal programma settimanale?",
+                    description: "La fascia sparisce dal programma; gli allenamenti gia generati restano in calendario.",
+                    confirmLabel: "Elimina",
+                    tone: "danger",
+                  }))
                 ) {
                   removeScheduleItem(editingTraining.id);
                   setShowEditDialog(false);

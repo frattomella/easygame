@@ -111,6 +111,7 @@ import {
   buildAthleteFilters,
   categoryDotColor,
   type Athlete,
+  ATHLETE_CATEGORY_FILTER_ID,
 } from "@/components/athletes/v2/athlete-grid-model";
 import { buildAthleteColumns } from "@/components/athletes/v2/athletes-grid-columns";
 import {
@@ -773,6 +774,14 @@ export default function AthletesPage() {
     osservatore.observe(nodo);
     return () => osservatore.disconnect();
   }, [paginated, listMeta?.hasMore, caricaAltriAtleti]);
+
+  /*
+    «Vedi atleti» di una categoria arriva con `?category=<id>` (la V1 lo
+    mandava a una modale mai attivata): qui diventa il filtro Categoria di
+    partenza della griglia. `categoryId` e accettato come sinonimo.
+  */
+  const categoryDeepLink =
+    searchParams.get("category") || searchParams.get("categoryId") || null;
 
   useEffect(() => {
     const action = searchParams.get("action");
@@ -2133,6 +2142,11 @@ export default function AthletesPage() {
                   rows={filteredAthletes}
                   getRowId={athleteRowKey}
                   rowLabel={(row) => getAthleteDisplayName(row)}
+                  initialFilters={
+                    categoryDeepLink
+                      ? { [ATHLETE_CATEGORY_FILTER_ID]: [categoryDeepLink] }
+                      : null
+                  }
                   totalCount={totaleAtletiDistinti}
                   columns={columns}
                   filters={filters}

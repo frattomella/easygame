@@ -80,6 +80,7 @@ export function useGridState<Row>(props: DataGridProps<Row>) {
     onFiltersChange,
     onViewChange,
     requestedViewId,
+    initialFilters,
   } = props;
 
   const load = <K extends keyof Persisted>(key: K, fallback: NonNullable<Persisted[K]>) =>
@@ -165,7 +166,11 @@ export function useGridState<Row>(props: DataGridProps<Row>) {
     ];
     const defaultView = candidates.find((x) => x.isDefault);
     const chosen = (v ? candidates.find((x) => x.id === v) : undefined) || defaultView;
-    if (chosen && chosen.id !== ALL_VIEW_ID) {
+    if (initialFilters && activeFilterEntries(initialFilters).length) {
+      // Un deep link dice cosa guardare: vale piu della vista ricordata.
+      setActiveViewIdState(ALL_VIEW_ID);
+      setFilterState({ ...initialFilters });
+    } else if (chosen && chosen.id !== ALL_VIEW_ID) {
       setActiveViewIdState(chosen.id);
       applyView(chosen);
     }

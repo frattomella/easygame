@@ -193,4 +193,6 @@ export interface DataGridProps<Row> {
   onViewChange?: (viewId: string) => void;
   /** Attiva una vista dall'esterno (clic su un contatore dell'intestazione): cambia il valore per riattivarla. */
   requestedViewId?: string | null;
+  /** Filtri di partenza (da un deep link come `?category=`): vincono sulla vista salvata, una volta sola all'ingresso. */
+  initialFilters?: FilterState | null;
 }
