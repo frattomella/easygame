@@ -737,12 +737,15 @@ glass/blur su una pagina di lavoro, niente footer «powered by».
 
 Dashboard, Atleti (elenco, nuovo, scheda), Allenatori (elenco, nuovo, scheda),
 Staff (elenco, nuovo, scheda, modifica), Allenamenti, Categorie, Certificati
-medici, Prima nota (con Rate e Previsti), Report, Procure. Il guscio vale su
-**tutte** le pagine di gestione anche dove il corpo e ancora V1 (Soci,
-Calendario, Gare, Strutture, Abbigliamento, Iscrizioni, Documenti,
-Modulistica, Consensi, Segreteria, Appuntamenti, Comunicazioni, Notifiche,
-Sponsor, Lavoro sportivo, Club, Impostazioni, Ruoli e accessi, Permessi
-allenatore, Registro attivita) — vedi [20](20-work-packages.md).
+medici, Prima nota (con Rate e Previsti), Report, Procure, Gare (elenco e
+scheda), Calendario (settimana e mese), Soci (libro, scheda, modifica),
+Strutture (elenco e scheda a aree), Iscrizioni (piani, sconti, bandi),
+Sponsor. Il guscio vale su **tutte** le pagine di gestione anche dove il
+corpo e ancora V1 (Abbigliamento, Documenti, Modulistica, Consensi,
+Segreteria, Appuntamenti, Comunicazioni, Notifiche, Lavoro sportivo, Club,
+Impostazioni, Ruoli e accessi, Permessi allenatore, Registro attivita, HUB,
+Account) — vedi [20](20-work-packages.md). Accesso e registrazione stanno
+nell'ambiente 3 («fuori dal club», cielo pieno).
 
 ## Tipografia: le regole definitive
 
