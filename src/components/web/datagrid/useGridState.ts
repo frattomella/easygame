@@ -76,6 +76,10 @@ export function useGridState<Row>(props: DataGridProps<Row>) {
     defaultPageSize = 25,
     selectedIds: controlledSelection,
     onSelectionChange,
+    onQueryChange,
+    onFiltersChange,
+    onViewChange,
+    requestedViewId,
   } = props;
 
   const load = <K extends keyof Persisted>(key: K, fallback: NonNullable<Persisted[K]>) =>
@@ -149,14 +153,18 @@ export function useGridState<Row>(props: DataGridProps<Row>) {
     const pv = load("personalViews", [] as ViewDef[]);
     setPersonalViewsState(pv);
     setCollapsedGroupsState(load("collapsedGroups", [] as string[]));
-    const v = load("view", ALL_VIEW_ID);
+    /*
+      La vista salvata dall'utente vince; se non ne ha mai scelta una, si
+      apre la vista predefinita del modulo (o quella che ha segnato lui).
+    */
+    const v = persist ? readPreference<string | null>(module, "view", null) : null;
     const candidates: ViewDef[] = [
       { id: ALL_VIEW_ID, label: "Tutti", filters: {}, builtIn: true },
       ...views,
       ...pv,
     ];
     const defaultView = candidates.find((x) => x.isDefault);
-    const chosen = candidates.find((x) => x.id === v) || defaultView;
+    const chosen = (v ? candidates.find((x) => x.id === v) : undefined) || defaultView;
     if (chosen && chosen.id !== ALL_VIEW_ID) {
       setActiveViewIdState(chosen.id);
       applyView(chosen);
@@ -203,7 +211,27 @@ export function useGridState<Row>(props: DataGridProps<Row>) {
     setActiveViewIdState(id);
     save("view", id);
     applyView(allViews.find((v) => v.id === id));
+    onViewChange?.(id);
   };
+
+  // Una vista chiesta dall'esterno (contatore in intestazione, avviso della Dashboard).
+  const lastRequested = React.useRef<string | null | undefined>(undefined);
+  React.useEffect(() => {
+    if (!hydrated) return;
+    if (requestedViewId === undefined || requestedViewId === lastRequested.current) return;
+    lastRequested.current = requestedViewId;
+    if (requestedViewId && allViews.some((v) => v.id === requestedViewId)) setActiveView(requestedViewId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedViewId, hydrated]);
+
+  React.useEffect(() => {
+    onQueryChange?.(query);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+  React.useEffect(() => {
+    onFiltersChange?.(filterState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterState]);
 
   const setFilter = (id: string, value: FilterValue) => {
     setFilterState((current) => ({ ...current, [id]: value }));

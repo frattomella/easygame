@@ -109,7 +109,11 @@ export function RecordHeader({
           ) : null}
         </div>
         {children ? <div className="mt-4">{children}</div> : null}
-        {areas ? <div className="mt-4 flex justify-end">{areas}</div> : null}
+        {areas ? (
+          <div className="egw-scroll -mx-1 mt-4 flex justify-start overflow-x-auto px-1 pb-1 lg:justify-end">
+            {areas}
+          </div>
+        ) : null}
       </Panel>
     </TooltipProvider>
   );

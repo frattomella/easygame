@@ -33,6 +33,7 @@ export const PERSON_STATUS = Object.freeze({
   inactive: spec("DISATTIVATO", "quiet", "neutral"),
   archived: spec("ARCHIVIATO", "quiet", "neutral"),
   draft: spec("BOZZA", "quiet", "neutral"),
+  on_leave: spec("IN CONGEDO", "outline", "amber"),
 } as const);
 
 /* ── Certificato / documento ────────────────────────────────────────────── */
@@ -56,6 +57,8 @@ export const MONEY_STATUS = Object.freeze({
   refunded: spec("RIMBORSATO", "quiet", "neutral"),
   reversed: spec("STORNATO", "quiet", "neutral"),
   settled: spec("SALDATA", "solid", "green"),
+  /** Denaro **in uscita** gia pagato (compensi, rimborsi): «incassato» mentirebbe sul verso. */
+  paid_out: spec("PAGATO", "solid", "green"),
 } as const);
 
 /* ── Attivita (allenamento, gara, appuntamento) ─────────────────────────── */
@@ -157,6 +160,10 @@ const ALIASES: Record<string, StatusSpec> = {
   rimborsato: MONEY_STATUS.refunded,
   reversed: MONEY_STATUS.reversed,
   stornato: MONEY_STATUS.reversed,
+  paid_out: MONEY_STATUS.paid_out,
+  on_leave: PERSON_STATUS.on_leave,
+  "in congedo": PERSON_STATUS.on_leave,
+  leave: PERSON_STATUS.on_leave,
   // attivita
   completed: ACTIVITY_STATUS.completed,
   completato: ACTIVITY_STATUS.completed,

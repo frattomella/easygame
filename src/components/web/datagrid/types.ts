@@ -85,7 +85,8 @@ export interface BulkActionDef<Row> {
   label: string;
   icon?: React.ReactNode;
   tone?: "default" | "danger";
-  onRun: (rows: Row[]) => void | Promise<void>;
+  /** `scope.all` e vero quando l'utente ha scelto «seleziona tutti i N» (oltre la pagina). */
+  onRun: (rows: Row[], scope: { all: boolean }) => void | Promise<void>;
   /** Assente se il ruolo non puo (mai disabilitata). */
   hidden?: boolean;
   disabled?: (rows: Row[]) => boolean;
@@ -182,4 +183,14 @@ export interface DataGridProps<Row> {
   hideFooter?: boolean;
   /** Un blocco sotto le righe di un gruppo (es. totali). */
   footerRow?: React.ReactNode;
+  /** Il nome della riga per i comandi (`Altre azioni per Marco Ferretti`). */
+  rowLabel?: (row: Row) => string;
+  /** Il numero da mostrare sul chip «Tutti» quando le righe non sono persone (una riga per appartenenza). */
+  totalCount?: number;
+  /** Notifiche di cio che l'utente vede: per chi deve rifare una lettura server o rispecchiare l'URL. */
+  onQueryChange?: (query: string) => void;
+  onFiltersChange?: (filters: FilterState) => void;
+  onViewChange?: (viewId: string) => void;
+  /** Attiva una vista dall'esterno (clic su un contatore dell'intestazione): cambia il valore per riattivarla. */
+  requestedViewId?: string | null;
 }

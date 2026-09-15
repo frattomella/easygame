@@ -87,6 +87,8 @@ export function DataGrid<Row>(props: DataGridProps<Row>) {
     hideViews = false,
     hideFooter = false,
     serverTotal,
+    rowLabel,
+    totalCount,
   } = props;
   const api = useGridState(props);
   const hasActions = rowActions.length > 0;
@@ -152,7 +154,7 @@ export function DataGrid<Row>(props: DataGridProps<Row>) {
         aria-label={props["aria-label"]}
       >
         {banner}
-        {!hideViews ? <ViewsBar api={api} search={search} searchRef={searchRef} noun={noun} unfilteredTotal={unfilteredTotal} /> : null}
+        {!hideViews ? <ViewsBar api={api} search={search} searchRef={searchRef} noun={noun} unfilteredTotal={totalCount ?? unfilteredTotal} /> : null}
         <Toolbar api={api} filters={filters} columns={columns} exportConfig={exportConfig} noun={noun} groupBy={groupBy} state={state} />
         {selectable && api.selection.size > 0 ? (
           <BulkBar api={api} actions={visibleBulk} noun={noun} total={total} />
@@ -265,6 +267,7 @@ export function DataGrid<Row>(props: DataGridProps<Row>) {
                                   rowHeight={rowHeight}
                                   selectable={selectable}
                                   rowActions={rowActions}
+                                  rowLabel={rowLabel}
                                   onOpenRow={onOpenRow}
                                   active={activeRowId === getRowId(row)}
                                   focused={focusedRowId === getRowId(row)}
@@ -286,6 +289,7 @@ export function DataGrid<Row>(props: DataGridProps<Row>) {
                         rowHeight={rowHeight}
                         selectable={selectable}
                         rowActions={rowActions}
+                                  rowLabel={rowLabel}
                         onOpenRow={onOpenRow}
                         active={activeRowId === getRowId(row)}
                         focused={focusedRowId === getRowId(row)}
@@ -696,13 +700,19 @@ function Toolbar<Row>({
                 </MenuItem>
               ))}
               {api.selection.size ? (
-                <MenuItem
-                  onSelect={() =>
-                    void exportConfig.onExport({ kind: (exportConfig.kinds ?? ["csv"])[0], scope: "selected", rows: api.selectedRows, columns: api.visibleColumnDefs })
-                  }
-                >
-                  Esporta selezione ({api.selection.size})
-                </MenuItem>
+                <>
+                  <MenuSeparator />
+                  {(exportConfig.kinds ?? ["csv"]).map((kind) => (
+                    <MenuItem
+                      key={`sel-${kind}`}
+                      onSelect={() =>
+                        void exportConfig.onExport({ kind, scope: "selected", rows: api.selectedRows, columns: api.visibleColumnDefs })
+                      }
+                    >
+                      Esporta selezione {kind.toUpperCase()} ({api.selection.size})
+                    </MenuItem>
+                  ))}
+                </>
               ) : null}
               {exportConfig.onImport ? (
                 <>
@@ -901,7 +911,7 @@ function BulkBar<Row>({
           key={action.id}
           type="button"
           disabled={action.disabled?.(api.selectedRows)}
-          onClick={() => void action.onRun(api.selectedRows)}
+          onClick={() => void action.onRun(api.selectedRows, { all: api.selectAllBeyondPage })}
           className={cn(
             "inline-flex h-7 items-center gap-1.5 rounded-egw-chip border bg-white px-2.5 text-[11.5px] font-semibold focus-visible:outline-none focus-visible:shadow-egw-focus disabled:opacity-40 [&>svg]:h-3.5 [&>svg]:w-3.5",
             action.tone === "danger" ? "border-egw-red text-egw-red hover:bg-egw-tint-red" : "border-[rgba(37,99,235,.3)] text-egw-blue-700 hover:bg-egw-page-050",
@@ -920,7 +930,7 @@ function BulkBar<Row>({
           </MenuTrigger>
           <MenuContent align="start" width={220}>
             {overflow.map((action) => (
-              <MenuItem key={action.id} tone={action.tone === "danger" ? "danger" : "default"} onSelect={() => void action.onRun(api.selectedRows)}>
+              <MenuItem key={action.id} tone={action.tone === "danger" ? "danger" : "default"} onSelect={() => void action.onRun(api.selectedRows, { all: api.selectAllBeyondPage })}>
                 {action.icon}
                 {action.label}
               </MenuItem>
@@ -1005,6 +1015,7 @@ function GridRow<Row>({
   rowHeight,
   selectable,
   rowActions,
+  rowLabel,
   onOpenRow,
   active,
   focused,
@@ -1017,6 +1028,7 @@ function GridRow<Row>({
   rowHeight: number;
   selectable: boolean;
   rowActions: NonNullable<DataGridProps<Row>["rowActions"]>;
+  rowLabel?: (row: Row) => string;
   onOpenRow?: (row: Row) => void;
   active: boolean;
   focused: boolean;
@@ -1044,7 +1056,7 @@ function GridRow<Row>({
     >
       {selectable ? (
         <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
-          <Checkbox size={16} aria-label="Seleziona la riga" checked={selected} onChange={() => api.toggleRow(id)} />
+          <Checkbox size={16} aria-label={rowLabel ? `Seleziona ${rowLabel(row)}` : "Seleziona la riga"} checked={selected} onChange={() => api.toggleRow(id)} />
         </div>
       ) : null}
       {api.visibleColumnDefs.map((column) => {
@@ -1084,12 +1096,12 @@ function GridRow<Row>({
           {overflow.length ? (
             <Menu>
               <MenuTrigger asChild>
-                <IconButton aria-label="Altre azioni" size="xs" variant="row">
+                <IconButton aria-label={rowLabel ? `Altre azioni per ${rowLabel(row)}` : "Altre azioni"} size="xs" variant="row">
                   <MoreHorizontal />
                 </IconButton>
               </MenuTrigger>
               <MenuContent align="end" width={220}>
-                <MenuLabel>Azioni riga</MenuLabel>
+                <MenuLabel>{rowLabel ? rowLabel(row) : "Azioni riga"}</MenuLabel>
                 {overflow.map((action) => (
                   <MenuItem key={action.id} tone={action.tone === "danger" ? "danger" : "default"} onSelect={() => action.onClick(row)}>
                     {action.icon}

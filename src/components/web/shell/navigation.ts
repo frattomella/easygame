@@ -227,7 +227,17 @@ export const buildBreadcrumb = (
     const known = SEGMENT_LABELS[segment];
     const isId = !known && /^[0-9a-f-]{8,}$|^\d+$/i.test(segment);
     const label = known || (isId ? options.currentLabel || "Scheda" : decodeURIComponent(segment));
-    if (last) crumbs.push({ label: options.currentLabel && !known ? options.currentLabel : label });
+    if (last) {
+      const finalLabel = options.currentLabel && !known ? options.currentLabel : label;
+      // «Dashboard / Dashboard»: se la scheda porta lo stesso nome della voce,
+      // il segmento con l'identificativo non aggiunge niente.
+      if (isId && finalLabel === hit.item.label) {
+        crumbs.pop();
+        crumbs.push({ label: finalLabel });
+      } else {
+        crumbs.push({ label: finalLabel });
+      }
+    }
     else crumbs.push({ label, href: `${hit.item.href}/${rest.slice(0, index + 1).join("/")}` });
   });
   // Max quattro livelli: oltre, si elide il centro.

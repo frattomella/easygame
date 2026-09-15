@@ -129,3 +129,11 @@ test("le preferenze usano chiavi egw.<modulo>.<impostazione> e tollerano l'assen
   assert.equal(readPreference("x", "y", 1, broken), 1);
   assert.doesNotThrow(() => writePreference("x", "y", 2, broken));
 });
+
+test("una scheda che si chiama come la voce non raddoppia il breadcrumb", () => {
+  const crumbs = buildBreadcrumb("/dashboard/3b9d31c4-5d3e-47bc-9e9b-0f205adc7c01", {
+    clubName: "Club",
+    currentLabel: "Dashboard",
+  });
+  assert.deepEqual(crumbs.map((c) => c.label), ["Club", "Panoramica", "Dashboard"]);
+});
