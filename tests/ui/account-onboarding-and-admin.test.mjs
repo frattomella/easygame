@@ -84,30 +84,32 @@ test("l'onboarding e saltabile e non salva nulla senza conferma", () => {
 test("l'import atleti mostra un avanzamento reale e un riepilogo finale", () => {
   const source = read(IMPORT_DIALOG);
 
-  assert.match(source, /role="progressbar"/);
-  assert.match(source, /aria-valuenow=\{progress\.done\}/);
+  assert.match(source, /<ProgressBar value=\{progress\.done\} max=/);
   assert.match(
     source,
-    /onProgress: \(completed: number\) =>/,
+    /onProgress: \(done, total\) => setProgress\(\{ done, total \}\)/,
     "l'avanzamento arriva da chi scrive davvero le righe",
   );
 
-  // Il riepilogo distingue le tre quantita richieste.
-  assert.match(source, /label="Importati"/);
-  assert.match(source, /label="Scartati in anteprima"/);
-  assert.match(source, /label="Errori in scrittura"/);
+  // Il riepilogo distingue le quantita richieste (ADR-0195).
+  assert.match(source, /label="Creati"/);
+  assert.match(source, /label="Collegati"/);
+  assert.match(source, /label="Gia scritti"/);
+  assert.match(source, /label="Categorie create"/);
+  assert.match(source, /label="Non scritti"/);
   assert.match(source, /Righe non scritte/);
 });
 
 test("l'import non scrive prima di aver mostrato l'anteprima", () => {
   const source = read(IMPORT_DIALOG);
-  const stepOrder = ["upload", "review", "running", "done"];
+  const stepOrder = ["upload", "mapping", "rows", "categories", "duplicates", "preview", "running", "done"];
   assert.match(source, new RegExp(stepOrder.join('" \\| "')));
   assert.match(
     source,
-    /const payload = toImportPayload\(previewRows\);/,
+    /const request = buildAthleteImportRequest\(plan, id\);/,
     "si scrive esattamente cio che l'anteprima ha dichiarato importabile",
   );
+  assert.match(source, /disabled=\{!canImport \|\| !importable \|\| blockedByDecisions\}/, "con una decisione mancante non si importa");
 });
 
 test("la console di piattaforma configura IMAP accanto a SMTP, separati", () => {

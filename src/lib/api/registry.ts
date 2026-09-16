@@ -149,6 +149,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "athletes.import",
+    method: "POST",
+    path: "/api/v1/athletes/import",
+    description:
+      "Import di atleti da file (ADR-0195): righe decise nel wizard, categorie da collegare o creare, per scaglioni di 200 con lo stesso batchId; idempotente per riga",
+    mobile_ready: false,
+  },
+  {
     name: "athletes.memberships.item",
     method: "PUT|POST",
     path: "/api/v1/athletes/:id/memberships",

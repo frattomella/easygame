@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useCallback, useMemo, useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
@@ -38,7 +38,6 @@ import {
   type AthleteStatusFilter,
 } from "@/lib/athletes/status";
 import {
-  findCategoryForBirthDate,
   formatCategoryBirthYears,
   normalizeCategoryBirthYears,
   resolveCategoryId,
@@ -57,7 +56,6 @@ import {
 } from "@/lib/athlete-name-utils";
 import {
   getClubAthletesPage,
-  addClubAthletesBatch,
   updateClubAthlete,
   deleteClubAthlete,
 } from "@/lib/simplified-db";
@@ -70,7 +68,6 @@ import { describeSelection } from "@/lib/list-selection";
 import { printPeoplePdf } from "@/lib/people-pdf-export";
 import { csvFileName, downloadCsv, toCsv } from "@/lib/csv";
 import { buildCategoryDisplayIndex } from "@/lib/categories/display";
-import { resolveCategoryReference } from "@/lib/categories/identity";
 import {
   buildCategoryGroups,
   labelCategoryGroupOptions,
@@ -83,6 +80,7 @@ import {
   type CategoryGroup,
   type ClubSite,
 } from "@/lib/club-sites";
+import { normalizeClubSeasons } from "@/lib/club-seasons";
 import { supabase } from "@/lib/supabase";
 import { PageHeader, HeaderStat } from "@/components/web/page/PageHeader";
 import { Button, IconButton } from "@/components/web/primitives/Button";
@@ -123,10 +121,8 @@ import { BulkCategoryDrawer } from "@/components/athletes/v2/bulk-category-drawe
 import { useMembershipTargetIndex } from "@/components/athletes/v2/AthleteCategoryMembershipEditor";
 import { AthletesViewSwitch } from "@/components/athletes/v2/AthletesViewSwitch";
 
-import type {
-  AthleteImportOutcome,
-  AthleteImportPayload,
-} from "@/lib/athlete-import";
+import type { ExistingAthleteIdentity } from "@/lib/athletes/import/plan";
+import type { MembershipTarget } from "@/lib/categories/placement";
 
 const AthleteImportDialog = dynamic(
   () =>
@@ -173,23 +169,6 @@ type PendingBulkAction = {
    */
   targetIds: string[];
 };
-
-const normalizeCategoryKey = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/\s+/g, " ");
-
-const createCategoryIdFromName = (value: string) =>
-  `category-${value
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")}-${Date.now().toString(36).slice(-6)}`;
 
 const buildCategoryList = (rawCategories: any[]) =>
   (rawCategories || []).map((category: any) => {
@@ -337,6 +316,7 @@ const buildAthleteRows = (
         ),
         medicalCertExpiry: athlete.data?.medicalCertExpiry || "",
         birthDate: athlete.birth_date || "",
+        fiscalCode: String(athlete.data?.fiscalCode || athlete.fiscal_code || "").trim().toUpperCase(),
         avatar: athlete.avatar_url || athlete.data?.avatar || null,
         accessCode: athlete.access_code || athlete.data?.accessCode,
         jerseyNumber: athlete.jersey_number || athlete.data?.jerseyNumber,
@@ -390,6 +370,8 @@ export default function AthletesPage() {
   const [bulkCategoryRows, setBulkCategoryRows] = useState<Athlete[]>([]);
 
   const [sites, setSites] = useState<ClubSite[]>([]);
+  /** Le stagioni del club: servono a distinguere due squadre omonime nell'import (ADR-0195). */
+  const [clubSeasons, setClubSeasons] = useState<{ id: string; label: string }[]>([]);
   const [siteFilter, setSiteFilter] = useState("");
   /**
    * Il gruppo operativo scelto: `Pulcini · Roma` (RC Fix 2, punto 13).
@@ -544,7 +526,7 @@ export default function AthletesPage() {
           .order("created_at", { ascending: true }),
         supabase
           .from("clubs")
-          .select("club_sites, category_groups")
+          .select("club_sites, category_groups, settings")
           .eq("id", clubId)
           .single(),
         // La lista mostra anagrafica, categoria e stato: non serve trasportare
@@ -576,6 +558,9 @@ export default function AthletesPage() {
       const normalizedSites = normalizeClubSites(clubData?.club_sites);
       const siteIndex = buildSiteIndex(normalizedSites);
       setSites(normalizedSites);
+      setClubSeasons(
+        normalizeClubSeasons(clubData?.settings).seasons.map((season) => ({ id: season.id, label: season.label })),
+      );
       setCategoryGroups(
         buildCategoryGroups({
           categories: normalizedCategories,
@@ -826,254 +811,52 @@ export default function AthletesPage() {
    * categorie create per l'occasione ma rimaste senza nemmeno un atleta
    * vengono rimosse: sono l'unica scrittura che l'import puo lasciare a meta.
    */
-  const handleImportAthletes = async (
-    importedRows: AthleteImportPayload[],
-    { onProgress }: { onProgress: (completed: number) => void },
-  ): Promise<AthleteImportOutcome> => {
-    const clubId = resolveCurrentClubId();
-
-    if (!clubId || !user) {
-      throw new Error("Club o utente non trovato");
-    }
-
-    let currentCategories = [...categories];
-    const failed: AthleteImportOutcome["failed"] = [];
-    /* Esiste una categoria con questo nome? Domanda di esistenza, non di identita: la risoluzione e piu sotto. */
-    const esisteConNome = (etichetta: string) => {
-      const chiave = normalizeCategoryKey(etichetta);
-      return Boolean(chiave) && currentCategories.some(
-        (category) => normalizeCategoryKey(category.name || category.id || "") === chiave,
-      );
-    };
-
-    const categoriesToCreate = new Map<
-      string,
-      {
-        id: string;
-        name: string;
-        birthYearFrom: number;
-        birthYearTo: number;
-      }
-    >();
-
-    importedRows.forEach((row) => {
-      const normalizedLabel = normalizeCategoryKey(row.categoryLabel || "");
-      const hasExistingCategory =
-        Boolean(
-          row.categoryId &&
-            currentCategories.some(
-              (category) => category.id === row.categoryId,
-            ),
-        ) || esisteConNome(row.categoryLabel || "");
-
-      if (!normalizedLabel || hasExistingCategory) {
-        return;
-      }
-
-      const birthYear = new Date(row.birthDate).getFullYear();
-      const safeBirthYear = Number.isFinite(birthYear)
-        ? birthYear
-        : new Date().getFullYear();
-      const existingGroup = categoriesToCreate.get(normalizedLabel);
-
-      if (existingGroup) {
-        existingGroup.birthYearFrom = Math.min(
-          existingGroup.birthYearFrom,
-          safeBirthYear,
-        );
-        existingGroup.birthYearTo = Math.max(
-          existingGroup.birthYearTo,
-          safeBirthYear,
-        );
-        return;
-      }
-
-      categoriesToCreate.set(normalizedLabel, {
-        id: createCategoryIdFromName(row.categoryLabel || "categoria-importata"),
-        name: row.categoryLabel.trim(),
-        birthYearFrom: safeBirthYear,
-        birthYearTo: safeBirthYear,
-      });
-    });
-
-    const createdCategoryIds = new Set<string>();
-
-    if (categoriesToCreate.size) {
-      for (const category of categoriesToCreate.values()) {
-        const { error } = await supabase.from("categories").upsert({
-          id: category.id,
-          club_id: clubId,
-          name: category.name,
-          description: "Categoria importata",
-          sport: "Categoria importata",
-          ageRange:
-            category.birthYearFrom === category.birthYearTo
-              ? String(category.birthYearFrom)
-              : `${category.birthYearFrom}-${category.birthYearTo}`,
-          birthYearFrom: category.birthYearFrom,
-          birthYearTo: category.birthYearTo,
-          color: "bg-blue-500 text-white",
-        });
-
-        if (error) {
-          throw new Error(
-            `Creazione della categoria "${category.name}" non riuscita: nessun atleta e stato importato`,
-          );
-        }
-
-        createdCategoryIds.add(category.id);
-      }
-
-      const { data: categoriesData, error: categoriesError } = await supabase
-        .from("categories")
-        .select("*")
-        .eq("club_id", clubId)
-        .order("created_at", { ascending: true });
-
-      if (categoriesError) {
-        throw categoriesError;
-      }
-
-      currentCategories = buildCategoryList(categoriesData || []);
-      setCategories(currentCategories);
-    }
-
-    const usedCategoryIds = new Set<string>();
-
-    /*
-      L'import va in scaglioni, non una richiesta per atleta.
-
-      Prima questo era un ciclo con un `await addClubAthlete` dentro:
-      duecento atleti erano duecento inserimenti piu duecento scritture di
-      appartenenza, in fila. Su una connessione di palestra l'import di una
-      squadra durava minuti. Le categorie si risolvono qui, prima di partire,
-      perche dipendono dalle categorie appena create e non dal database.
-    */
-    /*
-      **Un nome che ne nomina due non ne nomina nessuna** (D-RD-17 b, ADR-0155).
-
-      Qui c'era `categoryIdByKey`, una mappa per nome a ultimo-vince: con due
-      «Pulcini» — una per sede — ogni riga importata «Pulcini» finiva sull'ultima
-      in silenzio, e la data di nascita, che le due condividono, non aiutava.
-      Adesso l'etichetta passa da `resolveCategoryReference`: una sola → quella;
-      due → la riga **si segnala e non si importa**, perche l'unica risposta
-      onesta e chiedere la sede. Meglio una riga da rifare di un bambino nella
-      squadra sbagliata.
-    */
-    const righeDaImportare: { row: (typeof importedRows)[number]; index: number }[] = [];
-    importedRows.forEach((row, index) => {
-      const riferimento = resolveCategoryReference(
-        row.categoryId,
-        row.categoryLabel,
-        currentCategories,
-      );
-      if (riferimento?.ambiguous) {
-        const omonime = currentCategories
-          .filter(
-            (category) =>
-              normalizeCategoryKey(category.name || "") ===
-              normalizeCategoryKey(row.categoryLabel || ""),
-          )
-          .map((category) => categoryDisplay.label(category.id));
-        failed.push({
-          rowNumber: row.rowNumber ?? index + 1,
-          label:
-            `${row.lastName || ""} ${row.firstName || ""}`.trim() ||
-            "riga senza nominativo",
-          reason: `La categoria «${row.categoryLabel}» nomina piu squadre (${omonime.join(", ")}): indicare quale`,
-        });
-        return;
-      }
-      righeDaImportare.push({ row, index });
-    });
-
-    const payloads = righeDaImportare.map(({ row }) => {
-      const riferimento = resolveCategoryReference(
-        row.categoryId,
-        row.categoryLabel,
-        currentCategories,
-      );
-      const importedCategoryId = riferimento?.known ? riferimento.id : null;
-
-      const linkedCategory =
-        currentCategories.find(
-          (category) => category.id === importedCategoryId,
-        ) || findCategoryForBirthDate(row.birthDate, currentCategories);
-
-      if (linkedCategory?.id) {
-        usedCategoryIds.add(linkedCategory.id);
-      }
-
-      /*
-        La squadra riconosciuta dall'anteprima porta la sede (ADR-0194 §17):
-        si scrive come appartenenza, con la sede della squadra. Senza sede
-        riconosciuta il writer la deriva se la categoria ha una squadra sola,
-        e rifiuta se ne ha piu di una: la riga torna come fallita, con il motivo.
-      */
-      const categoryMemberships = linkedCategory?.id
-        ? [
-            {
-              category_id: linkedCategory.id,
-              category_name: linkedCategory.name,
-              is_primary: true,
-              site_id: row.siteId || "",
-            },
-          ]
-        : [];
-      return {
-        firstName: row.firstName,
-        lastName: row.lastName,
-        birthDate: row.birthDate,
-        category: linkedCategory?.id || null,
-        categoryName: linkedCategory?.name || row.categoryLabel || null,
-        ...(categoryMemberships.length ? { categoryMemberships } : {}),
-        status: "active",
-        data: {
-          gender: row.gender || "",
-          fiscalCode: row.fiscalCode || "",
-          email: row.email || "",
-          phone: row.phone || "",
-        },
-      };
-    });
-
-    const { created, failedIndexes, failedReasons } = await addClubAthletesBatch(
-      clubId,
-      payloads,
-      { onProgress },
-    );
-
-    for (const index of failedIndexes) {
-      const row = righeDaImportare[index]?.row;
-      failed.push({
-        rowNumber: row?.rowNumber ?? index + 1,
-        label:
-          `${row?.lastName || ""} ${row?.firstName || ""}`.trim() ||
-          "riga senza nominativo",
-        /* Il motivo del writer, quando c'e (revisione ostile C-R4): «Scrittura non riuscita» nascondeva il vaglio. */
-        reason: failedReasons?.[index] || "Scrittura non riuscita",
-      });
-    }
-
-    const imported = created.length;
-    onProgress(importedRows.length);
-
-    for (const categoryId of createdCategoryIds) {
-      if (usedCategoryIds.has(categoryId)) {
+  /*
+    L'import da file e un wizard con un writer sul server (ADR-0195): qui la
+    pagina fornisce le squadre, le sedi e le schede esistenti (per i
+    duplicati) e si limita a ricaricare l'elenco quando il lotto e scritto.
+    Prima la pagina creava le categorie del file per conto suo — nove
+    categorie fantasma in un import solo, sul pilota — e scriveva le schede
+    riga per riga dal client.
+  */
+  const existingAthletesForImport = useMemo(() => {
+    const perId = new Map<string, ExistingAthleteIdentity>();
+    for (const athlete of athletes) {
+      const current = perId.get(athlete.id);
+      if (current) {
+        current.hasMemberships = true;
         continue;
       }
-
-      await supabase
-        .from("categories")
-        .delete()
-        .eq("id", categoryId)
-        .eq("club_id", clubId);
+      perId.set(athlete.id, {
+        id: athlete.id,
+        firstName: athlete.firstName,
+        lastName: athlete.lastName,
+        birthDate: athlete.birthDate || "",
+        fiscalCode: athlete.fiscalCode || "",
+        status: athlete.status,
+        hasMemberships: athlete.groupId !== UNCATEGORIZED_CATEGORY_ID || (athlete.allCategoryLabels || []).length > 0,
+        categoryLabel: athlete.primaryCategoryLabel || "",
+      });
     }
+    return Array.from(perId.values());
+  }, [athletes]);
 
-    await refreshAthletesData();
-
-    return { imported, failed };
-  };
+  /*
+    Due squadre con la stessa etichetta (la stessa categoria in due stagioni,
+    dopo un riporto) si distinguono con la stagione: scegliere «la prima»
+    non e una scelta.
+  */
+  const describeImportTarget = useCallback(
+    (target: MembershipTarget) => {
+      const omonime = membershipTargetIndex.targets.filter((other) => other.label === target.label);
+      if (omonime.length <= 1) return target.label;
+      const category = categories.find((item: any) => item.id === target.categoryId);
+      const seasonId = String(category?.seasonId || "");
+      const season = seasonId ? clubSeasons.find((item) => item.id === seasonId) : null;
+      return season ? `${target.label} · stagione ${season.label}` : `${target.label} · ${target.categoryId}`;
+    },
+    [membershipTargetIndex, categories, clubSeasons],
+  );
 
   // Function to update athlete status in database
   const updateAthleteStatus = async (
@@ -2288,14 +2071,15 @@ export default function AthletesPage() {
         <AthleteImportDialog
           open={showImportAthletesModal}
           onOpenChange={setShowImportAthletesModal}
-          categories={categories}
           targets={membershipTargetIndex}
-          existingAthletes={athletes.map((athlete) => ({
-            firstName: athlete.firstName,
-            lastName: athlete.lastName,
-            birthDate: athlete.birthDate,
-          }))}
-          onImport={handleImportAthletes}
+          sites={sites.filter((site) => site.active !== false).map((site) => ({ id: site.id, name: site.name }))}
+          existingAthletes={existingAthletesForImport}
+          describeTarget={describeImportTarget}
+          onImported={async (result) => {
+            if (result.totals.created || result.totals.linked || result.totals.categoriesCreated) {
+              await refreshAthletesData();
+            }
+          }}
         />
       ) : null}
 

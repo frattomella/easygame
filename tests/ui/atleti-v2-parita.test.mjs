@@ -480,30 +480,34 @@ test("§2.6 · esportazione: PDF e CSV dal menu della griglia, colonne visibili,
   );
 });
 
-test("§2.3a · l'import: cassetto largo, quattro passi, stesse parole", () => {
+test("§2.3a · l'import: cassetto largo, sette passi, nessuna riga nascosta (ADR-0195)", () => {
   const dialogo = strip(read(IMPORT));
-  assert.match(dialogo, /<Drawer[\s\S]{0,200}width="wide"/);
-  assert.ok(dialogo.includes('title="Importa atleti"'));
+  assert.match(dialogo, /<Drawer[\s\S]{0,300}width="wide"/);
   for (const testo of [
     "Scegli il file da importare",
     "La prima riga deve contenere i nomi delle colonne.",
     "Seleziona file",
     "Lettura in corso",
     "Cambia file",
-    "Righe lette",
-    "Importabili",
-    "Da scartare",
-    "Mappatura colonne",
-    "Non assegnata",
-    "Solo righe con problemi",
-    "Scartata:",
-    "Importata con avviso:",
-    "Pronta",
+    "Righe atleta rilevate",
+    "Righe vuote ignorate",
+    "Non importare",
+    "Da guardare",
+    "Correggi",
+    "Escludi",
+    "Collega a squadra esistente",
+    "Crea nuova categoria",
+    "Non importare questa categoria",
+    "Importa gli atleti senza categoria",
+    "Escludi questi atleti dall'import",
+    "Corrispondenza ambigua",
+    "Importa come nuovo",
+    "Riepilogo importazione",
+    "Righe non importate",
     "Scrittura in corso:",
     "Non chiudere la pagina",
-    "Importati",
-    "Scartati in anteprima",
-    "Errori in scrittura",
+    "Righe non scritte",
+    "Scarica il rapporto (CSV)",
     "Importa un altro file",
     "Chiudi",
     "Annulla",
@@ -511,12 +515,9 @@ test("§2.3a · l'import: cassetto largo, quattro passi, stesse parole", () => {
     assert.ok(dialogo.includes(testo), `manca «${testo}» nell'import`);
   }
   assert.match(dialogo, /accept="\.csv,\.xls,\.xlsx,\.xml"/);
-  assert.match(
-    dialogo,
-    /locked=\{running\}/,
-    "mentre scrive il cassetto non si chiude",
-  );
-  assert.match(elenco, /addClubAthletesBatch\(/);
+  assert.match(dialogo, /locked=\{running\}/, "mentre scrive il cassetto non si chiude");
+  assert.match(elenco, /existingAthletes=\{existingAthletesForImport\}/, "i duplicati si riconoscono contro le schede del club");
+  assert.match(elenco, /describeTarget=\{describeImportTarget\}/, "due squadre omonime si distinguono");
 });
 
 test("§2.8 · gli stati: scheletro, vuoto, filtrato-vuoto, errore, senza club", () => {

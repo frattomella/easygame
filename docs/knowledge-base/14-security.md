@@ -4251,3 +4251,23 @@ nuova o cambiata. Nessuna rotta pubblica scrive appartenenze; l'approvazione
 di un'iscrizione le scrive dal registro generico con la sede della squadra
 scelta. Provato sul database vero: 8 comandi concorrenti sullo stesso
 atleta → 1 primaria (`scripts/prova-appartenenze-concorrenti.mjs`).
+
+## Il file di import e input non fidato (ADR-0195, 2026-09-16)
+
+Un foglio Excel arriva da fuori come una richiesta pubblica. Il lettore
+(`src/lib/athlete-import.ts`) controlla i byte magici (ZIP per XLSX, OLE per
+XLS) prima di leggere, rifiuta oltre 10 MB, legge al massimo 5.000 righe e
+64 colonne dell'intervallo usato, legge ogni cella come **testo** (il valore
+formattato), prende di una formula il risultato memorizzato e lo dichiara,
+segnala un testo che comincia per `= + - @` e non lo esegue mai; nessuna
+cella diventa HTML (React la scrive come testo). Il rapporto scaricabile
+passa dal tracciato CSV condiviso (`src/lib/csv.ts`), che neutralizza le
+formule. Sul server (`src/lib/server/athlete-import.ts`) ogni riga si
+rivaglia: nome e cognome ≤ 120 caratteri senza `<`/`>`, data reale non nel
+futuro, codice fiscale ben formato, email ben formata, `batchId` UUID, 200
+righe per richiesta, 50 categorie per richiesta; il club e quello dello
+scope, mai del corpo; una scheda da collegare deve essere del club; i
+permessi (`simplified_athletes:create`, `categories:create`, `clubs:update`)
+si controllano **prima** di scrivere e un rifiuto lascia una riga di audit.
+Un doppione non nasce da un ritentativo: la scheda porta il lotto e la riga
+da cui viene.

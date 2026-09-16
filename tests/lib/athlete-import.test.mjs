@@ -183,8 +183,8 @@ test("i duplicati, nel file e nel club, non vengono importati due volte", () => 
   );
 
   assert.equal(normalized[0].status, "ready");
-  assert.deepEqual(normalized[1].errors, ["Riga duplicata nel file"]);
-  assert.deepEqual(normalized[2].errors, ["Atleta gia presente nel club"]);
+  assert.deepEqual(normalized[1].errors, ["Stessa persona della riga 1 del file"]);
+  assert.deepEqual(normalized[2].errors, ["Gia nel club: Bianchi Anna (2010-03-14)"]);
   assert.equal(summarizeImportPlan(normalized).importable, 1);
 });
 
@@ -247,31 +247,24 @@ test("il carico da scrivere contiene solo le righe valide", () => {
  * **forma** — a scaglioni, con ripiego riga per riga — non il numero di
  * millisecondi.
  */
-test("l'import passa dal lettore a scaglioni, non da un ciclo", () => {
+test("l'import passa dal writer del server a scaglioni, non da un ciclo nella pagina (ADR-0195)", () => {
   const page = readSource("src/app/athletes/page.tsx");
+  const dialogo = readSource("src/components/forms/AthleteImportDialog.tsx");
 
-  assert.match(page, /addClubAthletesBatch\(/);
-  assert.doesNotMatch(
-    page,
-    /for \(const row of importedRows\)/,
-    "una richiesta per atleta e cio che questo lavoro toglie",
-  );
+  assert.doesNotMatch(page, /addClubAthletesBatch\(/, "la pagina non scrive piu le schede dal client");
+  assert.doesNotMatch(page, /from\("categories"\)\.upsert/, "e non crea categorie per conto del file");
+  assert.match(dialogo, /applyAthleteImportBatch\(request/);
+  assert.match(dialogo, /buildAthleteImportRequest\(plan, id\)/, "si scrive esattamente il piano mostrato");
+  assert.doesNotMatch(page, /for \(const row of importedRows\)/, "una richiesta per atleta e cio che questo lavoro toglie");
 });
 
 test("uno scaglione che fallisce non porta via le righe buone", () => {
-  const db = readSource("src/lib/simplified-db.ts");
-  const batch = db.slice(db.indexOf("export async function addClubAthletesBatch"));
-
-  assert.match(
-    batch.slice(0, 1800),
-    /for \(let index = 0; index < chunk\.length; index \+= 1\)/,
-    "il ripiego riga per riga serve a sapere **quale** anagrafica era sbagliata",
-  );
-  assert.match(
-    batch.slice(0, 1800),
-    /failedIndexes\.push\(start \+ index\)/,
-    "chi ha importato deve poter correggere la riga giusta",
-  );
+  const client = readSource("src/lib/athletes/import-client.ts");
+  assert.match(client, /status: "not_attempted" as const/, "le righe non tentate hanno un esito, non spariscono");
+  assert.match(client, /fermato = String\(error\?\.message/, "con il motivo dello scaglione che non e arrivato");
+  const server = readSource("src/lib/server/athlete-import.ts");
+  assert.match(server, /await prisma\.\$transaction\(async \(tx\) =>/, "sul server ogni atleta e una transazione: scheda e appartenenza insieme");
+  assert.match(server, /giaPerRiga\.has\(row\.sourceRowNumber\)/, "e riprovare non crea doppioni");
 });
 
 test("la riga di un atleta si costruisce in un posto solo", () => {

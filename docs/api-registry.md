@@ -1035,6 +1035,26 @@ stessa semantica per la scheda singola e per il blocco: si sceglie una
   Una coppia (categoria, sede) che il club non ha configurato e rifiutata
   (`400`), anche sul registro generico.
 
+### Import di atleti da file (ADR-0195, 2026-09-16)
+
+Una rotta, un writer (`src/lib/server/athlete-import.ts`), il piano lo
+calcola il modulo puro `src/lib/athletes/import/plan.ts` condiviso con il
+wizard: il server **rivaglia** ogni riga prima di scrivere.
+
+- `POST /api/v1/athletes/import` — `{batchId, categoriesToCreate: [{key,
+  name, siteId, birthYearFrom, birthYearTo}], rows: [{sourceRowNumber, action:
+  "create" | "link", athleteId?, athlete: {firstName, lastName, birthDate,
+  gender, fiscalCode, email, phone}, category: {kind: "target", targetId} |
+  {kind: "create", key} | null}]}`. Al massimo 200 righe per richiesta: il
+  client spezza il lotto con lo stesso `batchId`. Ogni atleta e una
+  transazione (scheda + appartenenza primaria, o niente); riprovare lo stesso
+  lotto non crea doppioni (`data.import.batchId`, righe «gia scritte»). Le
+  categorie nascono **solo** se decise dal club, con il permesso di
+  `categories` (e di `clubs` per la squadra con sede); si riusano per nome
+  se ne esiste una sola. Risposta: esito per riga (`created | linked |
+  already_written | failed | rejected`), esito per categoria, totali. Audit
+  `athlete.imported` per scheda e `athlete.import.batch` per lotto.
+
 ### Persone in prova (ADR-0188, 2026-09-16)
 
 Quattro rotte, un writer (`src/lib/server/trial-athletes.ts`), nessuna risorsa

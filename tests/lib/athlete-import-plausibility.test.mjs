@@ -129,6 +129,10 @@ test("l'anteprima dichiara a parole se una riga viene scartata", () => {
     "utf8",
   );
 
-  assert.match(source, /<span className="font-medium">Scartata:<\/span>/);
-  assert.match(source, /Importata con avviso:/);
+  /* ADR-0195: lo stato di ogni riga e una parola (Pronta, Da verificare, Da correggere, Possibile duplicato, Esclusa), non un colore. */
+  assert.match(source, /IMPORT_ROW_STATE_LABELS\[row\.state\]/);
+  const piano = readFileSync(path.join(process.cwd(), "src/lib/athletes/import/plan.ts"), "utf8");
+  for (const parola of ["Pronta", "Da verificare", "Da correggere", "Possibile duplicato", "Esclusa"]) {
+    assert.ok(piano.includes(`"${parola}"`), `manca «${parola}»`);
+  }
 });

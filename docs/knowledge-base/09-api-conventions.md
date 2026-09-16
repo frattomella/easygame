@@ -1284,3 +1284,8 @@ il perimetro. Due scelte di forma:
   L'anteprima calcola per ogni atleta prima → dopo senza scrivere; l'applicazione scrive a lotti atomici di 50 con le schede bloccate e risponde con lo stesso rapporto (`updated | unchanged | blocked | failed | not_attempted`).
 - `PUT /api/v1/athletes/:id/memberships` — `{memberships: [{categoryId, siteId?, isPrimary}]}`: l'insieme intero (scheda, creazione, iscrizione approvata). `POST` con `{command}`: un comando solo.
 - Il registro generico (`POST|PATCH /api/v1/athlete_category_memberships`) resta per gli script e i casi legacy, con il vaglio della coppia (categoria, sede).
+
+## Import di atleti da file (ADR-0195, 2026-09-16)
+
+- `GET /api/v1/athletes/import` — cosa puo fare chi importa: `{canImport, canLink, canCreateCategories, canAssignSites}`. La UI nasconde cio che il server rifiuterebbe.
+- `POST /api/v1/athletes/import` — `{batchId, categoriesToCreate: [{key, name, siteId, birthYearFrom, birthYearTo}], rows: [{sourceRowNumber, action: "create" | "link", athleteId?, athlete: {...}, category: {kind: "target", targetId} | {kind: "create", key} | null}]}`, al massimo 200 righe (il client spezza con lo stesso `batchId`). Il server rivaglia ogni riga, scrive un atleta per transazione (scheda + appartenenza primaria con la sede della squadra) dai registri dei domini, crea le categorie **solo** se nel carico (decise dal club) e con i permessi, le riusa per nome, rifiuta le omonime. Idempotente: le righe gia scritte con lo stesso `batchId` tornano `already_written`. Risposta: esito per riga (`created | linked | already_written | failed | rejected`), per categoria (`created | reused | rejected`), totali. Audit `athlete.imported` e `athlete.import.batch`.

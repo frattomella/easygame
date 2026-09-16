@@ -1,15 +1,17 @@
-import type { MembershipTargetIndex } from "@/lib/categories/placement";
-import { findCategoryForBirthDate } from "@/lib/category-utils";
-import { resolveCategoryReference } from "@/lib/categories/identity";
-import { isWellFormedCodiceFiscale } from "@/lib/italian-registry";
-import { todayLocalDateOnly } from "@/lib/date-only";
+import { buildMembershipTargetIndex, type MembershipTargetIndex } from "@/lib/categories/placement";
 import {
-  MIN_PLAUSIBLE_BIRTH_YEAR,
-  isRealCalendarDate,
-} from "@/lib/birth-date";
+  buildAthleteImportPlan,
+  parseBirthDate,
+  splitFullName as splitFullNameShared,
+  type AthleteImportField,
+  type AthleteImportMapping,
+  type CategoryDecision,
+  type ExistingAthleteIdentity,
+  type ParsedImportRow,
+} from "@/lib/athletes/import/plan";
 
 /**
- * Import anagrafiche atleti da file.
+ * Import anagrafiche atleti da file: **la lettura**.
  *
  * Il modulo e **puro**: nessun accesso al DOM, nessuna chiamata di rete. I
  * parser di CSV e XML sono scritti qui invece di appoggiarsi al browser per
@@ -22,29 +24,49 @@ import {
  *   parte di quel percorso era verificabile dal runner dei test, ed e infatti
  *   il pezzo che si e rotto senza che nessuno se ne accorgesse.
  *
- * Ora entrambi i formati sono coperti da test (`tests/lib/athlete-import.test.mjs`).
+ * Il foglio elettronico si legge **per intervallo usato**, riga per riga:
+ * ogni riga porta il suo numero nel file, le righe vuote si contano e non
+ * diventano candidate (`sheet_to_json` con `defval` le restituiva tutte:
+ * un file da 113 atleti con 86 righe vuote in coda diventava 199 righe, e le
+ * 86 vuote finivano fra gli scarti), le formule si leggono per il valore
+ * memorizzato e si dichiarano, un testo che comincia come una formula resta
+ * testo. Il contenuto del file e **input non fidato**: mai HTML, mai una
+ * cella eseguita.
+ *
+ * La diagnosi riga per riga vive in `@/lib/athletes/import/plan`: un modello
+ * solo per l'anteprima, il carico e i test (ADR-0195). Le funzioni
+ * `normalizeImportedAthletes`, `summarizeImportPlan` e `toImportPayload`
+ * restano come **vista compatibile** di quel piano per i collaudi che le
+ * usano: non sono un secondo parser.
  */
 
-export type AthleteImportField =
-  | "firstName"
-  | "lastName"
-  | "fullName"
-  | "birthDate"
-  | "birthYear"
-  | "category"
-  | "gender"
-  | "fiscalCode"
-  | "email"
-  | "phone";
-
-export type AthleteImportMapping = Partial<Record<AthleteImportField, string>>;
+export type { AthleteImportField, AthleteImportMapping, ExistingAthleteIdentity, ParsedImportRow };
 
 export type AthleteImportFormat = "CSV" | "XLS" | "XLSX" | "XML";
+
+/** Cosa si e trovato nel file, prima di ogni interpretazione: lo dice l'anteprima. */
+export type AthleteImportFileDiagnostics = {
+  sheetName: string;
+  /** Righe fisiche dell'intervallo usato, intestazione compresa. */
+  physicalRows: number;
+  headerRow: number;
+  emptyRows: number;
+  candidateRows: number;
+  hiddenRows: number[];
+  formulaCells: number;
+  formulaLikeCells: number;
+  /** Righe oltre il tetto, non lette. */
+  truncatedRows: number;
+};
 
 export interface ParsedAthleteImportFile {
   format: AthleteImportFormat;
   headers: string[];
+  /** Le righe candidate, per intestazione: forma compatibile. */
   rows: Record<string, any>[];
+  /** Le stesse righe con il numero di riga **del file** (ADR-0195). */
+  sourceRows: ParsedImportRow[];
+  diagnostics: AthleteImportFileDiagnostics;
 }
 
 export type ImportRowStatus = "ready" | "error";
@@ -69,6 +91,13 @@ export interface NormalizedImportedAthleteRow {
   warnings: string[];
   raw: Record<string, any>;
 }
+
+/** Tetti di lettura: un file oltre questi limiti non e un export anagrafico. */
+export const ATHLETE_IMPORT_LIMITS = {
+  maxFileBytes: 10 * 1024 * 1024,
+  maxRows: 5000,
+  maxColumns: 64,
+} as const;
 
 export interface AthleteImportSummary {
   total: number;
@@ -190,7 +219,7 @@ export const detectCsvDelimiter = (text: string) => {
   return best;
 };
 
-const splitCsvRecords = (text: string, delimiter: string) => {
+const splitCsvRecordsKeepingEmpty = (text: string, delimiter: string) => {
   const records: string[][] = [];
   let field = "";
   let record: string[] = [];
@@ -245,8 +274,11 @@ const splitCsvRecords = (text: string, delimiter: string) => {
     pushRecord();
   }
 
-  return records.filter((row) => row.some((cell) => cell.trim() !== ""));
+  return records;
 };
+
+const splitCsvRecords = (text: string, delimiter: string) =>
+  splitCsvRecordsKeepingEmpty(text, delimiter).filter((row) => row.some((cell) => cell.trim() !== ""));
 
 export const parseCsvText = (rawText: string) => {
   const text = rawText.replace(/^\uFEFF/, "");
@@ -271,6 +303,31 @@ export const parseCsvText = (rawText: string) => {
   });
 
   return { headers, rows };
+};
+
+/**
+ * Come `parseCsvText`, con il numero di riga **del file** per ogni record
+ * (l'intestazione e la riga 1) e le righe vuote contate invece che perse.
+ */
+export const parseCsvTextWithRows = (rawText: string) => {
+  const text = rawText.replace(/^\uFEFF/, "");
+  const delimiter = detectCsvDelimiter(text);
+  const lines = text.split("\n");
+  const records = splitCsvRecordsKeepingEmpty(text, delimiter);
+  const nonEmpty = records.map((record, index) => ({ record, lineNumber: index + 1 })).filter(({ record }) => record.some((cell) => cell.trim() !== ""));
+  if (!nonEmpty.length) {
+    return { headers: [] as string[], sourceRows: [] as ParsedImportRow[], emptyRows: records.length, headerRow: 0, physicalRows: lines.length };
+  }
+  const [head, ...body] = nonEmpty;
+  const headers = head.record.map((header, index) => header.trim() || `Colonna ${index + 1}`);
+  const sourceRows = body.map(({ record, lineNumber }) => {
+    const values: Record<string, string> = {};
+    headers.forEach((header, index) => {
+      values[header] = (record[index] ?? "").trim();
+    });
+    return { sourceRowNumber: lineNumber, values };
+  });
+  return { headers, sourceRows, emptyRows: records.length - nonEmpty.length, headerRow: head.lineNumber, physicalRows: records.length };
 };
 
 // --- parser XML -------------------------------------------------------------
@@ -437,52 +494,180 @@ export const parseXmlText = (rawText: string) => {
 
 // --- lettura del file -------------------------------------------------------
 
+const ZIP_MAGIC = [0x50, 0x4b];
+const OLE_MAGIC = [0xd0, 0xcf, 0x11, 0xe0];
+
+const startsWithBytes = (bytes: Uint8Array, magic: number[]) => magic.every((value, index) => bytes[index] === value);
+
+const cellText = (cell: any) => {
+  if (!cell) return "";
+  if (cell.t === "d" && cell.v instanceof Date) return cell.v.toISOString().slice(0, 10);
+  if (cell.t === "e") return "";
+  const formatted = typeof cell.w === "string" ? cell.w : "";
+  const raw = cell.v === null || cell.v === undefined ? "" : String(cell.v);
+  return (formatted || raw).trim();
+};
+
+/**
+ * Il foglio, riga per riga dentro l'intervallo usato: l'intestazione e la
+ * prima riga non vuota, ogni riga candidata porta il suo numero nel file,
+ * le vuote si contano. Le celle si leggono come **testo** — il valore
+ * formattato che Excel mostra — e una formula vale per il suo risultato
+ * memorizzato, che si dichiara.
+ */
 const parseSpreadsheetFile = async (file: File) => {
   const { read, utils } = await import("xlsx");
   const arrayBuffer = await file.arrayBuffer();
-  const workbook = read(arrayBuffer, { type: "array", raw: false });
-  const firstSheetName = workbook.SheetNames[0];
+  const bytes = new Uint8Array(arrayBuffer.slice(0, 8));
+  if (!startsWithBytes(bytes, ZIP_MAGIC) && !startsWithBytes(bytes, OLE_MAGIC)) {
+    throw new Error("Il file non e un foglio Excel: il contenuto non corrisponde all'estensione");
+  }
+  const workbook = read(arrayBuffer, { type: "array", raw: false, cellFormula: true, cellDates: false });
+  return readWorkbook(workbook, utils);
+};
 
-  if (!firstSheetName) {
-    return { headers: [] as string[], rows: [] as Record<string, any>[] };
+export const readWorkbook = (workbook: any, utils: any) => {
+  const vuoto = {
+    headers: [] as string[],
+    sourceRows: [] as ParsedImportRow[],
+    diagnostics: { sheetName: "", physicalRows: 0, headerRow: 0, emptyRows: 0, candidateRows: 0, hiddenRows: [], formulaCells: 0, formulaLikeCells: 0, truncatedRows: 0 } as AthleteImportFileDiagnostics,
+  };
+  const sheetName = workbook.SheetNames?.[0];
+  if (!sheetName) return vuoto;
+  const worksheet = workbook.Sheets[sheetName];
+  if (!worksheet?.["!ref"]) return { ...vuoto, diagnostics: { ...vuoto.diagnostics, sheetName } };
+
+  const range = utils.decode_range(worksheet["!ref"]);
+  const lastColumn = Math.min(range.e.c, range.s.c + ATHLETE_IMPORT_LIMITS.maxColumns - 1);
+  const hiddenRows = ((worksheet["!rows"] || []) as any[])
+    .map((row, index) => (row && row.hidden ? index + 1 : 0))
+    .filter(Boolean);
+
+  let formulaCells = 0;
+  let formulaLikeCells = 0;
+  const readRow = (r: number) => {
+    const cells: string[] = [];
+    const formulas: string[] = [];
+    for (let c = range.s.c; c <= lastColumn; c += 1) {
+      const address = utils.encode_cell({ r, c });
+      const cell = worksheet[address];
+      if (cell?.f) {
+        formulaCells += 1;
+        formulas.push(address);
+      }
+      const value = cellText(cell);
+      if (/^[=+\-@]/.test(value)) formulaLikeCells += 1;
+      cells.push(value);
+    }
+    return { cells, formulas, empty: cells.every((value) => value === "") };
+  };
+
+  let headerRow = 0;
+  let headers: string[] = [];
+  const sourceRows: ParsedImportRow[] = [];
+  let emptyRows = 0;
+  let truncatedRows = 0;
+  for (let r = range.s.r; r <= range.e.r; r += 1) {
+    const row = readRow(r);
+    if (!headerRow) {
+      if (row.empty) {
+        emptyRows += 1;
+        continue;
+      }
+      headerRow = r + 1;
+      headers = row.cells.map((value, index) => value || `Colonna ${index + 1}`);
+      continue;
+    }
+    if (row.empty) {
+      emptyRows += 1;
+      continue;
+    }
+    if (sourceRows.length >= ATHLETE_IMPORT_LIMITS.maxRows) {
+      truncatedRows += 1;
+      continue;
+    }
+    const values: Record<string, string> = {};
+    headers.forEach((header, index) => {
+      values[header] = row.cells[index] ?? "";
+    });
+    sourceRows.push({ sourceRowNumber: r + 1, values, ...(row.formulas.length ? { formulaCells: row.formulas } : {}) });
   }
 
-  const worksheet = workbook.Sheets[firstSheetName];
-  const rows = utils.sheet_to_json<Record<string, any>>(worksheet, {
-    defval: "",
-  });
-  const headers: string[] = [];
-  rows.forEach((row) => {
-    Object.keys(row).forEach((header) => {
-      if (!headers.includes(header)) headers.push(header);
-    });
-  });
+  return {
+    headers,
+    sourceRows,
+    diagnostics: {
+      sheetName,
+      physicalRows: range.e.r - range.s.r + 1,
+      headerRow,
+      emptyRows,
+      candidateRows: sourceRows.length,
+      hiddenRows,
+      formulaCells,
+      formulaLikeCells,
+      truncatedRows,
+    } as AthleteImportFileDiagnostics,
+  };
+};
 
-  return { headers, rows };
+const withDiagnostics = (
+  format: AthleteImportFormat,
+  headers: string[],
+  sourceRows: ParsedImportRow[],
+  diagnostics: Partial<AthleteImportFileDiagnostics>,
+): ParsedAthleteImportFile => {
+  const truncated = sourceRows.length > ATHLETE_IMPORT_LIMITS.maxRows ? sourceRows.length - ATHLETE_IMPORT_LIMITS.maxRows : 0;
+  const kept = truncated ? sourceRows.slice(0, ATHLETE_IMPORT_LIMITS.maxRows) : sourceRows;
+  const formulaLikeCells = kept.reduce(
+    (count, row) => count + Object.values(row.values).filter((value) => /^[=+\-@]/.test(String(value))).length,
+    0,
+  );
+  return {
+    format,
+    headers,
+    rows: kept.map((row) => ({ ...row.values })),
+    sourceRows: kept,
+    diagnostics: {
+      sheetName: "",
+      physicalRows: kept.length + (diagnostics.emptyRows || 0) + (diagnostics.headerRow ? 1 : 0),
+      headerRow: 1,
+      emptyRows: 0,
+      hiddenRows: [],
+      formulaCells: 0,
+      formulaLikeCells,
+      truncatedRows: truncated,
+      ...diagnostics,
+      candidateRows: kept.length,
+    },
+  };
 };
 
 export const parseAthleteImportFile = async (
   file: File,
 ): Promise<ParsedAthleteImportFile> => {
   const extension = file.name.split(".").pop()?.toLowerCase() || "";
+  if (file.size > ATHLETE_IMPORT_LIMITS.maxFileBytes) {
+    throw new Error("Il file supera i 10 MB: un export anagrafico e molto piu piccolo");
+  }
 
   if (extension === "csv") {
-    const { headers, rows } = parseCsvText(await file.text());
-    return { format: "CSV", headers, rows };
+    const parsed = parseCsvTextWithRows(await file.text());
+    return withDiagnostics("CSV", parsed.headers, parsed.sourceRows, { emptyRows: parsed.emptyRows, headerRow: parsed.headerRow, physicalRows: parsed.physicalRows });
   }
 
   if (extension === "xls" || extension === "xlsx") {
-    const { headers, rows } = await parseSpreadsheetFile(file);
-    return {
-      format: extension === "xls" ? "XLS" : "XLSX",
-      headers,
-      rows,
-    };
+    const parsed = await parseSpreadsheetFile(file);
+    return withDiagnostics(extension === "xls" ? "XLS" : "XLSX", parsed.headers, parsed.sourceRows, parsed.diagnostics);
   }
 
   if (extension === "xml") {
     const { headers, rows } = parseXmlText(await file.text());
-    return { format: "XML", headers, rows };
+    return withDiagnostics(
+      "XML",
+      headers,
+      rows.map((values, index) => ({ sourceRowNumber: index + 1, values })),
+      { headerRow: 0 },
+    );
   }
 
   throw new Error("Formato file non supportato: usa CSV, XLS, XLSX o XML");
@@ -506,103 +691,48 @@ export const guessAthleteImportMapping = (
   const usedHeaders = new Set<string>();
   const mapping: AthleteImportMapping = {};
 
-  (Object.keys(HEADER_CANDIDATES) as AthleteImportField[]).forEach((field) => {
-    const bestMatch = normalizedHeaders
-      .map((header) => ({
+  /*
+    **Prima le corrispondenze esatte, su tutti i campi insieme.** Campo per
+    campo, «ANNO DI NASCITA» finiva sulla data di nascita — che la contiene
+    («nascita», 50 punti) e viene valutata prima — invece che sull'anno di
+    nascita, che la nomina per intero (100 punti): ogni riga del file vero
+    riceveva l'avviso «solo l'anno» su una colonna che di anni e fatta.
+  */
+  const fields = Object.keys(HEADER_CANDIDATES) as AthleteImportField[];
+  const candidates = fields
+    .flatMap((field, fieldIndex) =>
+      normalizedHeaders.map((header, headerIndex) => ({
+        field,
         header: header.original,
         score: scoreHeader(header.normalized, HEADER_CANDIDATES[field]),
-      }))
-      .filter((item) => item.score > 0 && !usedHeaders.has(item.header))
-      .sort((left, right) => right.score - left.score)[0];
+        fieldIndex,
+        headerIndex,
+      })),
+    )
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score || left.fieldIndex - right.fieldIndex || left.headerIndex - right.headerIndex);
 
-    if (bestMatch) {
-      mapping[field] = bestMatch.header;
-      usedHeaders.add(bestMatch.header);
-    }
-  });
+  for (const candidate of candidates) {
+    if (mapping[candidate.field] || usedHeaders.has(candidate.header)) continue;
+    mapping[candidate.field] = candidate.header;
+    usedHeaders.add(candidate.header);
+  }
 
   return mapping;
 };
 
 // --- normalizzazione e validazione -----------------------------------------
 
-const excelSerialToDate = (value: number) => {
-  const epoch = Date.UTC(1899, 11, 30);
-  return new Date(epoch + value * 86400000).toISOString().slice(0, 10);
-};
+export const toIsoDate = (value: unknown) => parseBirthDate(value).iso;
 
-export const toIsoDate = (value: unknown) => {
-  if (value === null || value === undefined || value === "") return "";
+export const splitFullName = splitFullNameShared;
 
-  if (typeof value === "number" && Number.isFinite(value)) {
-    if (value > 20000) return excelSerialToDate(value);
-    if (value >= 1900 && value <= 2100) return `${value}-01-01`;
-  }
-
-  const text = String(value).trim();
-  if (!text) return "";
-
-  if (/^\d{4}$/.test(text)) return `${text}-01-01`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return isRealCalendarDate(text) ? text : "";
-
-  const slashMatch = text.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
-  if (slashMatch) {
-    const [, day, month, year] = slashMatch;
-    const iso = `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-    return isRealCalendarDate(iso) ? iso : "";
-  }
-
-  // Solo formati espliciti: `new Date("12/03/2010")` interpreterebbe la data
-  // all'americana e sposterebbe silenziosamente giorno e mese.
-  return "";
-};
-
-const splitFullName = (value: unknown) => {
-  const parts = String(value || "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-
-  if (parts.length === 0) return { firstName: "", lastName: "" };
-  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
-
-  // Negli export italiani il nominativo e quasi sempre "Cognome Nome":
-  // l'ultima parola e il nome, il resto il cognome.
-  return {
-    firstName: parts[parts.length - 1],
-    lastName: parts.slice(0, -1).join(" "),
-  };
-};
-
-const normalizeGenderValue = (value: unknown) => {
-  const text = String(value || "")
-    .trim()
-    .toUpperCase();
-  if (!text) return "";
-  if (["M", "MASCHIO", "MALE", "MASCHILE", "U", "1"].includes(text)) return "M";
-  if (["F", "FEMMINA", "FEMALE", "FEMMINILE", "2"].includes(text)) return "F";
-  return "";
-};
-
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-
-const identityKey = (row: { firstName: string; lastName: string; birthDate: string }) =>
-  `${row.lastName}|${row.firstName}|${row.birthDate}`
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-export type ExistingAthleteIdentity = {
-  firstName?: string | null;
-  lastName?: string | null;
-  birthDate?: string | null;
-};
-
-/** Vero se il testo e un anno secco: `2016`, non `12/05/2016`. */
-const isBareYear = (value: unknown) => /^\d{4}$/.test(String(value ?? "").trim());
-
+/**
+ * La vista compatibile del piano (ADR-0195): una riga per riga letta, con
+ * `status` pronta/errore. **Non e un secondo parser**: e
+ * `buildAthleteImportPlan` senza decisioni del club, in cui una categoria da
+ * decidere, un duplicato da decidere e un errore sono tutti «non pronta».
+ */
 export const normalizeImportedAthletes = (
   rows: Record<string, any>[],
   mapping: AthleteImportMapping,
@@ -611,177 +741,58 @@ export const normalizeImportedAthletes = (
     existingAthletes?: ExistingAthleteIdentity[];
     /** Oggi, in forma ISO. Iniettabile perche «nel futuro» sia verificabile. */
     today?: string;
-    /**
-     * Le squadre del club (ADR-0194 §17): «Pulcini · S. Cosma» nella colonna
-     * categoria risolve categoria **e** sede; «Pulcini» con due sedi non
-     * risolve, e la riga si segnala. Senza indice si lavora sui soli nomi.
-     */
     targets?: MembershipTargetIndex | null;
   } = {},
 ): NormalizedImportedAthleteRow[] => {
-  const todayIso =
-    String(options.today || "").slice(0, 10) || todayLocalDateOnly();
-  const existingKeys = new Set(
-    (options.existingAthletes || []).map((athlete) =>
-      identityKey({
-        firstName: String(athlete.firstName || ""),
-        lastName: String(athlete.lastName || ""),
-        birthDate: String(athlete.birthDate || "").slice(0, 10),
-      }),
-    ),
-  );
-  const seenInFile = new Set<string>();
-
-  return rows.map((row, index) => {
-    const errors: string[] = [];
-    const warnings: string[] = [];
-
-    const fullNameValue = mapping.fullName ? row[mapping.fullName] : "";
-    const splitName = splitFullName(fullNameValue);
-    const firstName = String(
-      (mapping.firstName ? row[mapping.firstName] : "") || splitName.firstName,
-    ).trim();
-    const lastName = String(
-      (mapping.lastName ? row[mapping.lastName] : "") || splitName.lastName,
-    ).trim();
-
-    const rawBirth = mapping.birthDate
-      ? row[mapping.birthDate]
-      : mapping.birthYear
-        ? row[mapping.birthYear]
-        : "";
-    const birthDate = toIsoDate(rawBirth);
-
-    const gender = normalizeGenderValue(
-      mapping.gender ? row[mapping.gender] : "",
-    );
-    const fiscalCode = String(mapping.fiscalCode ? row[mapping.fiscalCode] : "")
-      .trim()
-      .toUpperCase();
-    const email = String(mapping.email ? row[mapping.email] : "").trim();
-    const phone = String(mapping.phone ? row[mapping.phone] : "").trim();
-
-    if (!firstName) errors.push("Nome mancante");
-    if (!lastName) errors.push("Cognome mancante");
-    if (!birthDate) {
-      errors.push(
-        String(rawBirth || "").trim()
-          ? `Data di nascita non riconosciuta (${String(rawBirth).trim()})`
-          : "Data di nascita mancante",
-      );
-    } else if (birthDate > todayIso) {
-      /*
-        Una data di nascita nel futuro non e un dato discutibile: e impossibile.
-        Passava come «Pronta», e nasceva un atleta del 2030 — con l'eta, la
-        categoria per anno di nascita e il codice fiscale calcolati su di essa.
-      */
-      errors.push(`Data di nascita nel futuro (${birthDate})`);
-    } else if (Number(birthDate.slice(0, 4)) < MIN_PLAUSIBLE_BIRTH_YEAR) {
-      errors.push(`Data di nascita non plausibile (${birthDate})`);
-    } else if (isBareYear(rawBirth) && mapping.birthDate) {
-      /*
-        Nella colonna «Anno di nascita» un anno secco e il dato atteso e non si
-        dice niente. Nella colonna **data** e un'informazione parziale che
-        diventa il 1 gennaio: la riga si importa lo stesso — meglio un atleta
-        con una data approssimata che nessun atleta — ma va detto, perche da
-        quella data discendono il codice fiscale e la categoria.
-      */
-      warnings.push(
-        `Solo l'anno (${String(rawBirth).trim()}): data impostata al 1 gennaio`,
-      );
-    }
-    if (fiscalCode && !isWellFormedCodiceFiscale(fiscalCode)) {
-      errors.push("Codice fiscale non valido");
-    }
-    if (email && !EMAIL_PATTERN.test(email)) {
-      errors.push("Email non valida");
-    }
-
-    const rawCategory = mapping.category ? String(row[mapping.category] ?? "").trim() : "";
-    /*
-      **Un nome che ne nomina due non ne nomina nessuna** (ADR-0155, D-RD-17 b).
-      L'anteprima deve dire la stessa cosa dell'import: con due «Pulcini» la
-      riga non e «da creare» e non e «collegata» — e da correggere, e lo si
-      dice qui, prima di premere Importa.
-    */
-    /*
-      Prima la squadra (categoria · sede), poi il solo nome: con l'indice in
-      mano un'etichetta che nomina una squadra sola porta anche la sede; il
-      nome di una categoria con piu sedi non basta, e lo si dice con le
-      squadre fra cui scegliere. Senza indice, il vaglio per nome di prima.
-    */
-    const squadra = rawCategory && options.targets ? options.targets.fromLabel(rawCategory) : { target: null, ambiguous: false };
-    const riferimento = rawCategory && !squadra.target && !squadra.ambiguous
-      ? resolveCategoryReference(rawCategory, rawCategory, categories)
-      : null;
-    const suggerita = !rawCategory ? findCategoryForBirthDate(birthDate, categories as any) : null;
-    const squadraSuggerita = suggerita && options.targets ? options.targets.forCategory(suggerita.id) : [];
-    const categoryId = squadra.target
-      ? squadra.target.categoryId
-      : rawCategory
-        ? riferimento?.known
-          ? riferimento.id
-          : null
-        : suggerita?.id || null;
-    const siteId = squadra.target
-      ? squadra.target.siteId
-      : !rawCategory && squadraSuggerita.length === 1
-        ? squadraSuggerita[0].siteId
-        : "";
-    const categoryLabel =
-      (squadra.target ? squadra.target.label : "") ||
-      categories.find((category) => category.id === categoryId)?.name ||
-      rawCategory ||
-      "";
-    const squadrePossibili = categoryId && options.targets ? options.targets.forCategory(categoryId) : [];
-
-    if (squadra.ambiguous || riferimento?.ambiguous) {
-      const fraCui = options.targets
-        ? options.targets.targets.filter((t) => t.categoryName.toLowerCase() === rawCategory.toLowerCase()).map((t) => t.label)
-        : [];
-      errors.push(
-        `La categoria "${rawCategory}" nomina piu squadre del club: indicare quale` +
-          (fraCui.length ? ` (${fraCui.join(", ")})` : ""),
-      );
-    } else if (categoryId && !siteId && squadrePossibili.length > 1) {
-      /* Categoria riconosciuta, ma si svolge in piu sedi: la sede non si indovina (§17). */
-      errors.push(`"${categoryLabel}" si svolge in piu sedi: scrivere la squadra (${squadrePossibili.map((t) => t.label).join(", ")})`);
-    } else if (!categoryId && !categoryLabel) {
-      warnings.push("Nessuna categoria: verra assegnata dopo l'import");
-    } else if (!categoryId) {
-      warnings.push(`La categoria "${categoryLabel}" verra creata`);
-    }
-    if (mapping.gender && !gender) {
-      warnings.push("Sesso non riconosciuto");
-    }
-
-    if (!errors.length) {
-      const key = identityKey({ firstName, lastName, birthDate });
-      if (existingKeys.has(key)) {
-        errors.push("Atleta gia presente nel club");
-      } else if (seenInFile.has(key)) {
-        errors.push("Riga duplicata nel file");
-      } else {
-        seenInFile.add(key);
-      }
-    }
-
+  const sourceRows: ParsedImportRow[] = rows.map((row, index) => ({
+    sourceRowNumber: index + 1,
+    values: Object.fromEntries(Object.entries(row || {}).map(([key, value]) => [key, value === null || value === undefined ? "" : String(value)])),
+  }));
+  /*
+    Senza squadre in mano si lavora sui soli nomi del catalogo, come prima;
+    un'etichetta che non nomina nessuna categoria si dice «verra creata» —
+    la vista compatibile conserva la lettura di prima, la decisione vera la
+    prende il club nel wizard.
+  */
+  const targets = options.targets || buildMembershipTargetIndex({ categories, groups: [], sites: [] });
+  const prima = buildAthleteImportPlan({ rows: sourceRows, mapping, targets, existingAthletes: options.existingAthletes || [], today: options.today });
+  const decisioni: Record<string, CategoryDecision> = {};
+  for (const categoria of prima.categories) {
+    if (categoria.decision) continue;
+    if (!categoria.suggestion.targets.length) decisioni[categoria.key] = { kind: "create", name: categoria.label, siteId: "" };
+  }
+  const plan = buildAthleteImportPlan({
+    rows: sourceRows,
+    mapping,
+    targets,
+    existingAthletes: options.existingAthletes || [],
+    today: options.today,
+    decisions: { categories: decisioni },
+  });
+  return plan.rows.map((row, index) => {
+    const target = row.categoryResolution.kind === "target" ? row.categoryResolution.target : null;
+    const categoryId =
+      target?.categoryId ||
+      (row.categoryResolution.kind !== "none" && row.categoryResolution.kind !== "pending"
+        ? categories.find((category) => category.name.toLowerCase() === row.normalized.categoryLabel.toLowerCase())?.id || null
+        : null);
+    const blocking = row.state === "error" || row.state === "duplicate_candidate";
     return {
       rowNumber: index + 1,
-      firstName,
-      lastName,
-      birthDate,
-      gender,
-      fiscalCode,
-      email,
-      phone,
+      firstName: row.normalized.firstName,
+      lastName: row.normalized.lastName,
+      birthDate: row.normalized.birthDate,
+      gender: row.normalized.gender,
+      fiscalCode: row.normalized.fiscalCode,
+      email: row.normalized.email,
+      phone: row.normalized.phone,
       categoryId,
-      categoryLabel: categoryLabel || "Da assegnare",
-      siteId,
-      status: errors.length ? "error" : "ready",
-      errors,
-      warnings,
-      raw: row,
+      categoryLabel: target?.label || row.normalized.categoryLabel || "Da assegnare",
+      siteId: target?.siteId || "",
+      status: blocking ? "error" : "ready",
+      errors: blocking ? row.issues.filter((issue) => issue.severity === "error" || issue.code === "duplicate_in_file" || issue.code === "duplicate_existing").map((issue) => issue.message) : [],
+      warnings: row.issues.filter((issue) => issue.severity === "warning" && !(blocking && (issue.code === "duplicate_in_file" || issue.code === "duplicate_existing"))).map((issue) => issue.message),
+      raw: rows[index],
     };
   });
 };

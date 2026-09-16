@@ -12849,3 +12849,97 @@ autorizzazione (D-RD-26).
   (D-RD-26, autorizzazione separata).
 - Fotografia primaria/secondaria sulla riga di partecipazione: la colonna e
   un booleano; distinguere le due sulla storia richiede una colonna nuova.
+
+## ADR-0195 — L'import di atleti e un wizard con un piano solo: nessuna riga sparisce, le categorie del file sono decisioni del club, il server scrive un atleta per transazione e riprovare non crea doppioni
+
+**Data**: 2026-09-16 · **Stato**: accettata · **Branch**: `feat/web-redesign`
+
+### Contesto
+
+Il file vero di un club (113 righe atleta) veniva importato per 97. Il
+rapporto forense (`docs/redesign/IMPORT-ATLETI-FORENSIC.md`) ha ricostruito
+le 16 righe mancanti una per una: 11 con una categoria che nomina due
+squadre, 4 senza anno di nascita, 1 ripetuta nel file. Nessuna spariva in
+silenzio — comparivano fra gli «scarti» — ma erano **irrecuperabili**
+dentro l'app, e il conteggio esposto («199 righe lette») contava anche 86
+righe vuote in coda al foglio. Il difetto piu grave era altrove: l'import
+**creava da solo** le categorie che non riconosceva per nome — nove
+categorie fantasma in un run, accanto a quelle vere che il club aveva gia
+con le loro sedi.
+
+### Decisione
+
+1. **Un piano, un modulo** (`src/lib/athletes/import/plan.ts`): per ogni
+   riga non vuota del file un diagnostico (riga del file, grezzo,
+   normalizzato, correzioni, errori, avvisi, candidati duplicati, risoluzione
+   della categoria, stato, azione). Lo stesso oggetto alimenta l'anteprima,
+   il carico per il server, i test e il rapporto scaricabile. Stati chiusi:
+   `ready | warning | error | duplicate_candidate | ignored_by_user`, e
+   `candidates = ready + warning + error + duplicate + excluded` e un
+   invariante calcolato (`totalsConsistent`).
+2. **Il lettore legge il file, non un'interpretazione**: intervallo usato
+   riga per riga, intestazione = prima riga non vuota, righe vuote contate e
+   non candidate, celle come testo (il valore formattato), formule per il
+   valore memorizzato e dichiarate, testo che comincia come una formula
+   segnalato e mai eseguito, tetti (10 MB, 5.000 righe, 64 colonne), byte
+   magici controllati. Il contenuto e input non fidato: mai HTML.
+3. **Obbligatorio e cio che il dominio esige**: nome e cognome. La data di
+   nascita e un **avviso** (la scheda puo non averla) con la correzione a
+   portata di mano; il codice fiscale malformato, l'email malformata, una
+   data impossibile fermano la riga.
+4. **Le categorie del file non si creano mai da sole.** Ogni etichetta
+   distinta e una decisione: collegare a una squadra (categoria · sede)
+   esistente, creare una categoria nuova (con la squadra, se si ha il
+   permesso di assegnare sedi), non importarla (atleti senza categoria —
+   default — o esclusi). EasyGame **propone** una squadra solo quando il
+   nome ne indica una e una sola (anche per chiave normalizzata:
+   `UNDER14 GOLD` → «Under 14 Gold»); due squadre o due omonime sono una
+   scelta, mai la prima. La categoria nuova nasce **solo alla conferma**
+   dell'import, sul server, con la stagione stampata dal registro; si riusa
+   se ne esiste una sola con quel nome, si rifiuta se ne esistono due.
+5. **I duplicati non si fondono**: stesso nome e stessa data (o stesso
+   codice fiscale) sono un *possibile duplicato* che il club decide
+   (collega e completa i campi vuoti, importa come nuovo, non importare);
+   stesso nome con data diversa o mancante e un avviso. Nel file e nel club.
+   Collegare non tocca la categoria che la scheda ha e non riattiva una
+   scheda inattiva.
+6. **Correzioni di sessione**: un valore si corregge nel wizard, il file
+   non si tocca, la correzione si vede (`correctedFields`).
+7. **Il server e l'autorita** (`src/lib/server/athlete-import.ts`,
+   `POST /api/v1/athletes/import`): rivaglia ogni riga; scrive **un atleta
+   per transazione** (scheda + appartenenza primaria, o niente) dai registri
+   dei domini (`simplified_athletes`, `athlete_category_memberships` con il
+   vaglio della coppia di ADR-0194, `categories`, `clubs.category_groups`);
+   200 righe per richiesta, il client spezza con lo stesso `batchId`;
+   **idempotente**: `data.import = {batchId, sourceRowNumber}` sulla scheda
+   creata, riprovare dice «gia scritta»; esito per riga
+   (`created | linked | already_written | failed | rejected`) e per
+   categoria; audit `athlete.imported` per scheda e `athlete.import.batch`
+   per lotto. Permessi: `simplified_athletes:create` per importare,
+   `categories:create` per creare, `clubs:update` per la squadra con sede —
+   controllati **prima** di scrivere, mai una categoria orfana.
+8. **Il wizard** (`AthleteImportDialog`): File → Colonne → Verifica →
+   Categorie → Duplicati → Anteprima → Import; a 375 px l'elenco e una
+   lista di schede; l'anteprima elenca le righe non importate con il motivo;
+   il pulsante Importa e spento finche c'e una decisione da prendere; il
+   risultato dice creati, collegati, gia scritti, categorie create,
+   appartenenze scritte, non scritti con il motivo, e si scarica (CSV dal
+   tracciato condiviso, formule neutralizzate).
+
+### Conseguenze
+
+- `addClubAthletesBatch` / `insertAthleteChunk` di `simplified-db.ts` e la
+  creazione di categorie dalla pagina Atleti non esistono piu.
+- `normalizeImportedAthletes`, `summarizeImportPlan`, `toImportPayload`
+  restano come vista compatibile del piano (non un secondo parser).
+- Test: `tests/lib/import-atleti-file-reale-adr-0195.test.mjs` (fixture
+  anonima con la struttura del file vero, rossa sul vecchio lettore),
+  `tests/server/import-atleti-writer-adr-0195.test.mjs` (15 prove: permessi,
+  tenant, transazione per atleta, idempotenza, categorie solo su decisione,
+  riuso, omonime, collegamento, audit), collaudi aggiornati.
+- Debito: la riga di audit del `DELETE` sul registro generico per le
+  anagrafiche si chiama ancora `anagrafica.updated` (D-RD-27).
+
+### Migrazioni
+
+Nessuna.

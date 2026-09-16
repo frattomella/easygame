@@ -57,6 +57,8 @@ export interface Athlete {
   status: AthleteStatus;
   medicalCertExpiry: string;
   birthDate?: string;
+  /** Il codice fiscale, se in scheda: l'import lo usa per riconoscere un duplicato (ADR-0195). */
+  fiscalCode?: string;
   avatar?: string;
   accessCode?: string;
   jerseyNumber?: string;

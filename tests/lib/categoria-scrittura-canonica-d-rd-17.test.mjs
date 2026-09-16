@@ -87,8 +87,11 @@ test("(b) la data di nascita non sceglie fra due categorie con la stessa fascia"
 test("(b) l'import atleti segnala la riga ambigua invece di assegnarla, e la riga della modulistica non prende la prima", () => {
   const pagina = readFileSync("src/app/athletes/page.tsx", "utf8");
   assert.doesNotMatch(pagina, /categoryIdByKey\.get\(normalizeCategoryKey\(row\.categoryLabel/, "niente mappa per nome a ultimo-vince");
-  assert.match(pagina, /const riferimento = resolveCategoryReference\(\s*row\.categoryId,\s*row\.categoryLabel,\s*currentCategories,\s*\);\s*if \(riferimento\?\.ambiguous\)/);
-  assert.match(pagina, /nomina piu squadre/);
+  /* ADR-0195: la riga ambigua la ferma il piano dell'import, e la decisione e del club nel wizard. */
+  assert.doesNotMatch(pagina, /from\("categories"\)\.upsert/, "la pagina non crea categorie dal file");
+  const piano = readFileSync("src/lib/athletes/import/plan.ts", "utf8");
+  assert.match(piano, /"category_ambiguous"/);
+  assert.match(piano, /puo indicare piu squadre/);
   const moduli = readFileSync("src/lib/server/form-submissions.ts", "utf8");
   /* ADR-0194: prima la squadra (categoria · sede) sull'indice delle collocazioni, poi il nome che ne nomina una sola. */
   assert.match(moduli, /options\.targets\.fromLabel\(answeredCategory\)/);
@@ -230,7 +233,7 @@ test("writer · il client rifiuta prima di cancellare, e carica il catalogo una 
   const db = readFileSync("src/lib/simplified-db.ts", "utf8");
   assert.match(db, /const assertMembershipsAreCanonical = \(/);
   assert.match(db, /righeCorrenti: readonly Record<string, any>\[\] = \[\],\n\) => \{[\s\S]{0,200}assertMembershipsAreCanonical\(memberships, catalogo, chiaviCategoria\(correnti\)\);/, "replaceAthleteMemberships controlla prima di scrivere");
-  assert.equal((db.match(/await loadCatalogoPerScrittura\(clubId\)/g) || []).length, 3, "creazione, import a scaglioni e modifica");
+  assert.equal((db.match(/await loadCatalogoPerScrittura\(clubId\)/g) || []).length, 2, "creazione e modifica (l'import scrive dal server, ADR-0195)");
 });
 
 /* ---------- revisione ostile (seconda passata) ---------- */
@@ -295,8 +298,11 @@ test("revisione · l'automazione degli allenamenti non genera con un'etichetta a
 });
 
 test("revisione · l'anteprima dell'import dice la stessa cosa dell'import", () => {
-  const codice = readFileSync("src/lib/athlete-import.ts", "utf8");
-  assert.match(codice, /resolveCategoryReference\(rawCategory, rawCategory, categories\)/);
-  assert.match(codice, /nomina piu squadre del club: indicare quale/);
+  /* ADR-0195: anteprima e import leggono lo stesso piano (`buildAthleteImportPlan`); l'etichetta ambigua resta una decisione del club. */
+  const codice = readFileSync("src/lib/athletes/import/plan.ts", "utf8");
+  assert.match(codice, /"category_ambiguous"/);
+  assert.match(codice, /puo indicare piu squadre/);
+  const dialogo = readFileSync("src/components/forms/AthleteImportDialog.tsx", "utf8");
+  assert.match(dialogo, /buildAthleteImportRequest\(plan, id\)/, "si importa il piano mostrato, non un secondo calcolo");
   assert.doesNotMatch(readFileSync("src/app/athletes/page.tsx", "utf8"), /categoryIdByKey\./, "la mappa per nome non esiste piu");
 });

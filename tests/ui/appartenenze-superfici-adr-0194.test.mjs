@@ -102,12 +102,15 @@ test("§15 — iscrizione online: le opzioni sono le squadre, il campo «Sede» 
   assert.doesNotMatch(pratiche, /Sede assegnata a \$\{orphans\.length\}/, "una sede senza squadra non colloca nessuno");
 });
 
-test("§17 — l'import riconosce «Pulcini · S. Cosma» e rifiuta il nome nudo di una categoria con piu sedi", () => {
-  assert.match(importazione, /options\.targets\.fromLabel\(rawCategory\)/);
-  assert.match(importazione, /si svolge in piu sedi: scrivere la squadra/);
-  assert.match(importazione, /siteId: string;/);
+test("§17 — l'import riconosce «Pulcini · S. Cosma» e non risolve da solo il nome nudo di una categoria con piu sedi", () => {
+  /* ADR-0195: il piano dell'import e in src/lib/athletes/import/plan.ts; la sede e quella della squadra scelta. */
+  const piano = senzaCommenti(leggi("src/lib/athletes/import/plan.ts"));
+  assert.match(piano, /targets\.fromLabel\(label\)/);
+  assert.match(piano, /ambiguous: same\.length > 1 \|\| categoryIds\.size > 1/, "un nome che nomina due squadre e una scelta, non una proposta");
+  assert.match(piano, /puo indicare piu squadre/);
   assert.match(elenco, /targets=\{membershipTargetIndex\}/, "l'anteprima dell'import ha le squadre");
-  assert.match(elenco, /site_id: row\.siteId \|\| ""/, "e la riga importata porta la sede riconosciuta");
+  const writer = senzaCommenti(leggi("src/lib/server/athlete-import.ts"));
+  assert.match(writer, /site_id: target\.siteId \|\| ""/, "e la riga importata porta la sede della squadra");
 });
 
 test("§10/§24 — un writer solo, il vaglio delle coppie sul registro generico, il client manda l'insieme al server", () => {

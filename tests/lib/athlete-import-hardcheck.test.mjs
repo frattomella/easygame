@@ -10,7 +10,7 @@ import {
   summarizeImportPlan,
   toImportPayload,
 } from "../../src/lib/athlete-import.ts";
-import { addClubAthletesBatch } from "../../src/lib/simplified-db.ts";
+import { applyAthleteImportBatch, IMPORT_CHUNK } from "../../src/lib/athletes/import-client.ts";
 
 /**
  * RC Fix 1, punto 3 — collaudo dell'import atleti su file veri.
@@ -76,11 +76,16 @@ test("un export con il punto e virgola si legge riga per riga", async () => {
   assert.equal(mapping.birthDate, "Data di nascita");
   assert.equal(mapping.category, "Categoria");
 
+  /*
+    ADR-0195: una data di nascita mancante e un avviso, non uno scarto — la
+    scheda puo non averla — e il doppione nel file resta fermo finche il club
+    non decide.
+  */
   assert.deepEqual(summary, {
     total: 6,
-    importable: 4,
-    discarded: 2,
-    withWarnings: 1,
+    importable: 5,
+    discarded: 1,
+    withWarnings: 2,
   });
 
   const [mario, anna, luca, sara, doppione, ugo] = rows;
@@ -90,14 +95,15 @@ test("un export con il punto e virgola si legge riga per riga", async () => {
   assert.equal(anna.gender, "F");
   assert.deepEqual(luca.errors, [], "email e telefono vuoti non sono errori");
   assert.equal(luca.email, "");
-  assert.deepEqual(sara.errors, ["Data di nascita mancante"]);
-  assert.deepEqual(doppione.errors, ["Riga duplicata nel file"]);
+  assert.deepEqual(sara.errors, [], "senza data si importa: e la scheda a poter restare senza");
+  assert.deepEqual(sara.warnings, ["Data di nascita mancante: la scheda nasce senza data"]);
+  assert.deepEqual(doppione.errors, ["Stessa persona della riga 1 del file"]);
   assert.equal(
     ugo.categoryId,
     null,
     "«Esordienti» nel club non esiste: si crea, non si inventa un id",
   );
-  assert.deepEqual(ugo.warnings, ['La categoria "Esordienti" verra creata']);
+  assert.deepEqual(ugo.warnings, ["Verra creata la categoria «Esordienti» senza sede"]);
 });
 
 test("lo stesso file con la virgola da lo stesso risultato", async () => {
@@ -182,8 +188,8 @@ test("un atleta gia nel club non viene importato due volte", async () => {
   });
 
   const anna = rows.find((row) => row.firstName === "Anna");
-  assert.deepEqual(anna.errors, ["Atleta gia presente nel club"]);
-  assert.equal(summary.importable, 3);
+  assert.deepEqual(anna.errors, ["Gia nel club: Bianchi Anna (2010-12-03)"]);
+  assert.equal(summary.importable, 4);
 });
 
 test("un codice fiscale o un'email non validi fermano la riga, non il file", async () => {
@@ -295,7 +301,7 @@ test("un XML illeggibile lo dice invece di restituire zero righe", async () => {
   );
 });
 
-// --- scrittura: scaglioni, avanzamento, import parziale -----------------------
+// --- scrittura: il trasporto a scaglioni verso il writer del server (ADR-0195)
 
 let fetchOriginale;
 let richieste;
@@ -303,60 +309,33 @@ let fallisciScaglione;
 
 beforeEach(() => {
   richieste = [];
-  fallisciScaglione = false;
+  fallisciScaglione = 0;
   fetchOriginale = globalThis.fetch;
   globalThis.fetch = async (url, options = {}) => {
     const path = String(url);
     const body = options.body ? JSON.parse(options.body) : null;
     richieste.push({ path, method: options.method || "GET", body });
-
-    const isInsertList =
-      path.startsWith("/api/v1/simplified_athletes") &&
-      options.method === "POST" &&
-      Array.isArray(body?.data);
-
-    if (isInsertList && fallisciScaglione) {
-      return {
-        ok: false,
-        status: 400,
-        statusText: "Bad Request",
-        headers: { get: () => "application/json" },
-        json: async () => ({
-          data: null,
-          error: { message: "scaglione rifiutato" },
-        }),
-      };
-    }
-
-    /* ADR-0194: l'insieme delle appartenenze lo scrive il server; il doppio risponde con le righe coniate. */
-    if (/\/api\/v1\/athletes\/[^/]+\/memberships$/.test(path) && options.method === "PUT") {
-      const memberships = Array.isArray(body?.data?.memberships) ? body.data.memberships : [];
-      return {
-        ok: true,
-        status: 200,
-        statusText: "OK",
-        headers: { get: () => "application/json" },
-        json: async () => ({
-          data: { rows: memberships.map((m, i) => ({ id: `m-${richieste.length}-${i}`, ...m })), changed: true },
-          error: null,
-        }),
-      };
-    }
-
-    const rows = Array.isArray(body?.data) ? body.data : body?.data ? [body.data] : [];
-    return {
-      ok: true,
-      status: 200,
-      statusText: "OK",
+    const risposta = (status, payload) => ({
+      ok: status < 400,
+      status,
+      statusText: status < 400 ? "OK" : "Bad Request",
       headers: { get: () => "application/json" },
-      json: async () => ({
-        data: rows.map((row, index) => ({
-          id: `nuovo-${richieste.length}-${index}`,
-          ...row,
-        })),
-        error: null,
-      }),
-    };
+      json: async () => payload,
+    });
+    if (!path.startsWith("/api/v1/athletes/import") || options.method !== "POST") return risposta(404, { data: null, error: { message: "rotta inattesa" } });
+    if (fallisciScaglione && richieste.filter((r) => r.method === "POST").length === fallisciScaglione) {
+      return risposta(400, { data: null, error: { message: "scaglione rifiutato" } });
+    }
+    const rows = Array.isArray(body?.rows) ? body.rows : [];
+    return risposta(200, {
+      data: {
+        batchId: body.batchId,
+        rows: rows.map((row) => ({ sourceRowNumber: row.sourceRowNumber, status: "created", athleteId: `nuovo-${row.sourceRowNumber}`, membership: row.category ? "written" : "none" })),
+        categories: (body.categoriesToCreate || []).map((c) => ({ key: c.key, id: `cat-${c.key}`, name: c.name, siteId: c.siteId, status: "created" })),
+        totals: {},
+      },
+      error: null,
+    });
   };
 });
 
@@ -364,76 +343,51 @@ afterEach(() => {
   globalThis.fetch = fetchOriginale;
 });
 
+const BATCH = "b0b0b0b0-0000-4000-8000-000000000001";
 const righeDaScrivere = (count) =>
   Array.from({ length: count }, (_, index) => ({
-    firstName: `Nome${index}`,
-    lastName: `Cognome${index}`,
-    birthDate: "2011-05-14",
-    category: "cat-u14",
-    categoryName: "Under 14",
-    status: "active",
-    data: {},
+    sourceRowNumber: index + 2,
+    action: "create",
+    athlete: { firstName: `Nome${index}`, lastName: `Cognome${index}`, birthDate: "2011-05-14", gender: "", fiscalCode: "", email: "", phone: "" },
+    category: { kind: "target", targetId: "group:cat-u14:scauri" },
   }));
 
-test("l'import va in scaglioni, non una richiesta per atleta", async () => {
-  const { created, failedIndexes } = await addClubAthletesBatch(
-    "club-1",
-    righeDaScrivere(120),
-  );
-
-  assert.equal(created.length, 120);
-  assert.deepEqual(failedIndexes, []);
-
-  const inserimenti = richieste.filter(
-    (request) =>
-      request.method === "POST" &&
-      request.path.startsWith("/api/v1/simplified_athletes"),
-  );
-  assert.equal(
-    inserimenti.length <= 4,
-    true,
-    `centoventi atleti in ${inserimenti.length} richieste: erano centoventi`,
-  );
+test("l'import va in scaglioni da 200 con lo stesso batchId, non una richiesta per atleta", async () => {
+  const esito = await applyAthleteImportBatch({ batchId: BATCH, categoriesToCreate: [], rows: righeDaScrivere(450) });
+  assert.equal(esito.totals.created, 450);
+  const inserimenti = richieste.filter((request) => request.method === "POST");
+  assert.equal(inserimenti.length, Math.ceil(450 / IMPORT_CHUNK));
+  assert.ok(inserimenti.every((request) => request.body.batchId === BATCH), "lo stesso lotto: riprovare non crea doppioni");
+  assert.ok(inserimenti.every((request) => request.body.rows.length <= IMPORT_CHUNK));
 });
 
 test("l'avanzamento cresce e arriva al totale", async () => {
   const avanzamento = [];
-  await addClubAthletesBatch("club-1", righeDaScrivere(120), {
-    onProgress: (completed) => avanzamento.push(completed),
-  });
-
+  await applyAthleteImportBatch({ batchId: BATCH, categoriesToCreate: [], rows: righeDaScrivere(450) }, { onProgress: (done) => avanzamento.push(done) });
   assert.equal(avanzamento.length > 1, true, "una barra a un passo non e una barra");
-  assert.deepEqual(
-    avanzamento,
-    [...avanzamento].sort((left, right) => left - right),
-    "l'avanzamento non torna indietro",
-  );
-  assert.equal(avanzamento[avanzamento.length - 1], 120);
+  assert.deepEqual(avanzamento, [...avanzamento].sort((left, right) => left - right), "l'avanzamento non torna indietro");
+  assert.equal(avanzamento[avanzamento.length - 1], 450);
 });
 
-test("uno scaglione rifiutato non porta via le righe buone", async () => {
-  fallisciScaglione = true;
+test("uno scaglione che non arriva al server non porta via quelli gia scritti, e le righe restanti si dicono non tentate", async () => {
+  fallisciScaglione = 2;
+  const esito = await applyAthleteImportBatch({ batchId: BATCH, categoriesToCreate: [], rows: righeDaScrivere(450) });
+  assert.equal(esito.totals.created, 200, "il primo scaglione e scritto");
+  assert.equal(esito.totals.notAttempted, 250, "il secondo e il terzo no, e lo si dice riga per riga");
+  const nonTentate = esito.rows.filter((row) => row.status === "not_attempted");
+  assert.ok(nonTentate.every((row) => /scaglione rifiutato/.test(row.reason)), "con il motivo");
+  assert.equal(esito.rows.length, 450, "ogni riga ha un esito");
+});
 
-  const { created, failedIndexes } = await addClubAthletesBatch(
-    "club-1",
-    righeDaScrivere(3),
-  );
-
-  /*
-    Lo scaglione fallisce e si riprova riga per riga: e la ragione per cui un
-    import di duecento atleti con una anagrafica sbagliata ne scrive
-    centonovantanove invece di zero.
-  */
-  assert.equal(created.length, 3);
-  assert.deepEqual(failedIndexes, []);
-
-  const singole = richieste.filter(
-    (request) =>
-      request.method === "POST" &&
-      request.path.startsWith("/api/v1/simplified_athletes") &&
-      !Array.isArray(request.body?.data),
-  );
-  assert.equal(singole.length, 3);
+test("le categorie da creare viaggiano con ogni scaglione: il server le riusa, il client ne conta una", async () => {
+  const esito = await applyAthleteImportBatch({
+    batchId: BATCH,
+    categoriesToCreate: [{ key: "u15ecc", name: "Under 15 Ecc", siteId: "scauri", birthYearFrom: 2012, birthYearTo: 2012 }],
+    rows: righeDaScrivere(250).map((row) => ({ ...row, category: { kind: "create", key: "u15ecc" } })),
+  });
+  assert.equal(richieste.filter((r) => r.method === "POST").every((r) => r.body.categoriesToCreate.length === 1), true);
+  assert.equal(esito.categories.length, 1);
+  assert.equal(esito.totals.categoriesCreated, 1);
 });
 
 test("il riepilogo finale racconta l'import avvenuto, non il club di adesso", () => {
@@ -452,34 +406,9 @@ test("il riepilogo finale racconta l'import avvenuto, non il club di adesso", ()
     "utf8",
   );
 
-  assert.match(source, /setCommittedPlan\(\{ rows: previewRows, summary \}\)/);
-  assert.match(source, /const committedSummary = committedPlan\?\.summary \?\? summary/);
-  assert.match(source, /const committedRows = committedPlan\?\.rows \?\? previewRows/);
-
-  const done = source.slice(source.indexOf('step === "done"'));
-  assert.equal(
-    /value=\{summary\.discarded\}/.test(done),
-    false,
-    "il riepilogo finale non deve leggere l'anteprima ricalcolata",
-  );
-  assert.match(done, /committedSummary\.discarded/);
-  assert.match(done, /\{committedRows/);
+  assert.match(source, /setCommittedPlan\(plan\)/, "il piano si congela quando si preme Importa");
+  assert.match(source, /plan=\{committedPlan \|\| plan\}/, "il riepilogo finale legge il piano congelato");
+  const done = source.slice(source.indexOf('{step === "done" && result'), source.indexOf("const footer"));
+  assert.doesNotMatch(done, /plan=\{plan\}/, "il riepilogo finale non deve leggere l'anteprima ricalcolata");
 });
 
-test("nessuna riga scritta senza il club", async () => {
-  await addClubAthletesBatch("club-1", righeDaScrivere(2));
-
-  const inserimenti = richieste.filter((request) => request.method === "POST");
-  for (const request of inserimenti) {
-    const rows = Array.isArray(request.body?.data)
-      ? request.body.data
-      : [request.body?.data];
-    for (const row of rows) {
-      assert.equal(
-        row?.club_id || row?.organization_id,
-        "club-1",
-        "un atleta senza club finisce in nessun archivio, o in quello sbagliato",
-      );
-    }
-  }
-});

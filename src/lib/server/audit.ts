@@ -285,6 +285,14 @@ export const AUDIT_ACTIONS = {
   athleteMembershipsChanged: "athlete.memberships.changed",
   athleteMembershipsBulk: "athlete.memberships.bulk",
   /*
+    L'import da file (ADR-0195): una riga per scheda creata o collegata, con
+    il lotto e la riga del file da cui viene, e una riga di riepilogo del
+    lotto con i totali. «Chi ha creato questi 97 atleti alle 18:22» ha una
+    risposta che non e «anagrafica.updated» novantasette volte.
+  */
+  athleteImported: "athlete.imported",
+  athleteImportBatch: "athlete.import.batch",
+  /*
     Il fascicolo unico (Wave 5, lane 5D). Finche il fatto viveva in un array
     JSON dentro l'anagrafica, **accettare o rifiutare il documento di un minore
     non lasciava nessuna traccia**: le due rotte non chiamavano `recordAuditEvent`
@@ -774,6 +782,10 @@ export const AUDIT_VISIBLE_METADATA_KEYS: readonly string[] = [
   */
   "after",
   "batchId",
+  "sourceRowNumber",
+  "totals",
+  "categories",
+  "membership",
   "before",
   "blocked",
   "failed",
