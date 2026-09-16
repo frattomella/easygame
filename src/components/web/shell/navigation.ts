@@ -185,6 +185,7 @@ export const findNavItemForPath = (
 
 /** Etichette dei segmenti di percorso che non sono voci di menu. */
 const SEGMENT_LABELS: Record<string, string> = {
+  "in-prova": "Atleti in prova",
   new: "Nuovo",
   edit: "Modifica",
   profile: "Profilo",

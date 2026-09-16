@@ -156,14 +156,14 @@ export function MatchesPanel({
         <Field
           label="Scadenza convocazioni"
           htmlFor="matches-convocation-deadline"
-          helper={`Definisci quanti giorni prima della gara devono essere inviate le convocazioni (${MATCH_CONVOCATION_DEADLINE_RANGE.min}–${MATCH_CONVOCATION_DEADLINE_RANGE.max} giorni). Gli allenatori ricevono l'avviso quando una gara si avvicina e le convocazioni mancano.`}
+          helper={`Definisci quanti giorni prima della gara devono essere inviate le convocazioni. Da ${MATCH_CONVOCATION_DEADLINE_RANGE.min} a ${MATCH_CONVOCATION_DEADLINE_RANGE.max} giorni; gli allenatori ricevono l'avviso quando una gara si avvicina e le convocazioni mancano.`}
           width="20ch"
         >
           <TextInput
             id="matches-convocation-deadline"
             type="number"
-            numeric
             inputMode="numeric"
+            className="egw-num pr-16"
             min={MATCH_CONVOCATION_DEADLINE_RANGE.min}
             max={MATCH_CONVOCATION_DEADLINE_RANGE.max}
             step={1}
