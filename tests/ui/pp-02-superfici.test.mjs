@@ -284,7 +284,7 @@ test("§J · l'interruttore «una volta sola» esiste, e il server lo applica", 
     "e uno che nessuno applica e peggio: prometterebbe una regola che non c'e",
   );
   assert.ok(
-    servizio.includes('status: { in: ["pending", "approved"] }'),
+    servizio.includes('status: { in: ["pending", "changes_requested", "approved", "converted"] }'),
     "una pratica respinta non blocca: e proprio il caso in cui la famiglia deve poter rimandare",
   );
 });

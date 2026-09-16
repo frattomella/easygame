@@ -63,6 +63,7 @@ import { buildDeclarations, buildSnapshotHash, normalizeDeclarations } from "./f
 import { enrollmentReceiptHashesMatch } from "@/lib/forms/enrollment-receipt";
 import { consumeFormDraft } from "./form-drafts";
 import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
+import { sendEnrollmentChangesRequestedEmail } from "./email/email-service";
 import { convertTrialAthlete, listTrialAthletes } from "./trial-athletes";
 import {
   FORM_SUBJECT_KEYS,
@@ -3047,32 +3048,21 @@ const eseguiDecisione = async (
 
 /**
  * La famiglia viene avvisata dell'integrazione richiesta, quando ha lasciato
- * un'email: il link e quello della ricevuta, che gia possiede (ADR-0191 §1).
+ * un'email: il testo e il canale sono di `src/lib/server/email/` (ADR-0191 §1).
  */
 const notificaIntegrazioneRichiesta = async (
   row: SubmissionRow & { respondent_email: string | null },
   richiesta: FormChangesRequested,
 ) => {
   if (!row.respondent_email) return;
-  const { sendTransactionalEmail } = await import("./email/email-service");
   const schema = normalizeFormSchema(row.template_version?.schema_json);
-  const campi = richiesta.fieldIds
-    .map((id) => schema.fields.find((field) => field.id === id)?.label)
-    .filter((label): label is string => Boolean(label));
-  const escape = (value: string) =>
-    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const righe = [
-    "Il club ha esaminato la tua iscrizione e chiede di correggere o completare:",
-    ...campi.map((label) => `- ${label}`),
-    richiesta.note ? `Nota del club: ${richiesta.note}` : "",
-    "",
-    "Apri la ricevuta che hai ricevuto all'invio e scegli «Integra la pratica».",
-  ].filter((riga) => riga !== "");
-  await sendTransactionalEmail({
+  await sendEnrollmentChangesRequestedEmail({
     to: row.respondent_email,
-    subject: `${row.template?.title || schema.title}: il club chiede un'integrazione`,
-    text: righe.join("\n"),
-    html: `<p>${righe.map(escape).join("<br/>")}</p>`,
+    templateTitle: row.template?.title || schema.title,
+    fields: richiesta.fieldIds
+      .map((id) => schema.fields.find((field) => field.id === id)?.label)
+      .filter((label): label is string => Boolean(label)),
+    note: richiesta.note,
   });
 };
 

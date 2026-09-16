@@ -24,13 +24,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { DynamicFieldPicker } from "./dynamic-field-picker";
 import {
   FORM_FIELD_TYPES,
+  FORM_LEGAL_KIND_HINTS,
+  FORM_LEGAL_KIND_LABELS,
   fieldCollectsAnswer,
+  fieldIsFile,
   getFieldTypeDefinition,
   type FormField,
   type FormFieldType,
+  type FormLegalKind,
 } from "@/lib/forms/model";
 import { getDynamicFieldLabel } from "@/lib/forms/dynamic-fields";
 import { hasServerOptions } from "@/lib/forms/field-options";
+import { RichTextEditor } from "@/components/rich-text/RichTextEditor";
 
 /**
  * Un campo, nella tela del builder.
@@ -50,6 +55,10 @@ type FormFieldCardProps = {
   field: FormField;
   index: number;
   total: number;
+  /** I campi che vengono prima: sono quelli da cui una condizione di visibilita puo dipendere. */
+  siblingsBefore?: FormField[];
+  /** Carica un'immagine per un blocco di contenuto e ne restituisce l'URL. */
+  onUploadImage?: (file: File) => Promise<string>;
   onChange: (patch: Partial<FormField>) => void;
   onDuplicate: () => void;
   onRemove: () => void;
@@ -60,6 +69,8 @@ export function FormFieldCard({
   field,
   index,
   total,
+  siblingsBefore = [],
+  onUploadImage,
   onChange,
   onDuplicate,
   onRemove,
@@ -70,6 +81,14 @@ export function FormFieldCard({
 
   const definition = getFieldTypeDefinition(field.type);
   const isSection = !fieldCollectsAnswer(field.type);
+  const isContent = field.type === "content";
+  const isLegal = field.type === "checkbox" && Boolean(field.legalKind);
+  const NESSUNA = "__nessuna__";
+  /* Le condizioni di visibilita dipendono da un campo precedente con una risposta chiusa o si/no. */
+  const controllabili = siblingsBefore.filter(
+    (f) => fieldCollectsAnswer(f.type) && !fieldIsFile(f.type) && (f.type === "checkbox" || f.options.length > 0 || f.type === "single_choice" || f.type === "dropdown" || f.type === "multiple_choice"),
+  );
+  const controllo = field.visibleWhen ? controllabili.find((f) => f.id === field.visibleWhen?.fieldId) : null;
   /* Sede e categoria: le opzioni non si scrivono, le porta il club. */
   const serverOptions = hasServerOptions(field);
   const bindingLabel = getDynamicFieldLabel(field.binding);
@@ -86,13 +105,33 @@ export function FormFieldCard({
           <Label htmlFor={`label-${field.id}`} className="sr-only">
             Testo del campo
           </Label>
-          <Input
-            id={`label-${field.id}`}
-            value={field.label}
-            onChange={(event) => onChange({ label: event.target.value })}
-            placeholder={isSection ? "Titolo della sezione" : "Cosa chiedi?"}
-            className="font-medium"
-          />
+          {isContent ? (
+            <>
+              <Input
+                id={`label-${field.id}`}
+                value={field.label}
+                onChange={(event) => onChange({ label: event.target.value })}
+                placeholder="Nome del blocco (solo per te: non si vede nel modulo)"
+                className="text-sm"
+              />
+              <RichTextEditor
+                aria-label="Contenuto del blocco"
+                value={field.content}
+                onChange={(content) => onChange({ content })}
+                onUploadImage={onUploadImage}
+                placeholder="Il testo dell'informativa, le istruzioni, una tabella…"
+                minHeight={140}
+              />
+            </>
+          ) : (
+            <Input
+              id={`label-${field.id}`}
+              value={field.label}
+              onChange={(event) => onChange({ label: event.target.value })}
+              placeholder={isSection ? "Titolo della sezione" : isLegal ? "Titolo della dichiarazione" : "Cosa chiedi?"}
+              className="font-medium"
+            />
+          )}
 
           {bindingLabel ? (
             <p className="flex items-center gap-1.5 text-xs text-egw-blue-800">
@@ -128,15 +167,24 @@ export function FormFieldCard({
 
       {/* Comandi: scorrono nel proprio contenitore, non allargano la pagina. */}
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-egw-rule pt-3">
-        {!isSection ? (
+        {!isSection && field.legalKind !== "optional_consent" ? (
           <label className="flex items-center gap-2 text-sm text-egw-ink-72">
             <Switch
-              checked={field.required}
+              checked={field.legalKind === "required_acceptance" ? true : field.required}
+              disabled={field.legalKind === "required_acceptance"}
               onCheckedChange={(checked) => onChange({ required: checked })}
               aria-label="Campo obbligatorio"
             />
             Obbligatorio
           </label>
+        ) : null}
+        {field.legalKind === "optional_consent" ? (
+          <span className="text-xs text-egw-ink-62">Facoltativo per costruzione: un consenso non si puo imporre.</span>
+        ) : null}
+        {field.visibleWhen ? (
+          <span className="rounded-full border border-egw-tint-blue-bd bg-egw-tint-blue px-2 py-0.5 text-[11px] text-egw-blue-800">
+            visibile se «{controllo?.label || "?"}» = {field.visibleWhen.equals}
+          </span>
         ) : null}
 
         <div className="ml-auto flex items-center gap-1">
@@ -193,18 +241,20 @@ export function FormFieldCard({
 
       {expanded ? (
         <div className="mt-4 space-y-4 rounded-egw-control bg-egw-page-100 p-4">
+          {!isContent ? (
           <div className="space-y-2">
             <Label htmlFor={`description-${field.id}`}>
-              Descrizione o istruzioni
+              {isLegal ? "Testo della dichiarazione" : "Descrizione o istruzioni"}
             </Label>
             <Textarea
               id={`description-${field.id}`}
               rows={2}
               value={field.description}
               onChange={(event) => onChange({ description: event.target.value })}
-              placeholder="Compare sotto la domanda. Facoltativa."
+              placeholder={isLegal ? "Il testo che la persona dichiara di aver letto o accettato." : "Compare sotto la domanda. Facoltativa."}
             />
           </div>
+          ) : null}
 
           {definition.hasPlaceholder ? (
             <div className="space-y-2">
@@ -255,6 +305,134 @@ export function FormFieldCard({
           ) : null}
 
           {field.type === "checkbox" ? (
+            /*
+              **Cosa significa questa casella** (ADR-0192): una domanda si/no,
+              oppure una presa visione, un'accettazione richiesta, un consenso
+              facoltativo, un'autorizzazione. Il builder lo sa e il modulo lo
+              mostra per quello che e.
+            */
+            <div className="space-y-2">
+              <Label htmlFor={`legal-${field.id}`}>Cosa significa spuntare</Label>
+              <Select
+                value={field.legalKind || NESSUNA}
+                onValueChange={(next) =>
+                  onChange({
+                    legalKind: (next === NESSUNA ? "" : next) as FormLegalKind,
+                    required: next === "required_acceptance" ? true : next === "optional_consent" ? false : field.required,
+                  })
+                }
+              >
+                <SelectTrigger id={`legal-${field.id}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NESSUNA}>Una domanda si/no</SelectItem>
+                  {(Object.keys(FORM_LEGAL_KIND_LABELS) as Array<Exclude<FormLegalKind, "">>).map((kind) => (
+                    <SelectItem key={kind} value={kind}>
+                      {FORM_LEGAL_KIND_LABELS[kind]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {field.legalKind ? (
+                <p className="text-xs text-egw-ink-62">{FORM_LEGAL_KIND_HINTS[field.legalKind as Exclude<FormLegalKind, "">]} Il testo mostrato (la descrizione qui sopra e il blocco di testo subito sopra la casella) viene conservato nella pratica come prova.</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {!isSection && !isContent && controllabili.length ? (
+            <div className="space-y-2">
+              <Label htmlFor={`visible-${field.id}`}>Mostra solo se</Label>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Select
+                  value={field.visibleWhen?.fieldId || NESSUNA}
+                  onValueChange={(next) =>
+                    onChange({ visibleWhen: next === NESSUNA ? null : { fieldId: next, equals: field.visibleWhen?.fieldId === next ? field.visibleWhen.equals : "" } })
+                  }
+                >
+                  <SelectTrigger id={`visible-${field.id}`}>
+                    <SelectValue placeholder="Sempre visibile" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NESSUNA}>Sempre visibile</SelectItem>
+                    {controllabili.map((f) => (
+                      <SelectItem key={f.id} value={f.id}>
+                        {f.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {controllo ? (
+                  controllo.type === "checkbox" ? (
+                    <Select value={field.visibleWhen?.equals || "true"} onValueChange={(next) => onChange({ visibleWhen: { fieldId: controllo.id, equals: next } })}>
+                      <SelectTrigger aria-label="vale">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="true">e spuntato</SelectItem>
+                        <SelectItem value="false">non e spuntato</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Select value={field.visibleWhen?.equals || NESSUNA} onValueChange={(next) => onChange({ visibleWhen: { fieldId: controllo.id, equals: next === NESSUNA ? "" : next } })}>
+                      <SelectTrigger aria-label="vale">
+                        <SelectValue placeholder="vale…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NESSUNA}>vale…</SelectItem>
+                        {controllo.options.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )
+                ) : null}
+              </div>
+              <p className="text-xs text-egw-ink-62">Un campo nascosto non e obbligatorio e la sua risposta non si accetta: vale nel modulo e sul server.</p>
+            </div>
+          ) : null}
+
+          {fieldIsFile(field.type) && field.type !== "signature" ? (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`accept-${field.id}`}>Tipi di file</Label>
+                <Select
+                  value={field.type === "image_upload" ? "images" : field.upload?.accept || "documents"}
+                  onValueChange={(next) => onChange({ upload: { accept: next as "documents" | "images", maxBytes: field.upload?.maxBytes || 8 * 1024 * 1024 } })}
+                >
+                  <SelectTrigger id={`accept-${field.id}`} disabled={field.type === "image_upload"}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="documents">PDF e immagini</SelectItem>
+                    <SelectItem value="images">Solo immagini</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`maxbytes-${field.id}`}>Dimensione massima</Label>
+                <Select
+                  value={String(field.upload?.maxBytes || 8 * 1024 * 1024)}
+                  onValueChange={(next) => onChange({ upload: { accept: field.type === "image_upload" ? "images" : field.upload?.accept || "documents", maxBytes: Number(next) } })}
+                >
+                  <SelectTrigger id={`maxbytes-${field.id}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[1, 2, 4, 8].map((mb) => (
+                      <SelectItem key={mb} value={String(mb * 1024 * 1024)}>
+                        {mb} MB
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          ) : null}
+
+          {field.type === "checkbox" ? (
             <div className="space-y-2">
               <Label htmlFor={`consent-${field.id}`}>
                 Chiave del consenso
@@ -277,7 +455,7 @@ export function FormFieldCard({
             </div>
           ) : null}
 
-          {!isSection ? (
+          {!isSection && !isContent ? (
             <div className="space-y-2">
               <Label>Dato EasyGame</Label>
               <div className="flex flex-wrap items-center gap-2">

@@ -11,7 +11,7 @@
  *
  * Allowlist, non blocklist: tag, attributi e proprieta di stile nominati uno
  * per uno. I link accettano solo `http(s):` e `mailto:`; le immagini solo gli
- * allegati del sistema (`/api/v1/attachments/…`) — mai `data:`, che era il
+ * allegati del sistema (`ATTACHMENT_ENDPOINT/…`) — mai `data:`, che era il
  * modo in cui l'editor precedente incollava i byte dentro il documento.
  *
  * E pura: la usano il server (Node) e, per l'anteprima, il client. La stessa
@@ -19,6 +19,7 @@
  */
 
 import sanitizeHtml from "sanitize-html";
+import { ATTACHMENT_ENDPOINT } from "@/lib/attachments";
 
 /** I tag che un documento o un blocco di contenuto puo contenere. */
 export const RICH_TEXT_ALLOWED_TAGS = [
@@ -77,7 +78,11 @@ const STYLE_RULES: Record<string, Record<string, RegExp[]>> = {
 };
 
 /** L'URL di un'immagine ammessa: un allegato del sistema, o un percorso relativo del sito. */
-const ALLOWED_IMAGE_SRC = /^\/api\/v1\/attachments\/[0-9a-f-]{36}(\/[a-z-]+)?(\?[a-z0-9=&_-]*)?$/i;
+const escapeForRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+const ALLOWED_IMAGE_SRC = new RegExp(
+  `^${escapeForRegExp(ATTACHMENT_ENDPOINT)}/[0-9a-f-]{36}(/[a-z-]+)?(\\?[a-z0-9=&_-]*)?$`,
+  "i",
+);
 
 /** La classe dell'interruzione di pagina, l'unica classe che sopravvive. */
 export const PAGE_BREAK_CLASS = "easygame-page-break";

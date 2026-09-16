@@ -59,8 +59,10 @@ type PendingDocument = {
 type PublicEnrollmentView = {
   kind: string;
   kindLabel: string;
-  state: "sent" | "in_review" | "approved" | "rejected";
+  state: "sent" | "in_review" | "changes_requested" | "approved" | "rejected" | "archived";
   stateLabel: string;
+  changesRequested: { fields: Array<{ id: string; label: string }>; note: string } | null;
+  revision: number;
   clubName: string;
   templateTitle: string;
   seasonLabel: string;
@@ -94,9 +96,12 @@ const COSA_FARE: Record<PublicEnrollmentView["state"], string> = {
   sent: "La societa l'ha ricevuta. Non devi fare altro: ti faremo sapere.",
   in_review:
     "La societa la sta lavorando e aspetta i documenti qui sotto. Portali o caricali dalla tua area personale.",
+  changes_requested:
+    "La societa chiede di correggere o completare alcune cose. Puoi farlo da qui: si modificano solo i campi indicati, il resto resta com'era.",
   approved: "L'iscrizione e stata accettata.",
   rejected:
     "L'iscrizione non e stata accettata. Il motivo e qui sotto, se la societa lo ha scritto.",
+  archived: "La pratica e stata archiviata dalla societa.",
 };
 
 /* Il guscio fuori dal club (ambiente 3): una colonna sola, e una risposta, non un cruscotto. */
@@ -208,7 +213,7 @@ export function PublicEnrollmentStatusPage({ reference }: { reference: string })
         <StatusPill status={ENROLMENT_REQUEST_STATUS[view.state] || ENROLMENT_REQUEST_STATUS.sent} />
         <p className="mt-3 text-sm text-egw-ink-72">{COSA_FARE[view.state]}</p>
 
-        {view.reviewNote ? (
+        {view.reviewNote && view.state !== "changes_requested" ? (
           /*
             La nota si mostra su **entrambe** le decisioni e non solo sul
             rifiuto: una nota scritta dalla segreteria e scritta per la
@@ -218,6 +223,34 @@ export function PublicEnrollmentStatusPage({ reference }: { reference: string })
           <p className="mt-3 rounded-egw-control bg-egw-page-100 p-3 text-sm text-egw-ink-72">
             {view.reviewNote}
           </p>
+        ) : null}
+
+        {view.state === "changes_requested" && view.changesRequested ? (
+          /*
+            **Il club richiede queste integrazioni** (ADR-0189 §4): l'elenco
+            dei campi, la nota, e la strada per correggerli con la stessa
+            ricevuta. E l'unica scrittura pubblica oltre all'invio, e cambia
+            solo cio che il club ha elencato.
+          */
+          <div className="mt-3 rounded-egw-control border border-egw-tint-orange-bd bg-egw-tint-orange p-4" data-test="changes-requested">
+            <p className="text-sm font-semibold text-egw-ink">Il club richiede queste integrazioni</p>
+            {view.changesRequested.fields.length ? (
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-egw-ink">
+                {view.changesRequested.fields.map((field) => (
+                  <li key={field.id}>{field.label}</li>
+                ))}
+              </ul>
+            ) : null}
+            {view.changesRequested.note ? (
+              <p className="mt-2 text-sm text-egw-ink-72">{view.changesRequested.note}</p>
+            ) : null}
+            <a
+              href={`${typeof window === "undefined" ? "" : window.location.pathname}/integra`}
+              className="mt-3 inline-flex min-h-[44px] w-full items-center justify-center rounded-egw-control bg-egw-action px-4 text-sm font-bold text-white shadow-egw-glow"
+            >
+              Integra la pratica
+            </a>
+          </div>
         ) : null}
       </section>
 
@@ -252,6 +285,7 @@ export function PublicEnrollmentStatusPage({ reference }: { reference: string })
       <section className="rounded-b-egw-panel border border-egw-hairline bg-white px-5 py-2">
         <Riga etichetta="Stagione" valore={view.seasonLabel} />
         <Riga etichetta="Inviata il" valore={giorno(view.submittedAt)} />
+        {view.revision > 1 ? <Riga etichetta="Reinvio" valore={`revisione ${view.revision}`} /> : null}
         <Riga etichetta="Esaminata il" valore={giorno(view.reviewedAt)} />
       </section>
 

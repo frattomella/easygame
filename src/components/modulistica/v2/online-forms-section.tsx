@@ -1,13 +1,17 @@
 "use client";
 
 import * as React from "react";
-import { Archive, ArchiveRestore, ClipboardList, Copy, FileText, Inbox, Plus, Search, Sparkles, Trash2 } from "lucide-react";
+import {
+  UserCheck,
+  MessageSquareWarning,
+  CheckCircle2, Archive, ArchiveRestore, ClipboardList, Copy, FileText, Inbox, Plus, Search, Sparkles, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast-notification";
 import { DataGrid } from "@/components/web/datagrid/DataGrid";
 import type { ColumnDef, FilterDef, FilterState, GridState, RowActionDef } from "@/components/web/datagrid/types";
 import { Button } from "@/components/web/primitives/Button";
 import { SegmentedControl } from "@/components/web/primitives/Controls";
+import { KpiCard } from "@/components/web/page/Cards";
 import { DataChip, IconChip, StatusPill } from "@/components/web/primitives/StatusPill";
 import { InfoCard } from "@/components/web/page/Cards";
 import { InsetBlock } from "@/components/web/primitives/Surface";
@@ -115,6 +119,16 @@ export function OnlineFormsSection() {
   }, [loadSubmissions]);
 
   const pendingTotal = React.useMemo(() => templates.reduce((total, template) => total + template.pendingCount, 0), [templates]);
+  /* I contatori della coda (ADR-0189 §16): sommati dai moduli, uno per stato. */
+  const statusTotals = React.useMemo(() => {
+    const totals = { pending: 0, changes_requested: 0, approved: 0, converted: 0, rejected: 0, archived: 0 };
+    for (const template of templates) {
+      for (const key of Object.keys(totals) as Array<keyof typeof totals>) {
+        totals[key] += template.statusCounts?.[key] || 0;
+      }
+    }
+    return totals;
+  }, [templates]);
 
   /*
     Creare un modulo vuoto e adottare un modello sono lo **stesso** gesto e
@@ -399,9 +413,34 @@ export function OnlineFormsSection() {
         id: "submittedAt",
         header: "Inviata il",
         kind: "date",
-        cell: (row) => <span className="egw-num">{row.submittedAt ? formatDateShort(row.submittedAt) : MISSING}</span>,
+        cell: (row) => (
+          <span className="egw-num">
+            {row.submittedAt ? formatDateShort(row.submittedAt) : MISSING}
+            {row.revision > 1 ? <span className="ml-1 text-egw-ink-62">· rev. {row.revision}</span> : null}
+          </span>
+        ),
         sortValue: (row) => row.submittedAt || null,
         exportValue: (row) => row.submittedAt,
+      },
+      {
+        id: "completeness",
+        header: "Completezza",
+        kind: "classification",
+        cell: (row) => {
+          const legali = row.declarations.length;
+          const accettate = row.declarations.filter((d) => d.answer).length;
+          const allegati = row.files.length;
+          return (
+            <span className="flex flex-wrap gap-1">
+              {allegati ? <DataChip size="sm">{allegati} {allegati === 1 ? "allegato" : "allegati"}</DataChip> : null}
+              {legali ? <DataChip size="sm" tone={accettate === legali ? "green" : "amber"}>{accettate}/{legali} dichiarazioni</DataChip> : null}
+              {row.athleteId ? <DataChip size="sm" tone="blue">scheda collegata</DataChip> : null}
+              {row.trialAthleteId ? <DataChip size="sm" tone="amber">da prova</DataChip> : null}
+            </span>
+          );
+        },
+        sortValue: (row) => row.files.length,
+        exportValue: (row) => `${row.files.length} allegati · ${row.declarations.filter((d) => d.answer).length}/${row.declarations.length} dichiarazioni`,
       },
       {
         id: "version",
@@ -433,9 +472,12 @@ export function OnlineFormsSection() {
         type: "select",
         pinned: true,
         options: [
-          { value: "pending", label: "Da esaminare", tone: "amber" },
+          { value: "pending", label: "Da revisionare", tone: "amber" },
+          { value: "changes_requested", label: "Integrazione richiesta", tone: "amber" },
           { value: "approved", label: "Approvate", tone: "green" },
+          { value: "converted", label: "Atleta creato", tone: "green" },
           { value: "rejected", label: "Rifiutate", tone: "red" },
+          { value: "archived", label: "Archiviate", tone: "neutral" },
         ],
         /* Il filtro lo applica il server (`fetchFormSubmissions({ status })`): qui non toglie niente. */
         apply: () => true,
@@ -474,7 +516,7 @@ export function OnlineFormsSection() {
           onChange={setSection}
           options={[
             { value: "moduli", label: "Moduli", count: templates.length || null },
-            { value: "coda", label: "Da esaminare", count: pendingTotal || null },
+            { value: "coda", label: "Iscrizioni online", count: pendingTotal || null },
             { value: "modelli", label: "Modelli consigliati" },
           ]}
           className="max-w-full overflow-x-auto"
@@ -518,9 +560,23 @@ export function OnlineFormsSection() {
       ) : null}
 
       {section === "coda" ? (
+        /*
+          **La coda delle iscrizioni online** (ADR-0189 §16): i contatori
+          per stato sopra la griglia, cliccabili, e la griglia filtrata dal
+          server. «Completate» sono le pratiche da cui e nata una scheda.
+        */
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" data-test="inbox-counters">
+          <KpiCard label="Da revisionare" value={formatInteger(statusTotals.pending)} icon={<Inbox />} iconTone="amber" onClick={() => setStatusFilter("pending")} ariaLabel="Mostra le pratiche da revisionare" />
+          <KpiCard label="Integrazione richiesta" value={formatInteger(statusTotals.changes_requested)} icon={<MessageSquareWarning />} iconTone="orange" onClick={() => setStatusFilter("changes_requested")} ariaLabel="Mostra le pratiche in attesa di integrazione" />
+          <KpiCard label="Approvate" value={formatInteger(statusTotals.approved)} icon={<CheckCircle2 />} iconTone="green" onClick={() => setStatusFilter("approved")} ariaLabel="Mostra le pratiche approvate" />
+          <KpiCard label="Completate" value={formatInteger(statusTotals.converted)} qualifier="atleta creato o collegato" icon={<UserCheck />} iconTone="blue" onClick={() => setStatusFilter("converted")} ariaLabel="Mostra le pratiche completate" />
+        </div>
+      ) : null}
+
+      {section === "coda" ? (
         <DataGrid<FormSubmissionRecord>
           module="modulistica-coda"
-          aria-label="Compilazioni da esaminare"
+          aria-label="Iscrizioni online"
           rows={submissions}
           getRowId={(row) => row.id}
           rowLabel={(row) => submissionName(row)}

@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { CheckCircle2, Send } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { CheckCircle2, Save, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Button as WebButton } from "@/components/web/primitives/Button";
 import { AlertBlock } from "@/components/web/page/Alerts";
@@ -10,7 +11,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { OutsideShell, OutsideStatus } from "@/components/web/shell/OutsideShell";
 import { FormRenderer } from "./form-renderer";
-import { normalizeFormField, type FormField } from "@/lib/forms/model";
+import {
+  fieldCollectsAnswer,
+  fieldIsFile,
+  isFieldVisible,
+  normalizeFormField,
+  type FormField,
+} from "@/lib/forms/model";
+import { ProgressBar } from "@/components/web/primitives/Controls";
 import { buildEnrollmentReceiptPath } from "@/lib/forms/enrollment-receipt";
 import {
   clearFormDraft,
@@ -92,6 +100,20 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
   */
   const [touched, setTouched] = useState(false);
 
+  /*
+    **Salva e continua dopo, sul server** (ADR-0189 §3, ADR-0191). La bozza
+    nel browser copre l'F5; questa copre il cambio di telefono e il «lo
+    finisco stasera»: un gettone a 256 bit che apre **questa** bozza, per
+    trenta giorni, e che si consuma all'invio. Esce in chiaro una volta, nel
+    link mostrato qui; in archivio resta l'impronta.
+  */
+  const searchParams = useSearchParams();
+  const resumeParam = searchParams?.get("riprendi") || "";
+  const [serverDraftToken, setServerDraftToken] = useState<string>("");
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [resumeLink, setResumeLink] = useState("");
+  const [resumeFailure, setResumeFailure] = useState("");
+
   const draftKey = formDraftKey(publicSlug);
 
   const load = useCallback(async () => {
@@ -125,6 +147,76 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /* La ripresa dal link: la bozza del server entra nei valori e il gettone resta per l'invio. */
+  useEffect(() => {
+    if (!payload || !resumeParam || serverDraftToken) return;
+    let alive = true;
+    fetch(`/api/public/forms/${publicSlug}/draft/${encodeURIComponent(resumeParam)}`, { cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json().catch(() => null);
+        if (!alive) return;
+        if (!response.ok || body?.error) {
+          setResumeFailure("Il link di ripresa non e piu valido: la bozza e scaduta o e gia stata inviata. Puoi ricominciare da qui.");
+          return;
+        }
+        setValues((current) => ({ ...current, ...(body.data?.answers || {}) }));
+        if (body.data?.respondentEmail) setRespondentEmail(String(body.data.respondentEmail));
+        setServerDraftToken(resumeParam);
+        setFoundDraft(null);
+        setTouched(true);
+      })
+      .catch(() => {
+        if (alive) setResumeFailure("Non riesco a riprendere la bozza. Controlla la connessione.");
+      });
+    return () => {
+      alive = false;
+    };
+  }, [payload, publicSlug, resumeParam, serverDraftToken]);
+
+  const saveOnServer = async () => {
+    if (!payload || savingDraft) return;
+    setSavingDraft(true);
+    setResumeFailure("");
+    try {
+      const response = await fetch(`/api/public/forms/${publicSlug}/draft`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: serverDraftToken || undefined, answers: values, respondentEmail }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || body?.error) {
+        setResumeFailure(body?.error?.message || "Salvataggio non riuscito.");
+        return;
+      }
+      const token = String(body.data?.token || "");
+      setServerDraftToken(token);
+      const url = new URL(window.location.href);
+      url.search = "";
+      url.searchParams.set("riprendi", token);
+      setResumeLink(url.toString());
+    } catch {
+      setResumeFailure("Salvataggio non riuscito. Controlla la connessione.");
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  /* Quanto manca: i campi obbligatori visibili gia compilati. */
+  const progress = useMemo(() => {
+    if (!payload) return { done: 0, total: 0 };
+    const obbligatori = payload.form.fields.filter(
+      (field) => fieldCollectsAnswer(field.type) && field.required && isFieldVisible(field, values),
+    );
+    const done = obbligatori.filter((field) => {
+      if (fieldIsFile(field.type)) return Boolean(files[field.id]);
+      const v = values[field.id];
+      if (Array.isArray(v)) return v.length > 0;
+      if (typeof v === "boolean") return v;
+      return String(v ?? "").trim() !== "";
+    }).length;
+    return { done, total: obbligatori.length };
+  }, [files, payload, values]);
 
   /*
     Si cerca una bozza **una volta**, al montaggio: rileggerla a ogni render
@@ -191,6 +283,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
           answers: values,
           respondentName,
           respondentEmail,
+          draftToken: serverDraftToken || undefined,
         }),
       );
       for (const [fieldId, file] of Object.entries(files)) {
@@ -402,6 +495,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
             values={values}
             files={files}
             errors={errors}
+            assetBase={`/api/public/forms/${encodeURIComponent(publicSlug)}/assets`}
             onChange={(fieldId, value) => {
               setTouched(true);
               setValues((current) => ({ ...current, [fieldId]: value }));
@@ -414,10 +508,49 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
           />
 
           {failure ? <AlertBlock severity="danger" role="alert" title={failure} /> : null}
+          {resumeFailure ? <AlertBlock severity="warning" role="alert" title={resumeFailure} /> : null}
 
-          <WebButton type="submit" variant="primary" loading={sending} icon={<Send />} className="min-h-[44px] w-full">
-            Invia
-          </WebButton>
+          {resumeLink ? (
+            <div className="rounded-egw-control border border-egw-tint-green-bd bg-egw-tint-green p-4" role="status">
+              <p className="text-sm font-semibold text-egw-green">Bozza salvata sul server per 30 giorni</p>
+              <p className="mt-1 text-xs text-egw-ink-72">
+                Per continuare da un altro telefono apri questo link. Gli allegati si caricano al momento dell&apos;invio.
+              </p>
+              <a href={resumeLink} className="mt-2 block break-all rounded-egw-control bg-white px-3 py-2 text-sm font-medium text-egw-blue-800 underline underline-offset-2">
+                {resumeLink}
+              </a>
+            </div>
+          ) : null}
+
+          {/*
+            La barra delle azioni resta in vista in fondo allo schermo: sul
+            telefono l'invio non deve essere cercato oltre l'ultimo campo, e
+            «quanto manca» si legge senza scorrere.
+          */}
+          <div className="sticky bottom-0 -mx-5 -mb-5 space-y-3 border-t border-egw-hairline bg-white/95 p-4 backdrop-blur sm:mx-0 sm:mb-0 sm:rounded-egw-control sm:border">
+            {progress.total > 0 ? (
+              <ProgressBar
+                value={progress.done}
+                max={progress.total}
+                label={`${progress.done} di ${progress.total} campi obbligatori compilati`}
+              />
+            ) : null}
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <WebButton
+                type="button"
+                variant="secondary"
+                loading={savingDraft}
+                icon={<Save />}
+                className="min-h-[44px] w-full sm:flex-1"
+                onClick={saveOnServer}
+              >
+                Salva e continua dopo
+              </WebButton>
+              <WebButton type="submit" variant="primary" loading={sending} icon={<Send />} className="min-h-[44px] w-full sm:flex-1">
+                Invia
+              </WebButton>
+            </div>
+          </div>
         </form>
 
         <p className="py-4 text-center text-[11.5px] text-white/70">Modulo gestito con EasyGame</p>

@@ -7,6 +7,7 @@ import {
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
 import { prisma } from "./prisma";
+import { sanitizeRichHtml } from "@/lib/rich-text/sanitize";
 import {
   canGenerateDocumentWithSensitivity,
   canReadGeneratedDocument,
@@ -456,7 +457,7 @@ export const createDocumentTemplate = async (
       title,
       description: asText(input.description) || null,
       subject_kind: subjectOf(input.subjectKind),
-      draft_content: String(input.content ?? ""),
+      draft_content: sanitizeRichHtml(String(input.content ?? "")),
       status: "draft",
       published_version: 0,
       catalog_key: asText(input.catalogKey) || null,
@@ -507,7 +508,8 @@ export const updateDocumentTemplateDraft = async (
     data.subject_kind = asText(input.subjectKind).toLowerCase();
   }
   if (input.content !== undefined) {
-    data.draft_content = String(input.content ?? "");
+    /* L'autorita della sanificazione e il server (ADR-0190 §3). */
+    data.draft_content = sanitizeRichHtml(String(input.content ?? ""));
   }
   if (input.editorialOwner !== undefined) {
     data.editorial_owner = asText(input.editorialOwner) || null;

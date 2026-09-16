@@ -26,10 +26,22 @@ const unwrap = <T>(envelope: Envelope<T>) => {
   return envelope.data;
 };
 
+export type TrialMatchCandidatePayload = {
+  id: string;
+  name: string;
+  birthDate: string;
+  sameBirthDate: boolean;
+  categoryLabel: string | null;
+  trialsCount: number;
+  lastTrialAt: string | null;
+};
+
 export type SubmissionReviewPayload = {
   submission: FormSubmissionRecord;
   changeSet: FormChangeSet;
   duplicates: DuplicateCandidate[];
+  /** Le persone in prova che potrebbero essere questa (ADR-0193). */
+  trialCandidates: TrialMatchCandidatePayload[];
 };
 
 export type ReviewOutcomePayload = {
@@ -197,9 +209,14 @@ export type MissingDocumentRequest = {
 export const decideSubmission = async (
   id: string,
   input: {
-    action: "approve" | "reject";
+    /* ADR-0189 §4: le transizioni della pratica. */
+    action: "approve" | "reject" | "request_changes" | "archive";
     note?: string;
     subjects?: FormSubjectSelection[];
+    /** I campi da correggere (`request_changes`). */
+    fieldIds?: string[];
+    /** La persona in prova da convertire in questa scheda (ADR-0193). */
+    trialAthleteId?: string | null;
     /**
      * I documenti che mancano. Si chiedono **approvando**, non respingendo: e
      * il punto in cui l'iscrizione e il fascicolo documentale si saldano.
@@ -216,6 +233,8 @@ export const decideSubmission = async (
           action: input.action,
           note: input.note,
           subjects: input.subjects,
+          ...(input.fieldIds?.length ? { field_ids: input.fieldIds } : {}),
+          ...(input.trialAthleteId ? { trial_athlete_id: input.trialAthleteId } : {}),
           /*
             `document_requests` in snake_case, come ogni altro campo API
             (09 — Convenzioni API). La rotta legge anche `documentRequests`

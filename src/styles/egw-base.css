@@ -240,3 +240,158 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/*
+  Il testo formattato dei moduli e dei documenti (ADR-0190): titoli,
+  paragrafi, elenchi, link, tabelle, immagini, interruzione di pagina. La
+  tipografia e controllata qui; l'HTML porta solo cio che la sanificazione
+  ammette (dimensione, allineamento, interlinea entro scale chiuse).
+*/
+.egw-rich-content {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--egw-ink);
+  overflow-wrap: anywhere;
+}
+.egw-rich-content > * + * {
+  margin-top: 0.75em;
+}
+.egw-rich-content h1 {
+  font-family: var(--font-poppins), Poppins, system-ui, sans-serif;
+  font-size: 1.6em;
+  font-weight: 800;
+  line-height: 1.15;
+}
+.egw-rich-content h2 {
+  font-family: var(--font-poppins), Poppins, system-ui, sans-serif;
+  font-size: 1.3em;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.egw-rich-content h3 {
+  font-family: var(--font-poppins), Poppins, system-ui, sans-serif;
+  font-size: 1.1em;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.egw-rich-content ul,
+.egw-rich-content ol {
+  padding-left: 1.4em;
+}
+.egw-rich-content ul {
+  list-style: disc;
+}
+.egw-rich-content ol {
+  list-style: decimal;
+}
+.egw-rich-content a {
+  color: var(--egw-blue-700);
+  text-decoration: underline;
+}
+.egw-rich-content blockquote {
+  border-left: 3px solid var(--egw-hairline);
+  padding-left: 0.9em;
+  color: var(--egw-ink-72);
+}
+.egw-rich-content hr {
+  border: 0;
+  border-top: 1px solid var(--egw-hairline);
+}
+.egw-rich-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--egw-radius-chip, 8px);
+}
+.egw-rich-content figure {
+  margin: 0;
+}
+.egw-rich-content figcaption {
+  font-size: 0.85em;
+  color: var(--egw-ink-62);
+}
+.egw-rich-content table {
+  width: 100%;
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+.egw-rich-content th,
+.egw-rich-content td {
+  border: 1px solid var(--egw-hairline);
+  padding: 0.45em 0.6em;
+  text-align: left;
+  vertical-align: top;
+  min-width: 6em;
+}
+.egw-rich-content th {
+  background: var(--egw-page-100);
+  font-weight: 600;
+}
+.egw-rich-content .easygame-page-break {
+  border-top: 1px dashed var(--egw-hairline);
+  margin: 1.5em 0;
+  height: 0;
+  page-break-before: always;
+  break-before: page;
+}
+.egw-rich-content .egw-placeholder {
+  display: inline-block;
+  padding: 0 0.35em;
+  border-radius: 4px;
+  background: var(--egw-tint-blue);
+  border: 1px solid var(--egw-tint-blue-bd);
+  color: var(--egw-blue-800);
+  font-size: 0.9em;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+@media print {
+  .egw-rich-content .easygame-page-break {
+    border: 0;
+    margin: 0;
+  }
+}
+
+/* L'editor (ProseMirror): il segnaposto e le selezioni dei nodi atomici. */
+.egw-rich-editor.ProseMirror p.is-editor-empty:first-child::before,
+.egw-rich-editor.ProseMirror:empty::before {
+  content: attr(data-placeholder);
+  color: var(--egw-ink-42);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+.egw-rich-editor .ProseMirror-selectednode {
+  outline: 2px solid var(--egw-blue);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.egw-rich-editor .easygame-page-break::after {
+  content: "Interruzione di pagina";
+  display: block;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--egw-ink-42);
+  transform: translateY(-9px);
+  background: #fff;
+  width: max-content;
+  margin: 0 auto;
+  padding: 0 8px;
+}
+.egw-rich-editor table td,
+.egw-rich-editor table th {
+  min-width: 4em;
+}
+.egw-rich-editor .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(37, 99, 235, 0.08);
+  pointer-events: none;
+}
+.egw-rich-editor td,
+.egw-rich-editor th {
+  position: relative;
+}

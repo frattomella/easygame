@@ -415,3 +415,31 @@ export const sendNotificationEmails = async (recipientUserIds: string[]) => {
     }
   }
 };
+
+/**
+ * «Il club chiede un'integrazione» (ADR-0189 §4): l'elenco dei campi da
+ * correggere e la nota, e la strada — la ricevuta, che la famiglia gia
+ * possiede. Nessun link con un segreto dentro: la ricevuta e sua.
+ */
+export const sendEnrollmentChangesRequestedEmail = async (input: {
+  to: string;
+  templateTitle: string;
+  fields: string[];
+  note: string;
+}) => {
+  const escape = (value: string) =>
+    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const righe = [
+    "Il club ha esaminato la tua iscrizione e chiede di correggere o completare:",
+    ...input.fields.map((label) => `- ${label}`),
+    input.note ? `Nota del club: ${input.note}` : "",
+    "",
+    "Apri la ricevuta che hai ricevuto all'invio e scegli «Integra la pratica».",
+  ].filter((riga) => riga !== "");
+  return sendTransactionalEmail({
+    to: input.to,
+    subject: `${input.templateTitle}: il club chiede un'integrazione`,
+    text: righe.join("\n"),
+    html: `<p>${righe.map(escape).join("<br/>")}</p>`,
+  });
+};

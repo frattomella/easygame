@@ -127,8 +127,10 @@ export const ENROLMENT_STATUS = Object.freeze({
 export const ENROLMENT_REQUEST_STATUS = Object.freeze({
   sent: spec("INVIATA", "quiet", "neutral"),
   in_review: spec("IN LAVORAZIONE", "outline", "amber"),
+  changes_requested: spec("INTEGRAZIONE RICHIESTA", "solid", "orange"),
   approved: spec("APPROVATA", "solid", "green"),
   rejected: spec("RESPINTA", "urgent", "red"),
+  archived: spec("ARCHIVIATA", "quiet", "neutral"),
 } as const);
 
 /* ── Consenso (accettato, revocato, rifiutato, da decidere) ─────────────── */

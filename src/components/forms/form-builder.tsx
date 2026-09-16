@@ -43,6 +43,9 @@ import {
 import { DynamicFieldPicker } from "./dynamic-field-picker";
 import { FormPublicLink } from "./form-public-link";
 import {
+  type FormLegalKind,
+  FORM_LEGAL_KIND_LABELS,
+  FORM_LEGAL_KIND_HINTS,
   createFieldId,
   FORM_FIELD_TYPES,
   getSchemaSubjects,
@@ -59,6 +62,9 @@ import { FORM_SUBJECTS } from "@/lib/forms/dynamic-fields";
 import { createCoalescingSaver } from "@/lib/performance";
 import * as formsApi from "@/lib/api/forms";
 import * as documentsApi from "@/lib/api/documents";
+import { uploadAttachment } from "@/lib/api/attachments";
+import { buildAttachmentUrl } from "@/lib/attachments";
+import { buildFormPreviewPath } from "@/lib/forms/preview";
 
 /**
  * Il builder.
@@ -99,6 +105,17 @@ const newField = (type: FormFieldType): FormField => ({
   visibleWhen: null,
   upload: type === "file_upload" ? { accept: "documents", maxBytes: 8 * 1024 * 1024 } : type === "image_upload" ? { accept: "images", maxBytes: 8 * 1024 * 1024 } : null,
 });
+
+/** La tavolozza del builder, a famiglie (ADR-0190 §1). */
+const PALETTE: Array<{ label: string; types: FormFieldType[]; legalKind?: Exclude<FormLegalKind, ""> }> = [
+  { label: "Contenuto", types: ["content", "section"] },
+  { label: "Campi", types: ["short_text", "long_text", "number", "date", "email", "phone", "single_choice", "multiple_choice", "dropdown", "checkbox", "file_upload", "image_upload"] },
+  { label: "Dichiarazioni", types: ["checkbox"], legalKind: "acknowledgement" },
+  { label: "Dichiarazioni", types: ["checkbox"], legalKind: "required_acceptance" },
+  { label: "Dichiarazioni", types: ["checkbox"], legalKind: "optional_consent" },
+  { label: "Dichiarazioni", types: ["checkbox"], legalKind: "authorization" },
+  { label: "Evidenza grafica", types: ["signature"] },
+];
 
 export function FormBuilder({
   template,
@@ -179,10 +196,22 @@ export function FormBuilder({
     }));
   }, []);
 
-  const addField = (type: FormFieldType) => {
+  const addField = (type: FormFieldType, legalKind?: Exclude<FormLegalKind, "">) => {
     setSchema((current) => ({
       ...current,
-      fields: [...current.fields, newField(type)],
+      fields: [
+        ...current.fields,
+        legalKind
+          ? {
+              ...newField("checkbox"),
+              legalKind,
+              label: FORM_LEGAL_KIND_LABELS[legalKind],
+              required: legalKind === "required_acceptance",
+            }
+          : type === "content"
+            ? { ...newField("content"), label: "Testo" }
+            : newField(type),
+      ],
     }));
   };
 
@@ -234,6 +263,26 @@ export function FormBuilder({
     }
   };
 
+  /*
+    Le immagini di un blocco di contenuto vanno negli allegati del modulo
+    (ADR-0190 §2): nell'HTML resta l'URL, mai i byte. Il pubblico le legge da
+    una rotta che serve solo gli allegati di contenuto del modulo pubblicato.
+  */
+  const uploadContentImage = useCallback(
+    async (file: File) => {
+      const esito = await uploadAttachment({
+        file,
+        ownerType: "form",
+        ownerId: templateId,
+        category: "contenuto-modulo",
+        organizationId: template.organizationId,
+      });
+      if (!esito.ok) throw new Error(esito.message);
+      return buildAttachmentUrl(esito.attachment.id);
+    },
+    [template.organizationId, templateId],
+  );
+
   const subjects = getSchemaSubjects(schema);
   const hasUnpublishedChanges =
     template.published !== null && !schemasAreEqual(schema, template.published);
@@ -254,12 +303,23 @@ export function FormBuilder({
             type="button"
             variant="outline"
             size="sm"
+            onClick={() => window.open(buildFormPreviewPath(templateId), "_blank", "noopener")}
+            title="Apre l'anteprima web in una scheda nuova: desktop e telefono, senza inviare niente"
+          >
+            <Eye className="mr-2 h-4 w-4" />
+            Anteprima web
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
             onClick={() => setMode(mode === "edit" ? "preview" : "edit")}
           >
             {mode === "edit" ? (
               <>
                 <Eye className="mr-2 h-4 w-4" />
-                Anteprima
+                Anteprima qui
               </>
             ) : (
               <>
@@ -371,6 +431,8 @@ export function FormBuilder({
                   field={field}
                   index={index}
                   total={schema.fields.length}
+                  siblingsBefore={schema.fields.slice(0, index)}
+                  onUploadImage={uploadContentImage}
                   onChange={(patch) => patchField(field.id, patch)}
                   onDuplicate={() => duplicateField(index)}
                   onRemove={() => removeField(field.id)}
@@ -394,20 +456,32 @@ export function FormBuilder({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
                     align="start"
-                    className="max-h-80 w-64 overflow-y-auto"
+                    className="max-h-[70vh] w-72 overflow-y-auto"
                   >
-                    <DropdownMenuLabel>Tipo di risposta</DropdownMenuLabel>
-                    {FORM_FIELD_TYPES.map((option) => (
-                      <DropdownMenuItem
-                        key={option.value}
-                        onSelect={() => addField(option.value)}
-                        className="flex-col items-start gap-0.5"
-                      >
-                        <span className="font-medium">{option.label}</span>
-                        <span className="text-xs text-egw-ink-62">
-                          {option.hint}
-                        </span>
-                      </DropdownMenuItem>
+                    {/*
+                      La tavolozza a famiglie (ADR-0190 §1): contenuto, campi
+                      e dichiarazioni. I «Dati EasyGame» hanno il loro
+                      pulsante, perche vengono da un catalogo chiuso.
+                    */}
+                    {PALETTE.map((group) => (
+                      <React.Fragment key={group.label}>
+                        <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+                        {group.types.map((type) => {
+                          const option = FORM_FIELD_TYPES.find((entry) => entry.value === type)!;
+                          return (
+                            <DropdownMenuItem
+                              key={`${group.label}-${option.value}-${group.legalKind || ""}`}
+                              onSelect={() => addField(option.value, group.legalKind)}
+                              className="flex-col items-start gap-0.5"
+                            >
+                              <span className="font-medium">{group.legalKind ? FORM_LEGAL_KIND_LABELS[group.legalKind] : option.label}</span>
+                              <span className="text-xs text-egw-ink-62">
+                                {group.legalKind ? FORM_LEGAL_KIND_HINTS[group.legalKind] : option.hint}
+                              </span>
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      </React.Fragment>
                     ))}
                   </DropdownMenuContent>
                 </DropdownMenu>

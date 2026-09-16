@@ -682,6 +682,8 @@ export type FormTemplateSummary = {
   fieldCount: number;
   submissionCount: number;
   pendingCount: number;
+  /** Le pratiche per stato (ADR-0189): i contatori della coda si sommano da qui. */
+  statusCounts: Record<FormSubmissionStatus, number>;
   /**
    * Da quale modello consigliato viene, o stringa vuota.
    *

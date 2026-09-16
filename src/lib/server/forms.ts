@@ -9,6 +9,9 @@ import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import {
   buildPublicFormPath,
   buildPublicSlug,
+  FORM_SUBMISSION_STATUSES,
+  isFormSubmissionStatus,
+  type FormSubmissionStatus,
   getAnswerableFields,
   getSchemaSubjects,
   isEnrollmentForm,
@@ -313,7 +316,7 @@ const loadPublishedSchemas = async (
 
 const summarize = (
   row: TemplateRow,
-  counts: { submissions: number; pending: number },
+  counts: { submissions: number; pending: number; byStatus: Record<FormSubmissionStatus, number> },
   published: FormSchema | null,
 ): FormTemplateSummary => {
   const draft = normalizeFormSchema(row.draft);
@@ -334,6 +337,7 @@ const summarize = (
     fieldCount: getAnswerableFields(draft).length,
     submissionCount: counts.submissions,
     pendingCount: counts.pending,
+    statusCounts: counts.byStatus,
     /*
       Provenienza e destinazione d'uso si leggono dalla **bozza**, come il
       titolo e i soggetti qui sopra: e cio che il club sta modificando, ed e
@@ -381,15 +385,19 @@ export const listFormTemplates = async (
         })
       : [];
 
-  const countsByTemplate = new Map<string, { submissions: number; pending: number }>();
+  const contatoriVuoti = (): Record<FormSubmissionStatus, number> =>
+    Object.fromEntries(FORM_SUBMISSION_STATUSES.map((status) => [status, 0])) as Record<FormSubmissionStatus, number>;
+  const countsByTemplate = new Map<string, { submissions: number; pending: number; byStatus: Record<FormSubmissionStatus, number> }>();
   for (const entry of grouped) {
     const current = countsByTemplate.get(entry.template_id) || {
       submissions: 0,
       pending: 0,
+      byStatus: contatoriVuoti(),
     };
     const amount = entry._count?._all || 0;
     current.submissions += amount;
     if (entry.status === "pending") current.pending += amount;
+    if (isFormSubmissionStatus(entry.status)) current.byStatus[entry.status] += amount;
     countsByTemplate.set(entry.template_id, current);
   }
 
@@ -399,7 +407,7 @@ export const listFormTemplates = async (
   return rows.map((row) =>
     summarize(
       row,
-      countsByTemplate.get(row.id) || { submissions: 0, pending: 0 },
+      countsByTemplate.get(row.id) || { submissions: 0, pending: 0, byStatus: contatoriVuoti() },
       publishedByTemplate.get(row.id) || null,
     ),
   );
@@ -427,21 +435,22 @@ export const getFormTemplate = async (
   const published = await loadPublishedSchema(row.id, row.published_version);
   const options = await loadClubFormOptions(row.organization_id);
 
-  const [submissions, pending] = await Promise.all([
-    (prisma as any).formSubmission.count({
-      where: { organization_id: row.organization_id, template_id: row.id },
-    }),
-    (prisma as any).formSubmission.count({
-      where: {
-        organization_id: row.organization_id,
-        template_id: row.id,
-        status: "pending",
-      },
-    }),
-  ]);
+  const perStato: Array<{ status: string; _count: { _all: number } }> = await (prisma as any).formSubmission.groupBy({
+    by: ["status"],
+    where: { organization_id: row.organization_id, template_id: row.id },
+    _count: { _all: true },
+  });
+  const byStatus = Object.fromEntries(FORM_SUBMISSION_STATUSES.map((status) => [status, 0])) as Record<FormSubmissionStatus, number>;
+  let submissions = 0;
+  for (const voce of perStato) {
+    const n = voce._count?._all || 0;
+    submissions += n;
+    if (isFormSubmissionStatus(voce.status)) byStatus[voce.status] += n;
+  }
+  const pending = byStatus.pending;
 
   return {
-    ...summarize(row, { submissions, pending }, published),
+    ...summarize(row, { submissions, pending, byStatus }, published),
     draft: normalizeFormSchema(row.draft),
     published,
     optionCatalog: options.catalog,
