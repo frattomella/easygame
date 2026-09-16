@@ -112,7 +112,7 @@ export default function TrainerCategoriesDashboardPage() {
             {declaredGroups.map((group) => (
               <Badge
                 key={group}
-                className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50"
+                className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue"
               >
                 {group}
               </Badge>
@@ -163,28 +163,28 @@ export default function TrainerCategoriesDashboardPage() {
               >
                 <div className="space-y-4">
                   <div className="flex flex-wrap gap-2">
-                    <Badge className="border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100">
+                    <Badge className="border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]">
                       <CalendarDays className="mr-1 h-3.5 w-3.5" />
                       {trainings.length} allenamenti
                     </Badge>
-                    <Badge className="border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100">
+                    <Badge className="border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]">
                       <Trophy className="mr-1 h-3.5 w-3.5" />
                       {matches.length} gare
                     </Badge>
                   </div>
 
                   {athletes.length > 0 ? (
-                    <ul className="space-y-1 text-sm text-slate-700">
+                    <ul className="space-y-1 text-sm text-egw-ink-72">
                       {athletes.slice(0, 12).map((athlete: any) => (
                         <li
                           key={athlete.id}
-                          className="rounded-xl border border-slate-100 bg-white px-3 py-2"
+                          className="rounded-egw-field border border-egw-rule bg-white px-3 py-2"
                         >
                           {getAthleteDisplayName(athlete)}
                         </li>
                       ))}
                       {athletes.length > 12 ? (
-                        <li className="px-3 py-1 text-xs text-slate-500">
+                        <li className="px-3 py-1 text-xs text-egw-ink-62">
                           e altri {athletes.length - 12}
                         </li>
                       ) : null}

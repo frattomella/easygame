@@ -170,12 +170,12 @@ export function AttendanceConfirmation({
 
   const header = (
     <div className="space-y-1">
-      <h3 className="font-medium text-slate-900">{trainingTitle}</h3>
+      <h3 className="font-medium text-egw-ink">{trainingTitle}</h3>
       <p className="text-sm text-muted-foreground">
         {[dateLabel, trainingTime].filter(Boolean).join(" • ")}
       </p>
       {deadlineLabel ? (
-        <p className="flex items-center gap-1.5 text-xs text-slate-500">
+        <p className="flex items-center gap-1.5 text-xs text-egw-ink-62">
           <Clock className="h-3.5 w-3.5" aria-hidden="true" />
           Rispondi entro il {deadlineLabel}
         </p>
@@ -188,14 +188,14 @@ export function AttendanceConfirmation({
   // produce una telefonata in segreteria.
   if (!canAnswer) {
     return (
-      <Card className="w-full border-slate-200">
+      <Card className="w-full border-egw-hairline">
         <CardContent className="space-y-3 p-4 sm:p-6">
           {header}
-          <div className="flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+          <div className="flex items-start gap-2 rounded-egw-field bg-egw-page-100 p-3 text-sm text-egw-ink-72">
             <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             <div className="space-y-1">
               <p>{blockedMessage || "Non e piu possibile rispondere."}</p>
-              <p className="font-medium text-slate-900">
+              <p className="font-medium text-egw-ink">
                 {state === "yes"
                   ? "La tua risposta: ci sara."
                   : state === "no"
@@ -212,14 +212,14 @@ export function AttendanceConfirmation({
   if (!editing && state !== "no_response") {
     const confirmed = state === "yes";
     return (
-      <Card className="w-full border-slate-200">
+      <Card className="w-full border-egw-hairline">
         <CardContent className="space-y-3 p-4 sm:p-6">
           {header}
           <div
-            className={`flex items-start gap-2 rounded-xl p-3 text-sm ${
+            className={`flex items-start gap-2 rounded-egw-field p-3 text-sm ${
               confirmed
-                ? "bg-emerald-50 text-emerald-800"
-                : "bg-amber-50 text-amber-800"
+                ? "bg-egw-tint-green text-egw-green"
+                : "bg-egw-tint-amber text-egw-amber-ink"
             }`}
           >
             {confirmed ? (
@@ -253,7 +253,7 @@ export function AttendanceConfirmation({
   }
 
   return (
-    <Card className="w-full border-slate-200">
+    <Card className="w-full border-egw-hairline">
       <CardHeader className="pb-2">
         <CardTitle className="text-lg">Conferma partecipazione</CardTitle>
       </CardHeader>

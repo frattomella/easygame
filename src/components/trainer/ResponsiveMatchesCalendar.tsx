@@ -110,15 +110,15 @@ function MatchAgendaItem({
     <button
       type="button"
       onClick={() => onSelectMatch(match)}
-      className="w-full rounded-xl border border-slate-200 bg-white p-3 text-left shadow-sm transition hover:border-blue-200 hover:bg-blue-50/50"
+      className="w-full rounded-egw-field border border-egw-hairline bg-white p-3 text-left shadow-egw-plane-1 transition hover:border-egw-tint-blue-bd hover:bg-egw-tint-blue/50"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
+            <Badge className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue">
               {category}
             </Badge>
-            <span className="text-xs font-medium text-slate-500">
+            <span className="text-xs font-medium text-egw-ink-62">
               {formatTimeRange(match?.time)}
             </span>
             <MatchCertificateWarningBadge
@@ -126,17 +126,17 @@ function MatchAgendaItem({
               compact
             />
           </div>
-          <p className="mt-2 truncate text-sm font-semibold text-slate-950">
+          <p className="mt-2 truncate text-sm font-semibold text-egw-ink">
             {match?.opponent
               ? `vs ${match.opponent}`
               : match?.title || "Gara"}
           </p>
-          <p className="mt-1 line-clamp-1 text-xs text-slate-500">
+          <p className="mt-1 line-clamp-1 text-xs text-egw-ink-62">
             {formatMatchLocationLabel(match)}
           </p>
         </div>
         {showConvocationSummary ? (
-          <div className="shrink-0 rounded-xl bg-slate-50 px-2 py-1 text-right text-xs text-slate-600">
+          <div className="shrink-0 rounded-egw-field bg-egw-page-100 px-2 py-1 text-right text-xs text-egw-ink-72">
             <div className="font-semibold">
               {convocationStatus.convocated}/{convocationStatus.total}
             </div>
@@ -226,12 +226,12 @@ export function ResponsiveMatchesCalendar({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 rounded-egw-panel-sm border border-egw-hairline bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-wide text-blue-600">
+          <p className="text-sm font-semibold uppercase tracking-wide text-egw-blue-700">
             Calendario gare
           </p>
-          <h3 className="mt-1 text-xl font-semibold capitalize text-slate-950">
+          <h3 className="mt-1 text-xl font-semibold capitalize text-egw-ink">
             {monthLabel}
           </h3>
         </div>
@@ -254,10 +254,10 @@ export function ResponsiveMatchesCalendar({
         </div>
       </div>
 
-      <div className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white md:block">
-        <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50">
+      <div className="hidden overflow-hidden rounded-egw-panel-sm border border-egw-hairline bg-white md:block">
+        <div className="grid grid-cols-7 border-b border-egw-rule bg-egw-page-100">
           {WEEK_DAYS.map((day) => (
-            <div key={day} className="px-3 py-2 text-xs font-semibold text-slate-500">
+            <div key={day} className="px-3 py-2 text-xs font-semibold text-egw-ink-62">
               {day}
             </div>
           ))}
@@ -273,22 +273,22 @@ export function ResponsiveMatchesCalendar({
               <div
                 key={key}
                 className={cn(
-                  "min-h-[160px] border-b border-r border-slate-100 p-2",
-                  !isCurrentMonth && "bg-slate-50/60 text-slate-400",
-                  isToday && "bg-blue-50/60",
+                  "min-h-[160px] border-b border-r border-egw-rule p-2",
+                  !isCurrentMonth && "bg-egw-page-100 text-egw-ink-42",
+                  isToday && "bg-egw-tint-blue",
                 )}
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <span
                     className={cn(
                       "flex h-7 w-7 items-center justify-center rounded-full text-sm font-semibold",
-                      isToday ? "bg-blue-600 text-white" : "text-slate-700",
+                      isToday ? "bg-egw-blue text-white" : "text-egw-ink-72",
                     )}
                   >
                     {day.getDate()}
                   </span>
                   {dayMatches.length > 0 ? (
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-egw-ink-42">
                       {dayMatches.length}
                     </span>
                   ) : null}
@@ -306,11 +306,11 @@ export function ResponsiveMatchesCalendar({
                     />
                   ))}
                   {dayMatches.length > 3 ? (
-                    <div className="rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-500">
+                    <div className="rounded-egw-control bg-egw-page-100 px-2 py-1 text-xs text-egw-ink-62">
                       +{dayMatches.length - 3} altre gare
                     </div>
                   ) : dayMatches.length === 0 ? (
-                    <div className="rounded-lg border border-dashed p-2 text-xs text-slate-400">
+                    <div className="rounded-egw-control border border-dashed p-2 text-xs text-egw-ink-42">
                       Nessuna gara
                     </div>
                   ) : null}
@@ -339,8 +339,8 @@ export function ResponsiveMatchesCalendar({
             return (
               <div key={match.id} className="space-y-2">
                 {showDateHeader ? (
-                  <div className="flex items-center gap-2 pt-2 text-sm font-semibold text-slate-950">
-                    <CalendarDays className="h-4 w-4 text-blue-600" />
+                  <div className="flex items-center gap-2 pt-2 text-sm font-semibold text-egw-ink">
+                    <CalendarDays className="h-4 w-4 text-egw-blue-700" />
                     {matchDate ? formatDate(matchDate) : "Data da definire"}
                   </div>
                 ) : null}
@@ -357,17 +357,17 @@ export function ResponsiveMatchesCalendar({
         )}
       </div>
 
-      <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 sm:grid-cols-3">
+      <div className="grid gap-3 rounded-egw-panel-sm border border-egw-hairline bg-egw-page-100 p-4 text-sm text-egw-ink-72 sm:grid-cols-3">
         <div className="flex items-center gap-2">
-          <Trophy className="h-4 w-4 text-blue-600" />
+          <Trophy className="h-4 w-4 text-egw-blue-700" />
           {monthMatches.length} gare nel mese
         </div>
         <div className="flex items-center gap-2">
-          <ListChecks className="h-4 w-4 text-blue-600" />
+          <ListChecks className="h-4 w-4 text-egw-blue-700" />
           Convocazioni nella vista agenda
         </div>
         <div className="flex items-center gap-2">
-          <Clock3 className="h-4 w-4 text-blue-600" />
+          <Clock3 className="h-4 w-4 text-egw-blue-700" />
           Agenda mobile per data
         </div>
       </div>

@@ -21,7 +21,6 @@ import {
   HeartPulse,
   Mail,
   MapPin,
-  MinusCircle,
   Phone,
   Search,
   Send,
@@ -30,9 +29,11 @@ import {
   Upload,
   UserCircle,
   Users,
-  XCircle,
 } from "lucide-react";
 import { PageHeading } from "@/components/dashboard/page-heading";
+import { EmptyStateCard, KpiCard } from "@/components/web/page/Cards";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { InsetBlock } from "@/components/web/primitives/Surface";
 import { ParentRsvpSection } from "@/components/parent/ParentRsvpSection";
 import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
 import { findFirstPayableAthletePayment } from "@/lib/athlete-payment-utils";
@@ -46,7 +47,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -79,7 +79,7 @@ import { getTrainingStableKey } from "@/lib/training-utils";
   tabella scritta qui: e la stessa che il server usa per costruire l'etichetta,
   e due copie sarebbero due badge diversi sullo stesso documento.
 */
-import { getFamilyDocumentStateClassName } from "@/lib/documents/family-dossier";
+import { APPOINTMENT_STATUS, DOSSIER_STATUS, resolveStatus } from "@/lib/web/status";
 import { withPayableInstalment } from "@/lib/payments/family-checkout";
 import { apiRequest } from "@/lib/api/client";
 import { todayLocalDateOnly } from "@/lib/date-only";
@@ -132,136 +132,21 @@ const etichettaStatoAtleta = (status: unknown) => {
   return "";
 };
 
-const getStatusLabel = (status: unknown) => {
-  const normalized = normalizeText(status);
-  if (["completed", "concluded", "concluso", "conclusa"].includes(normalized)) {
-    return "Concluso";
-  }
-  if (["cancelled", "annullato", "annullata"].includes(normalized)) {
-    return "Annullato";
-  }
-  if (["paid", "pagato", "saldato"].includes(normalized)) {
-    return "Saldato";
-  }
-  if (["requested", "required", "richiesto"].includes(normalized)) {
-    return "Richiesto";
-  }
-  if (["uploaded", "caricato"].includes(normalized)) {
-    return "Caricato";
-  }
-  if (["pending", "in_attesa"].includes(normalized)) {
-    return "In attesa";
-  }
-  if (["confirmed", "confermato"].includes(normalized)) {
-    return "Confermato";
-  }
-  if (["approved", "approvato"].includes(normalized)) {
-    return "Approvato";
-  }
-  if (["rejected", "rifiutato"].includes(normalized)) {
-    return "Rifiutato";
-  }
-  if (["under_review", "in_verifica", "review", "pending_review"].includes(normalized)) {
-    return "In verifica";
-  }
-  if (["valid"].includes(normalized)) {
-    return "Valido";
-  }
-  if (["expired"].includes(normalized)) {
-    return "Scaduto";
-  }
-  if (["missing"].includes(normalized)) {
-    return "Mancante";
-  }
-  return "In programma";
-};
 
 /**
- * Il tono di uno stato di **appuntamento**, che ha il suo vocabolario.
- *
- * Sei stati terminali su otto sono negativi o neutri, e nessuno di loro esiste
- * nel vocabolario degli eventi.
+ * Lo stato di un **appuntamento**, che ha il suo vocabolario (ADR-0101): sei
+ * stati terminali su otto sono negativi o neutri, e nessuno di loro esiste nel
+ * vocabolario degli eventi. La pillola e quella del sistema; l'etichetta che
+ * il server manda (`status_label`) vince sulla parola del catalogo, perche il
+ * dominio la conosce meglio.
  */
-const classeStatoAppuntamento = (status: unknown) => {
+const pillolaStatoAppuntamento = (status: unknown, statusLabel?: unknown) => {
   const normalizzato = normalizeText(status);
-
-  if (normalizzato === "completed") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  }
-  if (normalizzato === "confirmed") {
-    return "border-blue-200 bg-blue-50 text-blue-700";
-  }
-  if (
-    [
-      "rejected",
-      "cancelled_by_family",
-      "cancelled_by_club",
-      "no_show",
-    ].includes(normalizzato)
-  ) {
-    return "border-red-200 bg-red-50 text-red-700";
-  }
-  if (normalizzato === "rescheduled") {
-    return "border-slate-200 bg-slate-100 text-slate-600";
-  }
-
-  /* `requested`, e qualunque cosa il dominio aggiunga domani. */
-  return "border-amber-200 bg-amber-50 text-amber-700";
+  const base = APPOINTMENT_STATUS[normalizzato as keyof typeof APPOINTMENT_STATUS] || APPOINTMENT_STATUS.requested;
+  const etichetta = String(statusLabel || "").trim();
+  return etichetta ? { ...base, label: etichetta.toUpperCase() } : base;
 };
 
-const getStatusClassName = (status: unknown) => {
-  const normalized = normalizeText(status);
-  if (
-    /*
-      `confirmed` mancava, e una prenotazione di struttura confermata cadeva sul
-      ripiego azzurro — lo stesso tono di uno stato che non si conosce — mentre
-      il lato club la dipinge verde. Due schermate, lo stesso fatto, due colori.
-    */
-    [
-      "completed",
-      "concluded",
-      "concluso",
-      "conclusa",
-      "paid",
-      "pagato",
-      "saldato",
-      "approved",
-      "approvato",
-      "valid",
-      "confirmed",
-      "confermata",
-      "confermato",
-    ].includes(normalized)
-  ) {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  }
-  if (
-    ["cancelled", "annullato", "annullata", "rejected", "rifiutato", "expired"].includes(
-      normalized,
-    )
-  ) {
-    return "border-red-200 bg-red-50 text-red-700";
-  }
-  if (
-    [
-      "requested",
-      "required",
-      "richiesto",
-      "pending",
-      "in_attesa",
-      "under_review",
-      "in_verifica",
-      "review",
-      "pending_review",
-    ].includes(normalized)
-  ) {
-    return "border-amber-200 bg-amber-50 text-amber-700";
-  }
-  if (normalized === "missing") {
-    return "border-orange-200 bg-orange-50 text-orange-700";
-  }
-  return "border-blue-200 bg-blue-50 text-blue-700";
-};
 
 const matchesSearch = (record: Record<string, any>, query: string) => {
   const normalizedQuery = normalizeText(query);
@@ -283,12 +168,9 @@ const matchesSearch = (record: Record<string, any>, query: string) => {
     .some((value) => value.includes(normalizedQuery));
 };
 
+/* Lo stato vuoto del sistema, dentro un pannello gia esistente (guideline 09 §9.8). */
 function EmptyState({ text }: { text: string }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-      {text}
-    </div>
-  );
+  return <EmptyStateCard flat title={text} className="rounded-egw-field border border-dashed border-egw-hairline bg-egw-page-100 [&>div]:min-h-[120px] [&>div]:py-5" />;
 }
 
 function MetricCard({
@@ -304,31 +186,16 @@ function MetricCard({
   note?: string;
   tone?: "blue" | "emerald" | "amber" | "purple";
 }) {
-  const toneClassName = {
-    blue: "bg-blue-50 text-blue-700",
-    emerald: "bg-emerald-50 text-emerald-700",
-    amber: "bg-amber-50 text-amber-700",
-    purple: "bg-purple-50 text-purple-700",
-  }[tone];
-
+  /* La card KPI del sistema (guideline 09 §9.3): occhiello, numero 800/30, qualificatore, chip d'icona. */
+  const iconTone = ({ blue: "blue", emerald: "green", amber: "amber", purple: "blue" } as const)[tone];
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-slate-500">{title}</p>
-          <p className="mt-2 text-2xl font-bold text-slate-950">{value}</p>
-          {note ? <p className="mt-1 text-xs text-slate-500">{note}</p> : null}
-        </div>
-        <span
-          className={cn(
-            "inline-flex h-11 w-11 items-center justify-center rounded-2xl",
-            toneClassName,
-          )}
-        >
-          <Icon className="h-5 w-5" />
-        </span>
-      </div>
-    </div>
+    <KpiCard
+      label={title}
+      value={<span className="text-[22px] leading-[1.1]">{value}</span>}
+      qualifier={note}
+      icon={<Icon />}
+      iconTone={iconTone}
+    />
   );
 }
 
@@ -348,7 +215,7 @@ function EventList({
   }
 
   return (
-    <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+    <div className="divide-y divide-egw-rule overflow-hidden rounded-egw-panel-sm border border-egw-hairline bg-white">
       {visibleItems.map((item) => (
         <div
           key={[
@@ -364,22 +231,15 @@ function EventList({
           className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
         >
           <div className="min-w-0">
-            <p className="truncate font-semibold text-slate-950">{item.title}</p>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="truncate font-semibold text-egw-ink">{item.title}</p>
+            <p className="mt-1 text-sm text-egw-ink-62">
               {formatDate(item.startsAt || item.date)} · {formatTime(item.time)}
               {item.location ? ` · ${item.location}` : ""}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Badge variant="outline" className="border-slate-200 bg-slate-50">
-              {item.category || "Categoria"}
-            </Badge>
-            <Badge
-              variant="outline"
-              className={cn("border", getStatusClassName(item.status))}
-            >
-              {getStatusLabel(item.status)}
-            </Badge>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <DataChip>{item.category || "Categoria"}</DataChip>
+            <StatusPill status={String(item.status || "scheduled")} size="sm" />
           </div>
         </div>
       ))}
@@ -410,77 +270,44 @@ const readAthleteData = (athlete: Record<string, any>, ...keys: string[]) => {
   return "";
 };
 
+/* La griglia etichetta/valore della scheda (guideline 09 §9.3, `DetailCard`): `—` per cio che manca. */
 function InfoGrid({
   items,
 }: {
   items: Array<{ label: string; value?: unknown }>;
 }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <dl className="grid gap-x-6 gap-y-[18px] sm:grid-cols-2 xl:grid-cols-3">
       {items.map((item) => (
-        <div key={item.label} className="rounded-2xl bg-slate-50 p-4">
-          <p className="text-sm text-slate-500">{item.label}</p>
-          <p className="mt-1 font-semibold text-slate-950">
-            {String(item.value || "").trim() || "-"}
-          </p>
+        <div key={item.label} className="min-w-0">
+          <dt className="font-brand text-[12px] text-[rgba(11,26,58,.55)]">{item.label}</dt>
+          <dd className="mt-1 break-words font-brand text-[13.5px] font-medium text-egw-ink">
+            {String(item.value || "").trim() || "—"}
+          </dd>
         </div>
       ))}
-    </div>
+    </dl>
   );
 }
 
+/*
+  Lo stato e una parola, in una pillola del sistema (regola 10 §10.5 n. 3):
+  le stesse etichette che il club legge sulle stesse presenze.
+*/
 function AttendanceIndicator({ status }: { status?: unknown }) {
   const normalized = normalizeText(status);
-  if (["present", "presente", "late", "ritardo"].includes(normalized)) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-        <CheckCircle2 className="h-3.5 w-3.5" />
-        Presente
-      </span>
-    );
-  }
-  if (["absent", "assente", "justified", "giustificato"].includes(normalized)) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
-        <XCircle className="h-3.5 w-3.5" />
-        Assente
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-500">
-      <MinusCircle className="h-3.5 w-3.5" />
-      Non registrato
-    </span>
-  );
+  if (["present", "presente", "late", "ritardo"].includes(normalized)) return <StatusPill status="present" size="sm" />;
+  if (["absent", "assente"].includes(normalized)) return <StatusPill status="absent" size="sm" />;
+  if (["justified", "giustificato"].includes(normalized)) return <StatusPill status="justified" size="sm" />;
+  return <StatusPill status="to_mark" size="sm" />;
 }
 
 function ParticipationIndicator({ status }: { status?: unknown }) {
   const normalized = normalizeText(status);
-  if (["participated", "called", "convocato", "presente"].includes(normalized)) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-        <CheckCircle2 className="h-3.5 w-3.5" />
-        {normalized === "participated" ? "Partecipato" : "Convocato"}
-      </span>
-    );
-  }
-  if (["not_called", "not_participated", "assente"].includes(normalized)) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
-        <XCircle className="h-3.5 w-3.5" />
-        Non convocato
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-500">
-      <MinusCircle className="h-3.5 w-3.5" />
-      Non registrato
-    </span>
-  );
+  if (normalized === "participated" || normalized === "presente") return <StatusPill status="present" size="sm" />;
+  if (["called", "convocato"].includes(normalized)) return <StatusPill status="called" size="sm" />;
+  if (["not_called", "not_participated", "assente"].includes(normalized)) return <StatusPill status="not_called" size="sm" />;
+  return <StatusPill status="not_recorded" size="sm" />;
 }
 
 function TrainingHistoryList({
@@ -493,23 +320,21 @@ function TrainingHistoryList({
   if (items.length === 0) return <EmptyState text={emptyText} />;
 
   return (
-    <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+    <div className="divide-y divide-egw-rule overflow-hidden rounded-egw-panel-sm border border-egw-hairline bg-white">
       {items.map((item) => (
         <div
           key={getTrainingStableKey(item)}
           className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
         >
           <div className="min-w-0">
-            <p className="truncate font-semibold text-slate-950">{item.title}</p>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="truncate font-semibold text-egw-ink">{item.title}</p>
+            <p className="mt-1 text-sm text-egw-ink-62">
               {formatDate(item.startsAt || item.date)} - {formatTime(item.time)}
               {item.location ? ` - ${item.location}` : ""}
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Badge variant="outline" className="border-slate-200 bg-slate-50">
-              {item.category || "Categoria"}
-            </Badge>
+            <DataChip>{item.category || "Categoria"}</DataChip>
             <AttendanceIndicator status={item.attendanceStatus} />
           </div>
         </div>
@@ -528,29 +353,22 @@ function MatchListWithParticipation({
   if (items.length === 0) return <EmptyState text={emptyText} />;
 
   return (
-    <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+    <div className="divide-y divide-egw-rule overflow-hidden rounded-egw-panel-sm border border-egw-hairline bg-white">
       {items.map((item) => (
         <div
           key={item.id}
           className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
         >
           <div className="min-w-0">
-            <p className="truncate font-semibold text-slate-950">{item.title}</p>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="truncate font-semibold text-egw-ink">{item.title}</p>
+            <p className="mt-1 text-sm text-egw-ink-62">
               {formatDate(item.startsAt || item.date)} - {formatTime(item.time)}
               {item.location ? ` - ${item.location}` : ""}
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Badge variant="outline" className="border-slate-200 bg-slate-50">
-              {item.category || "Categoria"}
-            </Badge>
-            <Badge
-              variant="outline"
-              className={cn("border", getStatusClassName(item.status))}
-            >
-              {getStatusLabel(item.status)}
-            </Badge>
+            <DataChip>{item.category || "Categoria"}</DataChip>
+            <StatusPill status={String(item.status || "scheduled")} size="sm" />
             <ParticipationIndicator status={item.participationStatus} />
           </div>
         </div>
@@ -559,25 +377,17 @@ function MatchListWithParticipation({
   );
 }
 
+/* La legenda mostra le stesse pillole delle righe: una parola, non un colore da solo. */
 function Legend({
   type,
 }: {
   type: "attendance" | "participation";
 }) {
   return (
-    <div className="flex flex-wrap gap-3 text-xs text-slate-500">
-      <span className="inline-flex items-center gap-1">
-        <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-        {type === "attendance" ? "Presente" : "Convocato/partecipato"}
-      </span>
-      <span className="inline-flex items-center gap-1">
-        <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
-        {type === "attendance" ? "Assente" : "Non convocato"}
-      </span>
-      <span className="inline-flex items-center gap-1">
-        <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
-        Non registrato
-      </span>
+    <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-egw-ink-62" aria-label="Legenda">
+      <StatusPill status={type === "attendance" ? "present" : "called"} size="sm" />
+      <StatusPill status={type === "attendance" ? "absent" : "not_called"} size="sm" />
+      <StatusPill status={type === "attendance" ? "to_mark" : "not_recorded"} size="sm" />
     </div>
   );
 }
@@ -594,13 +404,13 @@ function renderOpeningHours(openingHours: any) {
       {days.map((day) => (
         <div
           key={day.key}
-          className="flex flex-col gap-1 rounded-xl bg-slate-50 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+          className="flex flex-col gap-1 rounded-egw-field bg-egw-page-100 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
         >
-          <span className="font-medium text-slate-700">{day.label}</span>
+          <span className="font-medium text-egw-ink-72">{day.label}</span>
           <span
             className={cn(
-              "text-slate-600",
-              day.closed && "font-medium text-slate-400",
+              "text-egw-ink-72",
+              day.closed && "font-medium text-egw-ink-42",
             )}
           >
             {formatOpeningHourSlots(day)}
@@ -726,10 +536,10 @@ export function ParentDashboardHome() {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-6">
-          <Card className="border-slate-200 shadow-sm">
+          <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-xl">
-                <CalendarDays className="h-5 w-5 text-blue-600" />
+                <CalendarDays className="h-5 w-5 text-egw-blue-700" />
                 Prossimi allenamenti
               </CardTitle>
             </CardHeader>
@@ -742,10 +552,10 @@ export function ParentDashboardHome() {
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm">
+          <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-xl">
-                <Trophy className="h-5 w-5 text-blue-600" />
+                <Trophy className="h-5 w-5 text-egw-blue-700" />
                 Gare e convocazioni
               </CardTitle>
             </CardHeader>
@@ -760,16 +570,16 @@ export function ParentDashboardHome() {
         </div>
 
         <div className="space-y-6">
-          <Card className="border-slate-200 shadow-sm">
+          <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-xl">
-                <AlertCircle className="h-5 w-5 text-amber-600" />
+                <AlertCircle className="h-5 w-5 text-egw-amber-ink" />
                 Avvisi
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-500">
+              <InsetBlock>
+                <p className="text-[10px] font-bold uppercase tracking-[var(--egw-track-eyebrow)] text-egw-ink-42">
                   Certificato medico
                 </p>
                 {/*
@@ -789,7 +599,7 @@ export function ParentDashboardHome() {
                   fuso positivo un certificato che scade il primo giugno si
                   leggeva «Scade il 31/05».
                 */}
-                <p className="mt-1 font-semibold text-slate-950">
+                <p className="mt-1 font-semibold text-egw-ink">
                   {certificateSummary}
                 </p>
                 {/*
@@ -812,41 +622,41 @@ export function ParentDashboardHome() {
                     Aggiorna il certificato
                   </Button>
                 ) : certificatoDaCompletare ? (
-                  <p className="mt-3 text-sm text-slate-600">
+                  <p className="mt-3 text-sm text-egw-ink-72">
                     Il certificato risulta consegnato: la data di scadenza la
                     completa la segreteria.
                   </p>
                 ) : null}
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="font-semibold text-slate-950">Segreteria</p>
-                <p className="mt-1 text-sm text-slate-500">
+              </InsetBlock>
+              <InsetBlock>
+                <p className="font-semibold text-egw-ink">Segreteria</p>
+                <p className="mt-1 text-sm text-egw-ink-62">
                   {data.appointments.items.length
                     ? `${data.appointments.items.length} appuntamenti collegati`
                     : "Puoi richiedere un appuntamento dalla sezione Segreteria"}
                 </p>
-              </div>
+              </InsetBlock>
             </CardContent>
           </Card>
 
-          <Card className="border-slate-200 shadow-sm">
+          <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-xl">
-                <Users className="h-5 w-5 text-blue-600" />
+                <Users className="h-5 w-5 text-egw-blue-700" />
                 Contatti rapidi
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3 text-sm text-slate-600">
+            <CardContent className="space-y-3 text-sm text-egw-ink-72">
               <p className="flex items-center gap-2">
-                <Mail className="h-4 w-4 text-blue-600" />
+                <Mail className="h-4 w-4 text-egw-blue-700" />
                 {data.club.contact_email || "Email non inserita"}
               </p>
               <p className="flex items-center gap-2">
-                <Phone className="h-4 w-4 text-blue-600" />
+                <Phone className="h-4 w-4 text-egw-blue-700" />
                 {data.club.contact_phone || "Telefono non inserito"}
               </p>
               <p className="flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-blue-600" />
+                <MapPin className="h-4 w-4 text-egw-blue-700" />
                 {[data.club.address, data.club.city].filter(Boolean).join(", ") ||
                   "Indirizzo non inserito"}
               </p>
@@ -882,7 +692,7 @@ export function ParentAthletePage() {
       />
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card className="border-slate-200 shadow-sm">
+        <Card>
           <CardHeader>
             <CardTitle>{athlete.name}</CardTitle>
           </CardHeader>
@@ -934,7 +744,7 @@ export function ParentAthletePage() {
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200 shadow-sm">
+        <Card>
           <CardHeader>
             <CardTitle>Contatti familiari</CardTitle>
           </CardHeader>
@@ -945,16 +755,16 @@ export function ParentAthletePage() {
               athlete.guardians.map((guardian) => (
                 <div
                   key={guardian.id}
-                  className="rounded-2xl border border-slate-200 p-4"
+                  className="rounded-egw-panel-sm border border-egw-hairline p-4"
                 >
-                  <p className="font-semibold text-slate-950">
+                  <p className="font-semibold text-egw-ink">
                     {[guardian.name, guardian.surname].filter(Boolean).join(" ") ||
                       "Genitore"}
                   </p>
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 text-sm text-egw-ink-62">
                     {guardian.relationship || "Contatto familiare"}
                   </p>
-                  <div className="mt-3 space-y-1 text-sm text-slate-600">
+                  <div className="mt-3 space-y-1 text-sm text-egw-ink-72">
                     <p>{guardian.email || "Email non inserita"}</p>
                     <p>{guardian.phone || "Telefono non inserito"}</p>
                   </div>
@@ -966,13 +776,13 @@ export function ParentAthletePage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="border-slate-200 shadow-sm">
+        <Card>
           <CardHeader>
             <CardTitle>Dati sanitari</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <p className="text-sm font-medium text-slate-500">Certificati</p>
+              <p className="text-sm font-medium text-egw-ink-62">Certificati</p>
               <div className="mt-3 space-y-2">
                 {data.health.certificates.length === 0 ? (
                   <EmptyState text="Nessun certificato registrato." />
@@ -980,12 +790,12 @@ export function ParentAthletePage() {
                   data.health.certificates.map((certificate) => (
                     <div
                       key={certificate.id}
-                      className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"
+                      className="flex items-center justify-between rounded-egw-panel-sm bg-egw-page-100 px-4 py-3"
                     >
-                      <span className="font-medium text-slate-800">
+                      <span className="font-medium text-egw-ink">
                         {certificate.type || "Certificato medico"}
                       </span>
-                      <span className="text-sm text-slate-500">
+                      <span className="text-sm text-egw-ink-62">
                         {formatDate(certificate.expiry_date)}
                       </span>
                     </div>
@@ -994,7 +804,7 @@ export function ParentAthletePage() {
               </div>
             </div>
             <div>
-              <p className="text-sm font-medium text-slate-500">Visite mediche</p>
+              <p className="text-sm font-medium text-egw-ink-62">Visite mediche</p>
               <div className="mt-3 space-y-2">
                 {medicalVisits.length === 0 ? (
                   <EmptyState text="Nessuna visita registrata." />
@@ -1002,12 +812,12 @@ export function ParentAthletePage() {
                   medicalVisits.map((visit: any, index: number) => (
                     <div
                       key={visit.id || `medical-visit-${index}`}
-                      className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"
+                      className="flex items-center justify-between rounded-egw-panel-sm bg-egw-page-100 px-4 py-3"
                     >
-                      <span className="font-medium text-slate-800">
+                      <span className="font-medium text-egw-ink">
                         {visit.type || visit.title || "Visita medica"}
                       </span>
-                      <span className="text-sm text-slate-500">
+                      <span className="text-sm text-egw-ink-62">
                         {formatDate(visit.date || visit.visitDate)}
                       </span>
                     </div>
@@ -1016,23 +826,23 @@ export function ParentAthletePage() {
               </div>
             </div>
             <div>
-              <p className="text-sm font-medium text-slate-500">Allergie</p>
-              <p className="mt-2 text-sm text-slate-700">
+              <p className="text-sm font-medium text-egw-ink-62">Allergie</p>
+              <p className="mt-2 text-sm text-egw-ink-72">
                 {data.health.allergies.length
                   ? data.health.allergies.join(", ")
                   : "Nessuna allergia registrata"}
               </p>
             </div>
             <div>
-              <p className="text-sm font-medium text-slate-500">Note sanitarie</p>
-              <p className="mt-2 text-sm text-slate-700">
+              <p className="text-sm font-medium text-egw-ink-62">Note sanitarie</p>
+              <p className="mt-2 text-sm text-egw-ink-72">
                 {data.health.notes || "Nessuna nota registrata"}
               </p>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200 shadow-sm">
+        <Card>
           <CardHeader>
             <CardTitle>Analitiche</CardTitle>
           </CardHeader>
@@ -1065,7 +875,7 @@ export function ParentAthletePage() {
         </Card>
       </div>
 
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle>Iscrizione e pagamenti</CardTitle>
         </CardHeader>
@@ -1117,14 +927,14 @@ export function ParentAthletePage() {
           />
 
           {enrollment.notes ? (
-            <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-700">
+            <div className="rounded-egw-panel-sm bg-egw-page-100 p-4 text-sm text-egw-ink-72">
               {enrollment.notes}
             </div>
           ) : null}
 
           <div className="grid gap-6">
             <div>
-              <p className="mb-3 text-sm font-semibold text-slate-700">
+              <p className="mb-3 text-sm font-semibold text-egw-ink-72">
                 Documenti iscrizione
               </p>
               {enrollmentDocuments.length === 0 ? (
@@ -1134,12 +944,12 @@ export function ParentAthletePage() {
                   {enrollmentDocuments.map((document: any, index: number) => (
                     <div
                       key={document.id || `enrollment-document-${index}`}
-                      className="rounded-2xl border border-slate-200 px-4 py-3"
+                      className="rounded-egw-panel-sm border border-egw-hairline px-4 py-3"
                     >
-                      <p className="font-semibold text-slate-950">
+                      <p className="font-semibold text-egw-ink">
                         {document.name || document.title || "Documento"}
                       </p>
-                      <p className="text-sm text-slate-500">
+                      <p className="text-sm text-egw-ink-62">
                         {document.type || "Documento iscrizione"} -{" "}
                         {formatDate(document.uploadDate || document.date)}
                       </p>
@@ -1180,7 +990,7 @@ export function ParentTrainingsPage() {
   return (
     <div className="space-y-6">
       <PageHeading title="Allenamenti" subtitle="Calendario e presenze." />
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle>Allenamenti della settimana</CardTitle>
         </CardHeader>
@@ -1191,14 +1001,14 @@ export function ParentTrainingsPage() {
           />
         </CardContent>
       </Card>
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
             <CardTitle>Storico allenamenti</CardTitle>
             <Legend type="attendance" />
           </div>
           <div className="relative w-full sm:w-80">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-egw-ink-42" />
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -1241,14 +1051,14 @@ export function ParentMatchesPage() {
     <div className="space-y-6">
       <PageHeading title="Gare" subtitle="Programma, storico e convocazioni." />
       <ParentRsvpSection kind="match" />
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader className="gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-2">
             <CardTitle>Gare</CardTitle>
             <Legend type="participation" />
           </div>
           <div className="relative w-full sm:w-80">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-egw-ink-42" />
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -1259,7 +1069,7 @@ export function ParentMatchesPage() {
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-700">
+            <h3 className="text-sm font-semibold text-egw-ink-72">
               Gare programmate
             </h3>
             <MatchListWithParticipation
@@ -1268,7 +1078,7 @@ export function ParentMatchesPage() {
             />
           </div>
           <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-700">Storico gare</h3>
+            <h3 className="text-sm font-semibold text-egw-ink-72">Storico gare</h3>
             <MatchListWithParticipation
               items={historyMatches}
               emptyText="Nessuna gara nello storico."
@@ -1439,7 +1249,7 @@ export function ParentPaymentsPage() {
               {pagamentoInCorso ? "Apertura…" : "Paga ora"}
             </Button>
             {statoPagamento.message ? (
-              <p className="max-w-sm text-xs leading-5 text-slate-500 sm:text-right">
+              <p className="max-w-sm text-xs leading-5 text-egw-ink-62 sm:text-right">
                 {statoPagamento.message}
               </p>
             ) : null}
@@ -1465,7 +1275,7 @@ export function ParentPaymentsPage() {
           tone="amber"
         />
       </div>
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle>Dettaglio piano e pagamenti</CardTitle>
         </CardHeader>
@@ -1509,7 +1319,7 @@ export function ParentPaymentsPage() {
         rotta — quella che ristampa il documento dallo snapshot congelato — e
         sono due gesti diversi sullo stesso file: guardarlo adesso, o tenerlo.
       */}
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle>Ricevute e documenti di pagamento</CardTitle>
         </CardHeader>
@@ -1517,7 +1327,7 @@ export function ParentPaymentsPage() {
           {documentiDiPagamento.length === 0 ? (
             <EmptyState text="Nessuna ricevuta disponibile." />
           ) : (
-            <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <div className="divide-y divide-egw-rule overflow-hidden rounded-egw-panel-sm border border-egw-hairline bg-white">
               {documentiDiPagamento.map((documento) => (
                 <div key={documento.id} className="space-y-2 px-4 py-3">
                   {/*
@@ -1527,14 +1337,14 @@ export function ParentPaymentsPage() {
                     ricevuta tornava a non essere scaricabile.
                   */}
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                    <p className="min-w-0 font-semibold text-slate-950">
+                    <p className="min-w-0 font-semibold text-egw-ink">
                       {documento.description || documento.number}
                     </p>
-                    <span className="shrink-0 font-semibold text-slate-950">
+                    <span className="shrink-0 font-semibold text-egw-ink">
                       {formatCurrency(documento.amount)}
                     </span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-egw-ink-62">
                     <span>
                       {documento.kind === "invoice" ? "Fattura" : "Ricevuta"}
                     </span>
@@ -1551,8 +1361,8 @@ export function ParentPaymentsPage() {
                     <span
                       className={
                         documento.status === "cancelled"
-                          ? "rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
-                          : "rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800"
+                          ? "rounded-full bg-egw-tint-red px-2 py-0.5 text-xs font-semibold text-egw-red"
+                          : "rounded-full bg-egw-tint-green px-2 py-0.5 text-xs font-semibold text-egw-green"
                       }
                     >
                       {documento.statusLabel}
@@ -1758,10 +1568,10 @@ export function ParentDocumentsPage() {
       />
 
       {/* ------------------------------------------------------- DA FARE --- */}
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle>Da fare</CardTitle>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-egw-ink-62">
             {daFare.length === 0
               ? "Il club non sta aspettando niente da te."
               : `Il club sta aspettando ${daFare.length} document${daFare.length === 1 ? "o" : "i"}.`}
@@ -1774,29 +1584,21 @@ export function ParentDocumentsPage() {
             daFare.map((document) => (
               <div
                 key={document.id}
-                className="rounded-2xl border border-slate-200 p-4"
+                className="rounded-egw-panel-sm border border-egw-hairline p-4"
               >
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold text-slate-950">
+                      <p className="font-semibold text-egw-ink">
                         {document.title}
                       </p>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "border",
-                          getFamilyDocumentStateClassName(document.state),
-                        )}
-                      >
-                        {document.stateLabel}
-                      </Badge>
+                      <StatusPill status={DOSSIER_STATUS[document.state as keyof typeof DOSSIER_STATUS] || DOSSIER_STATUS.missing} size="sm" />
                     </div>
-                    <p className="mt-1 text-xs uppercase tracking-wide text-slate-400">
+                    <p className="mt-1 text-xs uppercase tracking-wide text-egw-ink-42">
                       {document.documentKindLabel}
                     </p>
                     {document.description ? (
-                      <p className="mt-2 text-sm text-slate-600">
+                      <p className="mt-2 text-sm text-egw-ink-72">
                         {document.description}
                       </p>
                     ) : null}
@@ -1805,8 +1607,8 @@ export function ParentDocumentsPage() {
                         className={cn(
                           "mt-2 text-xs",
                           Number(document.daysLeft) < 0
-                            ? "font-semibold text-red-600"
-                            : "text-slate-500",
+                            ? "font-semibold text-egw-red"
+                            : "text-egw-ink-62",
                         )}
                       >
                         {Number(document.daysLeft) < 0
@@ -1815,7 +1617,7 @@ export function ParentDocumentsPage() {
                       </p>
                     ) : null}
                     {document.rejectionReason ? (
-                      <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                      <p className="mt-2 rounded-egw-control bg-egw-tint-red px-3 py-2 text-xs font-medium text-egw-red">
                         Il club chiede di rifarlo: {document.rejectionReason}
                       </p>
                     ) : null}
@@ -1824,7 +1626,7 @@ export function ParentDocumentsPage() {
                       // browser recente: va convertito in object URL.
                       <button
                         type="button"
-                        className="mt-2 inline-flex items-center text-xs font-medium text-slate-600 underline"
+                        className="mt-2 inline-flex items-center text-xs font-medium text-egw-ink-72 underline"
                         onClick={() =>
                           downloadAttachment(document.fileUrl, {
                             documentType: document.title || "Documento",
@@ -1872,7 +1674,7 @@ export function ParentDocumentsPage() {
 
                 {voceAperta === document.id ? (
                   <form
-                    className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center"
+                    className="mt-3 flex flex-col gap-2 border-t border-egw-rule pt-3 sm:flex-row sm:items-center"
                     onSubmit={(event: FormEvent<HTMLFormElement>) => {
                       event.preventDefault();
                       void carica(voceScelta || document, fileRichiesta);
@@ -1905,8 +1707,8 @@ export function ParentDocumentsPage() {
             schermata lo offriva senza costringere a scegliere una riga
             dall'elenco delle richieste.
           */}
-          <details className="rounded-2xl border border-dashed border-slate-200 p-4">
-            <summary className="cursor-pointer text-sm font-medium text-slate-700">
+          <details className="rounded-egw-panel-sm border border-dashed border-egw-hairline p-4">
+            <summary className="cursor-pointer text-sm font-medium text-egw-ink-72">
               Devi consegnare qualcosa che non e in elenco?
             </summary>
             <form
@@ -1938,10 +1740,10 @@ export function ParentDocumentsPage() {
       </Card>
 
       {/* ----------------------------------------------------- DOCUMENTI --- */}
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle>Documenti</CardTitle>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-egw-ink-62">
             Cio che hai gia consegnato. Non serve fare altro.
           </p>
         </CardHeader>
@@ -1949,17 +1751,17 @@ export function ParentDocumentsPage() {
           {archivio.length === 0 ? (
             <EmptyState text="Nessun documento consegnato." />
           ) : (
-            <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <div className="divide-y divide-egw-rule overflow-hidden rounded-egw-panel-sm border border-egw-hairline bg-white">
               {archivio.map((document) => (
                 <div
                   key={document.id}
                   className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0">
-                    <p className="font-semibold text-slate-950">
+                    <p className="font-semibold text-egw-ink">
                       {document.title}
                     </p>
-                    <p className="truncate text-sm text-slate-500">
+                    <p className="truncate text-sm text-egw-ink-62">
                       {document.documentKindLabel}
                       {document.fileName ? ` · ${document.fileName}` : ""}
                       {document.submittedAt
@@ -1967,21 +1769,13 @@ export function ParentDocumentsPage() {
                         : ""}
                     </p>
                     {document.validUntil ? (
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-egw-ink-62">
                         Valido fino al {formatDate(document.validUntil)}
                       </p>
                     ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "border",
-                        getFamilyDocumentStateClassName(document.state),
-                      )}
-                    >
-                      {document.stateLabel}
-                    </Badge>
+                    <StatusPill status={DOSSIER_STATUS[document.state as keyof typeof DOSSIER_STATUS] || DOSSIER_STATUS.missing} size="sm" />
                     {document.fileUrl ? (
                       <Button
                         variant="outline"
@@ -2022,42 +1816,37 @@ export function ParentDocumentsPage() {
         Adesso l'elenco e qui, con lo stato di **questo figlio**, e il gesto
         continua ad aprirsi dove il modulo vive.
       */}
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle>Moduli online</CardTitle>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-egw-ink-62">
             Non sono file da caricare: si compilano online, e il club li riceve
             gia compilati.
           </p>
         </CardHeader>
         <CardContent className="space-y-3">
           {moduliOnline === null ? (
-            <p className="text-sm text-slate-500">Carico i moduli…</p>
+            <p className="text-sm text-egw-ink-62">Carico i moduli…</p>
           ) : moduliOnline.length === 0 ? (
             <EmptyState text="Il club non ha pubblicato nessun modulo online." />
           ) : (
-            <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <div className="divide-y divide-egw-rule overflow-hidden rounded-egw-panel-sm border border-egw-hairline bg-white">
               {moduliOnline.map((modulo) => (
                 <div key={modulo.publicSlug} className="space-y-2 px-4 py-3">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                    <p className="min-w-0 font-semibold text-slate-950">
+                    <p className="min-w-0 font-semibold text-egw-ink">
                       {modulo.title}
                     </p>
-                    <span
-                      className={
-                        modulo.state === "completed"
-                          ? "shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800"
-                          : modulo.state === "expired"
-                            ? "shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
-                            : modulo.state === "submitted"
-                              ? "shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-800"
-                              : "shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900"
-                      }
-                    >
-                      {modulo.stateLabel}
-                    </span>
+                    <StatusPill
+                      size="sm"
+                      status={{
+                        label: String(modulo.stateLabel || "").toUpperCase(),
+                        weight: modulo.state === "completed" ? "solid" : modulo.state === "expired" ? "urgent" : "outline",
+                        hue: modulo.state === "completed" ? "green" : modulo.state === "expired" ? "red" : modulo.state === "submitted" ? "blue" : "amber",
+                      }}
+                    />
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-egw-ink-62">
                     {modulo.athleteName ? (
                       <span>{modulo.athleteName}</span>
                     ) : null}
@@ -2115,12 +1904,12 @@ export function ParentDocumentsPage() {
                       {modulo.state === "submitted" ? "Compila di nuovo" : "Compila"}
                     </Button>
                   ) : modulo.state === "completed" ? (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-egw-ink-62">
                       Gia compilato: non si puo inviare di nuovo. Se serve una
                       correzione, scrivi alla segreteria.
                     </p>
                   ) : (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-egw-ink-62">
                       Il club non accetta piu risposte per questo modulo.
                     </p>
                   )}
@@ -2398,14 +2187,14 @@ export function ParentSecretariatPage() {
     <div className="space-y-6">
       <PageHeading title="Segreteria" subtitle="Orari e appuntamenti." />
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <Card className="border-slate-200 shadow-sm">
+        <Card>
           <CardHeader>
             <CardTitle>Orari</CardTitle>
           </CardHeader>
           <CardContent>{renderOpeningHours(data.appointments.openingHours)}</CardContent>
         </Card>
 
-        <Card className="border-slate-200 shadow-sm">
+        <Card>
           <CardHeader>
             <CardTitle>
               {editingAppointmentId ? "Sposta appuntamento" : "Prenota appuntamento"}
@@ -2418,8 +2207,8 @@ export function ParentSecretariatPage() {
               rifiutera: e la stessa regola di «Paga ora» in §D.
             */}
             {!prenotazioniAperte ? (
-              <div className="space-y-2 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                <p className="font-medium text-slate-900">
+              <div className="space-y-2 rounded-egw-field bg-egw-page-100 px-4 py-3 text-sm text-egw-ink-72">
+                <p className="font-medium text-egw-ink">
                   Le richieste online non sono attive.
                 </p>
                 <p>
@@ -2430,7 +2219,7 @@ export function ParentSecretariatPage() {
               </div>
             ) : slotsState === "loading" ? (
               <p
-                className="text-sm text-slate-500"
+                className="text-sm text-egw-ink-62"
                 role="status"
                 aria-live="polite"
               >
@@ -2438,7 +2227,7 @@ export function ParentSecretariatPage() {
               </p>
             ) : slotsState === "error" ? (
               <div className="space-y-3" role="alert">
-                <p className="text-sm text-slate-600">{slotsError}</p>
+                <p className="text-sm text-egw-ink-72">{slotsError}</p>
                 <Button
                   type="button"
                   variant="outline"
@@ -2449,8 +2238,8 @@ export function ParentSecretariatPage() {
                 </Button>
               </div>
             ) : days.length === 0 ? (
-              <div className="space-y-3 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                <p className="font-medium text-slate-900">
+              <div className="space-y-3 rounded-egw-field bg-egw-page-100 px-4 py-3 text-sm text-egw-ink-72">
+                <p className="font-medium text-egw-ink">
                   Nessun orario disponibile per un appuntamento.
                 </p>
                 <p>
@@ -2508,7 +2297,7 @@ export function ParentSecretariatPage() {
                     {editingAppointmentId &&
                     !form.typeId &&
                     form.reason.trim() ? (
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-egw-ink-62">
                         Motivo attuale: {form.reason.trim()}. Lascialo com&apos;e
                         per spostare soltanto l&apos;orario, oppure scegline uno
                         nuovo.
@@ -2559,7 +2348,7 @@ export function ParentSecretariatPage() {
                 </div>
 
                 <fieldset className="space-y-2">
-                  <legend className="text-sm font-medium text-slate-700">
+                  <legend className="text-sm font-medium text-egw-ink-72">
                     Orario
                   </legend>
                   <div className="flex flex-wrap gap-2">
@@ -2582,7 +2371,7 @@ export function ParentSecretariatPage() {
                     })}
                   </div>
                   <p
-                    className="text-xs text-slate-500"
+                    className="text-xs text-egw-ink-62"
                     role="status"
                     aria-live="polite"
                   >
@@ -2654,7 +2443,7 @@ export function ParentSecretariatPage() {
         </Card>
       </div>
 
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle>Appuntamenti</CardTitle>
         </CardHeader>
@@ -2662,21 +2451,21 @@ export function ParentSecretariatPage() {
           {data.appointments.items.length === 0 ? (
             <EmptyState text="Nessun appuntamento prenotato." />
           ) : (
-            <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <div className="divide-y divide-egw-rule overflow-hidden rounded-egw-panel-sm border border-egw-hairline bg-white">
               {data.appointments.items.map((appointment) => (
                 <div
                   key={appointment.id}
                   className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
-                    <p className="font-semibold text-slate-950">
+                    <p className="font-semibold text-egw-ink">
                       {appointment.title}
                     </p>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-egw-ink-62">
                       {formatDate(appointment.date)} · {formatTime(appointment.time)}
                     </p>
                     {appointment.notes ? (
-                      <span className="mt-1 block text-sm text-slate-500">
+                      <span className="mt-1 block text-sm text-egw-ink-62">
                         {appointment.notes}
                       </span>
                     ) : null}
@@ -2686,7 +2475,7 @@ export function ParentSecretariatPage() {
                       famiglia non sa cosa correggere per riprovare.
                     */}
                     {appointment.decision_note ? (
-                      <span className="mt-1 block text-sm text-amber-800">
+                      <span className="mt-1 block text-sm text-egw-amber-ink">
                         Risposta della segreteria: {appointment.decision_note}
                       </span>
                     ) : null}
@@ -2720,30 +2509,13 @@ export function ParentSecretariatPage() {
                     transizioni. Qui non si ricalcola: si obbedisce.
                   */}
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "border",
-                        /*
-                          **Il colore segue l'etichetta, o si contraddicono.**
-
-                          `getStatusClassName` e l'altra meta dello stesso
-                          vocabolario degli eventi da cui l'etichetta e appena
-                          uscita: conosce `"cancelled"`, non
-                          `cancelled_by_family`, `cancelled_by_club`,
-                          `rescheduled` e `no_show`. Tutti e quattro cadevano
-                          sul ripiego azzurro, che e il tono di «in programma»:
-                          chi disdiceva leggeva «Annullato dalla famiglia»
-                          dentro una pastiglia identica a quella di un
-                          appuntamento vivo. Su una lista il colore si legge
-                          prima del testo.
-                        */
-                        classeStatoAppuntamento(appointment.status),
-                      )}
-                    >
-                      {appointment.status_label ||
-                        getStatusLabel(appointment.status)}
-                    </Badge>
+                    {/*
+                      **Il colore segue l'etichetta, o si contraddicono.**
+                      Gli otto stati di un appuntamento hanno la propria pillola
+                      (`APPOINTMENT_STATUS`): «Annullato dalla famiglia» non
+                      puo piu vestire il tono di «in programma».
+                    */}
+                    <StatusPill status={pillolaStatoAppuntamento(appointment.status, appointment.status_label)} size="sm" />
                     {/*
                       **M1.** `can_reschedule` dice che il **dominio** lo
                       consente; `prenotazioniAperte` dice che il club accetta
@@ -2810,7 +2582,7 @@ export function ParentSecretariatPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Lascialo</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-egw-red hover:bg-red-700"
               onClick={(evento) => {
                 evento.preventDefault();
                 void handleCancelAppointment();
@@ -2932,10 +2704,10 @@ export function ParentStructuresPage() {
       />
 
       {structures.length === 0 ? (
-        <Card className="border-dashed border-slate-200 bg-white">
+        <Card className="border-dashed border-egw-hairline bg-white">
           <CardContent className="flex min-h-[260px] flex-col items-center justify-center text-center">
-            <Building2 className="mb-4 h-12 w-12 text-slate-400" />
-            <h3 className="text-lg font-semibold text-slate-900">
+            <Building2 className="mb-4 h-12 w-12 text-egw-ink-42" />
+            <h3 className="text-lg font-semibold text-egw-ink">
               Nessuna struttura prenotabile al momento.
             </h3>
           </CardContent>
@@ -2944,30 +2716,30 @@ export function ParentStructuresPage() {
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="space-y-4">
             {structures.map((structure) => (
-              <Card key={structure.id} className="border-slate-200 bg-white">
+              <Card key={structure.id}>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Building2 className="h-5 w-5 text-blue-600" />
+                    <Building2 className="h-5 w-5 text-egw-blue-700" />
                     {structure.name}
                   </CardTitle>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-egw-ink-62">
                     {[structure.address, structure.city].filter(Boolean).join(", ") ||
                       "Indirizzo non disponibile"}
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {(structure.fields || []).map((field: any) => (
-                    <div key={field.id} className="rounded-lg border p-3">
+                    <div key={field.id} className="rounded-egw-control border p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="font-semibold text-slate-900">{field.name}</p>
-                        <Badge variant="outline">Prenotabile</Badge>
+                        <p className="font-semibold text-egw-ink">{field.name}</p>
+                        <DataChip>Prenotabile</DataChip>
                       </div>
                       <div className="mt-3 grid gap-3 md:grid-cols-2">
                         <div>
-                          <p className="text-xs font-semibold uppercase text-slate-500">
+                          <p className="text-xs font-semibold uppercase text-egw-ink-62">
                             Disponibilita
                           </p>
-                          <div className="mt-1 space-y-1 text-sm text-slate-600">
+                          <div className="mt-1 space-y-1 text-sm text-egw-ink-72">
                             {Object.entries(field.availability || {}).some(
                               ([, slots]) => Array.isArray(slots) && slots.length,
                             ) ? (
@@ -2988,10 +2760,10 @@ export function ParentStructuresPage() {
                           </div>
                         </div>
                         <div>
-                          <p className="text-xs font-semibold uppercase text-slate-500">
+                          <p className="text-xs font-semibold uppercase text-egw-ink-62">
                             Tariffe
                           </p>
-                          <div className="mt-1 space-y-1 text-sm text-slate-600">
+                          <div className="mt-1 space-y-1 text-sm text-egw-ink-72">
                             {field.pricing?.length ? (
                               field.pricing.map((price: any) => (
                                 <p key={price.id}>
@@ -3012,7 +2784,7 @@ export function ParentStructuresPage() {
             ))}
           </div>
 
-          <Card className="border-slate-200 bg-white">
+          <Card>
             <CardHeader>
               <CardTitle>Richiedi prenotazione</CardTitle>
             </CardHeader>
@@ -3132,34 +2904,32 @@ export function ParentStructuresPage() {
         </div>
       )}
 
-      <Card className="border-slate-200 bg-white">
+      <Card>
         <CardHeader>
           <CardTitle>Le tue prenotazioni</CardTitle>
         </CardHeader>
         <CardContent>
           {bookings.length === 0 ? (
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-egw-ink-62">
               Non hai ancora richiesto prenotazioni.
             </p>
           ) : (
-            <div className="divide-y rounded-lg border">
+            <div className="divide-y rounded-egw-control border">
               {bookings.map((booking) => (
                 <div
                   key={booking.id}
                   className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
-                    <p className="font-semibold text-slate-900">
+                    <p className="font-semibold text-egw-ink">
                       {booking.title}
                     </p>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-egw-ink-62">
                       {booking.structureName} - {booking.fieldName} -{" "}
                       {new Date(booking.start).toLocaleString("it-IT")}
                     </p>
                   </div>
-                  <Badge variant="outline" className={getStatusClassName(booking.status)}>
-                    {getStatusLabel(booking.status)}
-                  </Badge>
+                  <StatusPill status={String(booking.status || "requested")} size="sm" />
                 </div>
               ))}
             </div>
@@ -3191,21 +2961,21 @@ export function ParentContactsPage() {
     <div className="space-y-6">
       <PageHeading title="Contatti Club" subtitle={data.club.name} />
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="border-slate-200 shadow-sm">
+        <Card>
           <CardHeader>
             <CardTitle>Recapiti</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-slate-700">
+          <CardContent className="space-y-4 text-egw-ink-72">
             <p className="flex items-center gap-3">
-              <Mail className="h-5 w-5 text-blue-600" />
+              <Mail className="h-5 w-5 text-egw-blue-700" />
               {data.club.contact_email || "Email non inserita"}
             </p>
             <p className="flex items-center gap-3">
-              <Phone className="h-5 w-5 text-blue-600" />
+              <Phone className="h-5 w-5 text-egw-blue-700" />
               {data.club.contact_phone || "Telefono non inserito"}
             </p>
             <p className="flex items-center gap-3">
-              <MapPin className="h-5 w-5 text-blue-600" />
+              <MapPin className="h-5 w-5 text-egw-blue-700" />
               {[data.club.address, data.club.city, data.club.province]
                 .filter(Boolean)
                 .join(", ") || "Indirizzo non inserito"}
@@ -3213,7 +2983,7 @@ export function ParentContactsPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-slate-200 shadow-sm">
+        <Card>
           <CardHeader>
             <CardTitle>Segreteria</CardTitle>
           </CardHeader>

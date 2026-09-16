@@ -1,5 +1,24 @@
+"use client";
+
 import * as React from "react";
 import { cn } from "@/lib/utils";
+
+/**
+ * **Su che fondo sono?** Il cielo (ambienti 2 e 3) e blu scuro: un testo
+ * d'inchiostro o una tinta al 10% che vi poggiano direttamente non si leggono.
+ * I contenitori che dipingono il cielo lo dichiarano con `SkyProvider`; ogni
+ * `Panel` — che e bianco — lo azzera per cio che contiene. Le primitive che
+ * hanno una forma «sul cielo» (`AlertBlock`, `Eyebrow`) la scelgono da qui,
+ * cosi la regressione «inchiostro scuro su fondo scuro» non dipende da chi
+ * monta la pagina.
+ */
+const SkyContext = React.createContext(false);
+
+export function SkyProvider({ onSky = true, children }: { onSky?: boolean; children: React.ReactNode }) {
+  return <SkyContext.Provider value={onSky}>{children}</SkyContext.Provider>;
+}
+
+export const useOnSky = () => React.useContext(SkyContext);
 
 /**
  * Le superfici del Web V2 (guideline 05 §5.4, 09 §9.3).
@@ -21,16 +40,18 @@ export const Panel = React.forwardRef<HTMLDivElement, PanelProps>(
   ({ className, radius = "md", flush = false, as = "div", ...props }, ref) => {
     const Comp = as as "div";
     return (
-      <Comp
-        ref={ref}
-        className={cn(
-          "border border-egw-panel-border bg-egw-panel shadow-egw-plane-1",
-          radius === "sm" ? "rounded-egw-panel-sm" : "rounded-egw-panel",
-          !flush && "p-6",
-          className,
-        )}
-        {...props}
-      />
+      <SkyContext.Provider value={false}>
+        <Comp
+          ref={ref}
+          className={cn(
+            "border border-egw-panel-border bg-egw-panel shadow-egw-plane-1",
+            radius === "sm" ? "rounded-egw-panel-sm" : "rounded-egw-panel",
+            !flush && "p-6",
+            className,
+          )}
+          {...props}
+        />
+      </SkyContext.Provider>
     );
   },
 );

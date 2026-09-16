@@ -16,10 +16,11 @@ import {
 } from "lucide-react";
 import { PageHeading } from "@/components/dashboard/page-heading";
 import { Badge } from "@/components/ui/badge";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
-import { AttendanceSheet } from "@/components/trainer/AttendanceSheet";
+import { AttendanceDrawer } from "@/components/training/v2/AttendanceDrawer";
 import {
   readEventAttendanceRoll,
   type VoceDiAppello,
@@ -87,6 +88,7 @@ export default function TrainerTrainingsDashboardPage() {
   } = useTrainerDashboard();
   const { showToast } = useToast();
   const [selectedTraining, setSelectedTraining] = useState<any | null>(null);
+  const [savingAttendance, setSavingAttendance] = useState(false);
 
   /*
     **L'appello gia preso, prima di riaprirlo** (P0-5).
@@ -335,17 +337,17 @@ export default function TrainerTrainingsDashboardPage() {
               title={training.title || "Allenamento"}
               className={
                 focusedTrainingId === training.id
-                  ? "border-blue-300 bg-blue-50/70 shadow-sm"
+                  ? "border-egw-tint-blue-bd bg-egw-tint-blue shadow-egw-plane-1"
                   : missingAttendance
-                    ? "border-rose-200 bg-rose-50/60"
+                    ? "border-egw-tint-red-bd bg-egw-tint-red"
                     : undefined
               }
-              badge={<Badge className={status.className}>{status.label}</Badge>}
+              badge={<StatusPill status={status.spec} size="sm" />}
               lines={[
                 <span key="category">
-                  <Badge className="border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 hover:bg-blue-50">
+                  <DataChip>
                     {training.displayCategory || training.category || "Categoria"}
-                  </Badge>
+                  </DataChip>
                 </span>,
                 <span key="date">
                   {formatDate(training.date)} ·{" "}
@@ -356,14 +358,14 @@ export default function TrainerTrainingsDashboardPage() {
                     ? training.location || "Luogo da definire"
                     : "Dettagli luogo non visibili"}
                 </span>,
-                <span key="attendance" className="font-medium text-slate-700">
+                <span key="attendance" className="font-medium text-egw-ink-72">
                   {attendanceStatus.present}/{attendanceStatus.total} ·{" "}
                   {getTrainingAttendanceLabel(attendanceStatus.state)}
                 </span>,
               ]}
               footer={
                 missingAttendance ? (
-                  <div className="flex items-center gap-2 text-sm font-medium text-rose-700">
+                  <div className="flex items-center gap-2 text-sm font-medium text-egw-red">
                     <XCircle className="h-4 w-4" />
                     Presenze da completare
                   </div>
@@ -377,7 +379,7 @@ export default function TrainerTrainingsDashboardPage() {
                   ) ? (
                     <Button
                       size="sm"
-                      className="bg-blue-600 hover:bg-blue-700"
+                      className="bg-egw-blue hover:bg-egw-blue-700"
                       onClick={() => setSelectedTraining(training)}
                     >
                       <ClipboardCheck className="mr-2 h-4 w-4" />
@@ -404,7 +406,7 @@ export default function TrainerTrainingsDashboardPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-slate-300 text-slate-700 hover:bg-slate-50"
+                      className="border-egw-hairline text-egw-ink-72 hover:bg-egw-page-050"
                       onClick={() => {
                         setEventoInModifica(training);
                         setEditorAperto(true);
@@ -422,7 +424,7 @@ export default function TrainerTrainingsDashboardPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-amber-500 text-amber-700 hover:bg-amber-50"
+                      className="border-amber-500 text-egw-amber-ink hover:bg-egw-tint-amber"
                       onClick={() =>
                         setConfirmState({
                           open: true,
@@ -454,7 +456,7 @@ export default function TrainerTrainingsDashboardPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-emerald-500 text-emerald-700 hover:bg-emerald-50"
+                      className="border-emerald-500 text-egw-green hover:bg-egw-tint-green"
                       onClick={() =>
                         setConfirmState({
                           open: true,
@@ -513,7 +515,7 @@ export default function TrainerTrainingsDashboardPage() {
           */
           permissions.actions.manageTrainingStatus ? (
             <Button
-              className="w-full rounded-2xl bg-blue-600 hover:bg-blue-700 sm:w-auto"
+              className="w-full rounded-egw-panel-sm bg-egw-blue hover:bg-egw-blue-700 sm:w-auto"
               onClick={() => {
                 setEventoInModifica(null);
                 setEditorAperto(true);
@@ -548,9 +550,9 @@ export default function TrainerTrainingsDashboardPage() {
         <div className="space-y-6">
           <SurfacePanel title="Calendario allenamenti" icon={CalendarDays}>
             <div className="space-y-4">
-              <div className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-3 rounded-egw-panel border border-egw-hairline bg-egw-page-100 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-slate-950">
+                  <p className="text-sm font-semibold text-egw-ink">
                     Settimana{" "}
                     {selectedWeekStart.toLocaleDateString("it-IT", {
                       day: "2-digit",
@@ -562,7 +564,7 @@ export default function TrainerTrainingsDashboardPage() {
                       month: "short",
                     })}
                   </p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-egw-ink-62">
                     Seleziona un giorno per gestire le presenze.
                   </p>
                 </div>
@@ -571,7 +573,7 @@ export default function TrainerTrainingsDashboardPage() {
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="h-9 w-9 rounded-xl"
+                    className="h-9 w-9 rounded-egw-field"
                     onClick={() => shiftSelectedWeek(-1)}
                     aria-label="Settimana precedente"
                   >
@@ -580,7 +582,7 @@ export default function TrainerTrainingsDashboardPage() {
                   <Button
                     type="button"
                     variant="outline"
-                    className="h-9 rounded-xl px-3 text-xs"
+                    className="h-9 rounded-egw-field px-3 text-xs"
                     onClick={() => setSelectedDate(new Date())}
                   >
                     Oggi
@@ -589,7 +591,7 @@ export default function TrainerTrainingsDashboardPage() {
                     type="button"
                     variant="outline"
                     size="icon"
-                    className="h-9 w-9 rounded-xl"
+                    className="h-9 w-9 rounded-egw-field"
                     onClick={() => shiftSelectedWeek(1)}
                     aria-label="Settimana successiva"
                   >
@@ -615,27 +617,25 @@ export default function TrainerTrainingsDashboardPage() {
                       key={day.toISOString()}
                       type="button"
                       onClick={() => setSelectedDate(day)}
-                      className={`min-h-[132px] rounded-2xl border p-3 text-left transition ${
+                      className={`min-h-[132px] rounded-egw-panel-sm border p-3 text-left transition ${
                         isSelected
-                          ? "border-blue-300 bg-blue-50 shadow-sm"
-                          : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/40"
+                          ? "border-egw-tint-blue-bd bg-egw-tint-blue shadow-egw-plane-1"
+                          : "border-egw-hairline bg-white hover:border-egw-tint-blue-bd hover:bg-egw-tint-blue/40"
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-egw-ink-62">
                             {day.toLocaleDateString("it-IT", {
                               weekday: "short",
                             })}
                           </p>
-                          <p className="text-lg font-bold text-slate-950">
+                          <p className="text-lg font-bold text-egw-ink">
                             {day.toLocaleDateString("it-IT", { day: "2-digit" })}
                           </p>
                         </div>
                         {isToday ? (
-                          <Badge className="border-blue-200 bg-blue-600 text-white hover:bg-blue-600">
-                            Oggi
-                          </Badge>
+                          <StatusPill size="sm" status={{ label: "OGGI", weight: "solid", hue: "blue" }} />
                         ) : null}
                       </div>
                       <div className="mt-3 space-y-2">
@@ -643,9 +643,9 @@ export default function TrainerTrainingsDashboardPage() {
                           dayTrainings.slice(0, 3).map((training) => (
                             <div
                               key={getTrainingStableKey(training)}
-                              className="rounded-xl border border-blue-100 bg-white px-2 py-1.5 text-xs text-slate-700"
+                              className="rounded-egw-field border border-egw-tint-blue-bd bg-white px-2 py-1.5 text-xs text-egw-ink-72"
                             >
-                              <span className="font-semibold text-slate-950">
+                              <span className="font-semibold text-egw-ink">
                                 {formatTimeRange(
                                   training.time,
                                   training.endTime,
@@ -659,12 +659,12 @@ export default function TrainerTrainingsDashboardPage() {
                             </div>
                           ))
                         ) : (
-                          <p className="rounded-xl border border-dashed border-slate-200 px-2 py-3 text-center text-xs text-slate-400">
+                          <p className="rounded-egw-field border border-dashed border-egw-hairline px-2 py-3 text-center text-xs text-egw-ink-42">
                             Libero
                           </p>
                         )}
                         {dayTrainings.length > 3 ? (
-                          <p className="text-xs font-medium text-blue-700">
+                          <p className="text-xs font-medium text-egw-blue-700">
                             +{dayTrainings.length - 3} allenamenti
                           </p>
                         ) : null}
@@ -674,8 +674,8 @@ export default function TrainerTrainingsDashboardPage() {
                 })}
               </div>
 
-              <div className="space-y-3 rounded-3xl border border-slate-200 bg-white p-4">
-                <p className="text-sm font-semibold text-slate-900">
+              <div className="space-y-3 rounded-egw-panel border border-egw-hairline bg-white p-4">
+                <p className="text-sm font-semibold text-egw-ink">
                   {selectedDayTitle}
                 </p>
                 {renderTrainingList(
@@ -713,9 +713,9 @@ export default function TrainerTrainingsDashboardPage() {
                     value={historySearch}
                     onChange={(event) => setHistorySearch(event.target.value)}
                     placeholder="Cerca per data, categoria, stato..."
-                    className="rounded-2xl pl-10"
+                    className="rounded-egw-panel-sm pl-10"
                   />
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-egw-ink-42" />
                 </div>
               }
             >
@@ -733,7 +733,7 @@ export default function TrainerTrainingsDashboardPage() {
       )}
 
       <details
-        className="group rounded-[30px] border border-slate-200 bg-white/95 shadow-sm"
+        className="group"
         open={scheduleOpen}
         onToggle={(event) =>
           setScheduleOpen((event.currentTarget as HTMLDetailsElement).open)
@@ -741,16 +741,16 @@ export default function TrainerTrainingsDashboardPage() {
       >
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4">
           <span>
-            <span className="block text-base font-semibold text-slate-950">
+            <span className="block text-base font-semibold text-egw-ink">
               Programma settimanale
             </span>
-            <span className="mt-1 block text-sm text-slate-500">
+            <span className="mt-1 block text-sm text-egw-ink-62">
               Consulta il programma fisso delle categorie.
             </span>
           </span>
-          <ChevronDown className="h-5 w-5 text-slate-500 transition group-open:rotate-180" />
+          <ChevronDown className="h-5 w-5 text-egw-ink-62 transition group-open:rotate-180" />
         </summary>
-        <div className="border-t border-slate-100 p-4 md:p-5">
+        <div className="border-t border-egw-rule p-4 md:p-5">
           <TrainerWeeklySchedulePanel
             weeklySchedule={weeklySchedule}
             categories={categories}
@@ -764,57 +764,49 @@ export default function TrainerTrainingsDashboardPage() {
       </details>
 
       {selectedTraining ? (
-        <Dialog
-          open={Boolean(selectedTraining)}
-          onOpenChange={(open) => {
-            if (!open) {
-              setSelectedTraining(null);
-            }
-          }}
-        >
-          <DialogContent className="max-w-4xl border-none bg-transparent p-0 shadow-none">
-            <DialogHeader className="sr-only">
-              <DialogTitle>Presenze allenamento</DialogTitle>
-              <DialogDescription>
-                Gestisci presenze e note degli atleti per questo allenamento.
-              </DialogDescription>
-            </DialogHeader>
-            <AttendanceSheet
-              trainingId={selectedTraining.id}
-              trainingTitle={selectedTraining.title || "Allenamento"}
-              trainingDate={selectedTraining.date}
-              trainingTime={formatTimeRange(
-                selectedTraining.time,
-                selectedTraining.endTime,
-              )}
-              categoryName={
-                selectedTraining.displayCategory ||
-                selectedTraining.category ||
-                "Categoria"
+        <>
+          {/*
+            Il registro presenze e il cassetto V2 condiviso con la pagina
+            Allenamenti del club (`AttendanceDrawer`): stesso contratto della
+            vecchia `AttendanceSheet`, un'implementazione sola.
+          */}
+          <AttendanceDrawer
+            open
+            onOpenChange={(open) => {
+              if (!open) setSelectedTraining(null);
+            }}
+            training={{
+              id: selectedTraining.id,
+              title: selectedTraining.title || "Allenamento",
+              date: selectedTraining.date,
+              time: formatTimeRange(selectedTraining.time, selectedTraining.endTime),
+              category: selectedTraining.displayCategory || selectedTraining.category || "Categoria",
+              location: selectedTraining.location || "Campo",
+            }}
+            athletes={getTrainingAthletes(selectedTraining)}
+            clubAthletes={getTrainerAthleteOptions()}
+            saving={savingAttendance}
+            onSave={async ({ attendance }) => {
+              if (!activeClub?.id) return;
+              try {
+                setSavingAttendance(true);
+                await saveTrainingAttendance(
+                  activeClub.id,
+                  selectedTraining.id,
+                  attendance,
+                );
+                await reload();
+                showToast("success", "Presenze salvate correttamente");
+                setSelectedTraining(null);
+              } catch (error) {
+                console.error("Error saving training attendance:", error);
+                showToast("error", "Errore nel salvataggio delle presenze");
+              } finally {
+                setSavingAttendance(false);
               }
-              location={selectedTraining.location || "Campo"}
-              athletes={getTrainingAthletes(selectedTraining)}
-              clubAthletes={getTrainerAthleteOptions()}
-              onSave={async ({ attendance }) => {
-                if (!activeClub?.id) return;
-                try {
-                  await saveTrainingAttendance(
-                    activeClub.id,
-                    selectedTraining.id,
-                    attendance,
-                  );
-                  await reload();
-                  showToast("success", "Presenze salvate correttamente");
-                  setSelectedTraining(null);
-                } catch (error) {
-                  console.error("Error saving training attendance:", error);
-                  showToast("error", "Errore nel salvataggio delle presenze");
-                }
-              }}
-              onClose={() => setSelectedTraining(null)}
-            />
-          </DialogContent>
-        </Dialog>
+            }}
+          />
+        </>
       ) : null}
 
       <ConfirmDialog

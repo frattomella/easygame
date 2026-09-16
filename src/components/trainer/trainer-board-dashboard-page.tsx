@@ -59,10 +59,10 @@ export default function TrainerBoardDashboardPage() {
             {announcements.map((announcement: any) => (
               <article
                 key={String(announcement?.id || announcement?.deliveryId)}
-                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                className="rounded-egw-panel-sm border border-egw-hairline bg-white p-4 shadow-egw-plane-1"
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <h3 className="min-w-0 text-sm font-semibold text-slate-950">
+                  <h3 className="min-w-0 text-sm font-semibold text-egw-ink">
                     {String(announcement?.title || "Avviso")}
                   </h3>
                   {/*
@@ -71,15 +71,15 @@ export default function TrainerBoardDashboardPage() {
                     scelto restano al club, e infatti la proiezione li toglie.
                   */}
                   {!announcement?.readAt ? (
-                    <Badge className="shrink-0 border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
+                    <Badge className="shrink-0 border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue">
                       Nuovo
                     </Badge>
                   ) : null}
                 </div>
-                <p className="mt-2 whitespace-pre-line text-sm text-slate-600">
+                <p className="mt-2 whitespace-pre-line text-sm text-egw-ink-72">
                   {String(announcement?.body || "")}
                 </p>
-                <p className="mt-3 text-xs text-slate-400">
+                <p className="mt-3 text-xs text-egw-ink-42">
                   {announcement?.publishedAt || announcement?.publishAt
                     ? `Pubblicato il ${formatDate(
                         announcement.publishedAt || announcement.publishAt,
@@ -110,16 +110,16 @@ export default function TrainerBoardDashboardPage() {
             {visibleReminders.map((reminder: any, index: number) => (
               <article
                 key={String(reminder?.id || `nota-${index}`)}
-                className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4"
+                className="rounded-egw-panel-sm border border-egw-tint-amber-bd bg-egw-tint-amber/70 p-4"
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <h3 className="min-w-0 text-sm font-semibold text-slate-950">
+                  <h3 className="min-w-0 text-sm font-semibold text-egw-ink">
                     {String(
                       reminder?.title || reminder?.data?.title || "Promemoria",
                     )}
                   </h3>
                   {reminder?.expiryDate || reminder?.expiry_date ? (
-                    <Badge className="shrink-0 border-amber-300 bg-white text-amber-800 hover:bg-white">
+                    <Badge className="shrink-0 border-egw-tint-amber-bd bg-white text-egw-amber-ink hover:bg-white">
                       Scade il{" "}
                       {formatDate(reminder.expiryDate || reminder.expiry_date)}
                     </Badge>
@@ -141,7 +141,7 @@ export default function TrainerBoardDashboardPage() {
                   cio che ci e stato scritto in passato, e toglierle
                   svuoterebbe le note vecchie invece di riempire quelle nuove.
                 */}
-                <p className="mt-2 whitespace-pre-line text-sm text-slate-700">
+                <p className="mt-2 whitespace-pre-line text-sm text-egw-ink-72">
                   {String(
                     reminder?.content ||
                       reminder?.description ||
@@ -151,7 +151,7 @@ export default function TrainerBoardDashboardPage() {
                       "",
                   )}
                 </p>
-                <p className="mt-3 text-xs text-slate-500">
+                <p className="mt-3 text-xs text-egw-ink-62">
                   {String(reminder?.targetSummary || "")}
                 </p>
               </article>

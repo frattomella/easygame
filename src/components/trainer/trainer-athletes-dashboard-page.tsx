@@ -339,7 +339,7 @@ export default function TrainerAthletesDashboardPage() {
           {categoryAthletes.map((athlete) => (
               <tr
                 key={athlete.id}
-                className="border-b transition-colors hover:bg-gray-50"
+                className="border-b transition-colors hover:bg-egw-page-050"
               >
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
@@ -367,7 +367,7 @@ export default function TrainerAthletesDashboardPage() {
                               `/trainer-dashboard/athletes/${athlete.id}`,
                             )
                           }
-                          className="cursor-pointer text-left hover:text-blue-600 hover:underline"
+                          className="cursor-pointer text-left hover:text-egw-blue-700 hover:underline"
                         >
                           {athlete.displayName}
                         </button>
@@ -378,8 +378,8 @@ export default function TrainerAthletesDashboardPage() {
                         <Badge
                           className={
                             athlete.membershipType === "secondary"
-                              ? "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-50"
-                              : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50"
+                              ? "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-indigo hover:bg-egw-tint-blue"
+                              : "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue"
                           }
                         >
                           {membershipRoleLabel(athlete.membershipType !== "secondary")}
@@ -396,14 +396,14 @@ export default function TrainerAthletesDashboardPage() {
                         <FileHeart
                           className={`h-4 w-4 ${
                             isCertificateExpired(athlete.medicalCertExpiry)
-                              ? "text-red-500"
+                              ? "text-egw-red"
                               : "text-green-500"
                           }`}
                         />
                         <span
                           className={
                             isCertificateExpired(athlete.medicalCertExpiry)
-                              ? "text-red-500"
+                              ? "text-egw-red"
                               : ""
                           }
                         >
@@ -431,7 +431,7 @@ export default function TrainerAthletesDashboardPage() {
                           )
                         }
                       >
-                        <Eye className="mr-2 h-4 w-4 text-blue-600" />
+                        <Eye className="mr-2 h-4 w-4 text-egw-blue-700" />
                         Apri scheda atleta
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -471,11 +471,11 @@ export default function TrainerAthletesDashboardPage() {
         />
 
         <div className="flex flex-wrap gap-2">
-          <Badge className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
+          <Badge className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue">
             {new Set(athleteRows.map((athlete) => athlete.id)).size} atleti
             visibili
           </Badge>
-          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
+          <Badge className="border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green">
             {assignedCategories.length || groupedCategories.length} categorie
             assegnate
           </Badge>
@@ -515,19 +515,19 @@ export default function TrainerAthletesDashboardPage() {
                       <CollapsibleTrigger asChild>
                         <button
                           type="button"
-                          className="flex min-w-0 flex-1 items-center gap-2 rounded-lg text-left transition-colors hover:text-blue-700"
+                          className="flex min-w-0 flex-1 items-center gap-2 rounded-egw-control text-left transition-colors hover:text-egw-blue-700"
                         >
                           {isCollapsed ? (
-                            <ChevronRight className="h-5 w-5 text-gray-500" />
+                            <ChevronRight className="h-5 w-5 text-egw-ink-62" />
                           ) : (
-                            <ChevronDown className="h-5 w-5 text-gray-500" />
+                            <ChevronDown className="h-5 w-5 text-egw-ink-62" />
                           )}
-                          <span className="inline-block h-3 w-3 rounded-full bg-blue-500" />
+                          <span className="inline-block h-3 w-3 rounded-full bg-egw-blue" />
                           <span>
                             {categoryGroup.name} ({categoryGroup.athletes.length})
                           </span>
                           {categoryGroup.birthYearsLabel ? (
-                            <span className="text-sm font-normal text-gray-500">
+                            <span className="text-sm font-normal text-egw-ink-62">
                               {categoryGroup.birthYearsLabel}
                             </span>
                           ) : null}
@@ -537,7 +537,7 @@ export default function TrainerAthletesDashboardPage() {
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="w-full rounded-xl sm:w-auto"
+                        className="w-full rounded-egw-field sm:w-auto"
                         onClick={() => setSelectedReportCategory(categoryGroup)}
                       >
                         <BarChart3 className="mr-2 h-4 w-4" />
@@ -602,7 +602,7 @@ export default function TrainerAthletesDashboardPage() {
                 <tbody>
                   {reportRows.map((row) => (
                     <tr key={row.athleteId} className="border-b">
-                      <td className="px-4 py-3 font-medium text-slate-900">
+                      <td className="px-4 py-3 font-medium text-egw-ink">
                         {row.athleteName}
                       </td>
                       <td className="px-4 py-3">

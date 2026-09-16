@@ -791,7 +791,7 @@ test("i comandi di un appuntamento vanno a capo invece di uscire", () => {
   assert.match(source, /flex flex-wrap gap-2/);
   assert.match(
     source,
-    /w-full justify-center gap-2 rounded-2xl sm:w-auto/,
+    /w-full justify-center gap-2 rounded-egw-panel-sm sm:w-auto/,
     "il comando «Aggiorna» occupa la riga finche c'e poco spazio",
   );
 });

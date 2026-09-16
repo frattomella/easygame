@@ -370,13 +370,13 @@ export function TrainerWeeklySchedulePanel({
   const renderSession = (item: DisplayWeeklyTraining) => (
     <div
       key={item.id}
-      className="rounded-xl border border-blue-100 bg-blue-50 p-3"
+      className="rounded-egw-field border border-egw-tint-blue-bd bg-egw-tint-blue p-3"
     >
-      <p className="text-sm font-semibold text-slate-950">{item.categoryName}</p>
-      <p className="mt-1 text-xs text-slate-500">
+      <p className="text-sm font-semibold text-egw-ink">{item.categoryName}</p>
+      <p className="mt-1 text-xs text-egw-ink-62">
         {item.startTime} - {item.endTime}
       </p>
-      <p className="mt-1 text-xs text-slate-600">
+      <p className="mt-1 text-xs text-egw-ink-72">
         {item.trainerNames.length > 0
           ? item.trainerNames.join(", ")
           : "Allenatore da assegnare"}
@@ -390,13 +390,13 @@ export function TrainerWeeklySchedulePanel({
       description="Vista read-only del programma fisso del club."
       icon={CalendarDays}
       action={
-        <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+        <div className="inline-flex rounded-egw-panel-sm border border-egw-hairline bg-egw-page-100 p-1">
           <Button
             type="button"
             size="sm"
             variant={mode === "mine" ? "default" : "ghost"}
             aria-pressed={mode === "mine"}
-            className={mode === "mine" ? "rounded-xl bg-blue-600 hover:bg-blue-700" : "rounded-xl"}
+            className={mode === "mine" ? "rounded-egw-field bg-egw-blue hover:bg-egw-blue-700" : "rounded-egw-field"}
             onClick={() => setMode("mine")}
           >
             Le mie categorie
@@ -406,7 +406,7 @@ export function TrainerWeeklySchedulePanel({
             size="sm"
             variant={mode === "club" ? "default" : "ghost"}
             aria-pressed={mode === "club"}
-            className={mode === "club" ? "rounded-xl bg-blue-600 hover:bg-blue-700" : "rounded-xl"}
+            className={mode === "club" ? "rounded-egw-field bg-egw-blue hover:bg-egw-blue-700" : "rounded-egw-field"}
             onClick={() => setMode("club")}
           >
             Tutto il club
@@ -450,10 +450,10 @@ export function TrainerWeeklySchedulePanel({
       ) : (
         <div className="space-y-5">
           <div className="flex flex-wrap gap-2">
-            <Badge className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
+            <Badge className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue">
               {filteredSchedule.length} sessioni
             </Badge>
-            <Badge className="border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100">
+            <Badge className="border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]">
               Read-only
             </Badge>
           </div>
@@ -462,13 +462,13 @@ export function TrainerWeeklySchedulePanel({
             {groupedLocations.map((structure) => (
               <div
                 key={structure.structureId}
-                className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                className="rounded-egw-panel-sm border border-egw-hairline bg-white p-4 shadow-egw-plane-1"
               >
                 <div className="mb-4">
-                  <h3 className="text-lg font-semibold text-slate-950">
+                  <h3 className="text-lg font-semibold text-egw-ink">
                     {structure.structureName}
                   </h3>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-egw-ink-62">
                     Campi e giorni del programma operativo fisso.
                   </p>
                 </div>
@@ -477,10 +477,10 @@ export function TrainerWeeklySchedulePanel({
                   {structure.fields.map((field) => (
                     <div
                       key={field.fieldId}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                      className="rounded-egw-panel-sm border border-egw-hairline bg-egw-page-100 p-4"
                     >
-                      <div className="mb-3 rounded-xl bg-white px-3 py-2 shadow-sm">
-                        <p className="text-sm font-semibold text-slate-950">
+                      <div className="mb-3 rounded-egw-field bg-white px-3 py-2 shadow-egw-plane-1">
+                        <p className="text-sm font-semibold text-egw-ink">
                           {field.fieldName}
                         </p>
                       </div>
@@ -497,18 +497,18 @@ export function TrainerWeeklySchedulePanel({
                           return (
                             <div
                               key={`${field.fieldId}-${day}`}
-                              className="rounded-xl border bg-white p-3"
+                              className="rounded-egw-field border bg-white p-3"
                             >
                               <div className="mb-2 flex items-center justify-between gap-3">
-                                <p className="text-sm font-medium text-slate-700">
+                                <p className="text-sm font-medium text-egw-ink-72">
                                   {day}
                                 </p>
-                                <span className="text-xs text-slate-400">
+                                <span className="text-xs text-egw-ink-42">
                                   {dayItems.length} sessioni
                                 </span>
                               </div>
                               {dayItems.length === 0 ? (
-                                <div className="rounded-lg border border-dashed p-3 text-xs text-slate-400">
+                                <div className="rounded-egw-control border border-dashed p-3 text-xs text-egw-ink-42">
                                   Nessun allenamento
                                 </div>
                               ) : (
@@ -532,38 +532,38 @@ export function TrainerWeeklySchedulePanel({
               const dayItems = filteredSchedule.filter((item) => item.day === day);
 
               return (
-                <div key={day} className="rounded-2xl border bg-white p-4">
+                <div key={day} className="rounded-egw-panel-sm border bg-white p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
-                    <p className="font-semibold text-slate-950">{day}</p>
-                    <span className="text-xs text-slate-400">
+                    <p className="font-semibold text-egw-ink">{day}</p>
+                    <span className="text-xs text-egw-ink-42">
                       {dayItems.length} sessioni
                     </span>
                   </div>
                   {dayItems.length === 0 ? (
-                    <div className="rounded-xl border border-dashed p-3 text-sm text-slate-400">
+                    <div className="rounded-egw-field border border-dashed p-3 text-sm text-egw-ink-42">
                       Nessun allenamento
                     </div>
                   ) : (
                     <div className="space-y-2">
                       {dayItems.map((item) => (
-                        <div key={item.id} className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+                        <div key={item.id} className="rounded-egw-field border border-egw-tint-blue-bd bg-egw-tint-blue p-3">
                           <div className="flex items-start justify-between gap-3">
                             <div>
-                              <p className="text-sm font-semibold text-slate-950">
+                              <p className="text-sm font-semibold text-egw-ink">
                                 {item.categoryName}
                               </p>
-                              <p className="mt-1 text-xs text-slate-500">
+                              <p className="mt-1 text-xs text-egw-ink-62">
                                 {item.startTime} - {item.endTime}
                               </p>
                             </div>
-                            <Badge className="shrink-0 border-blue-200 bg-white text-blue-700 hover:bg-white">
+                            <Badge className="shrink-0 border-egw-tint-blue-bd bg-white text-egw-blue-700 hover:bg-white">
                               {item.fieldName}
                             </Badge>
                           </div>
-                          <p className="mt-2 text-xs text-slate-600">
+                          <p className="mt-2 text-xs text-egw-ink-72">
                             {item.structureName}
                           </p>
-                          <p className="mt-1 text-xs text-slate-600">
+                          <p className="mt-1 text-xs text-egw-ink-72">
                             {item.trainerNames.length > 0
                               ? item.trainerNames.join(", ")
                               : "Allenatore da assegnare"}

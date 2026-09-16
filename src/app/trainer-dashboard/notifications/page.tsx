@@ -57,7 +57,7 @@ export default function TrainerNotificationsPage() {
         action={
           <Button
             variant="outline"
-            className="rounded-2xl"
+            className="rounded-egw-panel-sm"
             onClick={() => router.push("/trainer-dashboard")}
           >
             Torna alla Home
@@ -74,27 +74,27 @@ export default function TrainerNotificationsPage() {
                   key={alert.key}
                   type="button"
                   onClick={() => router.push(alert.actionHref)}
-                  className="group flex w-full flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-4 text-left transition hover:border-amber-300 hover:bg-amber-100 sm:flex-row sm:items-center sm:justify-between"
+                  className="group flex w-full flex-col gap-3 rounded-egw-panel-sm border border-egw-tint-amber-bd bg-egw-tint-amber/80 px-4 py-4 text-left transition hover:border-egw-tint-amber-bd hover:bg-egw-tint-amber sm:flex-row sm:items-center sm:justify-between"
                 >
                   <span className="flex min-w-0 items-start gap-3">
-                    <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white text-amber-700 shadow-sm">
+                    <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-egw-panel-sm bg-white text-egw-amber-ink shadow-egw-plane-1">
                       <Icon className="h-4 w-4" />
                     </span>
                     <span className="min-w-0">
                       <span className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold text-slate-950">
+                        <span className="text-sm font-semibold text-egw-ink">
                           {alert.title}
                         </span>
-                        <Badge className="border-amber-200 bg-white text-amber-700 hover:bg-white">
+                        <Badge className="border-egw-tint-amber-bd bg-white text-egw-amber-ink hover:bg-white">
                           {alertLabelByType[alert.type]}
                         </Badge>
                       </span>
-                      <span className="mt-1 block text-sm text-slate-600">
+                      <span className="mt-1 block text-sm text-egw-ink-72">
                         {alert.message}
                       </span>
                     </span>
                   </span>
-                  <span className="inline-flex items-center gap-2 text-sm font-semibold text-blue-700">
+                  <span className="inline-flex items-center gap-2 text-sm font-semibold text-egw-blue-700">
                     Apri
                     <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
                   </span>

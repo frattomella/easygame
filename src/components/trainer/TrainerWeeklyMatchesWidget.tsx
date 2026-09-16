@@ -83,36 +83,36 @@ export function TrainerWeeklyMatchesWidget({
           <div
             key={dayKey(day)}
             className={cn(
-              "rounded-2xl border border-slate-200 bg-white p-3",
-              isToday && "border-blue-200 bg-blue-50/50",
+              "rounded-egw-panel-sm border border-egw-hairline bg-white p-3",
+              isToday && "border-egw-tint-blue-bd bg-egw-tint-blue",
             )}
           >
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span
                   className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-xl text-sm font-semibold",
-                    isToday ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700",
+                    "flex h-8 w-8 items-center justify-center rounded-egw-field text-sm font-semibold",
+                    isToday ? "bg-egw-blue text-white" : "bg-egw-page-100 text-egw-ink-72",
                   )}
                 >
                   {day.getDate()}
                 </span>
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">
+                  <p className="text-sm font-semibold text-egw-ink">
                     {weekDays[index]}
                   </p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-egw-ink-62">
                     {day.toLocaleDateString("it-IT", {
                       month: "short",
                     })}
                   </p>
                 </div>
               </div>
-              <CalendarDays className="h-4 w-4 text-slate-400" />
+              <CalendarDays className="h-4 w-4 text-egw-ink-42" />
             </div>
 
             {matchesOfDay.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-400">
+              <p className="rounded-egw-field border border-dashed border-egw-hairline px-3 py-2 text-xs text-egw-ink-42">
                 Nessuna gara
               </p>
             ) : (
@@ -128,21 +128,21 @@ export function TrainerWeeklyMatchesWidget({
                       type="button"
                       key={match.id}
                       onClick={() => onSelectMatch(match)}
-                      className="w-full rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-left transition hover:border-blue-200 hover:bg-blue-50"
+                      className="w-full rounded-egw-field border border-egw-rule bg-egw-page-100 px-3 py-2 text-left transition hover:border-egw-tint-blue-bd hover:bg-egw-tint-blue"
                     >
                       <div className="flex items-center gap-2">
-                        <Clock3 className="h-3.5 w-3.5 text-blue-600" />
-                        <span className="text-xs font-semibold text-slate-700">
+                        <Clock3 className="h-3.5 w-3.5 text-egw-blue-700" />
+                        <span className="text-xs font-semibold text-egw-ink-72">
                           {formatTimeRange(match?.time)}
                         </span>
                         <MatchCertificateWarningBadge warning={warning} compact />
                       </div>
-                      <p className="mt-1 truncate text-sm font-semibold text-slate-950">
+                      <p className="mt-1 truncate text-sm font-semibold text-egw-ink">
                         {match?.opponent
                           ? `vs ${match.opponent}`
                           : match?.title || "Gara"}
                       </p>
-                      <Badge className="mt-2 border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-50">
+                      <Badge className="mt-2 border-egw-tint-orange-bd bg-egw-tint-orange text-egw-orange hover:bg-egw-tint-orange">
                         <Trophy className="mr-1 h-3 w-3" />
                         {match.displayCategory || match.category || "Categoria"}
                       </Badge>

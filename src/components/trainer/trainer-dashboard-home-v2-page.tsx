@@ -15,6 +15,9 @@ import {
 import { useRouter } from "next/navigation";
 import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
 import { Badge } from "@/components/ui/badge";
+import { PageHeading } from "@/components/dashboard/page-heading";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { ACTIVITY_STATUS, type StatusSpec } from "@/lib/web/status";
 import { Button } from "@/components/ui/button";
 import { TrainerWeeklyMatchesWidget } from "@/components/trainer/TrainerWeeklyMatchesWidget";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
@@ -47,16 +50,11 @@ import { getInvalidCertificatesForConvocatedAthletes } from "@/lib/match-certifi
 import { isCancelledEvent } from "@/lib/events/model";
 import { cn } from "@/lib/utils";
 
-const convocationBadgeClassName = (state: string) => {
-  if (state === "convocations_complete") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50";
-  }
-
-  if (state === "convocations_missing") {
-    return "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-50";
-  }
-
-  return "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50";
+/* La pillola delle convocazioni: il conteggio e la parola, nel tono dello stato. */
+const convocationPillSpec = (state: string, count: string): StatusSpec => {
+  if (state === "convocations_complete") return { label: `${count} CONVOCATI`, weight: "solid", hue: "green" };
+  if (state === "convocations_missing") return { label: `${count} CONVOCATI`, weight: "urgent", hue: "red" };
+  return { label: `${count} CONVOCATI`, weight: "outline", hue: "blue" };
 };
 
 export default function TrainerDashboardHomeV2Page() {
@@ -170,17 +168,7 @@ export default function TrainerDashboardHomeV2Page() {
 
   return (
     <div className="space-y-6 pb-2">
-      <section className="rounded-[30px] border border-slate-200/70 bg-white/95 px-5 py-5 shadow-sm md:px-7">
-        <p className="text-xs font-semibold tracking-[0.18em] text-blue-600">
-          Home
-        </p>
-        <h1 className="mt-2 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-3xl font-bold leading-tight tracking-tight text-transparent md:text-4xl">
-          Bentornato, {trainerFirstName} 👋
-        </h1>
-        <p className="mt-2 text-sm text-slate-500">
-          Hai tutto pronto per presenze e convocazioni.
-        </p>
-      </section>
+      <PageHeading eyebrow="Area allenatore" title={`Bentornato, ${trainerFirstName}`} subtitle="Hai tutto pronto per presenze e convocazioni." />
 
       {/*
         **Le cinque chiavi `permissions.widgets.*`, finalmente lette** (W6-29).
@@ -197,75 +185,77 @@ export default function TrainerDashboardHomeV2Page() {
             icon={Users}
             label="Squadre seguite"
             value={assignedCategories.length}
-            accentClassName="bg-blue-50 text-blue-600"
+            accentClassName="bg-egw-tint-blue text-egw-blue-700"
           />
           <SummaryCard
             icon={UserCircle}
             label="Atleti nel perimetro"
             value={assignedAthletes.length}
-            accentClassName="bg-emerald-50 text-emerald-600"
+            accentClassName="bg-egw-tint-green text-egw-green"
             topBarClassName="from-emerald-500 to-emerald-600"
           />
           <SummaryCard
             icon={CalendarDays}
             label="Allenamenti di oggi"
             value={todayTrainings.length}
-            accentClassName="bg-purple-50 text-purple-600"
+            accentClassName="bg-egw-tint-blue text-egw-indigo"
             topBarClassName="from-purple-500 to-purple-600"
           />
           <SummaryCard
             icon={Trophy}
             label="Gare di oggi"
             value={todayMatches.length}
-            accentClassName="bg-orange-50 text-orange-600"
+            accentClassName="bg-egw-tint-orange text-egw-orange"
             topBarClassName="from-orange-500 to-orange-600"
           />
         </div>
       ) : null}
 
       {matchOfTheDay ? (
-        <section className="overflow-hidden rounded-[30px] border border-blue-100 bg-gradient-to-br from-white via-blue-50/70 to-slate-50 p-5 shadow-sm md:p-6">
+        <section className="relative overflow-hidden rounded-egw-panel border border-egw-panel-border bg-egw-panel p-5 shadow-egw-plane-1 md:p-6">
+          <div aria-hidden className="absolute inset-x-0 top-0 h-[3px] bg-egw-match" />
           <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr] lg:items-end">
             <div className="space-y-5">
               <div>
-                <h2 className="text-3xl font-bold leading-tight text-slate-950 md:text-4xl">
+                <p className="text-[10px] font-bold uppercase tracking-[var(--egw-track-eyebrow)] text-egw-orange">Gara</p>
+                <h2 className="mt-1 font-brand text-[24px] font-extrabold leading-[1.1] tracking-[var(--egw-track-display)] text-egw-ink">
                   Gara di oggi
                 </h2>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-white bg-white/80 px-4 py-3 shadow-sm">
-                  <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-                    <Trophy className="h-4 w-4" />
+                <div className="rounded-egw-field border border-egw-hairline bg-egw-page-100 px-4 py-3">
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[var(--egw-track-eyebrow)] text-egw-ink-42">
+                    <Trophy className="h-3.5 w-3.5" />
                     Categoria
                   </div>
-                  <p className="mt-1 font-semibold text-slate-950">
+                  <p className="mt-1 font-semibold text-egw-ink">
                     {matchOfTheDay.displayCategory ||
                       matchOfTheDay.category ||
                       "Categoria"}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-white bg-white/80 px-4 py-3 shadow-sm">
-                  <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-                    <Clock3 className="h-4 w-4" />
+                <div className="rounded-egw-field border border-egw-hairline bg-egw-page-100 px-4 py-3">
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[var(--egw-track-eyebrow)] text-egw-ink-42">
+                    <Clock3 className="h-3.5 w-3.5" />
                     Orario
                   </div>
-                  <p className="mt-1 font-semibold text-slate-950">
+                  <p className="mt-1 font-semibold text-egw-ink">
                     {formatTimeRange(matchOfTheDay.time)}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-white bg-white/80 px-4 py-3 shadow-sm sm:col-span-2">
-                  <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-                    <MapPin className="h-4 w-4" />
+                <div className="rounded-egw-field border border-egw-hairline bg-egw-page-100 px-4 py-3 sm:col-span-2">
+                  <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[var(--egw-track-eyebrow)] text-egw-ink-42">
+                    <MapPin className="h-3.5 w-3.5" />
                     Luogo
                   </div>
-                  <p className="mt-1 font-semibold text-slate-950">
+                  <p className="mt-1 font-semibold text-egw-ink">
                     {formatMatchLocationLabel(matchOfTheDay)}
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-[26px] border border-blue-100 bg-white/90 p-4 shadow-sm">
+            <div className="rounded-egw-field border border-egw-hairline bg-egw-page-100 p-4">
               {(() => {
                 const matchAthletes = getAthletesForRecord(matchOfTheDay);
                 const convocationStatus = getMatchConvocationStatus({
@@ -282,26 +272,24 @@ export default function TrainerDashboardHomeV2Page() {
                 return (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-slate-700">
+                      <p className="text-sm font-semibold text-egw-ink-72">
                         Convocazioni
                       </p>
-                      <Badge
-                        className={cn(
-                          "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50",
-                          convocationStatus.state === "convocations_missing"
-                            ? "border-rose-200 bg-rose-50 text-rose-700"
-                            : "",
-                        )}
-                      >
-                        {convocationStatus.convocated}/{convocationStatus.total}
-                      </Badge>
+                      <StatusPill
+                        size="sm"
+                        status={{
+                          label: `${convocationStatus.convocated}/${convocationStatus.total} CONVOCATI`,
+                          weight: convocationStatus.state === "convocations_missing" ? "urgent" : "outline",
+                          hue: convocationStatus.state === "convocations_missing" ? "red" : "blue",
+                        }}
+                      />
                     </div>
                     <MatchCertificateWarningBadge warning={certificateWarning} />
-                    <p className="text-xl font-semibold text-slate-950">
+                    <p className="text-xl font-semibold text-egw-ink">
                       {getMatchConvocationLabel(convocationStatus.state)}
                     </p>
                     <Button
-                      className="w-full rounded-2xl bg-blue-600 text-white hover:bg-blue-700"
+                      className="w-full rounded-egw-panel-sm bg-egw-blue text-white hover:bg-egw-blue-700"
                       onClick={() =>
                         router.push(
                           `/trainer-dashboard/matches?focus=${matchOfTheDay.id}`,
@@ -323,7 +311,7 @@ export default function TrainerDashboardHomeV2Page() {
         <SurfacePanel
           title="Da completare"
           icon={AlertTriangle}
-          className="border-rose-200 bg-rose-50/90 shadow-md"
+          className="border-egw-tint-red-bd bg-egw-tint-red shadow-egw-plane-1"
         >
           <div className="grid gap-3 lg:grid-cols-2">
             {operationalAlerts.slice(0, 6).map((alert) => (
@@ -331,10 +319,10 @@ export default function TrainerDashboardHomeV2Page() {
                 key={alert.key}
                 type="button"
                 onClick={() => router.push(alert.actionHref)}
-                className="rounded-2xl border border-rose-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-rose-300 hover:bg-rose-50"
+                className="rounded-egw-panel-sm border border-egw-tint-red-bd bg-white px-4 py-3 text-left shadow-egw-plane-1 transition hover:border-egw-tint-red-bd hover:bg-egw-tint-red"
               >
                 <div className="flex items-start gap-3">
-                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-700">
+                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-egw-field bg-egw-tint-red text-egw-red">
                     {alert.type === "missing_attendance" ? (
                       <ClipboardCheck className="h-4 w-4" />
                     ) : (
@@ -342,10 +330,10 @@ export default function TrainerDashboardHomeV2Page() {
                     )}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-sm font-semibold text-slate-950">
+                    <span className="block text-sm font-semibold text-egw-ink">
                       {alert.title}
                     </span>
-                    <span className="mt-1 block text-sm text-slate-600">
+                    <span className="mt-1 block text-sm text-egw-ink-72">
                       {alert.message}
                     </span>
                   </span>
@@ -364,7 +352,7 @@ export default function TrainerDashboardHomeV2Page() {
           action={
             <Button
               variant="outline"
-              className="rounded-2xl"
+              className="rounded-egw-panel-sm"
               onClick={() => router.push("/trainer-dashboard/trainings")}
             >
               Storico
@@ -396,19 +384,19 @@ export default function TrainerDashboardHomeV2Page() {
                     title={training.title || "Allenamento"}
                     className={
                       missingAttendance
-                        ? "border-rose-200 bg-rose-50/60"
+                        ? "border-egw-tint-red-bd bg-egw-tint-red"
                         : undefined
                     }
                     badge={
-                      <Badge className={status.className}>{status.label}</Badge>
+                      <StatusPill status={status.spec} size="sm" />
                     }
                     lines={[
                       <span key="category">
-                        <Badge className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
+                        <DataChip>
                           {training.displayCategory ||
                             training.category ||
                             "Categoria"}
-                        </Badge>
+                        </DataChip>
                       </span>,
                       <span key="time">
                         {formatTimeRange(training.time, training.endTime)}
@@ -423,7 +411,7 @@ export default function TrainerDashboardHomeV2Page() {
                     ]}
                     footer={
                       missingAttendance ? (
-                        <div className="flex items-center gap-2 text-sm font-medium text-rose-700">
+                        <div className="flex items-center gap-2 text-sm font-medium text-egw-red">
                           <AlertTriangle className="h-4 w-4" />
                           Completa le presenze
                         </div>
@@ -433,7 +421,7 @@ export default function TrainerDashboardHomeV2Page() {
                       permissions.actions.manageAttendance ? (
                         <Button
                           size="sm"
-                          className="bg-blue-600 hover:bg-blue-700"
+                          className="bg-egw-blue hover:bg-egw-blue-700"
                           onClick={() =>
                             router.push(
                               `/trainer-dashboard/trainings?focus=${training.id}`,
@@ -467,7 +455,7 @@ export default function TrainerDashboardHomeV2Page() {
           action={
             <Button
               variant="outline"
-              className="rounded-2xl"
+              className="rounded-egw-panel-sm"
               onClick={() => router.push("/trainer-dashboard/matches")}
             >
               Apri gare
@@ -495,7 +483,7 @@ export default function TrainerDashboardHomeV2Page() {
         action={
           <Button
             variant="outline"
-            className="rounded-2xl"
+            className="rounded-egw-panel-sm"
             onClick={() => router.push("/trainer-dashboard/trainings")}
           >
             Apri calendario
@@ -537,22 +525,20 @@ export default function TrainerDashboardHomeV2Page() {
                       : "Allenamento")
                   }
                   badge={
-                    <Badge
-                      className={
+                    <StatusPill
+                      size="sm"
+                      status={
                         eGara
-                          ? convocationBadgeClassName(
+                          ? convocationPillSpec(
                               convocazioni?.state || "not_due_yet",
+                              `${convocazioni?.convocated ?? 0}/${convocazioni?.total ?? 0}`,
                             )
-                          : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50"
+                          : ACTIVITY_STATUS.training
                       }
-                    >
-                      {eGara
-                        ? `${convocazioni?.convocated ?? 0}/${convocazioni?.total ?? 0}`
-                        : "Allenamento"}
-                    </Badge>
+                    />
                   }
                   lines={[
-                    <span key="quando" className="font-medium text-slate-700">
+                    <span key="quando" className="font-medium text-egw-ink-72">
                       {formatDate(impegno.date)} ·{" "}
                       {formatTimeRange(impegno.time, impegno.endTime)}
                     </span>,
@@ -627,7 +613,7 @@ export default function TrainerDashboardHomeV2Page() {
               action={
                 <Button
                   variant="outline"
-                  className="rounded-2xl"
+                  className="rounded-egw-panel-sm"
                   onClick={() => router.push("/trainer-dashboard/categories")}
                 >
                   Apri squadre
@@ -637,14 +623,11 @@ export default function TrainerDashboardHomeV2Page() {
               {assignedCategories.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {assignedCategories.map((category: any) => (
-                    <Badge
-                      key={category?.id || category?.name}
-                      className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50"
-                    >
+                    <DataChip key={category?.id || category?.name}>
                       {category?.id
                         ? categoryDisplay.label({ categoryId: category.id, categoryName: category.name })
                         : category?.name || "Categoria"}
-                    </Badge>
+                    </DataChip>
                   ))}
                 </div>
               ) : (
@@ -664,7 +647,7 @@ export default function TrainerDashboardHomeV2Page() {
               action={
                 <Button
                   variant="outline"
-                  className="rounded-2xl"
+                  className="rounded-egw-panel-sm"
                   onClick={() => router.push("/trainer-dashboard/athletes")}
                 >
                   Apri atleti
@@ -672,17 +655,17 @@ export default function TrainerDashboardHomeV2Page() {
               }
             >
               {assignedAthletes.length > 0 ? (
-                <ul className="space-y-1 text-sm text-slate-700">
+                <ul className="space-y-1 text-sm text-egw-ink-72">
                   {assignedAthletes.slice(0, 8).map((athlete: any) => (
                     <li
                       key={athlete?.id}
-                      className="rounded-xl border border-slate-100 bg-white px-3 py-2"
+                      className="rounded-egw-field border border-egw-rule bg-white px-3 py-2"
                     >
                       {getAthleteDisplayName(athlete)}
                     </li>
                   ))}
                   {assignedAthletes.length > 8 ? (
-                    <li className="px-3 py-1 text-xs text-slate-500">
+                    <li className="px-3 py-1 text-xs text-egw-ink-62">
                       e altri {assignedAthletes.length - 8}
                     </li>
                   ) : null}

@@ -160,7 +160,7 @@ export function PaymentMethods({
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="text-blue-600"
+            className="text-egw-blue-700"
           >
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             <rect width="18" height="12" x="3" y="11" rx="2" />
@@ -225,7 +225,7 @@ export function PaymentMethods({
   if (loading) {
     return (
       <div className="flex justify-center items-center p-8">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <Loader2 className="h-8 w-8 animate-spin text-egw-blue-700" />
         <span className="ml-2">Caricamento metodi di pagamento...</span>
       </div>
     );
@@ -233,7 +233,7 @@ export function PaymentMethods({
 
   if (error) {
     return (
-      <div className="p-4 border border-red-300 bg-red-50 rounded-md text-red-800">
+      <div className="p-4 border border-egw-tint-red-bd bg-egw-tint-red rounded-egw-control text-egw-red">
         <AlertCircle className="h-5 w-5 inline mr-2" />
         {error}
       </div>
@@ -256,7 +256,7 @@ export function PaymentMethods({
               {paymentMethods.map((method) => (
                 <div
                   key={method.id}
-                  className="p-4 border rounded-lg flex items-center justify-between cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
+                  className="p-4 border rounded-egw-control flex items-center justify-between cursor-pointer hover:bg-egw-page-050 dark:hover:bg-egw-navy-800"
                   onClick={() => handleSelectMethod(method)}
                 >
                   <div className="flex items-center gap-3">
@@ -290,7 +290,7 @@ export function PaymentMethods({
             payments.map((payment) => (
               <div
                 key={payment.id}
-                className="flex items-center justify-between gap-4 rounded-lg border p-4"
+                className="flex items-center justify-between gap-4 rounded-egw-control border p-4"
               >
                 <div>
                   <p className="font-medium">{payment.description}</p>
@@ -320,7 +320,7 @@ export function PaymentMethods({
 
           {selectedPayment && (
             <div className="space-y-4">
-              <div className="p-4 border rounded-lg">
+              <div className="p-4 border rounded-egw-control">
                 <p className="font-medium">{selectedPayment.description}</p>
                 <p className="text-sm text-muted-foreground">
                   Scadenza: {formatDate(selectedPayment.due_date)}
@@ -336,7 +336,7 @@ export function PaymentMethods({
                   {paymentMethods.map((method) => (
                     <div
                       key={method.id}
-                      className={`p-3 border rounded-lg flex items-center justify-between cursor-pointer ${selectedMethod?.id === method.id ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-800"}`}
+                      className={`p-3 border rounded-egw-control flex items-center justify-between cursor-pointer ${selectedMethod?.id === method.id ? "border-blue-500 bg-egw-tint-blue dark:bg-egw-navy-900/20" : "hover:bg-egw-page-050 dark:hover:bg-egw-navy-800"}`}
                       onClick={() => handleSelectMethod(method)}
                     >
                       <div className="flex items-center gap-3">
@@ -344,7 +344,7 @@ export function PaymentMethods({
                         <span>{method.name}</span>
                       </div>
                       {selectedMethod?.id === method.id && (
-                        <CheckCircle className="h-5 w-5 text-blue-500" />
+                        <CheckCircle className="h-5 w-5 text-egw-blue" />
                       )}
                     </div>
                   ))}

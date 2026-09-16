@@ -13,7 +13,8 @@ import {
   Trophy,
   XCircle,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { StatusPill } from "@/components/web/primitives/StatusPill";
+import { CONSENT_STATUS, ENROLMENT_REQUEST_STATUS, READ_STATUS } from "@/lib/web/status";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -79,7 +80,7 @@ const formatDateTime = (value: unknown) => {
 };
 
 const EmptyState = ({ text }: { text: string }) => (
-  <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+  <p className="rounded-egw-panel-sm border border-dashed border-egw-hairline bg-egw-page-100 px-4 py-8 text-center text-sm text-egw-ink-62">
     {text}
   </p>
 );
@@ -140,10 +141,10 @@ export function ParentBoardPage() {
         title="Bacheca"
         subtitle="Le comunicazioni del club, quelle indirizzate a te."
       />
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Megaphone className="h-5 w-5 text-blue-600" />
+            <Megaphone className="h-5 w-5 text-egw-blue-700" />
             Avvisi
           </CardTitle>
         </CardHeader>
@@ -156,21 +157,19 @@ export function ParentBoardPage() {
             annunci.map((annuncio) => (
               <article
                 key={annuncio.id}
-                className="rounded-2xl border border-slate-200 bg-white p-4"
+                className="rounded-egw-panel-sm border border-egw-hairline bg-white p-4"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-slate-950">
+                    <h3 className="font-semibold text-egw-ink">
                       {annuncio.title}
                     </h3>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 text-xs text-egw-ink-62">
                       {formatDate(annuncio.publishedAt)}
                     </p>
                   </div>
                   {annuncio.readAt ? (
-                    <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
-                      Letto
-                    </Badge>
+                    <StatusPill status={READ_STATUS.read} size="sm" />
                   ) : (
                     <Button
                       size="sm"
@@ -181,7 +180,7 @@ export function ParentBoardPage() {
                     </Button>
                   )}
                 </div>
-                <p className="mt-3 whitespace-pre-line text-sm text-slate-700">
+                <p className="mt-3 whitespace-pre-line text-sm text-egw-ink-72">
                   {annuncio.body}
                 </p>
               </article>
@@ -265,10 +264,10 @@ export function ParentNotificationsPage() {
           ) : undefined
         }
       />
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Bell className="h-5 w-5 text-blue-600" />
+            <Bell className="h-5 w-5 text-egw-blue-700" />
             Le tue notifiche
           </CardTitle>
         </CardHeader>
@@ -279,21 +278,19 @@ export function ParentNotificationsPage() {
             notifiche.map((notifica: any) => (
               <div
                 key={notifica.id}
-                className="rounded-2xl border border-slate-200 bg-white p-4"
+                className="rounded-egw-panel-sm border border-egw-hairline bg-white p-4"
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <p className="font-semibold text-slate-950">
+                  <p className="font-semibold text-egw-ink">
                     {notifica.title}
                   </p>
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-egw-ink-62">
                     {formatDateTime(notifica.created_at)}
                   </span>
                 </div>
-                <p className="mt-2 text-sm text-slate-700">{notifica.message}</p>
+                <p className="mt-2 text-sm text-egw-ink-72">{notifica.message}</p>
                 {!notifica.read ? (
-                  <span className="mt-2 inline-block rounded-full bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
-                    Da leggere
-                  </span>
+                  <StatusPill status={READ_STATUS.unread} size="sm" className="mt-2" />
                 ) : null}
               </div>
             ))
@@ -369,10 +366,10 @@ export function ParentConsentsPage() {
         title="Consensi"
         subtitle="A cosa hai detto di si, e cosa puoi revocare."
       />
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5 text-blue-600" />
+            <ShieldCheck className="h-5 w-5 text-egw-blue-700" />
             I tuoi consensi
           </CardTitle>
         </CardHeader>
@@ -387,39 +384,36 @@ export function ParentConsentsPage() {
               return (
                 <div
                   key={stato.definitionId || stato.definition?.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-4"
+                  className="rounded-egw-panel-sm border border-egw-hairline bg-white p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="font-semibold text-slate-950">
+                      <p className="font-semibold text-egw-ink">
                         {stato.title || stato.definition?.title || "Consenso"}
                       </p>
                       {stato.description || stato.definition?.description ? (
-                        <p className="mt-1 text-sm text-slate-600">
+                        <p className="mt-1 text-sm text-egw-ink-72">
                           {stato.description || stato.definition?.description}
                         </p>
                       ) : null}
                       {stato.required ? (
-                        <p className="mt-1 text-xs font-medium text-amber-700">
+                        <p className="mt-1 text-xs font-medium text-egw-amber-ink">
                           Obbligatorio per il tesseramento
                         </p>
                       ) : null}
                     </div>
-                    <Badge
-                      className={
+                    <StatusPill
+                      size="sm"
+                      status={
                         accettato
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50"
-                          : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-50"
+                          ? CONSENT_STATUS.accepted
+                          : stato.status === "revoked"
+                            ? CONSENT_STATUS.revoked
+                            : stato.status === "rejected"
+                              ? CONSENT_STATUS.rejected
+                              : CONSENT_STATUS.pending
                       }
-                    >
-                      {accettato
-                        ? "Accettato"
-                        : stato.status === "revoked"
-                          ? "Revocato"
-                          : stato.status === "rejected"
-                            ? "Rifiutato"
-                            : "Da decidere"}
-                    </Badge>
+                    />
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">
@@ -506,10 +500,10 @@ export function ParentCalendarPage() {
         sapesse di avere piu figli. Adesso lo dice il guscio, su tutte.
       */}
 
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
           <CardTitle className="flex items-center gap-2">
-            <CalendarDays className="h-5 w-5 text-blue-600" />
+            <CalendarDays className="h-5 w-5 text-egw-blue-700" />
             Prossimi impegni
           </CardTitle>
           <div className="flex gap-2">
@@ -538,14 +532,14 @@ export function ParentCalendarPage() {
             eventi.map((evento: any) => (
               <div
                 key={`${evento.kind}-${evento.id}`}
-                className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-2 rounded-egw-panel-sm border border-egw-hairline bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="flex min-w-0 items-start gap-3">
                   <div
-                    className={`mt-1 rounded-lg p-2 ${
+                    className={`mt-1 rounded-egw-control p-2 ${
                       evento.kind === "match"
-                        ? "bg-amber-50 text-amber-700"
-                        : "bg-blue-50 text-blue-700"
+                        ? "bg-egw-tint-amber text-egw-amber-ink"
+                        : "bg-egw-tint-blue text-egw-blue-700"
                     }`}
                   >
                     {evento.kind === "match" ? (
@@ -555,13 +549,13 @@ export function ParentCalendarPage() {
                     )}
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-950">
+                    <p className="truncate font-medium text-egw-ink">
                       {evento.title ||
                         (evento.kind === "match"
                           ? `Gara contro ${evento.opponent || "avversario"}`
                           : "Allenamento")}
                     </p>
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="mt-1 text-sm text-egw-ink-62">
                       {formatDate(evento.date)}
                       {evento.time ? ` · ${evento.time}` : ""}
                       {evento.category ? ` · ${evento.category}` : ""}
@@ -570,9 +564,7 @@ export function ParentCalendarPage() {
                   </div>
                 </div>
                 {evento.rsvpRequired ? (
-                  <Badge className="border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-50">
-                    Conferma richiesta
-                  </Badge>
+                  <StatusPill status={READ_STATUS.rsvp_required} size="sm" />
                 ) : null}
               </div>
             ))
@@ -712,29 +704,18 @@ export function ParentEnrollmentPage() {
     };
   }, [athleteId, showToast, versione]);
 
+  /* Lo stato della pratica e una pillola del sistema (`ENROLMENT_REQUEST_STATUS`). */
   const etichetta = (stato: string) => {
     switch (String(stato || "").toLowerCase()) {
       case "approved":
-        return {
-          testo: "Approvata",
-          classe: "border-emerald-200 bg-emerald-50 text-emerald-700",
-        };
+        return ENROLMENT_REQUEST_STATUS.approved;
       case "rejected":
-        return {
-          testo: "Respinta",
-          classe: "border-red-200 bg-red-50 text-red-700",
-        };
+        return ENROLMENT_REQUEST_STATUS.rejected;
       case "in_review":
       case "processing":
-        return {
-          testo: "In lavorazione",
-          classe: "border-amber-200 bg-amber-50 text-amber-700",
-        };
+        return ENROLMENT_REQUEST_STATUS.in_review;
       default:
-        return {
-          testo: "Inviata",
-          classe: "border-slate-200 bg-slate-50 text-slate-600",
-        };
+        return ENROLMENT_REQUEST_STATUS.sent;
     }
   };
 
@@ -757,15 +738,15 @@ export function ParentEnrollmentPage() {
           }}
         />
       ) : (
-        <Card className="border-slate-200 shadow-sm">
+        <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <RefreshCw className="h-5 w-5 text-blue-600" />
+              <RefreshCw className="h-5 w-5 text-egw-blue-700" />
               Rinnova l&#8217;iscrizione
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-egw-ink-72">
               Il rinnovo e lo stesso modulo dell&#8217;iscrizione, gia compilato
               con i dati che la societa ha in archivio: si controlla, si
               corregge cio che e cambiato e si invia. La stagione la decide la
@@ -781,13 +762,13 @@ export function ParentEnrollmentPage() {
               <p
                 role="status"
                 aria-live="polite"
-                className="text-sm text-slate-500"
+                className="text-sm text-egw-ink-62"
               >
                 Cerco i moduli di rinnovo…
               </p>
             ) : statoModuli === "error" ? (
               <div className="space-y-2">
-                <p role="alert" className="text-sm text-red-700">
+                <p role="alert" className="text-sm text-egw-red">
                   {erroreModuli}
                 </p>
                 <Button
@@ -800,7 +781,7 @@ export function ParentEnrollmentPage() {
                 </Button>
               </div>
             ) : moduli.length === 0 && !slugRinnovo ? (
-              <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+              <p className="rounded-egw-field border border-dashed border-egw-hairline bg-egw-page-100 px-4 py-6 text-sm text-egw-ink-72">
                 La societa non ha pubblicato nessun modulo di rinnovo. Quando lo
                 fara lo trovi qui: non serve nessun link.
               </p>
@@ -848,10 +829,10 @@ export function ParentEnrollmentPage() {
         </Card>
       )}
 
-      <Card className="border-slate-200 shadow-sm">
+      <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <FileSignature className="h-5 w-5 text-blue-600" />
+            <FileSignature className="h-5 w-5 text-egw-blue-700" />
             Le tue pratiche
           </CardTitle>
         </CardHeader>
@@ -887,11 +868,11 @@ export function ParentEnrollmentPage() {
               return (
                 <article
                   key={pratica.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-4"
+                  className="rounded-egw-panel-sm border border-egw-hairline bg-white p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="font-semibold text-slate-950">
+                      <p className="font-semibold text-egw-ink">
                         {/*
                           `kindLabel` lo calcola e lo manda il server, e
                           conosce tutti e tre i tipi. Il ternario ne conosceva
@@ -902,30 +883,28 @@ export function ParentEnrollmentPage() {
                           pratica.kindLabel ||
                           "Pratica"}
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">
+                      <p className="mt-1 text-xs text-egw-ink-62">
                         Inviata il {formatDate(pratica.submittedAt)}
                         {pratica.seasonLabel
                           ? ` · stagione ${pratica.seasonLabel}`
                           : ""}
                       </p>
                     </div>
-                    <Badge className={`${stato.classe} hover:bg-inherit`}>
-                      {stato.testo}
-                    </Badge>
+                    <StatusPill status={stato} size="sm" />
                   </div>
 
                   {pratica.reviewNote ? (
-                    <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                    <p className="mt-3 rounded-egw-field bg-egw-page-100 px-3 py-2 text-sm text-egw-ink-72">
                       {pratica.reviewNote}
                     </p>
                   ) : null}
 
                   {mancanti.length > 0 ? (
                     <div className="mt-3 space-y-1">
-                      <p className="text-sm font-medium text-amber-700">
+                      <p className="text-sm font-medium text-egw-amber-ink">
                         Il club aspetta:
                       </p>
-                      <ul className="list-inside list-disc text-sm text-slate-700">
+                      <ul className="list-inside list-disc text-sm text-egw-ink-72">
                         {mancanti.map((documento: any) => (
                           <li key={documento.id || documento.title}>
                             {documento.title || documento.documentKind}

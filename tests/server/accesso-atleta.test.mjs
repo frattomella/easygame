@@ -1250,13 +1250,14 @@ test("PP-04 · ogni pagina dell'area atleta e nel menu, e ogni voce di menu ha l
   };
   visita(cartella, "/athlete-dashboard");
 
+  /* Redesign: l'elenco vive in `web/shell/area-navigation.ts` (ATHLETE_AREA_NAV_GROUPS), letto da barra e menu via AreaShell. */
   const sidebar = readFileSync(
-    path.join(RADICE, "components", "athlete", "athlete-sidebar.tsx"),
+    path.join(RADICE, "components", "web", "shell", "area-navigation.ts"),
     "utf8",
   );
   const elenco = sidebar.slice(
-    sidebar.indexOf("export const ATHLETE_NAV_ITEMS"),
-    sidebar.indexOf("] as const;"),
+    sidebar.indexOf("export const ATHLETE_AREA_NAV_GROUPS"),
+    sidebar.indexOf("/** La forma che la barra mobile si aspetta"),
   );
   const voci = [...elenco.matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]);
 
@@ -1268,7 +1269,7 @@ test("PP-04 · ogni pagina dell'area atleta e nel menu, e ogni voce di menu ha l
   );
   const titoli = guscio.slice(
     guscio.indexOf("const TITOLI"),
-    guscio.indexOf("const mobileNavSections"),
+    guscio.indexOf("export default function AthleteAreaShell"),
   );
 
   /* 1. Ogni voce di menu porta a una pagina che esiste davvero. */
@@ -1298,7 +1299,7 @@ test("PP-04 · ogni pagina dell'area atleta e nel menu, e ogni voce di menu ha l
     si e ripresentato ogni volta.
   */
   assert.ok(
-    guscio.includes("ATHLETE_NAV_ITEMS.map("),
-    "il menu del telefono deve derivare da ATHLETE_NAV_ITEMS, non riscriverlo",
+    guscio.includes("groups={ATHLETE_AREA_NAV_GROUPS}"),
+    "barra e menu del telefono derivano entrambi da ATHLETE_AREA_NAV_GROUPS via AreaShell, non da una copia",
   );
 });

@@ -114,7 +114,7 @@ function DetailField({
         {Icon ? (
           <Icon className="mt-0.5 h-4 w-4 text-muted-foreground" />
         ) : null}
-        <div className="min-w-0 text-sm text-slate-900">{value}</div>
+        <div className="min-w-0 text-sm text-egw-ink">{value}</div>
       </div>
     </div>
   );
@@ -156,11 +156,11 @@ function ReadOnlyAttachmentList({
               return (
                 <div
                   key={document.id || `${fileName}-${index}`}
-                  className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                  className="rounded-egw-field border border-egw-hairline bg-egw-page-100 p-4"
                 >
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0">
-                      <p className="font-medium text-slate-900">{fileName}</p>
+                      <p className="font-medium text-egw-ink">{fileName}</p>
                       <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
                         {getTextValue(document.type) ? (
                           <span>{document.type}</span>
@@ -180,7 +180,7 @@ function ReadOnlyAttachmentList({
                         ) : null}
                       </div>
                       {getTextValue(document.notes) ? (
-                        <p className="mt-2 text-sm text-slate-600">
+                        <p className="mt-2 text-sm text-egw-ink-72">
                           {document.notes}
                         </p>
                       ) : null}
@@ -408,7 +408,7 @@ export default function TrainerAthleteProfilePage() {
 
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-4">
-          <Avatar className="h-20 w-20 rounded-3xl">
+          <Avatar className="h-20 w-20 rounded-egw-panel">
             {getTextValue(
               athlete?.avatar_url,
               data?.avatar,
@@ -423,7 +423,7 @@ export default function TrainerAthleteProfilePage() {
                 alt={displayName}
               />
             ) : (
-              <AvatarFallback className="rounded-3xl bg-transparent p-0">
+              <AvatarFallback className="rounded-egw-panel bg-transparent p-0">
                 <EntityIcon
                   type="athlete"
                   shape="square"
@@ -442,8 +442,8 @@ export default function TrainerAthleteProfilePage() {
                   key={`${membership.categoryId}-${membership.isPrimary ? "primary" : "secondary"}`}
                   className={
                     membership.isPrimary
-                      ? "bg-blue-500 text-white hover:bg-blue-500"
-                      : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-50"
+                      ? "bg-egw-blue text-white hover:bg-egw-blue"
+                      : "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-indigo hover:bg-egw-tint-blue"
                   }
                 >
                   {etichetta(membership)}{" "}
@@ -451,7 +451,7 @@ export default function TrainerAthleteProfilePage() {
                 </Badge>
               ))}
               {medicalCertExpiry && canSeeClinicalStatus ? (
-                <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
+                <Badge className="border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green">
                   Certificato: {formatDate(medicalCertExpiry)}
                 </Badge>
               ) : null}
@@ -512,7 +512,7 @@ export default function TrainerAthleteProfilePage() {
                           {secondaryCategories.map((membership) => (
                             <Badge
                               key={membership.categoryId}
-                              className="border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-50"
+                              className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-indigo hover:bg-egw-tint-blue"
                             >
                               {etichetta(membership)}
                             </Badge>
@@ -653,13 +653,13 @@ export default function TrainerAthleteProfilePage() {
                     {guardians.map((guardian: any, index: number) => (
                       <div
                         key={guardian?.id || `${guardian?.name}-${index}`}
-                        className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                        className="rounded-egw-field border border-egw-hairline bg-egw-page-100 p-4"
                       >
-                        <p className="font-medium text-slate-900">
+                        <p className="font-medium text-egw-ink">
                           {getTextValue(guardian?.name, guardian?.nome)}{" "}
                           {getTextValue(guardian?.surname, guardian?.cognome)}
                         </p>
-                        <div className="mt-2 space-y-1 text-sm text-slate-600">
+                        <div className="mt-2 space-y-1 text-sm text-egw-ink-72">
                           <p>
                             Ruolo: {getTextValue(guardian?.relationship) || "-"}
                           </p>
@@ -728,7 +728,7 @@ export default function TrainerAthleteProfilePage() {
                   ) : null}
                 </div>
                 {canSeeClinicalContent ? null : (
-                  <p className="mt-4 text-sm text-slate-500">
+                  <p className="mt-4 text-sm text-egw-ink-62">
                     Il contenuto clinico — allergie, patologie, farmaci, gruppo
                     sanguigno — non e visibile al tuo ruolo. Resta visibile lo
                     stato del certificato, che e cio che serve a sapere se
@@ -834,24 +834,24 @@ export default function TrainerAthleteProfilePage() {
                     {payments.map((payment: any, index: number) => (
                       <div
                         key={payment?.id || `${payment?.description}-${index}`}
-                        className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                        className="rounded-egw-field border border-egw-hairline bg-egw-page-100 p-4"
                       >
                         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
                           <div>
-                            <p className="font-medium text-slate-900">
+                            <p className="font-medium text-egw-ink">
                               {getTextValue(
                                 payment?.description,
                                 payment?.type,
                                 "Pagamento",
                               )}
                             </p>
-                            <p className="mt-1 text-sm text-slate-500">
+                            <p className="mt-1 text-sm text-egw-ink-62">
                               {payment?.date ? formatDate(payment.date) : "-"} •{" "}
                               {getTextValue(payment?.status) ||
                                 "Stato non definito"}
                             </p>
                           </div>
-                          <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
+                          <Badge className="border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green">
                             {getTextValue(payment?.amount) || "0"} €
                           </Badge>
                         </div>
@@ -937,16 +937,16 @@ export default function TrainerAthleteProfilePage() {
                         key={
                           assignment?.id || `${assignment?.kitName}-${index}`
                         }
-                        className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                        className="rounded-egw-field border border-egw-hairline bg-egw-page-100 p-4"
                       >
-                        <p className="font-medium text-slate-900">
+                        <p className="font-medium text-egw-ink">
                           {getTextValue(
                             assignment?.kitName,
                             assignment?.name,
                             "Kit assegnato",
                           )}
                         </p>
-                        <p className="mt-1 text-sm text-slate-500">
+                        <p className="mt-1 text-sm text-egw-ink-62">
                           {Array.isArray(assignment?.components)
                             ? assignment.components
                                 .map((component: any) =>

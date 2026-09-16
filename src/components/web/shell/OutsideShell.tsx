@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { IconChip } from "@/components/web/primitives/StatusPill";
+import { SkyProvider } from "@/components/web/primitives/Surface";
 import logoWhite from "@/../public/images/brand/logotipo-w.png";
 import iconWhite from "@/../public/images/brand/icon-w.png";
 
@@ -50,6 +51,7 @@ const widths = {
 
 export function OutsideShell({ children, width = "form", above, below, logoHref = "/", className, panelClassName, bare = false }: OutsideShellProps) {
   return (
+    <SkyProvider>
     <div className={cn("egw-sky-full relative min-h-[100dvh] overflow-hidden px-4 py-8 font-brand sm:py-12", className)}>
       <Image
         src={iconWhite}
@@ -65,12 +67,15 @@ export function OutsideShell({ children, width = "form", above, below, logoHref 
         {bare ? (
           <div className={cn("w-full", panelClassName)}>{children}</div>
         ) : (
-          <div className={cn("w-full rounded-egw-panel border border-white/60 bg-white p-6 shadow-egw-plane-2 sm:p-8", panelClassName)}>{children}</div>
+          <SkyProvider onSky={false}>
+            <div className={cn("w-full rounded-egw-panel border border-white/60 bg-white p-6 shadow-egw-plane-2 sm:p-8", panelClassName)}>{children}</div>
+          </SkyProvider>
         )}
         {below ? <div className="w-full text-center text-[13px] text-white/80 [&_a]:font-semibold [&_a]:text-white [&_a]:underline-offset-4 hover:[&_a]:underline">{below}</div> : null}
         <p className="text-center text-[11px] text-white/60">powered by CediSoft</p>
       </div>
     </div>
+    </SkyProvider>
   );
 }
 

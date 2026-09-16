@@ -86,21 +86,15 @@ const ETICHETTE: Record<FamilyDocumentState, string> = {
   rejected: "Da integrare",
 };
 
-const CLASSI: Record<FamilyDocumentState, string> = {
-  missing: "border-amber-200 bg-amber-50 text-amber-700",
-  overdue: "border-red-200 bg-red-50 text-red-700",
-  under_review: "border-violet-200 bg-violet-50 text-violet-700",
-  approved: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  expired: "border-red-200 bg-red-50 text-red-700",
-  rejected: "border-red-200 bg-red-50 text-red-700",
-};
-
 export const getFamilyDocumentStateLabel = (state: unknown) =>
   ETICHETTE[String(state ?? "") as FamilyDocumentState] || "Da caricare";
 
-export const getFamilyDocumentStateClassName = (state: unknown) =>
-  CLASSI[String(state ?? "") as FamilyDocumentState] ||
-  "border-slate-200 bg-slate-50 text-slate-700";
+/*
+  L'aspetto dello stato non vive piu qui: e una pillola del sistema
+  (`DOSSIER_STATUS` in `lib/web/status.ts`), la stessa che il club legge sui
+  medesimi depositi. Il dominio dice **quale** stato; il sistema dice come si
+  disegna.
+*/
 
 /**
  * L'unica azione che una riga propone.

@@ -24,9 +24,11 @@ import type { TrainingSession } from "@/components/training/v2/training-page-mod
  * `da segnare → presente → assente` — «Segna tutti presenti», la riga di
  * avanzamento e il salvataggio nel piede.
  *
- * E la forma V2 di `AttendanceSheet` (`src/components/trainer/`), che resta
- * alle schermate dell'allenatore: **stesso contratto** — le stesse righe in
- * ingresso, lo stesso `onSave({trainingId, attendance})` — e stesse capacita:
+ * E **l'unico** registro presenze del prodotto: lo montano la pagina
+ * Allenamenti del club e le schermate dell'allenatore (allenamenti e gare),
+ * che fino al redesign avevano una copia propria (`AttendanceSheet`). Stesso
+ * contratto — le stesse righe in ingresso, lo stesso `onSave({trainingId,
+ * attendance})` — e stesse capacita:
  * le risposte delle famiglie sopra l'appello (`TrainingRsvpSummary`),
  * l'atleta extra cercato fra tutto il club, l'avviso sul certificato, la
  * categoria primaria di chi non e della squadra, la nota per atleta.
@@ -53,6 +55,12 @@ export type AttendanceDrawerAthlete = {
   isManualExtra?: boolean;
   primaryCategoryName?: string | null;
 };
+
+/** Cio che il cassetto deve sapere della seduta: l'allenatore passa una gara con la stessa forma. */
+export type AttendanceDrawerTraining = Pick<TrainingSession, "id" | "title"> &
+  Partial<Pick<TrainingSession, "time" | "category" | "location" | "trainer">> & {
+    date: Date | string | null | undefined;
+  };
 
 export type AttendanceSavePayload = {
   trainingId: string;
@@ -103,7 +111,7 @@ export function AttendanceDrawer({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  training: TrainingSession | null;
+  training: AttendanceDrawerTraining | null;
   athletes: AttendanceDrawerAthlete[];
   clubAthletes: AttendanceDrawerAthlete[];
   onSave: (payload: AttendanceSavePayload) => void | Promise<void>;

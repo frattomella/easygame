@@ -356,7 +356,7 @@ test("§N · le righe nuove dell'area famiglia vanno a capo", () => {
     "la riga di una ricevuta e quella di un modulo: descrizione e importo su una riga rigida non stanno a 375 px",
   );
   assert.ok(
-    pagine.includes(`className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500"`),
+    pagine.includes(`className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-egw-ink-62"`),
     "la riga di dettaglio — tipo, numero, data, figlio, stato — e la piu lunga di tutte",
   );
   assert.ok(
@@ -443,7 +443,7 @@ test("§T · la riga dell'appuntamento legge la proiezione, non un vocabolario s
     il messaggio interno sulle transizioni non ammesse.
   */
   assert.ok(
-    pagine.includes("appointment.status_label ||"),
+    pagine.includes("pillolaStatoAppuntamento(appointment.status, appointment.status_label)"),
     "l'etichetta la sa il dominio, che conosce gli otto stati",
   );
   assert.ok(
@@ -531,13 +531,14 @@ test("§U · il colore dell'appuntamento segue la sua etichetta", () => {
     azzurra, identica a quella di un appuntamento vivo — e su una lista il
     colore si legge prima del testo.
   */
+  /* Redesign: il vocabolario e `APPOINTMENT_STATUS` in lib/web/status.ts, e la pillola e quella del sistema. */
   assert.ok(
-    pagine.includes("classeStatoAppuntamento(appointment.status)"),
+    pagine.includes("pillolaStatoAppuntamento(appointment.status, appointment.status_label)"),
     "il tono lo decide il vocabolario degli appuntamenti",
   );
+  const stati = senzaCommenti(leggi("lib/web/status.ts"));
   assert.ok(
-    pagine.includes('"cancelled_by_family"') &&
-      pagine.includes('"no_show"'),
+    stati.includes("cancelled_by_family:") && stati.includes("no_show:") && stati.includes("cancelled_by_club:") && stati.includes("rescheduled:"),
     "i sei stati terminali devono essere nominati, o cadono su un ripiego",
   );
 });

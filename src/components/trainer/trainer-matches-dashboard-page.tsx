@@ -15,10 +15,11 @@ import {
 import { PageHeading } from "@/components/dashboard/page-heading";
 import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
 import { Badge } from "@/components/ui/badge";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
-import { AttendanceSheet } from "@/components/trainer/AttendanceSheet";
+import { AttendanceDrawer } from "@/components/training/v2/AttendanceDrawer";
 import { MatchConvocations } from "@/components/trainer/MatchConvocations";
 import { TrainerEventEditorDialog } from "@/components/trainer/trainer-event-editor-dialog";
 import { ResponsiveMatchesCalendar } from "@/components/trainer/ResponsiveMatchesCalendar";
@@ -104,6 +105,7 @@ export default function TrainerMatchesDashboardPage() {
     le convocazioni gia salvate: sono due scrittori distinti.
   */
   const [attendanceMatch, setAttendanceMatch] = useState<any | null>(null);
+  const [savingMatchAttendance, setSavingMatchAttendance] = useState(false);
   const [attendanceRows, setAttendanceRows] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
@@ -324,18 +326,16 @@ export default function TrainerMatchesDashboardPage() {
               key={match.id}
               title={match.title || "Gara"}
               leadingBadge={
-                <Badge className="border-blue-200 bg-blue-50 px-3 py-1 text-blue-700 hover:bg-blue-50">
-                  {matchCategory}
-                </Badge>
+                <DataChip>{matchCategory}</DataChip>
               }
               className={
                 focusedMatchId === match.id
-                  ? "border-blue-300 bg-blue-50/70 shadow-sm"
+                  ? "border-egw-tint-blue-bd bg-egw-tint-blue shadow-egw-plane-1"
                   : missingConvocations
-                    ? "border-rose-200 bg-rose-50/60"
+                    ? "border-egw-tint-red-bd bg-egw-tint-red"
                     : undefined
               }
-              badge={<Badge className={status.className}>{status.label}</Badge>}
+              badge={<StatusPill status={status.spec} size="sm" />}
               lines={[
                 <span key="opponent">
                   vs {match.opponent || "Avversario da definire"}
@@ -350,7 +350,7 @@ export default function TrainerMatchesDashboardPage() {
                 </span>,
                 <span
                   key="convocations"
-                  className="flex flex-wrap items-center gap-2 font-medium text-slate-700"
+                  className="flex flex-wrap items-center gap-2 font-medium text-egw-ink-72"
                 >
                   <span>
                     {convocationStatus.convocated}/{convocationStatus.total} ·{" "}
@@ -362,7 +362,7 @@ export default function TrainerMatchesDashboardPage() {
                   ? [
                       <span
                         key="notes"
-                        className="line-clamp-2 text-slate-600"
+                        className="line-clamp-2 text-egw-ink-72"
                       >
                         Note: {matchNotes}
                       </span>,
@@ -371,7 +371,7 @@ export default function TrainerMatchesDashboardPage() {
               ]}
               footer={
                 missingConvocations ? (
-                  <div className="flex items-center gap-2 text-sm font-medium text-rose-700">
+                  <div className="flex items-center gap-2 text-sm font-medium text-egw-red">
                     <AlertTriangle className="h-4 w-4" />
                     Scadenza convocazioni vicina
                   </div>
@@ -382,7 +382,7 @@ export default function TrainerMatchesDashboardPage() {
                   {permissions.actions.manageConvocations ? (
                     <Button
                       size="sm"
-                      className="bg-blue-600 hover:bg-blue-700"
+                      className="bg-egw-blue hover:bg-egw-blue-700"
                       onClick={() => { void openConvocations(match); }}
                     >
                       <ListChecks className="mr-2 h-4 w-4" />
@@ -404,7 +404,7 @@ export default function TrainerMatchesDashboardPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="rounded-xl border-slate-300 text-slate-700 hover:bg-slate-50"
+                      className="rounded-egw-field border-egw-hairline text-egw-ink-72 hover:bg-egw-page-050"
                       onClick={() => {
                         setGaraInModifica(match);
                         setEditorAperto(true);
@@ -426,7 +426,7 @@ export default function TrainerMatchesDashboardPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="rounded-xl"
+                      className="rounded-egw-field"
                       onClick={() => void openAttendance(match)}
                     >
                       <ClipboardCheck className="mr-2 h-4 w-4" />
@@ -457,7 +457,7 @@ export default function TrainerMatchesDashboardPage() {
           */
           permissions.actions.manageTrainingStatus ? (
             <Button
-              className="w-full rounded-2xl bg-blue-600 hover:bg-blue-700 sm:w-auto"
+              className="w-full rounded-egw-panel-sm bg-egw-blue hover:bg-egw-blue-700 sm:w-auto"
               onClick={() => {
                 setGaraInModifica(null);
                 setEditorAperto(true);
@@ -489,12 +489,12 @@ export default function TrainerMatchesDashboardPage() {
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Cerca gara, categoria, avversario, data..."
-            className="rounded-2xl pl-10"
+            className="rounded-egw-panel-sm pl-10"
           />
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-egw-ink-42" />
         </div>
 
-        <div className="inline-flex w-full rounded-2xl border border-slate-200 bg-slate-50 p-1 sm:w-auto">
+        <div className="inline-flex w-full rounded-egw-panel-sm border border-egw-hairline bg-egw-page-100 p-1 sm:w-auto">
           <Button
             type="button"
             size="sm"
@@ -502,8 +502,8 @@ export default function TrainerMatchesDashboardPage() {
             aria-pressed={viewMode === "list"}
             className={
               viewMode === "list"
-                ? "flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 sm:flex-none"
-                : "flex-1 rounded-xl sm:flex-none"
+                ? "flex-1 rounded-egw-field bg-egw-blue hover:bg-egw-blue-700 sm:flex-none"
+                : "flex-1 rounded-egw-field sm:flex-none"
             }
             onClick={() => setViewMode("list")}
           >
@@ -517,8 +517,8 @@ export default function TrainerMatchesDashboardPage() {
             aria-pressed={viewMode === "calendar"}
             className={
               viewMode === "calendar"
-                ? "flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 sm:flex-none"
-                : "flex-1 rounded-xl sm:flex-none"
+                ? "flex-1 rounded-egw-field bg-egw-blue hover:bg-egw-blue-700 sm:flex-none"
+                : "flex-1 rounded-egw-field sm:flex-none"
             }
             onClick={() => setViewMode("calendar")}
           >
@@ -634,37 +634,29 @@ export default function TrainerMatchesDashboardPage() {
       ) : null}
 
       {attendanceMatch ? (
-        <Dialog
-          open={Boolean(attendanceMatch)}
-          onOpenChange={(open) => {
-            if (!open) {
-              setAttendanceMatch(null);
-              setAttendanceRows([]);
-            }
-          }}
-        >
-          <DialogContent className="max-w-4xl border-none bg-transparent p-0 shadow-none">
-            <DialogHeader className="sr-only">
-              <DialogTitle>Presenze gara</DialogTitle>
-              <DialogDescription>
-                Registra chi e sceso in campo per questa gara.
-              </DialogDescription>
-            </DialogHeader>
-            <AttendanceSheet
-              trainingId={attendanceMatch.id}
-              trainingTitle={attendanceMatch.title || "Gara"}
-              trainingDate={attendanceMatch.date}
-              trainingTime={formatTimeRange(attendanceMatch.time)}
-              categoryName={
-                attendanceMatch.displayCategory ||
-                attendanceMatch.category ||
-                "Categoria"
+        <>
+          <AttendanceDrawer
+            open
+            onOpenChange={(open) => {
+              if (!open) {
+                setAttendanceMatch(null);
+                setAttendanceRows([]);
               }
-              location={formatMatchLocationLabel(attendanceMatch)}
-              athletes={getMatchAttendanceAthletes(attendanceMatch)}
-              clubAthletes={getTrainerAthleteOptions()}
-              onSave={async ({ attendance }) => {
+            }}
+            training={{
+              id: String(attendanceMatch.id),
+              title: attendanceMatch.title || "Gara",
+              date: attendanceMatch.date,
+              time: formatTimeRange(attendanceMatch.time),
+              category: attendanceMatch.displayCategory || attendanceMatch.category || "Categoria",
+              location: formatMatchLocationLabel(attendanceMatch),
+            }}
+            athletes={getMatchAttendanceAthletes(attendanceMatch)}
+            clubAthletes={getTrainerAthleteOptions()}
+            saving={savingMatchAttendance}
+            onSave={async ({ attendance }) => {
                 try {
+                  setSavingMatchAttendance(true);
                   /*
                     `present` diventa `present` / `absent`: lo stato e una
                     parola, non un booleano, perche `pending` deve poter
@@ -689,15 +681,12 @@ export default function TrainerMatchesDashboardPage() {
                     "error",
                     "Errore nel salvataggio delle presenze di gara",
                   );
+                } finally {
+                  setSavingMatchAttendance(false);
                 }
               }}
-              onClose={() => {
-                setAttendanceMatch(null);
-                setAttendanceRows([]);
-              }}
-            />
-          </DialogContent>
-        </Dialog>
+          />
+        </>
       ) : null}
     </div>
   );

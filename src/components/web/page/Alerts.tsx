@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Bell, CheckCircle2, HelpCircle, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Eyebrow, Panel } from "@/components/web/primitives/Surface";
+import { Eyebrow, Panel, useOnSky } from "@/components/web/primitives/Surface";
 import { IconChip } from "@/components/web/primitives/StatusPill";
 
 /**
@@ -44,12 +44,17 @@ export function AlertBlock({
   role?: "alert" | "status";
 }) {
   const s = severityStyles[severity];
+  /*
+    Sul cielo una tinta al 10% diventa un riquadro scuro con dentro inchiostro
+    scuro: il blocco si fa bianco e opaco, e la gravita la dice l'icona.
+  */
+  const onSky = useOnSky();
   return (
     <div
       role={role ?? (severity === "danger" ? "alert" : "status")}
       className={cn(
         "flex flex-wrap items-start gap-3 rounded-egw-field border px-4 py-3.5 font-brand",
-        s.box,
+        onSky ? "border-white/60 bg-white shadow-egw-plane-1" : s.box,
         className,
       )}
     >

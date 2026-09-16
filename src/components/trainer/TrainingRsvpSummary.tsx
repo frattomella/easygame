@@ -52,7 +52,7 @@ const Tally = ({
   tone: string;
 }) => (
   <div
-    className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${tone}`}
+    className={`flex items-center gap-2 rounded-egw-field border px-3 py-2 ${tone}`}
   >
     <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
     <span className="text-sm">
@@ -94,13 +94,13 @@ export function TrainingRsvpSummary({ trainingId }: { trainingId: string }) {
   const missing = summary.athletes.filter((row) => row.state === "no_response");
 
   return (
-    <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+    <div className="space-y-3 rounded-egw-control border border-egw-hairline bg-white p-3">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm font-medium text-slate-900">
+        <p className="text-sm font-medium text-egw-ink">
           Risposte delle famiglie
         </p>
         {summary.deadline ? (
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-egw-ink-62">
             {summary.deadlinePassed ? "Conferme chiuse il " : "Conferme aperte fino al "}
             {new Date(summary.deadline).toLocaleString("it-IT", {
               day: "numeric",
@@ -117,32 +117,32 @@ export function TrainingRsvpSummary({ trainingId }: { trainingId: string }) {
           icon={CheckCircle}
           label="ci saranno"
           value={summary.totals.yes}
-          tone="border-emerald-200 bg-emerald-50 text-emerald-800"
+          tone="border-egw-tint-green-bd bg-egw-tint-green text-egw-green"
         />
         <Tally
           icon={XCircle}
           label="non ci saranno"
           value={summary.totals.no}
-          tone="border-amber-200 bg-amber-50 text-amber-800"
+          tone="border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink"
         />
         <Tally
           icon={HelpCircle}
           label="senza risposta"
           value={summary.totals.noResponse}
-          tone="border-slate-200 bg-slate-50 text-slate-700"
+          tone="border-egw-hairline bg-egw-page-100 text-egw-ink-72"
         />
       </div>
 
       {missing.length > 0 ? (
         <div className="space-y-1">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <p className="text-xs font-medium uppercase tracking-wide text-egw-ink-62">
             Senza risposta
           </p>
           <ul className="flex flex-wrap gap-1.5">
             {missing.map((row) => (
               <li
                 key={row.athleteId}
-                className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700"
+                className="rounded-full bg-egw-page-100 px-2.5 py-1 text-xs text-egw-ink-72"
               >
                 {row.athleteName}
               </li>
@@ -150,7 +150,7 @@ export function TrainingRsvpSummary({ trainingId }: { trainingId: string }) {
           </ul>
         </div>
       ) : (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-egw-ink-62">
           Tutte le famiglie attese hanno risposto.
         </p>
       )}

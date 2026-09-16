@@ -14,10 +14,21 @@ import {
   Users,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Eyebrow, InsetBlock, Panel, PanelHeader } from "@/components/web/primitives/Surface";
+import { DataChip, IconChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { EmptyStateCard, KpiCard } from "@/components/web/page/Cards";
+import { ACTIVITY_STATUS, type StatusSpec } from "@/lib/web/status";
 import { cn } from "@/lib/utils";
 import { type TrainerNavigationPermissionKey } from "@/lib/trainer-dashboard-permissions";
+
+/**
+ * Le superfici dell'area allenatore, sui pezzi del Web V2 (guideline 09):
+ * stesse firme di prima — le dieci pagine le montano cosi — e sotto `Panel`,
+ * `KpiCard`, `StatusPill`, `DataChip`, `EmptyStateCard`. Le card in
+ * gradiente viola/arancio/verde dei moduli non esistono piu (deprecated.md):
+ * un modulo e un pannello bianco con l'occhiello e il chip d'icona nel suo tono.
+ */
 
 export const formatDate = (value: unknown) => {
   const parsed = value ? new Date(String(value)) : null;
@@ -33,43 +44,38 @@ export const formatDate = (value: unknown) => {
   });
 };
 
+/**
+ * Lo stato di un evento, come pillola del sistema (`ACTIVITY_STATUS`). Resta
+ * la stessa firma: chi la chiama riceve `spec` da passare a `StatusPill`, e
+ * `label` per chi legge solo la parola.
+ */
 export const getStatusBadgeClasses = (
   status: string | null | undefined,
   startsAt?: Date | null,
   endsAt?: Date | null,
-) => {
+): { label: string; spec: StatusSpec } => {
   const normalizedStatus = String(status || "").trim().toLowerCase();
   const now = new Date();
 
   if (normalizedStatus === "cancelled" || normalizedStatus === "annullato") {
-    return {
-      label: "Annullato",
-      className:
-        "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-50",
-    };
+    return { label: "Annullato", spec: ACTIVITY_STATUS.cancelled };
   }
 
   if (startsAt && endsAt && startsAt <= now && endsAt >= now) {
-    return {
-      label: "In corso",
-      className:
-        "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50",
-    };
+    return { label: "In corso", spec: ACTIVITY_STATUS.in_progress };
   }
 
   if (endsAt && endsAt < now) {
-    return {
-      label: "Concluso",
-      className:
-        "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100",
-    };
+    return { label: "Concluso", spec: ACTIVITY_STATUS.completed };
   }
 
-  return {
-    label: "In programma",
-    className: "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50",
-  };
+  return { label: "In programma", spec: ACTIVITY_STATUS.scheduled };
 };
+
+/** La pillola dello stato di un evento, pronta da montare. */
+export function EventStatusPill({ status, startsAt, endsAt }: { status: string | null | undefined; startsAt?: Date | null; endsAt?: Date | null }) {
+  return <StatusPill status={getStatusBadgeClasses(status, startsAt, endsAt).spec} size="sm" />;
+}
 
 export const getAthleteDisplayName = (athlete: any) =>
   [
@@ -120,12 +126,7 @@ export function SectionEmptyState({
   title: string;
   description: string;
 }) {
-  return (
-    <div className="rounded-[28px] border border-dashed border-slate-200 bg-white/80 px-6 py-10 text-center">
-      <p className="text-lg font-semibold text-slate-900">{title}</p>
-      <p className="mt-2 text-sm text-slate-500">{description}</p>
-    </div>
-  );
+  return <EmptyStateCard title={title} description={description} />;
 }
 
 export function SectionBlockedState({
@@ -167,48 +168,25 @@ export function SummaryCard({
   accentClassName: string;
   topBarClassName?: string;
 }) {
-  return (
-    <Card className="bg-white shadow-md border-0 overflow-hidden">
-      <div className={cn("h-1 w-full bg-gradient-to-r", topBarClassName || "from-blue-500 to-blue-600")}></div>
-      <CardContent className="flex items-center gap-4 p-6">
-        <div
-          className={cn(
-            "flex h-12 w-12 items-center justify-center rounded-2xl",
-            accentClassName,
-          )}
-        >
-          <Icon className="h-5 w-5" />
-        </div>
-        <div>
-          <p className="text-sm text-slate-500">{label}</p>
-          <p className="text-3xl font-semibold text-slate-900">{value}</p>
-        </div>
-      </CardContent>
-    </Card>
-  );
+  /* Il tono lo si legge dalla classe d'accento che le pagine passano gia. */
+  const tone = accentClassName.includes("green")
+    ? "green"
+    : accentClassName.includes("orange")
+      ? "orange"
+      : accentClassName.includes("amber")
+        ? "amber"
+        : accentClassName.includes("red")
+          ? "red"
+          : "blue";
+  void topBarClassName;
+  return <KpiCard label={label} value={value} icon={<Icon />} iconTone={tone} />;
 }
 
 const FEATURE_TONE_STYLES = {
-  violet: {
-    container: "from-purple-500 to-fuchsia-600",
-    surface: "bg-white/12",
-    button: "bg-white/20 hover:bg-white/30",
-  },
-  orange: {
-    container: "from-orange-500 to-red-600",
-    surface: "bg-white/12",
-    button: "bg-white/20 hover:bg-white/30",
-  },
-  emerald: {
-    container: "from-emerald-500 to-teal-600",
-    surface: "bg-white/12",
-    button: "bg-white/20 hover:bg-white/30",
-  },
-  blue: {
-    container: "from-blue-500 to-indigo-600",
-    surface: "bg-white/12",
-    button: "bg-white/20 hover:bg-white/30",
-  },
+  violet: { chip: "blue" as const },
+  orange: { chip: "orange" as const },
+  emerald: { chip: "green" as const },
+  blue: { chip: "blue" as const },
 } as const;
 
 export function FeatureHighlightCard({
@@ -229,28 +207,19 @@ export function FeatureHighlightCard({
   const styles = FEATURE_TONE_STYLES[tone];
 
   return (
-    <Card
-      className={cn(
-        "border-0 bg-gradient-to-br text-white shadow-lg",
-        styles.container,
-      )}
-    >
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="flex items-center gap-2 text-lg font-semibold">
-          <Icon className="h-5 w-5" />
-          {title}
-        </CardTitle>
-        {count !== undefined ? (
-          <Badge className="border-white/10 bg-white/20 text-white hover:bg-white/20">
-            {count}
-          </Badge>
-        ) : null}
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {children}
-        {footer ? <div className={cn("rounded-lg", styles.button)}>{footer}</div> : null}
-      </CardContent>
-    </Card>
+    <Panel as="section" className="flex flex-col gap-4 p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <IconChip tone={styles.chip} size={36}>
+            <Icon />
+          </IconChip>
+          <h3 className="font-brand text-[15px] font-bold leading-5 text-egw-ink">{title}</h3>
+        </div>
+        {count !== undefined ? <DataChip className="egw-num">{count}</DataChip> : null}
+      </div>
+      <div className="space-y-3">{children}</div>
+      {footer ? <div className="[&_a]:text-egw-blue-700 [&_button]:text-egw-blue-700">{footer}</div> : null}
+    </Panel>
   );
 }
 
@@ -270,32 +239,23 @@ export function SurfacePanel({
   className?: string;
 }) {
   return (
-    <Card
-      className={cn(
-        "rounded-[30px] border border-slate-200/70 bg-white/95 shadow-sm",
-        className,
-      )}
-    >
-      <CardHeader className="border-b border-slate-100 pb-5">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0">
-            <CardTitle className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-              {Icon ? (
-                <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-                  <Icon className="h-4 w-4" />
-                </span>
-              ) : null}
-              <span>{title}</span>
-            </CardTitle>
-            {description ? (
-              <p className="mt-2 text-sm text-slate-500">{description}</p>
+    <Panel as="section" className={cn("min-w-0", className)}>
+      <PanelHeader
+        title={
+          <span className="inline-flex items-center gap-2">
+            {Icon ? (
+              <IconChip tone="blue" size={30} className="[&>svg]:h-[15px] [&>svg]:w-[15px]">
+                <Icon />
+              </IconChip>
             ) : null}
-          </div>
-          {action}
-        </div>
-      </CardHeader>
-      <CardContent className="p-5">{children}</CardContent>
-    </Card>
+            <span>{title}</span>
+          </span>
+        }
+        description={description}
+        actions={action}
+      />
+      {children}
+    </Panel>
   );
 }
 
@@ -321,7 +281,7 @@ export function CompactEntityCard({
   return (
     <div
       className={cn(
-        "rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:bg-slate-50",
+        "rounded-egw-field border border-egw-hairline bg-white p-4 transition-colors hover:bg-egw-page-050",
         onClick ? "cursor-pointer" : "",
         className,
       )}
@@ -343,19 +303,19 @@ export function CompactEntityCard({
         <div className="min-w-0">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             {leadingBadge}
-            <p className="truncate text-sm font-semibold text-slate-900">
+            <p className="truncate text-sm font-semibold text-egw-ink">
               {title}
             </p>
           </div>
         </div>
         {badge}
       </div>
-      <div className="mt-3 space-y-1.5 text-sm text-slate-500">
+      <div className="mt-3 space-y-1.5 text-sm text-egw-ink-62">
         {lines.map((line, index) => (
           <div key={index}>{line}</div>
         ))}
       </div>
-      {footer ? <div className="mt-3 border-t border-slate-100 pt-3">{footer}</div> : null}
+      {footer ? <div className="mt-3 border-t border-egw-rule pt-3">{footer}</div> : null}
       {actions ? <div className="mt-3 flex flex-wrap gap-2">{actions}</div> : null}
     </div>
   );
@@ -371,15 +331,10 @@ export function HomeOverviewCard({
   action?: React.ReactNode;
 }) {
   return (
-    <Card className="rounded-[30px] border-white/80 bg-white/90 shadow-sm">
-      <CardHeader className="flex flex-row items-center justify-between gap-4">
-        <CardTitle className="text-lg font-semibold text-slate-900">
-          {title}
-        </CardTitle>
-        {action}
-      </CardHeader>
-      <CardContent className="space-y-3">{children}</CardContent>
-    </Card>
+    <Panel as="section">
+      <PanelHeader title={title} actions={action} />
+      <div className="space-y-3">{children}</div>
+    </Panel>
   );
 }
 
@@ -401,16 +356,16 @@ export function TrainingMeta({
   return (
     <>
       <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-          <div className="inline-flex items-center gap-2 font-medium text-slate-700">
-            <CalendarDays className="h-4 w-4 text-blue-600" />
+        <div className="rounded-egw-panel-sm bg-egw-page-100 px-4 py-3 text-sm text-egw-ink-72">
+          <div className="inline-flex items-center gap-2 font-medium text-egw-ink-72">
+            <CalendarDays className="h-4 w-4 text-egw-blue-700" />
             Data
           </div>
           <p className="mt-1">{formatDate(date)}</p>
         </div>
-        <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-          <div className="inline-flex items-center gap-2 font-medium text-slate-700">
-            <Clock3 className="h-4 w-4 text-blue-600" />
+        <div className="rounded-egw-panel-sm bg-egw-page-100 px-4 py-3 text-sm text-egw-ink-72">
+          <div className="inline-flex items-center gap-2 font-medium text-egw-ink-72">
+            <Clock3 className="h-4 w-4 text-egw-blue-700" />
             Orario
           </div>
           <p className="mt-1">
@@ -422,16 +377,16 @@ export function TrainingMeta({
 
       {showDetails ? (
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            <div className="inline-flex items-center gap-2 font-medium text-slate-700">
-              <MapPin className="h-4 w-4 text-blue-600" />
+          <div className="rounded-egw-panel-sm bg-egw-page-100 px-4 py-3 text-sm text-egw-ink-72">
+            <div className="inline-flex items-center gap-2 font-medium text-egw-ink-72">
+              <MapPin className="h-4 w-4 text-egw-blue-700" />
               Luogo
             </div>
             <p className="mt-1">{location || "Campo"}</p>
           </div>
-          <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            <div className="inline-flex items-center gap-2 font-medium text-slate-700">
-              <FolderKanban className="h-4 w-4 text-blue-600" />
+          <div className="rounded-egw-panel-sm bg-egw-page-100 px-4 py-3 text-sm text-egw-ink-72">
+            <div className="inline-flex items-center gap-2 font-medium text-egw-ink-72">
+              <FolderKanban className="h-4 w-4 text-egw-blue-700" />
               Categoria
             </div>
             <p className="mt-1">{category || "Categoria"}</p>
@@ -456,9 +411,9 @@ export function AthleteInfoGrid({
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {showDetails ? (
-        <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-          <div className="inline-flex items-center gap-2 font-medium text-slate-700">
-            <CalendarDays className="h-4 w-4 text-emerald-600" />
+        <div className="rounded-egw-panel-sm bg-egw-page-100 px-4 py-3 text-sm text-egw-ink-72">
+          <div className="inline-flex items-center gap-2 font-medium text-egw-ink-72">
+            <CalendarDays className="h-4 w-4 text-egw-green" />
             Data di nascita
           </div>
           <p className="mt-1">
@@ -472,9 +427,9 @@ export function AthleteInfoGrid({
       ) : null}
 
       {showContacts ? (
-        <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-          <div className="inline-flex items-center gap-2 font-medium text-slate-700">
-            <Phone className="h-4 w-4 text-emerald-600" />
+        <div className="rounded-egw-panel-sm bg-egw-page-100 px-4 py-3 text-sm text-egw-ink-72">
+          <div className="inline-flex items-center gap-2 font-medium text-egw-ink-72">
+            <Phone className="h-4 w-4 text-egw-green" />
             Contatto
           </div>
           <p className="mt-1">{getAthletePhone(athlete)}</p>
@@ -482,9 +437,9 @@ export function AthleteInfoGrid({
       ) : null}
 
       {showMedical ? (
-        <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 sm:col-span-2">
-          <div className="inline-flex items-center gap-2 font-medium text-slate-700">
-            <FileHeart className="h-4 w-4 text-emerald-600" />
+        <div className="rounded-egw-panel-sm bg-egw-page-100 px-4 py-3 text-sm text-egw-ink-72 sm:col-span-2">
+          <div className="inline-flex items-center gap-2 font-medium text-egw-ink-72">
+            <FileHeart className="h-4 w-4 text-egw-green" />
             Certificato medico
           </div>
           <p className="mt-1">
@@ -510,26 +465,18 @@ export function CategoryVisibilitySummary({
   viewMedicalStatus: boolean;
 }) {
   return (
-    <div className="space-y-3 rounded-[24px] border border-slate-200/80 bg-slate-50/70 px-4 py-4">
-      <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-        <ShieldCheck className="h-4 w-4 text-blue-600" />
+    <InsetBlock className="space-y-3">
+      <div className="flex items-center gap-2 text-[13px] font-semibold text-egw-ink">
+        <ShieldCheck className="h-4 w-4 text-egw-blue-700" />
         Visibilità attiva per questa categoria
       </div>
       <div className="flex flex-wrap gap-2">
-        <Badge className="border-slate-200 bg-white text-slate-700 hover:bg-white">
-          Scheda atleta {viewAthleteDetails ? "visibile" : "limitata"}
-        </Badge>
-        <Badge className="border-slate-200 bg-white text-slate-700 hover:bg-white">
-          Scheda tecnica {viewAthleteTechnicalSheet ? "visibile" : "nascosta"}
-        </Badge>
-        <Badge className="border-slate-200 bg-white text-slate-700 hover:bg-white">
-          Contatti {viewAthleteContacts ? "visibili" : "nascosti"}
-        </Badge>
-        <Badge className="border-slate-200 bg-white text-slate-700 hover:bg-white">
-          Medico {viewMedicalStatus ? "visibile" : "nascosto"}
-        </Badge>
+        <DataChip>Scheda atleta {viewAthleteDetails ? "visibile" : "limitata"}</DataChip>
+        <DataChip>Scheda tecnica {viewAthleteTechnicalSheet ? "visibile" : "nascosta"}</DataChip>
+        <DataChip>Contatti {viewAthleteContacts ? "visibili" : "nascosti"}</DataChip>
+        <DataChip>Medico {viewMedicalStatus ? "visibile" : "nascosto"}</DataChip>
       </div>
-    </div>
+    </InsetBlock>
   );
 }
 
@@ -541,7 +488,7 @@ export function ActionLinkButton({
   label: string;
 }) {
   return (
-    <Button asChild variant="outline" className="rounded-2xl">
+    <Button asChild variant="outline">
       <Link className="inline-flex items-center gap-2" href={href}>
         {label}
         <ArrowRight className="h-4 w-4" />
@@ -553,14 +500,14 @@ export function ActionLinkButton({
 export function AthleteIdentityCard({ athlete }: { athlete: any }) {
   return (
     <div className="flex items-start gap-4">
-      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
-        <UserCircle2 className="h-5 w-5" />
-      </div>
+      <IconChip tone="green" size={48} className="[&>svg]:h-5 [&>svg]:w-5">
+        <UserCircle2 />
+      </IconChip>
       <div className="min-w-0">
-        <p className="truncate text-xl font-semibold text-slate-900">
+        <p className="truncate text-xl font-semibold text-egw-ink">
           {getAthleteDisplayName(athlete)}
         </p>
-        <p className="truncate text-sm text-slate-500">
+        <p className="truncate text-sm text-egw-ink-62">
           {getAthleteCategoryName(athlete)}
         </p>
       </div>

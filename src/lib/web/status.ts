@@ -47,6 +47,28 @@ export const CERTIFICATE_STATUS = Object.freeze({
   to_sign: spec("DA FIRMARE", "outline", "amber"),
 } as const);
 
+/* ── Fascicolo documentale della famiglia (W6-50, `lib/documents/family-dossier`) ── */
+export const DOSSIER_STATUS = Object.freeze({
+  missing: spec("DA CARICARE", "outline", "amber"),
+  overdue: spec("SCADUTO", "urgent", "red"),
+  under_review: spec("DA VERIFICARE", "outline", "blue"),
+  approved: spec("APPROVATO", "solid", "green"),
+  expired: spec("SCADUTO", "urgent", "red"),
+  rejected: spec("DA INTEGRARE", "urgent", "red"),
+} as const);
+
+/* ── Appuntamento (ADR-0101: otto stati, sei terminali) ───────────────────── */
+export const APPOINTMENT_STATUS = Object.freeze({
+  requested: spec("RICHIESTO", "outline", "amber"),
+  confirmed: spec("CONFERMATO", "solid", "blue"),
+  completed: spec("CONCLUSO", "solid", "green"),
+  rejected: spec("RIFIUTATO", "urgent", "red"),
+  cancelled_by_family: spec("ANNULLATO DALLA FAMIGLIA", "urgent", "red"),
+  cancelled_by_club: spec("ANNULLATO DAL CLUB", "urgent", "red"),
+  no_show: spec("NON PRESENTATO", "urgent", "red"),
+  rescheduled: spec("RIPROGRAMMATO", "quiet", "neutral"),
+} as const);
+
 /* ── Denaro ─────────────────────────────────────────────────────────────── */
 export const MONEY_STATUS = Object.freeze({
   paid: spec("INCASSATO", "solid", "green"),
@@ -81,6 +103,29 @@ export const ENROLMENT_STATUS = Object.freeze({
   rejected: spec("RIFIUTATA", "urgent", "red"),
   closed: spec("CHIUSA", "quiet", "neutral"),
   suspended: spec("SOSPESA", "urgent", "red"),
+} as const);
+
+/* ── Pratica di iscrizione vista dalla famiglia (`lib/forms/enrollment-receipt`) ── */
+export const ENROLMENT_REQUEST_STATUS = Object.freeze({
+  sent: spec("INVIATA", "quiet", "neutral"),
+  in_review: spec("IN LAVORAZIONE", "outline", "amber"),
+  approved: spec("APPROVATA", "solid", "green"),
+  rejected: spec("RESPINTA", "urgent", "red"),
+} as const);
+
+/* ── Consenso (accettato, revocato, rifiutato, da decidere) ─────────────── */
+export const CONSENT_STATUS = Object.freeze({
+  accepted: spec("ACCETTATO", "solid", "green"),
+  revoked: spec("REVOCATO", "quiet", "neutral"),
+  rejected: spec("RIFIUTATO", "urgent", "red"),
+  pending: spec("DA DECIDERE", "outline", "amber"),
+} as const);
+
+/* ── Lettura (bacheca, notifiche) ───────────────────────────────────────── */
+export const READ_STATUS = Object.freeze({
+  read: spec("LETTO", "quiet", "neutral"),
+  unread: spec("DA LEGGERE", "solid", "blue"),
+  rsvp_required: spec("CONFERMA RICHIESTA", "outline", "blue"),
 } as const);
 
 /* ── Libro soci (posizione associativa derivata dagli eventi) ───────────── */

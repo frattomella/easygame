@@ -15,7 +15,10 @@ import {
   XCircle,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { EmptyStateCard } from "@/components/web/page/Cards";
+import { MembershipRoleBadge } from "@/components/categories/category-label";
+import { APPOINTMENT_STATUS, CALLUP_STATUS, CERTIFICATE_STATUS, resolveStatus, type StatusSpec } from "@/lib/web/status";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -70,12 +73,9 @@ const soloData = (valore: string | null | undefined) => {
   return istante.toLocaleDateString("it-IT");
 };
 
+/* Lo stato vuoto del sistema, dentro un pannello gia esistente (guideline 09 §9.8). */
 function Vuoto({ testo }: { testo: string }) {
-  return (
-    <p className="rounded-lg border border-dashed border-slate-200 bg-white/60 px-4 py-6 text-center text-sm text-slate-500">
-      {testo}
-    </p>
-  );
+  return <EmptyStateCard flat title={testo} className="rounded-egw-field border border-dashed border-egw-hairline bg-egw-page-100 [&>div]:min-h-[120px] [&>div]:py-5" />;
 }
 
 /**
@@ -91,15 +91,15 @@ function Vuoto({ testo }: { testo: string }) {
  * dice «Sconosciuto» accanto a ogni allenamento non informa nessuno, e nasconde
  * quelli che invece una risposta ce l'hanno. Non si mostra.
  */
-const ETICHETTA_PRESENZA: Record<string, string> = {
-  present: "Presente",
-  absent: "Assente",
+const ETICHETTA_PRESENZA: Record<string, StatusSpec> = {
+  present: CALLUP_STATUS.present,
+  absent: CALLUP_STATUS.absent,
 };
 
-const ETICHETTA_PARTECIPAZIONE: Record<string, string> = {
-  participated: "Hai giocato",
-  called: "Convocato",
-  not_called: "Non convocato",
+const ETICHETTA_PARTECIPAZIONE: Record<string, StatusSpec> = {
+  participated: { ...CALLUP_STATUS.present, label: "HAI GIOCATO" },
+  called: CALLUP_STATUS.called,
+  not_called: CALLUP_STATUS.not_called,
 };
 
 /**
@@ -141,54 +141,41 @@ function EventoRiga({
     ETICHETTA_PARTECIPAZIONE[String(evento.participationStatus || "")];
 
   return (
-    <li className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+    <li className="flex flex-col gap-1 rounded-egw-control border border-egw-hairline bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <p className="truncate font-medium text-slate-900">
+        <p className="truncate font-medium text-egw-ink">
           {evento.title || "Evento"}
           {evento.opponent ? ` · ${evento.opponent}` : ""}
         </p>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-egw-ink-62">
           {dataOra(evento.startsAt)}
           {evento.location ? ` · ${evento.location}` : ""}
         </p>
       </div>
-      <div className="flex shrink-0 flex-wrap gap-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
         {squadre.map((nome) => (
-          <Badge key={nome} variant="secondary">
-            {nome}
-          </Badge>
+          <DataChip key={nome}>{nome}</DataChip>
         ))}
-        {presenza ? (
-          <Badge
-            variant={
-              evento.attendanceStatus === "present" ? "default" : "outline"
-            }
-          >
-            {presenza}
-          </Badge>
-        ) : null}
-        {partecipazione ? (
-          <Badge variant="outline">{partecipazione}</Badge>
-        ) : null}
-        {evento.status === "cancelled" ? (
-          <Badge variant="destructive">Annullato</Badge>
-        ) : null}
+        {presenza ? <StatusPill status={presenza} size="sm" /> : null}
+        {partecipazione ? <StatusPill status={partecipazione} size="sm" /> : null}
+        {evento.status === "cancelled" ? <StatusPill status="cancelled" size="sm" /> : null}
       </div>
     </li>
   );
 }
 
-const STILE_CERTIFICATO: Record<string, string> = {
-  valid: "border-emerald-200 bg-emerald-50 text-emerald-900",
-  expiring: "border-amber-200 bg-amber-50 text-amber-900",
-  expired: "border-red-200 bg-red-50 text-red-900",
-  /*
-    **Consegnato non e mancante**, e i due toni lo dicono: il primo e uno
-    stato in cui non c'e niente da fare per chi legge — manca una data, e la
-    mette la segreteria — il secondo e una cosa da portare.
-  */
-  undated: "border-blue-200 bg-blue-50 text-blue-900",
-  missing: "border-slate-200 bg-slate-50 text-slate-700",
+/*
+  Lo stato del certificato e una pillola del sistema (`CERTIFICATE_STATUS`).
+  **Consegnato non e mancante**, e i due toni lo dicono: il primo e uno stato
+  in cui non c'e niente da fare per chi legge — manca una data, e la mette la
+  segreteria — il secondo e una cosa da portare.
+*/
+const PILLOLA_CERTIFICATO: Record<string, StatusSpec> = {
+  valid: CERTIFICATE_STATUS.valid,
+  expiring: CERTIFICATE_STATUS.expiring,
+  expired: CERTIFICATE_STATUS.expired,
+  undated: { label: "CONSEGNATO", weight: "outline", hue: "blue" },
+  missing: CERTIFICATE_STATUS.missing,
 };
 
 function CertificatoCard({ data }: { data: AthleteAreaData }) {
@@ -201,21 +188,20 @@ function CertificatoCard({ data }: { data: AthleteAreaData }) {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div
-          className={`rounded-lg border p-3 ${
-            STILE_CERTIFICATO[data.health.status] || STILE_CERTIFICATO.missing
-          }`}
-        >
-          <p className="font-medium">
-            {data.health.statusLabel || "Stato non disponibile"}
-          </p>
+        <div className="rounded-egw-field border border-egw-hairline bg-egw-page-100 p-3.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill status={PILLOLA_CERTIFICATO[data.health.status] || PILLOLA_CERTIFICATO.missing} />
+            <p className="font-medium text-egw-ink">
+              {data.health.statusLabel || "Stato non disponibile"}
+            </p>
+          </div>
           {/*
             La frase la scrive il dominio, che sa distinguere «Scade il …» da
             «Scaduto il …» e da «Data di scadenza non disponibile». Qui si
             scriveva sempre «Scadenza:», e su un certificato senza data
             diventava una riga vuota dopo i due punti.
           */}
-          <p className="text-sm">
+          <p className="mt-1 text-sm text-egw-ink-72">
             {data.health.detail || `Scadenza: ${soloData(data.health.expiryDate)}`}
           </p>
         </div>
@@ -225,7 +211,7 @@ function CertificatoCard({ data }: { data: AthleteAreaData }) {
           `src/lib/health/permissions.ts`, e il contenuto clinico di un minore
           si legge nell'area di chi ne ha la tutela.
         */}
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-egw-ink-62">
           Il certificato lo consegna e lo aggiorna la tua societa: se la data
           non e quella che ti aspetti, scrivi in segreteria.
         </p>
@@ -267,12 +253,13 @@ export function AthleteHome() {
         <CardContent className="flex flex-wrap gap-2">
           {(data.categories || []).length ? (
             data.categories.map((categoria) => (
-              <Badge key={categoria.id} variant={categoria.isPrimary ? "default" : "secondary"}>
-                {categoria.label || categoria.name}
-              </Badge>
+              <span key={categoria.id} className="inline-flex items-center gap-1">
+                <DataChip>{categoria.label || categoria.name}</DataChip>
+                {data.categories.length > 1 && categoria.isPrimary ? <MembershipRoleBadge isPrimary /> : null}
+              </span>
             ))
           ) : (
-            <span className="text-sm text-slate-500">
+            <span className="text-sm text-egw-ink-62">
               Nessun gruppo assegnato
             </span>
           )}
@@ -280,9 +267,9 @@ export function AthleteHome() {
       </Card>
 
       {daRispondere.length ? (
-        <Card className="border-amber-200 bg-amber-50">
+        <Card className="border-egw-tint-amber-bd bg-egw-tint-amber">
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base text-amber-900">
+            <CardTitle className="flex items-center gap-2 text-base text-egw-amber-ink">
               <ShieldAlert className="h-4 w-4" />
               Hai {daRispondere.length}{" "}
               {daRispondere.length === 1 ? "convocazione" : "convocazioni"} a cui
@@ -330,22 +317,22 @@ export function AthleteHome() {
             </CardHeader>
             <CardContent className="grid grid-cols-3 gap-2 text-center">
               <div>
-                <p className="text-2xl font-semibold text-slate-900">
+                <p className="text-2xl font-semibold text-egw-ink">
                   {data.season.trainingsPlayed}
                 </p>
-                <p className="text-xs text-slate-500">Allenamenti</p>
+                <p className="text-xs text-egw-ink-62">Allenamenti</p>
               </div>
               <div>
-                <p className="text-2xl font-semibold text-slate-900">
+                <p className="text-2xl font-semibold text-egw-ink">
                   {data.season.matchesPlayed}
                 </p>
-                <p className="text-xs text-slate-500">Gare</p>
+                <p className="text-xs text-egw-ink-62">Gare</p>
               </div>
               <div>
-                <p className="text-2xl font-semibold text-slate-900">
+                <p className="text-2xl font-semibold text-egw-ink">
                   {data.attendance.rate}%
                 </p>
-                <p className="text-xs text-slate-500">Presenze</p>
+                <p className="text-xs text-egw-ink-62">Presenze</p>
               </div>
             </CardContent>
           </Card>
@@ -410,24 +397,18 @@ export function AthleteTeams() {
               {categorie.map((categoria) => (
                 <li
                   key={categoria.id}
-                  className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-1 rounded-egw-control border border-egw-hairline bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-900">
+                    <p className="truncate font-medium text-egw-ink">
                       {categoria.name}
                     </p>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-egw-ink-62">
                       {conteggio([categoria.id])} fra allenamenti e gare in
                       questa stagione
                     </p>
                   </div>
-                  {categoria.isPrimary ? (
-                    <Badge className="shrink-0">Squadra principale</Badge>
-                  ) : (
-                    <Badge variant="secondary" className="shrink-0">
-                      Anche in questa
-                    </Badge>
-                  )}
+                  <MembershipRoleBadge isPrimary={Boolean(categoria.isPrimary)} />
                 </li>
               ))}
             </ul>
@@ -441,8 +422,8 @@ export function AthleteTeams() {
         <CardHeader className="pb-2">
           <CardTitle className="text-base">La mia societa</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-1 text-sm text-slate-700">
-          <p className="font-medium text-slate-900">{data.club.name}</p>
+        <CardContent className="space-y-1 text-sm text-egw-ink-72">
+          <p className="font-medium text-egw-ink">{data.club.name}</p>
           {data.club.city ? (
             <p>
               {data.club.city}
@@ -562,28 +543,28 @@ export function AthleteHistory() {
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
           <div>
-            <p className="text-2xl font-semibold text-slate-900">
+            <p className="text-2xl font-semibold text-egw-ink">
               {data.season.trainingsPlayed}
             </p>
-            <p className="text-xs text-slate-500">Allenamenti svolti</p>
+            <p className="text-xs text-egw-ink-62">Allenamenti svolti</p>
           </div>
           <div>
-            <p className="text-2xl font-semibold text-slate-900">
+            <p className="text-2xl font-semibold text-egw-ink">
               {data.season.matchesPlayed}
             </p>
-            <p className="text-xs text-slate-500">Gare giocate</p>
+            <p className="text-xs text-egw-ink-62">Gare giocate</p>
           </div>
           <div>
-            <p className="text-2xl font-semibold text-emerald-700">
+            <p className="text-2xl font-semibold text-egw-green">
               {data.attendance.present}
             </p>
-            <p className="text-xs text-slate-500">Presenze</p>
+            <p className="text-xs text-egw-ink-62">Presenze</p>
           </div>
           <div>
-            <p className="text-2xl font-semibold text-slate-900">
+            <p className="text-2xl font-semibold text-egw-ink">
               {data.attendance.rate}%
             </p>
-            <p className="text-xs text-slate-500">Frequenza</p>
+            <p className="text-xs text-egw-ink-62">Frequenza</p>
           </div>
         </CardContent>
       </Card>
@@ -614,7 +595,7 @@ export function AthleteHistory() {
         Un ragazzo al secondo anno si aspetta di trovare il primo, e senza
         questa riga penserebbe che il prodotto l'abbia perso.
       */}
-      <p className="px-1 text-xs text-slate-500">
+      <p className="px-1 text-xs text-egw-ink-62">
         Qui c&apos;e la stagione in corso. Le stagioni precedenti le conserva la
         tua societa: chiedile in segreteria.
       </p>
@@ -775,39 +756,34 @@ export function AthleteRsvp() {
             {inviti.map((invito: any) => (
               <li
                 key={`${invito.trainingId}`}
-                className="rounded-lg border border-slate-200 bg-white p-3"
+                className="rounded-egw-control border border-egw-hairline bg-white p-3"
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-900">
+                    <p className="truncate font-medium text-egw-ink">
                       {invito.title}
                       {invito.opponent ? ` · ${invito.opponent}` : ""}
                     </p>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-egw-ink-62">
                       {dataOra(invito.startsAt)}
                       {invito.location ? ` · ${invito.location}` : ""}
                     </p>
                     {invito.deadline ? (
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-egw-ink-62">
                         Rispondi entro il {dataOra(invito.deadline)}
                       </p>
                     ) : null}
                   </div>
-                  <Badge
-                    variant={
+                  <StatusPill
+                    size="sm"
+                    status={
                       invito.state === "yes"
-                        ? "default"
+                        ? { label: "CI SARAI", weight: "solid", hue: "green" }
                         : invito.state === "no"
-                          ? "destructive"
-                          : "secondary"
+                          ? { label: "NON CI SARAI", weight: "urgent", hue: "red" }
+                          : { label: "DA RISPONDERE", weight: "outline", hue: "amber" }
                     }
-                  >
-                    {invito.state === "yes"
-                      ? "Ci sarai"
-                      : invito.state === "no"
-                        ? "Non ci sarai"
-                        : "Da rispondere"}
-                  </Badge>
+                  />
                 </div>
 
                 {invito.canAnswer ? (
@@ -835,7 +811,7 @@ export function AthleteRsvp() {
                     </Button>
                   </div>
                 ) : (
-                  <p className="mt-2 text-sm text-slate-500">
+                  <p className="mt-2 text-sm text-egw-ink-62">
                     {invito.blockedMessage ||
                       "Non e piu possibile cambiare la risposta."}
                   </p>
@@ -865,22 +841,22 @@ export function AthleteAttendance() {
         </CardHeader>
         <CardContent className="grid grid-cols-3 gap-2 text-center">
           <div>
-            <p className="text-2xl font-semibold text-emerald-700">
+            <p className="text-2xl font-semibold text-egw-green">
               {data.attendance.present}
             </p>
-            <p className="text-xs text-slate-500">Presente</p>
+            <p className="text-xs text-egw-ink-62">Presente</p>
           </div>
           <div>
-            <p className="text-2xl font-semibold text-red-600">
+            <p className="text-2xl font-semibold text-egw-red">
               {data.attendance.absent}
             </p>
-            <p className="text-xs text-slate-500">Assente</p>
+            <p className="text-xs text-egw-ink-62">Assente</p>
           </div>
           <div>
-            <p className="text-2xl font-semibold text-slate-900">
+            <p className="text-2xl font-semibold text-egw-ink">
               {data.attendance.rate}%
             </p>
-            <p className="text-xs text-slate-500">Frequenza</p>
+            <p className="text-xs text-egw-ink-62">Frequenza</p>
           </div>
         </CardContent>
       </Card>
@@ -954,7 +930,7 @@ export function AthleteBoard() {
       </CardHeader>
       <CardContent>
         {errore ? (
-          <p className="text-sm text-red-600">{errore}</p>
+          <p className="text-sm text-egw-red">{errore}</p>
         ) : annunci === null ? (
           <Vuoto testo="Caricamento…" />
         ) : annunci.length ? (
@@ -962,13 +938,13 @@ export function AthleteBoard() {
             {annunci.map((annuncio) => (
               <li
                 key={String(annuncio.id)}
-                className="rounded-lg border border-slate-200 bg-white p-3"
+                className="rounded-egw-control border border-egw-hairline bg-white p-3"
               >
-                <p className="font-medium text-slate-900">{annuncio.title}</p>
-                <p className="mt-1 whitespace-pre-line text-sm text-slate-600">
+                <p className="font-medium text-egw-ink">{annuncio.title}</p>
+                <p className="mt-1 whitespace-pre-line text-sm text-egw-ink-72">
                   {annuncio.body}
                 </p>
-                <p className="mt-2 text-xs text-slate-400">
+                <p className="mt-2 text-xs text-egw-ink-42">
                   {soloData(annuncio.publishedAt || annuncio.publishAt)}
                 </p>
               </li>
@@ -997,15 +973,15 @@ export function AthleteNotifications() {
             {data.notifications.map((notifica: any) => (
               <li
                 key={String(notifica.id)}
-                className={`rounded-lg border p-3 ${
+                className={`rounded-egw-control border p-3 ${
                   notifica.read
-                    ? "border-slate-200 bg-white"
-                    : "border-emerald-200 bg-emerald-50"
+                    ? "border-egw-hairline bg-white"
+                    : "border-egw-tint-green-bd bg-egw-tint-green"
                 }`}
               >
-                <p className="font-medium text-slate-900">{notifica.title}</p>
-                <p className="text-sm text-slate-600">{notifica.message}</p>
-                <p className="mt-1 text-xs text-slate-400">
+                <p className="font-medium text-egw-ink">{notifica.title}</p>
+                <p className="text-sm text-egw-ink-72">{notifica.message}</p>
+                <p className="mt-1 text-xs text-egw-ink-42">
                   {soloData(notifica.created_at)}
                 </p>
               </li>
@@ -1042,13 +1018,13 @@ export function AthleteDocuments() {
             {data.documents.map((documento: any, indice: number) => (
               <li
                 key={String(documento.id || indice)}
-                className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-1 rounded-egw-control border border-egw-hairline bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-slate-900">
+                  <p className="truncate font-medium text-egw-ink">
                     {documento.title || "Documento"}
                   </p>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-egw-ink-62">
                     {documento.type || "—"} · {soloData(documento.uploadedAt)}
                   </p>
                 </div>
@@ -1059,7 +1035,7 @@ export function AthleteDocuments() {
                   fascicolo e la proiezione la porta come `statusLabel`.
                 */}
                 {documento.statusLabel ? (
-                  <Badge variant="secondary">{documento.statusLabel}</Badge>
+                  <StatusPill size="sm" status={{ ...resolveStatus(documento.status), label: String(documento.statusLabel).toUpperCase() }} />
                 ) : null}
               </li>
             ))}
@@ -1093,13 +1069,13 @@ export function AthleteAppointments() {
             {data.appointments.map((appuntamento: any) => (
               <li
                 key={String(appuntamento.id)}
-                className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-1 rounded-egw-control border border-egw-hairline bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-slate-900">
+                  <p className="truncate font-medium text-egw-ink">
                     {appuntamento.reason || "Appuntamento"}
                   </p>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-egw-ink-62">
                     {dataOra(appuntamento.startsAt)}
                   </p>
                   {/*
@@ -1109,7 +1085,7 @@ export function AthleteAppointments() {
                     invece di chiederla a casa.
                   */}
                   {appuntamento.decisionNote ? (
-                    <p className="mt-1 text-sm text-slate-600">
+                    <p className="mt-1 text-sm text-egw-ink-72">
                       {appuntamento.decisionNote}
                     </p>
                   ) : null}
@@ -1118,9 +1094,13 @@ export function AthleteAppointments() {
                   L'etichetta italiana degli otto stati la possiede il dominio
                   degli appuntamenti: qui si mostrava `cancelled_by_family`.
                 */}
-                <Badge variant="secondary">
-                  {appuntamento.statusLabel || appuntamento.status}
-                </Badge>
+                <StatusPill
+                  size="sm"
+                  status={{
+                    ...(APPOINTMENT_STATUS[String(appuntamento.status || "") as keyof typeof APPOINTMENT_STATUS] || APPOINTMENT_STATUS.requested),
+                    ...(appuntamento.statusLabel ? { label: String(appuntamento.statusLabel).toUpperCase() } : {}),
+                  }}
+                />
               </li>
             ))}
           </ul>
@@ -1195,24 +1175,24 @@ export function AthleteProfile() {
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2">
           <div>
-            <p className="text-xs uppercase text-slate-500">Nome</p>
-            <p className="font-medium text-slate-900">{data.me.name}</p>
+            <p className="text-xs uppercase text-egw-ink-62">Nome</p>
+            <p className="font-medium text-egw-ink">{data.me.name}</p>
           </div>
           <div>
-            <p className="text-xs uppercase text-slate-500">Data di nascita</p>
-            <p className="font-medium text-slate-900">
+            <p className="text-xs uppercase text-egw-ink-62">Data di nascita</p>
+            <p className="font-medium text-egw-ink">
               {soloData(data.me.birthDate)}
             </p>
           </div>
           <div>
-            <p className="text-xs uppercase text-slate-500">Codice fiscale</p>
-            <p className="font-medium text-slate-900">
+            <p className="text-xs uppercase text-egw-ink-62">Codice fiscale</p>
+            <p className="font-medium text-egw-ink">
               {data.me.fiscalCode || "—"}
             </p>
           </div>
           <div>
-            <p className="text-xs uppercase text-slate-500">Numero di maglia</p>
-            <p className="font-medium text-slate-900">
+            <p className="text-xs uppercase text-egw-ink-62">Numero di maglia</p>
+            <p className="font-medium text-egw-ink">
               {data.me.jerseyNumber || "—"}
             </p>
           </div>
@@ -1265,12 +1245,12 @@ export function AthleteProfile() {
         <CardHeader className="pb-2">
           <CardTitle className="text-base">La mia societa</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-1 text-sm text-slate-700">
-          <p className="font-medium text-slate-900">{data.club.name}</p>
+        <CardContent className="space-y-1 text-sm text-egw-ink-72">
+          <p className="font-medium text-egw-ink">{data.club.name}</p>
           {data.club.contactEmail ? <p>{data.club.contactEmail}</p> : null}
           {data.club.contactPhone ? <p>{data.club.contactPhone}</p> : null}
           {data.club.seasonLabel ? (
-            <p className="text-slate-500">Stagione {data.club.seasonLabel}</p>
+            <p className="text-egw-ink-62">Stagione {data.club.seasonLabel}</p>
           ) : null}
         </CardContent>
       </Card>

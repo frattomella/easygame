@@ -316,7 +316,7 @@ export function TrainerEventEditorDialog({
             <Label htmlFor="trainer-evento-categoria">Squadra</Label>
             <select
               id="trainer-evento-categoria"
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+              className="h-11 w-full rounded-egw-field border border-egw-hairline bg-white px-3 text-sm"
               value={campi.categoryId}
               onChange={(evento) => aggiorna("categoryId", evento.target.value)}
             >
@@ -379,7 +379,7 @@ export function TrainerEventEditorDialog({
                 <Label htmlFor="trainer-evento-campo">Campo</Label>
                 <select
                   id="trainer-evento-campo"
-                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                  className="h-11 w-full rounded-egw-field border border-egw-hairline bg-white px-3 text-sm"
                   value={campi.homeAway}
                   onChange={(evento) =>
                     aggiorna("homeAway", evento.target.value)
@@ -396,7 +396,7 @@ export function TrainerEventEditorDialog({
             <Label htmlFor="trainer-evento-luogo">Dove</Label>
             <select
               id="trainer-evento-luogo"
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+              className="h-11 w-full rounded-egw-field border border-egw-hairline bg-white px-3 text-sm"
               value={campi.locationId}
               onChange={(evento) => aggiorna("locationId", evento.target.value)}
             >
@@ -429,7 +429,7 @@ export function TrainerEventEditorDialog({
           />
 
           {errore ? (
-            <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            <p className="rounded-egw-field border border-egw-tint-red-bd bg-egw-tint-red px-3 py-2 text-sm text-egw-red">
               {errore}
             </p>
           ) : null}
@@ -438,14 +438,14 @@ export function TrainerEventEditorDialog({
         <DialogFooter className="flex-col gap-2 sm:flex-row">
           <Button
             variant="outline"
-            className="w-full rounded-xl sm:w-auto"
+            className="w-full rounded-egw-field sm:w-auto"
             onClick={() => onOpenChange(false)}
             disabled={salvataggio}
           >
             Annulla
           </Button>
           <Button
-            className="w-full rounded-xl bg-blue-600 hover:bg-blue-700 sm:w-auto"
+            className="w-full rounded-egw-field bg-egw-blue hover:bg-egw-blue-700 sm:w-auto"
             onClick={salva}
             disabled={salvataggio}
           >

@@ -540,14 +540,14 @@ export function MatchConvocations({
     context?: "primary" | "secondary" | "extra",
   ) => {
     if (context === "extra") {
-      return "border-amber-200 bg-amber-50 text-amber-800";
+      return "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink";
     }
 
     if (context === "secondary") {
-      return "border-sky-200 bg-sky-50 text-sky-800";
+      return "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-800";
     }
 
-    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    return "border-egw-tint-green-bd bg-egw-tint-green text-egw-green";
   };
 
   return (
@@ -567,7 +567,7 @@ export function MatchConvocations({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+        <div className="mb-6 p-4 bg-egw-page-100 dark:bg-gray-800 rounded-egw-control">
           <h3 className="text-lg font-semibold mb-2">{matchTitle}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div>
@@ -592,7 +592,7 @@ export function MatchConvocations({
             </div>
           </div>
           {matchNotes ? (
-            <div className="mt-4 rounded-md border border-blue-100 bg-white px-3 py-2 text-sm text-slate-700">
+            <div className="mt-4 rounded-egw-control border border-egw-tint-blue-bd bg-white px-3 py-2 text-sm text-egw-ink-72">
               <span className="font-medium">Note gara:</span> {matchNotes}
             </div>
           ) : null}
@@ -615,7 +615,7 @@ export function MatchConvocations({
                 </Button>
                 {selectedAthleteIds.size > 0 && (
                   <Button
-                    className="bg-green-600 hover:bg-green-700 flex items-center gap-1"
+                    className="bg-egw-green hover:bg-green-700 flex items-center gap-1"
                     onClick={() => {
                       showToast(
                         "success",
@@ -630,7 +630,7 @@ export function MatchConvocations({
               </div>
             ) : (
               <Button
-                className="bg-blue-600 hover:bg-blue-700 flex items-center gap-1"
+                className="bg-egw-blue hover:bg-egw-blue-700 flex items-center gap-1"
                 onClick={handleSaveConvocations}
               >
                 <Save className="h-4 w-4" />
@@ -640,12 +640,12 @@ export function MatchConvocations({
           </div>
         </div>
 
-        <div className="mb-4 space-y-3 rounded-lg border border-dashed border-slate-300 bg-slate-50/70 p-3">
+        <div className="mb-4 space-y-3 rounded-egw-control border border-dashed border-egw-hairline bg-egw-page-100 p-3">
           <div>
-            <p className="text-sm font-medium text-slate-900">
+            <p className="text-sm font-medium text-egw-ink">
               Aggiungi atleta extra
             </p>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-egw-ink-62">
               Cerca tra tutti gli atleti del club e aggiungi solo chi non è già in lista.
             </p>
           </div>
@@ -665,7 +665,7 @@ export function MatchConvocations({
                     key={`convocation-extra-${athleteId}`}
                     type="button"
                     onClick={() => handleAddExtraAthlete(athlete)}
-                    className="flex w-full items-center justify-between rounded-md border bg-white px-3 py-2 text-left hover:border-blue-200 hover:bg-blue-50"
+                    className="flex w-full items-center justify-between rounded-egw-control border bg-white px-3 py-2 text-left hover:border-egw-tint-blue-bd hover:bg-egw-tint-blue"
                   >
                     <div>
                       <p className="text-sm font-medium">{athlete.name}</p>
@@ -707,7 +707,7 @@ export function MatchConvocations({
             return (
             <div
               key={athleteId}
-              className={`rounded-lg border p-4 transition-colors ${isSelected ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-800"} ${!isEditing ? "cursor-default" : "cursor-pointer"}`}
+              className={`rounded-egw-control border p-4 transition-colors ${isSelected ? "border-egw-tint-blue-bd bg-egw-tint-blue dark:border-egw-navy-800 dark:bg-egw-navy-900/20" : "hover:bg-egw-page-050 dark:hover:bg-egw-navy-800"} ${!isEditing ? "cursor-default" : "cursor-pointer"}`}
               onClick={() => handleToggleAthlete(athleteId)}
               role={isEditing ? "button" : undefined}
               aria-pressed={isEditing ? isSelected : undefined}
@@ -744,7 +744,7 @@ export function MatchConvocations({
                   ) : null}
                   {getMedicalCertificateAvailability(athlete.medicalCertExpiry) !==
                   "valid" ? (
-                    <Badge className="border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50">
+                    <Badge className="border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink hover:bg-egw-tint-amber">
                       <AlertTriangle className="mr-1 h-3.5 w-3.5" />
                       Attenzione
                     </Badge>
@@ -760,7 +760,7 @@ export function MatchConvocations({
                 </div>
                 {getMedicalCertificateAvailability(athlete.medicalCertExpiry) !==
                 "valid" ? (
-                  <p className="mt-1 text-xs font-medium text-amber-600">
+                  <p className="mt-1 text-xs font-medium text-egw-amber-ink">
                     {getMedicalCertificateAvailabilityLabel(
                       getMedicalCertificateAvailability(
                         athlete.medicalCertExpiry,
@@ -777,14 +777,14 @@ export function MatchConvocations({
               </div>
               <div className="sm:self-center">
                 {isSelected ? (
-                  <Badge className="bg-blue-500 text-white">
+                  <Badge className="bg-egw-blue text-white">
                     <CheckCircle className="h-3 w-3 mr-1" />
                     Convocato
                   </Badge>
                 ) : (
                   <Badge
                     variant="outline"
-                    className="text-gray-500 border-gray-300"
+                    className="text-egw-ink-62 border-egw-hairline"
                   >
                     Non convocato
                   </Badge>

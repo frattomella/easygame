@@ -493,17 +493,17 @@ export function TrainingScheduleAutomationPanel({
   };
 
   return (
-    <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-5 shadow-sm">
+    <div className="rounded-egw-panel border border-egw-panel-border bg-egw-panel p-5 shadow-egw-plane-1">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
-          <div className="inline-flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-blue-700 shadow-sm">
+          <div className="inline-flex items-center gap-2 rounded-egw-chip border border-egw-tint-blue-bd bg-egw-tint-blue px-2.5 py-1 text-[11.5px] font-semibold text-egw-blue-800">
             <Sparkles className="h-3.5 w-3.5" />
             Assistente Automazione
           </div>
-          <h3 className="text-xl font-semibold text-slate-900">
+          <h3 className="text-xl font-semibold text-egw-ink">
             Generazione automatica degli allenamenti
           </h3>
-          <p className="max-w-2xl text-sm text-slate-600">
+          <p className="max-w-2xl text-sm text-egw-ink-72">
             Il programma settimanale crea in automatico gli allenamenti reali
             nell&apos;app, pronti per presenze, note e gestione dati.
           </p>
@@ -537,7 +537,7 @@ export function TrainingScheduleAutomationPanel({
           <Button
             onClick={() => runGeneration()}
             disabled={isGenerating || isResetting || !weeklySchedule.length}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-egw-blue hover:bg-egw-blue-700"
           >
             {isGenerating ? (
               <>
@@ -555,9 +555,9 @@ export function TrainingScheduleAutomationPanel({
       </div>
 
       {lastGenerationResult ? (
-        <div className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
-          <p className="font-medium text-slate-900">Ultima generazione</p>
-          <p className="mt-1 text-sm text-slate-700">
+        <div className="mt-4 rounded-egw-field border bg-white p-4 shadow-egw-plane-1">
+          <p className="font-medium text-egw-ink">Ultima generazione</p>
+          <p className="mt-1 text-sm text-egw-ink-72">
             Creati: {lastGenerationResult.generatedCount} · Già esistenti:{" "}
             {lastGenerationResult.existingCount} · Conflitti:{" "}
             {lastGenerationResult.conflicts.length} · Non disponibili:{" "}
@@ -566,7 +566,7 @@ export function TrainingScheduleAutomationPanel({
 
           {lastGenerationResult.excludedSlots.length > 0 ? (
             <div className="mt-3">
-              <p className="text-sm font-medium text-amber-800">
+              <p className="text-sm font-medium text-egw-amber-ink">
                 Impossibile generare {lastGenerationResult.excludedSlots.length}{" "}
                 allenament
                 {lastGenerationResult.excludedSlots.length === 1 ? "o" : "i"}:
@@ -575,7 +575,7 @@ export function TrainingScheduleAutomationPanel({
                 {lastGenerationResult.excludedSlots.map((slot, index) => (
                   <li
                     key={`${slot.legacyId || index}`}
-                    className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+                    className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber px-3 py-2 text-sm text-egw-amber-ink"
                   >
                     <span className="font-medium">
                       {slot.categoryName || "Categoria"}
@@ -584,7 +584,7 @@ export function TrainingScheduleAutomationPanel({
                     {formatItWeekday(slot.startsAt)} {formatItTime(slot.startsAt)}
                     {slot.endsAt ? `–${formatItTime(slot.endsAt)}` : ""}
                     <br />
-                    <span className="text-amber-700">Motivo: {slot.reason}</span>
+                    <span className="text-egw-amber-ink">Motivo: {slot.reason}</span>
                   </li>
                 ))}
               </ul>
@@ -593,7 +593,7 @@ export function TrainingScheduleAutomationPanel({
 
           {lastGenerationResult.conflicts.length > 0 ? (
             <div className="mt-3">
-              <p className="text-sm font-medium text-amber-800">
+              <p className="text-sm font-medium text-egw-amber-ink">
                 {lastGenerationResult.conflicts.length} fascia
                 {lastGenerationResult.conflicts.length === 1 ? "" : "e"} da
                 verificare: occupano un posto gia occupato e non sono state
@@ -603,7 +603,7 @@ export function TrainingScheduleAutomationPanel({
                 {lastGenerationResult.conflicts.map((conflict, index) => (
                   <li
                     key={`${conflict.legacyId || index}`}
-                    className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+                    className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber px-3 py-2 text-sm text-egw-amber-ink"
                   >
                     <span className="font-medium">
                       {conflict.categoryName || "Categoria"}
@@ -620,13 +620,13 @@ export function TrainingScheduleAutomationPanel({
       ) : null}
 
       <div className="mt-5 grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl border bg-white p-4 shadow-sm">
+        <div className="rounded-egw-field border bg-white p-4 shadow-egw-plane-1">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-900">
+              <p className="text-sm font-medium text-egw-ink">
                 Automazione attiva
               </p>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-egw-ink-62">
                 Quando attiva, il controllo gira lato server e genera gli
                 allenamenti senza dover aprire questa pagina.
               </p>
@@ -651,7 +651,7 @@ export function TrainingScheduleAutomationPanel({
                       event.target.value as TrainingAutomationFrequency,
                   }))
                 }
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="w-full rounded-egw-control border border-input bg-background px-3 py-2 text-sm"
               >
                 <option value="weekly">Settimanale</option>
                 <option value="interval">Ogni tot giorni</option>
@@ -685,7 +685,7 @@ export function TrainingScheduleAutomationPanel({
                     day: event.target.value,
                   }))
                 }
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="w-full rounded-egw-control border border-input bg-background px-3 py-2 text-sm"
               >
                 {Object.entries(TRAINING_AUTOMATION_DAY_LABELS).map(
                   ([value, label]) => (
@@ -732,7 +732,7 @@ export function TrainingScheduleAutomationPanel({
           )}
         </div>
 
-        <div className="rounded-xl border bg-white p-4 shadow-sm">
+        <div className="rounded-egw-field border bg-white p-4 shadow-egw-plane-1">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="generate-days-ahead">
@@ -747,7 +747,7 @@ export function TrainingScheduleAutomationPanel({
                     generateDaysAhead: Number(event.target.value),
                   }))
                 }
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="w-full rounded-egw-control border border-input bg-background px-3 py-2 text-sm"
               >
                 {GENERATE_DAYS_AHEAD_PRESETS.map((giorni) => (
                   <option key={giorni} value={giorni}>
@@ -755,7 +755,7 @@ export function TrainingScheduleAutomationPanel({
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-egw-ink-62">
                 Per disattivare la generazione automatica, usa
                 l&apos;interruttore &quot;Automazione attiva&quot;.
               </p>
@@ -763,7 +763,7 @@ export function TrainingScheduleAutomationPanel({
 
             <div className="space-y-2">
               <Label>Ultima esecuzione</Label>
-              <div className="rounded-md border bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              <div className="rounded-egw-control border bg-egw-page-100 px-3 py-2 text-sm text-egw-ink-72">
                 {settings.lastRunAt
                   ? new Date(settings.lastRunAt).toLocaleString("it-IT")
                   : "Mai eseguita"}
@@ -772,12 +772,12 @@ export function TrainingScheduleAutomationPanel({
           </div>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
-              <p className="font-medium text-slate-900">Prossima esecuzione</p>
+            <div className="rounded-egw-field bg-egw-page-100 p-4 text-sm text-egw-ink-72">
+              <p className="font-medium text-egw-ink">Prossima esecuzione</p>
               <p className="mt-1">{formatNextRun(settings)}</p>
             </div>
-            <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
-              <p className="font-medium text-slate-900">
+            <div className="rounded-egw-field bg-egw-page-100 p-4 text-sm text-egw-ink-72">
+              <p className="font-medium text-egw-ink">
                 Allenamenti generati fino al
               </p>
               <p className="mt-1">
@@ -788,11 +788,11 @@ export function TrainingScheduleAutomationPanel({
             </div>
           </div>
 
-          <div className="mt-4 rounded-xl border p-4">
-            <p className="text-sm font-medium text-slate-900">
+          <div className="mt-4 rounded-egw-field border p-4">
+            <p className="text-sm font-medium text-egw-ink">
               Sospensioni ed eccezioni
             </p>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-egw-ink-62">
               Un intervallo (vacanze, chiusura impianti) o un singolo giorno
               in cui non generare: la regola resta attiva, riprende da sola
               subito dopo.
@@ -803,7 +803,7 @@ export function TrainingScheduleAutomationPanel({
                 {settings.exclusions.map((exclusion) => (
                   <li
                     key={exclusion.id}
-                    className="flex items-center justify-between rounded-md border bg-slate-50 px-3 py-2 text-sm"
+                    className="flex items-center justify-between rounded-egw-control border bg-egw-page-100 px-3 py-2 text-sm"
                   >
                     <span>
                       {formatItDate(exclusion.from)}
@@ -816,7 +816,7 @@ export function TrainingScheduleAutomationPanel({
                       variant="ghost"
                       size="icon"
                       onClick={() => removeExclusion(exclusion.id)}
-                      className="h-7 w-7 text-slate-500 hover:text-red-600"
+                      className="h-7 w-7 text-egw-ink-62 hover:text-egw-red"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -824,7 +824,7 @@ export function TrainingScheduleAutomationPanel({
                 ))}
               </ul>
             ) : (
-              <p className="mt-3 text-xs text-slate-400">
+              <p className="mt-3 text-xs text-egw-ink-42">
                 Nessuna sospensione attiva.
               </p>
             )}
@@ -867,7 +867,7 @@ export function TrainingScheduleAutomationPanel({
             <Button
               onClick={saveManualSettings}
               disabled={isSaving}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-egw-blue hover:bg-egw-blue-700"
             >
               <Save className="mr-2 h-4 w-4" />
               {isSaving ? "Salvataggio..." : "Salva impostazioni"}
@@ -876,7 +876,7 @@ export function TrainingScheduleAutomationPanel({
         </div>
       </div>
 
-      <div className="mt-4 rounded-xl border bg-white p-4 shadow-sm">
+      <div className="mt-4 rounded-egw-field border bg-white p-4 shadow-egw-plane-1">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-2">
             <Label htmlFor="generate-until-date">Genera fino a...</Label>
@@ -904,15 +904,15 @@ export function TrainingScheduleAutomationPanel({
                 Anteprima
               </Button>
             </div>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-egw-ink-62">
               Usa lo stesso motore di generazione dell&apos;automazione, con
               una data assoluta al posto della finestra a giorni.
             </p>
           </div>
 
           {preview ? (
-            <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-700">
-              <p className="font-medium text-slate-900">
+            <div className="rounded-egw-field bg-egw-page-100 p-4 text-sm text-egw-ink-72">
+              <p className="font-medium text-egw-ink">
                 Generazione fino al {formatItDate(untilDate)}
               </p>
               <p className="mt-1">
@@ -921,7 +921,7 @@ export function TrainingScheduleAutomationPanel({
                 · Esclusi: {preview.excludedCount}
               </p>
               {preview.conflicts.length > 0 ? (
-                <p className="mt-1 text-amber-700">
+                <p className="mt-1 text-egw-amber-ink">
                   {preview.conflicts.length} fascia
                   {preview.conflicts.length === 1 ? "" : "e"} da verificare:
                   occupano un posto gia occupato e non verranno create.
@@ -929,7 +929,7 @@ export function TrainingScheduleAutomationPanel({
               ) : null}
               {preview.excludedSlots.length > 0 ? (
                 <div className="mt-2">
-                  <p className="text-amber-700">
+                  <p className="text-egw-amber-ink">
                     {preview.excludedSlots.length} fascia
                     {preview.excludedSlots.length === 1 ? "" : "e"} non
                     disponibile{preview.excludedSlots.length === 1 ? "" : "i"}:
@@ -938,7 +938,7 @@ export function TrainingScheduleAutomationPanel({
                     {preview.excludedSlots.map((slot, index) => (
                       <li
                         key={`${slot.legacyId || index}`}
-                        className="rounded-md border border-amber-200 bg-white px-2 py-1 text-xs text-amber-900"
+                        className="rounded-egw-control border border-egw-tint-amber-bd bg-white px-2 py-1 text-xs text-egw-amber-ink"
                       >
                         <span className="font-medium">
                           {slot.categoryName || "Categoria"}
@@ -964,7 +964,7 @@ export function TrainingScheduleAutomationPanel({
                 <Button
                   onClick={() => runGenerateUntil("execute")}
                   disabled={isGeneratingUntil}
-                  className="bg-blue-600 hover:bg-blue-700"
+                  className="bg-egw-blue hover:bg-egw-blue-700"
                 >
                   {isGeneratingUntil ? (
                     <RefreshCw className="mr-2 h-4 w-4 animate-spin" />

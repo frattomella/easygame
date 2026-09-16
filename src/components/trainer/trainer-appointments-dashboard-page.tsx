@@ -48,17 +48,17 @@ import { cn } from "@/lib/utils";
  */
 
 const STATUS_BADGE_CLASSES: Record<string, string> = {
-  requested: "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50",
+  requested: "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink hover:bg-egw-tint-amber",
   confirmed:
-    "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50",
-  rejected: "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-50",
-  rescheduled: "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50",
-  completed: "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100",
-  no_show: "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100",
+    "border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green",
+  rejected: "border-egw-tint-red-bd bg-egw-tint-red text-egw-red hover:bg-egw-tint-red",
+  rescheduled: "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue",
+  completed: "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
+  no_show: "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
   cancelled_by_family:
-    "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100",
+    "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
   cancelled_by_club:
-    "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100",
+    "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
 };
 
 const APERTI = new Set(["requested", "confirmed", "rescheduled"]);
@@ -210,14 +210,14 @@ export default function ClubAppointmentsDashboardPage() {
       */
       <article
         key={appointment.id}
-        className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+        className="min-w-0 rounded-egw-panel-sm border border-egw-hairline bg-white p-4 shadow-egw-plane-1"
       >
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-950">
+            <p className="truncate text-sm font-semibold text-egw-ink">
               {appointment.reason || "Colloquio"}
             </p>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-egw-ink-62">
               {nomeAtleta(appointment.athlete_id)}
             </p>
           </div>
@@ -225,35 +225,35 @@ export default function ClubAppointmentsDashboardPage() {
             className={cn(
               "shrink-0",
               STATUS_BADGE_CLASSES[appointment.status] ||
-                "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100",
+                "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
             )}
           >
             {appointment.status_label}
           </Badge>
         </div>
 
-        <p className="mt-3 text-sm text-slate-600">
+        <p className="mt-3 text-sm text-egw-ink-72">
           {formatDate(appointment.date)} · {String(appointment.time || "")}
         </p>
         {appointment.notes ? (
-          <p className="mt-2 whitespace-pre-line text-sm text-slate-600">
+          <p className="mt-2 whitespace-pre-line text-sm text-egw-ink-72">
             {appointment.notes}
           </p>
         ) : null}
         {appointment.decision_note ? (
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 text-sm text-egw-ink-62">
             Motivo: {appointment.decision_note}
           </p>
         ) : null}
 
         {rejectingId === appointment.id ? (
-          <div className="mt-4 space-y-3 rounded-2xl border border-rose-200 bg-rose-50/70 p-3">
-            <label className="block text-xs font-medium text-slate-700">
+          <div className="mt-4 space-y-3 rounded-egw-panel-sm border border-egw-tint-red-bd bg-egw-tint-red p-3">
+            <label className="block text-xs font-medium text-egw-ink-72">
               Motivo del rifiuto (obbligatorio, la famiglia lo legge)
               <Textarea
                 value={motivoRifiuto}
                 onChange={(event) => setMotivoRifiuto(event.target.value)}
-                className="mt-1 w-full rounded-xl bg-white"
+                className="mt-1 w-full rounded-egw-field bg-white"
                 rows={2}
                 placeholder="Es. Orario non disponibile, contatterò la famiglia per una nuova data"
               />
@@ -262,7 +262,7 @@ export default function ClubAppointmentsDashboardPage() {
               <Button
                 size="sm"
                 variant="outline"
-                className="rounded-xl text-rose-700"
+                className="rounded-egw-field text-egw-red"
                 disabled={inCorso || !motivoRifiuto.trim()}
                 onClick={() =>
                   esegui(
@@ -283,7 +283,7 @@ export default function ClubAppointmentsDashboardPage() {
               <Button
                 size="sm"
                 variant="outline"
-                className="rounded-xl"
+                className="rounded-egw-field"
                 onClick={() => {
                   setRejectingId(null);
                   setMotivoRifiuto("");
@@ -296,31 +296,31 @@ export default function ClubAppointmentsDashboardPage() {
         ) : null}
 
         {reschedulingId === appointment.id ? (
-          <div className="mt-4 space-y-3 rounded-2xl border border-blue-200 bg-blue-50/70 p-3">
+          <div className="mt-4 space-y-3 rounded-egw-panel-sm border border-egw-tint-blue-bd bg-egw-tint-blue p-3">
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-xs font-medium text-slate-700">
+              <label className="block text-xs font-medium text-egw-ink-72">
                 Nuova data
                 <Input
                   type="date"
                   value={nuovaData}
                   onChange={(event) => setNuovaData(event.target.value)}
-                  className="mt-1 w-full rounded-xl bg-white"
+                  className="mt-1 w-full rounded-egw-field bg-white"
                 />
               </label>
-              <label className="block text-xs font-medium text-slate-700">
+              <label className="block text-xs font-medium text-egw-ink-72">
                 Nuovo orario
                 <Input
                   type="time"
                   value={nuovaOra}
                   onChange={(event) => setNuovaOra(event.target.value)}
-                  className="mt-1 w-full rounded-xl bg-white"
+                  className="mt-1 w-full rounded-egw-field bg-white"
                 />
               </label>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
-                className="bg-blue-600 hover:bg-blue-700"
+                className="bg-egw-blue hover:bg-egw-blue-700"
                 disabled={inCorso || !nuovaData || !nuovaOra}
                 onClick={() =>
                   esegui(
@@ -344,7 +344,7 @@ export default function ClubAppointmentsDashboardPage() {
               <Button
                 size="sm"
                 variant="outline"
-                className="rounded-xl"
+                className="rounded-egw-field"
                 onClick={() => setReschedulingId(null)}
               >
                 Annulla
@@ -358,7 +358,7 @@ export default function ClubAppointmentsDashboardPage() {
             {puoConfermare ? (
               <Button
                 size="sm"
-                className="bg-emerald-600 hover:bg-emerald-700"
+                className="bg-egw-green hover:bg-emerald-700"
                 disabled={inCorso}
                 onClick={() =>
                   esegui(
@@ -381,7 +381,7 @@ export default function ClubAppointmentsDashboardPage() {
               <Button
                 size="sm"
                 variant="outline"
-                className="rounded-xl"
+                className="rounded-egw-field"
                 disabled={inCorso}
                 onClick={() => {
                   setReschedulingId(appointment.id);
@@ -397,7 +397,7 @@ export default function ClubAppointmentsDashboardPage() {
               <Button
                 size="sm"
                 variant="outline"
-                className="rounded-xl text-rose-700"
+                className="rounded-egw-field text-egw-red"
                 disabled={inCorso}
                 onClick={() => {
                   setRejectingId(appointment.id);
@@ -429,7 +429,7 @@ export default function ClubAppointmentsDashboardPage() {
         action={
           <Button
             variant="outline"
-            className="w-full justify-center gap-2 rounded-2xl sm:w-auto"
+            className="w-full justify-center gap-2 rounded-egw-panel-sm sm:w-auto"
             onClick={() => void carica()}
             disabled={loading}
           >

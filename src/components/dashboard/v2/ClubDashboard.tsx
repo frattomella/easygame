@@ -4,7 +4,7 @@ import * as React from "react";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { DashboardPageContainer } from "@/components/dashboard/dashboard-page-container";
 import { OnboardingResumeCard } from "@/components/dashboard/onboarding-resume-card";
-import { Eyebrow } from "@/components/web/primitives/Surface";
+import { Eyebrow, SkyProvider } from "@/components/web/primitives/Surface";
 import { Button } from "@/components/web/primitives/Button";
 import { Skeleton } from "@/components/web/primitives/Controls";
 import { AlertBlock } from "@/components/web/page/Alerts";
@@ -219,17 +219,20 @@ export function ClubDashboard() {
       />
 
       {loadError ? (
-        <AlertBlock
-          severity="danger"
-          title="Impossibile caricare la dashboard"
-          actions={
-            <Button variant="secondary" size="sm" onClick={retry}>
-              Riprova
-            </Button>
-          }
-        >
-          I dati del club non sono arrivati. Controlla la connessione e riprova.
-        </AlertBlock>
+        /* A cavallo dell'orizzonte: il blocco si dichiara sul cielo e resta bianco e leggibile. */
+        <SkyProvider>
+          <AlertBlock
+            severity="danger"
+            title="Impossibile caricare la dashboard"
+            actions={
+              <Button variant="secondary" size="sm" onClick={retry}>
+                Riprova
+              </Button>
+            }
+          >
+            I dati del club non sono arrivati. Controlla la connessione e riprova.
+          </AlertBlock>
+        </SkyProvider>
       ) : null}
 
       {/* ── Coda di lavoro (2fr) e colonna del giorno (1fr) ───────────── */}

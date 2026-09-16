@@ -109,12 +109,12 @@ export function ParentRsvpSection({
   ).length;
 
   return (
-    <Card className="border-slate-200 shadow-sm">
+    <Card>
       <CardHeader>
         <CardTitle>
           {SECTION_TITLES[kind]}
           {pending > 0 ? (
-            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+            <span className="ml-2 rounded-full bg-egw-tint-amber px-2 py-0.5 text-xs font-semibold text-egw-amber-ink">
               {pending} da confermare
             </span>
           ) : null}

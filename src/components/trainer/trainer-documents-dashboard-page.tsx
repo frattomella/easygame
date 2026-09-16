@@ -21,10 +21,10 @@ import { buildTrainerSquadCertificates } from "@/lib/trainer-clinical-view";
 import { cn } from "@/lib/utils";
 
 const CERTIFICATE_BADGE_CLASSES: Record<string, string> = {
-  missing: "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100",
-  expired: "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-50",
-  expiring: "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50",
-  valid: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50",
+  missing: "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
+  expired: "border-egw-tint-red-bd bg-egw-tint-red text-egw-red hover:bg-egw-tint-red",
+  expiring: "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink hover:bg-egw-tint-amber",
+  valid: "border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green",
 };
 
 /**
@@ -88,14 +88,14 @@ export default function TrainerDocumentsDashboardPage() {
               return (
                 <article
                   key={document.id}
-                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                  className="rounded-egw-panel-sm border border-egw-hairline bg-white p-4 shadow-egw-plane-1"
                 >
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-950">
+                      <p className="truncate text-sm font-semibold text-egw-ink">
                         {document.title}
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">
+                      <p className="mt-1 text-xs text-egw-ink-62">
                         {document.typeLabel}
                       </p>
                     </div>
@@ -108,7 +108,7 @@ export default function TrainerDocumentsDashboardPage() {
                       {TRAINER_DOCUMENT_STATUS_LABELS[status]}
                     </Badge>
                   </div>
-                  <p className="mt-3 text-xs text-slate-500">
+                  <p className="mt-3 text-xs text-egw-ink-62">
                     {document.expiryDate
                       ? `Scadenza ${formatDate(document.expiryDate)}`
                       : "Senza scadenza"}
@@ -134,7 +134,7 @@ export default function TrainerDocumentsDashboardPage() {
         icon={FileHeart}
         action={
           certificates.allowed && certificates.attentionCount > 0 ? (
-            <Badge className="border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50">
+            <Badge className="border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink hover:bg-egw-tint-amber">
               {certificates.attentionCount} da sistemare
             </Badge>
           ) : null
@@ -151,13 +151,13 @@ export default function TrainerDocumentsDashboardPage() {
               {certificates.rows.map((row) => (
                 <li
                   key={row.athleteId}
-                  className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-2 rounded-egw-panel-sm border border-egw-hairline bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-950">
+                    <p className="truncate text-sm font-semibold text-egw-ink">
                       {row.athleteName}
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 text-xs text-egw-ink-62">
                       {row.categoryName}
                       {row.expiryDate
                         ? ` · scadenza ${formatDate(row.expiryDate)}`

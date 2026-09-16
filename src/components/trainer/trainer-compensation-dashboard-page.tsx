@@ -106,13 +106,13 @@ const INSTALLMENT_STATUS_LABELS: Record<string, string> = {
 };
 
 const INSTALLMENT_STATUS_CLASSES: Record<string, string> = {
-  SCHEDULED: "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100",
-  ACCRUED: "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50",
+  SCHEDULED: "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
+  ACCRUED: "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue",
   PARTIALLY_PAID:
-    "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-50",
-  PAID: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50",
-  OVERDUE: "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-50",
-  CANCELLED: "border-slate-200 bg-slate-100 text-slate-500 hover:bg-slate-100",
+    "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink hover:bg-egw-tint-amber",
+  PAID: "border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green",
+  OVERDUE: "border-egw-tint-red-bd bg-egw-tint-red text-egw-red hover:bg-egw-tint-red",
+  CANCELLED: "border-egw-hairline bg-egw-page-100 text-egw-ink-62 hover:bg-[#e9eef9]",
 };
 
 const money = (value: number | null | undefined, currency = "EUR") =>
@@ -201,35 +201,35 @@ export default function TrainerCompensationDashboardPage() {
               icon={Wallet}
             >
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                <div className="rounded-egw-panel-sm border border-egw-hairline bg-white px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-egw-ink-62">
                     Erogato dal club
                   </p>
-                  <p className="mt-1 text-xl font-semibold text-slate-950">
+                  <p className="mt-1 text-xl font-semibold text-egw-ink">
                     {money(position.clubGross)}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                <div className="rounded-egw-panel-sm border border-egw-hairline bg-white px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-egw-ink-62">
                     Dichiarato da altri
                   </p>
-                  <p className="mt-1 text-xl font-semibold text-slate-950">
+                  <p className="mt-1 text-xl font-semibold text-egw-ink">
                     {money(position.externalDeclared)}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                <div className="rounded-egw-panel-sm border border-egw-hairline bg-white px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-egw-ink-62">
                     Totale progressivo
                   </p>
-                  <p className="mt-1 text-xl font-semibold text-slate-950">
+                  <p className="mt-1 text-xl font-semibold text-egw-ink">
                     {money(position.progressive)}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                <div className="rounded-egw-panel-sm border border-egw-hairline bg-white px-4 py-3">
+                  <p className="text-xs font-medium uppercase tracking-wide text-egw-ink-62">
                     Ultimo pagamento
                   </p>
-                  <p className="mt-1 text-xl font-semibold text-slate-950">
+                  <p className="mt-1 text-xl font-semibold text-egw-ink">
                     {position.lastPaymentAt
                       ? formatDate(position.lastPaymentAt)
                       : "—"}
@@ -249,7 +249,7 @@ export default function TrainerCompensationDashboardPage() {
                 {statement.relationships.map((relationship) => (
                   <article
                     key={relationship.id}
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                    className="rounded-egw-panel-sm border border-egw-hairline bg-white px-4 py-3"
                   >
                     <div className="flex items-start justify-between gap-3">
                       {/*
@@ -269,25 +269,25 @@ export default function TrainerCompensationDashboardPage() {
                         puro e le altre schermate del lavoro sportivo la
                         importano gia da li.
                       */}
-                      <p className="font-semibold text-slate-950">
+                      <p className="font-semibold text-egw-ink">
                         {SPORT_WORK_ROLE_LABELS[
                           relationship.role as keyof typeof SPORT_WORK_ROLE_LABELS
                         ] || relationship.role}
                       </p>
-                      <Badge className="border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
+                      <Badge className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue">
                         {RELATIONSHIP_STATUS_LABELS[relationship.status] ||
                           relationship.status}
                       </Badge>
                     </div>
-                    <p className="mt-2 text-sm text-slate-600">
+                    <p className="mt-2 text-sm text-egw-ink-72">
                       Dal {formatDate(relationship.startDate)}
                       {relationship.endDate
                         ? ` al ${formatDate(relationship.endDate)}`
                         : ""}
                     </p>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <p className="mt-1 text-sm text-egw-ink-72">
                       Compenso concordato:{" "}
-                      <span className="font-medium text-slate-900">
+                      <span className="font-medium text-egw-ink">
                         {money(
                           relationship.plan?.totalAmount ??
                             relationship.contractAmount,
@@ -315,7 +315,7 @@ export default function TrainerCompensationDashboardPage() {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[560px] text-sm">
                   <thead>
-                    <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                    <tr className="border-b border-egw-hairline text-left text-xs uppercase tracking-wide text-egw-ink-62">
                       <th className="py-2 pr-3 font-medium">Rata</th>
                       <th className="py-2 pr-3 font-medium">Scadenza</th>
                       <th className="py-2 pr-3 font-medium">Lordo</th>
@@ -327,18 +327,18 @@ export default function TrainerCompensationDashboardPage() {
                     {statement.installments.map((installment) => (
                       <tr
                         key={installment.id}
-                        className="border-b border-slate-100 last:border-0"
+                        className="border-b border-egw-rule last:border-0"
                       >
-                        <td className="py-2 pr-3 font-medium text-slate-900">
+                        <td className="py-2 pr-3 font-medium text-egw-ink">
                           {installment.label}
                         </td>
-                        <td className="py-2 pr-3 text-slate-600">
+                        <td className="py-2 pr-3 text-egw-ink-72">
                           {formatDate(installment.dueDate)}
                         </td>
-                        <td className="py-2 pr-3 text-slate-600">
+                        <td className="py-2 pr-3 text-egw-ink-72">
                           {money(installment.grossAmount)}
                         </td>
-                        <td className="py-2 pr-3 text-slate-600">
+                        <td className="py-2 pr-3 text-egw-ink-72">
                           {money(installment.paidAmount)}
                         </td>
                         <td className="py-2">
@@ -375,23 +375,23 @@ export default function TrainerCompensationDashboardPage() {
                 {statement.declarations.map((declaration) => (
                   <article
                     key={declaration.id}
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                    className="rounded-egw-panel-sm border border-egw-hairline bg-white px-4 py-3"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <p className="font-semibold text-slate-950">
+                      <p className="font-semibold text-egw-ink">
                         Anno {declaration.fiscalYear}
                       </p>
-                      <Badge className="border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-100">
+                      <Badge className="border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]">
                         {declaration.status}
                       </Badge>
                     </div>
-                    <p className="mt-2 text-sm text-slate-600">
+                    <p className="mt-2 text-sm text-egw-ink-72">
                       Importo dichiarato:{" "}
-                      <span className="font-medium text-slate-900">
+                      <span className="font-medium text-egw-ink">
                         {money(declaration.externalAmount)}
                       </span>
                     </p>
-                    <p className="mt-1 text-sm text-slate-600">
+                    <p className="mt-1 text-sm text-egw-ink-72">
                       Del {formatDate(declaration.declarationDate)}
                     </p>
                   </article>

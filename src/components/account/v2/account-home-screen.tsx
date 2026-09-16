@@ -22,7 +22,7 @@ import { Button, IconButton } from "@/components/web/primitives/Button";
 import { Avatar } from "@/components/web/primitives/Identity";
 import { Skeleton } from "@/components/web/primitives/Controls";
 import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
-import { Panel, PanelHeader } from "@/components/web/primitives/Surface";
+import { Panel, PanelHeader, SkyProvider } from "@/components/web/primitives/Surface";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/web/primitives/Overlays";
 import { TextInput } from "@/components/web/forms/Field";
 import { DangerConfirmDialog } from "@/components/web/overlays/Modal";
@@ -911,6 +911,7 @@ export default function AccountHomeScreen() {
   const profileDirty = profileFormDirty(profileForm, profileInitial);
 
   return (
+    <SkyProvider>
     <div className="egw-sky-full relative min-h-[100dvh] overflow-x-hidden font-brand">
       <Image src={iconWhite} alt="" aria-hidden className="pointer-events-none absolute -right-24 top-24 h-[520px] w-[520px] select-none object-contain opacity-[0.05]" />
 
@@ -1201,5 +1202,6 @@ export default function AccountHomeScreen() {
         loading={Boolean(deletingAccessKey)}
       />
     </div>
+    </SkyProvider>
   );
 }

@@ -184,13 +184,13 @@ export function ClubPersonAccessCard({
         ) : assegnazione ? (
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600" />
+              <ShieldCheck className="h-4 w-4 shrink-0 text-egw-green" />
               <span className="text-sm font-medium">Accesso attivo</span>
               <Badge variant="outline">
                 {assegnazione.custom_role_name || assegnazione.role_label}
               </Badge>
               {assegnazione.is_owner ? (
-                <Badge className="bg-blue-600 text-white">Proprietario</Badge>
+                <Badge className="bg-egw-blue text-white">Proprietario</Badge>
               ) : null}
             </div>
             <p className="text-sm text-muted-foreground break-words">

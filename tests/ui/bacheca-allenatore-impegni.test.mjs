@@ -150,8 +150,11 @@ test("le caselle che decidono presenze e convocazioni hanno un nome", () => {
     lo schermo sentiva sedici volte «casella di controllo» e nessun nome, su
     due schermate che decidono la presenza di un minore e chi va in campo.
   */
+  /* Redesign: il registro presenze e il cassetto V2 condiviso (`AttendanceDrawer`); la casella dice «Presente: nome». */
+  const registro = fs.readFileSync(path.join(process.cwd(), "src/components/training/v2/AttendanceDrawer.tsx"), "utf8");
+  assert.ok(registro.includes("aria-label={`Presente: ${name}`}"), "AttendanceDrawer: la casella deve dire di chi e");
+  assert.ok(registro.includes("aria-label={`${athlete.name}: ${markLabel(mark)}. Cambia stato`}"), "e la riga annuncia lo stato che cambia");
   for (const [file, etichetta] of [
-    ["src/components/trainer/AttendanceSheet.tsx", "Presente: "],
     ["src/components/trainer/MatchConvocations.tsx", "Convoca: "],
   ]) {
     const contenuto = fs.readFileSync(path.join(process.cwd(), file), "utf8");
