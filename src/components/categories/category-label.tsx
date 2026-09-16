@@ -107,6 +107,8 @@ export function MembershipRoleBadge({
         className,
       )}
     >
+      {/* Per chi legge con lo schermo: «Pulcini · S. Cosma, Primaria», non una parola sola. */}
+      <span className="sr-only">, </span>
       {membershipRoleLabel(isPrimary)}
     </span>
   );
