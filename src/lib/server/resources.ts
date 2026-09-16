@@ -3845,6 +3845,13 @@ const guardParentBelongsToClub = async (
   resource: string,
   data: Record<string, any>,
   scope?: ResourceAccessScope,
+  /**
+   * Il client della transazione di chi chiama (ADR-0188): la scheda appena
+   * creata dentro la conversione di una prova e visibile **solo** da li, e
+   * leggerla con il client globale la diceva inesistente (UAT ADR-0194:
+   * «la riga a cui si collega non esiste» su ogni conversione con categoria).
+   */
+  client: unknown = prisma,
 ) => {
   const regola = PADRE_DA_VERIFICARE[resource];
   if (!regola) return;
@@ -3857,7 +3864,7 @@ const guardParentBelongsToClub = async (
   ).trim();
   if (!clubId) throw new Error("Accesso negato: club non risolto");
 
-  const padre = await (prisma as any)[regola.modello].findUnique({
+  const padre = await ((client as any) || prisma)[regola.modello].findUnique({
     where: { id: padreId },
     select: { organization_id: true },
   });
@@ -6783,7 +6790,7 @@ export const createResource = async (
     fatto con cio che c'e.
   */
   await guardNotificationRecipient(resource, normalized, scope);
-  await guardParentBelongsToClub(resource, normalized, scope);
+  await guardParentBelongsToClub(resource, normalized, scope, options?.client);
   /*
     **Il perimetro non si allarga da dentro.**
 
@@ -8233,6 +8240,7 @@ export const updateResource = async (
         normalized.organization_id || existing?.organization_id || null,
     },
     scope,
+    options?.client,
   );
   /*
     **Il perimetro non si allarga da dentro.**

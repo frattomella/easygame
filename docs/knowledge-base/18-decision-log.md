@@ -12820,6 +12820,18 @@ Categorie passano dal writer (A6/B11); «Pulcini» con due omonime non si
 risolve per nome nudo (A5); una risposta «Sede» di un modulo precedente
 distingue due squadre omonime (A7).
 
+### Trovato in UAT: il vaglio del padre legge dalla transazione
+
+Sul database vero ogni conversione di una prova **con categoria** cadeva
+con «la riga a cui si collega non esiste»: `guardParentBelongsToClub` del
+registro generico leggeva l'atleta con il client globale, che una scheda
+nata dentro `$transaction` (ADR-0188) non la vede finche non si conferma.
+Il doppio dei test esegue la transazione sullo stesso client e non poteva
+accorgersene. Ora il vaglio riceve il client di chi chiama, in creazione e
+in modifica (prova 45 di `atleti-in-prova`, che riproduce la visibilita;
+`scripts/prova-conversione-concorrente.mjs` con `categoryId` sul database
+vero).
+
 ### Migrazioni
 
 Nessuna: l'indice parziale della primaria esiste dal 2026-04-09,

@@ -63,6 +63,19 @@ coppie). Storia: `tests/server/appartenenze-storia-adr-0194.test.mjs`
 primaria; QA UAT Club: 8 comandi, 4 scritti, 4 gia a posto, secondaria
 estranea conservata).
 
+**Trovato in UAT (§40, prova → atleta).** Ogni conversione con una
+categoria falliva sul database vero con «la riga a cui si collega non
+esiste»: il vaglio del padre (`guardParentBelongsToClub`, registro generico)
+leggeva la scheda con il client **globale**, e la scheda nata dentro la
+transazione della conversione (ADR-0188) non esiste ancora per chi sta
+fuori. Il doppio non lo vedeva (esegue la transazione sullo stesso client)
+e la prova sul database vero convertiva senza categoria. Chiuso: il vaglio
+riceve il client di chi chiama (creazione e modifica); prova 45 di
+`tests/server/atleti-in-prova.test.mjs` riproduce la visibilita e
+`scripts/prova-conversione-concorrente.mjs <club> [n] [categoryId]` lo
+misura sul database vero (EasyGame FC, UAT Esordienti: 4 concorrenti → 1
+scheda, 1 primaria, sede Roma derivata dalla squadra unica).
+
 ## 4. Il dato del pilota (letto, non toccato)
 
 Censimento del 2026-09-16 (`.codex-scratch/adr0194/censimento-coppie.mjs`):

@@ -29,8 +29,16 @@ if (!url.includes(ENDPOINT_CONSENTITO)) {
 
 const clubId = process.argv[2];
 const concorrenti = Number(process.argv[3] || 4);
+/*
+  Con una categoria la conversione scrive anche l'appartenenza dentro la
+  stessa transazione: il vaglio del padre deve leggere la scheda appena
+  creata **dalla transazione**, e solo il database vero lo misura (il doppio
+  esegue la transazione sullo stesso client). Senza, l'UAT di ADR-0194
+  fermava ogni conversione con «la riga a cui si collega non esiste».
+*/
+const categoryId = process.argv[4] || "";
 if (!clubId) {
-  console.error("Uso: prova-conversione-concorrente.mjs <clubId> [concorrenti]");
+  console.error("Uso: prova-conversione-concorrente.mjs <clubId> [concorrenti] [categoryId]");
   process.exit(2);
 }
 
@@ -55,6 +63,7 @@ const trial = await dominio.createTrialAthlete(scope, {
   firstName: "Prova",
   lastName: marca,
   birthDate: "2015-05-05",
+  ...(categoryId ? { categoryId } : {}),
 });
 console.log("prova creata", trial.id);
 
@@ -94,7 +103,14 @@ try {
     appartenenze.map((m) => m.id).sort(),
     "la proiezione cita le righe vere",
   );
-  assert.ok(appartenenze.length <= 1, "al piu una appartenenza (la prova non aveva categoria)");
+  if (categoryId) {
+    assert.equal(appartenenze.length, 1, "una appartenenza: la scheda si e letta dalla transazione");
+    assert.equal(appartenenze[0].category_id, categoryId);
+    assert.equal(appartenenze[0].is_primary, true, "ed e la primaria");
+    console.log("appartenenza", appartenenze[0].category_id, "sede", appartenenze[0].site_id || "(nessuna)");
+  } else {
+    assert.ok(appartenenze.length <= 1, "al piu una appartenenza (la prova non aveva categoria)");
+  }
 
   /* Ripetere la conversione dopo il successo non crea niente. */
   await assert.rejects(

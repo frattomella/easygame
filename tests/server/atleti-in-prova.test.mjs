@@ -655,3 +655,64 @@ test("44 · se una scrittura della conversione fallisce, non resta ne la scheda 
   assert.equal(prova.status, "in_trial");
   /* Con il database vero il rollback toglie anche la presa e la scheda: lo prova scripts/prova-conversione-concorrente.mjs. */
 });
+
+/* ── ADR-0194 (UAT): il vaglio del padre legge dalla transazione ────────── */
+
+test("45 · la conversione con categoria passa il vaglio del padre: la scheda appena creata si legge dalla transazione, non dal client globale", async () => {
+  /*
+    Il doppio esegue la transazione sullo stesso client, e il difetto non si
+    vedeva: sul database vero la scheda creata dentro `$transaction` **non
+    esiste** per il client globale finche non si conferma, e il vaglio
+    «la riga a cui si collega non esiste» fermava ogni conversione con una
+    categoria. Qui si riproduce la visibilita: durante la transazione il
+    client globale non vede le schede nate dentro.
+  */
+  const base = fake.client;
+  let inTransazione = false;
+  let preesistenti = new Set();
+  const globale = new Proxy(base, {
+    get(bersaglio, chiave) {
+      if (chiave === "$transaction") {
+        return async (input) => {
+          if (typeof input !== "function") return Promise.all(input);
+          preesistenti = new Set((await base.athlete.findMany({})).map((riga) => riga.id));
+          inTransazione = true;
+          try {
+            return await input(base);
+          } finally {
+            inTransazione = false;
+          }
+        };
+      }
+      if (chiave === "athlete") {
+        return new Proxy(bersaglio.athlete, {
+          get(delegato, metodo) {
+            if (metodo !== "findUnique") return delegato[metodo];
+            return async (args) => {
+              const riga = await delegato.findUnique(args);
+              return inTransazione && riga && !preesistenti.has(riga.id) ? null : riga;
+            };
+          },
+        });
+      }
+      return bersaglio[chiave];
+    },
+  });
+  setPrismaClientForTests(globale);
+  try {
+    const trial = await dominio.createTrialAthlete(scopeDirezione, mario({ categoryId: "u15" }));
+    const esito = await dominio.convertTrialAthlete(scopeDirezione, trial.id, { create: {} }, { userId: DIREZIONE });
+    assert.equal(esito.created, true);
+    const appartenenze = await base.athleteCategoryMembership.findMany({ where: { athlete_id: esito.athleteId } });
+    assert.equal(appartenenze.length, 1, "l'appartenenza si scrive: il padre si e letto dalla transazione");
+    assert.equal(appartenenze[0].is_primary, true);
+    assert.equal(appartenenze[0].site_id, "sede-a", "e la sede e derivata dalla squadra unica");
+  } finally {
+    setPrismaClientForTests(base);
+  }
+
+  /* E il registro lo dice: il vaglio del padre riceve il client di chi chiama, in creazione e in modifica. */
+  const registro = readFileSync(path.join(process.cwd(), "src/lib/server/resources.ts"), "utf8");
+  assert.equal((registro.match(/guardParentBelongsToClub\([\s\S]*?options\?\.client,?\s*\)/g) || []).length, 2, "creazione e modifica passano il client");
+  assert.match(registro, /\(\(client as any\) \|\| prisma\)\[regola\.modello\]\.findUnique/, "il padre si legge dal client ricevuto");
+});

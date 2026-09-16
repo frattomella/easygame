@@ -111,7 +111,7 @@ export function TrialFormDrawer({
       (squadre.length === 1 ? squadre[0].id : "") ||
       (form.siteId ? squadre.find((t) => t.siteId === form.siteId)?.id || "" : "")
     );
-  }, [form.categoryId, form.groupId, targetOptions]);
+  }, [form.categoryId, form.groupId, form.siteId, targetOptions]);
   const scegliSquadra = (id: string | null) => {
     setTouched(true);
     const target = id ? targetOptions.find((t) => t.id === id) : null;
