@@ -45,6 +45,15 @@ printf '{"projectId":"prj_wGBiRPtiqrsCd4Ay48Jq91EWtXEj","orgId":"team_56v15oRca8
 npx vercel --prod --yes
 ```
 
+Dal 2026-09-16 la stessa sequenza e in `scripts/deploy-redesign-staging.sh`,
+con una guardia obbligatoria: stampa **EXPECTED / ACTUAL** per il progetto
+Vercel (letto da `.vercel/project.json` del worktree) e per il database
+(`DATABASE_URL` di produzione del progetto collegato, letta con `vercel env
+pull` su un file temporaneo) e si ferma senza deployare e senza migrare se
+uno dei due non e quello del redesign. `DRY_RUN=1` esegue solo le guardie.
+Il motivo: un deploy del redesign finito su `easygame-staging` (Fortitudo)
+perche il worktree aveva copiato il `.vercel/project.json` della root.
+
 Il build su Vercel esegue `npm run vercel-build` (`prisma migrate deploy` sul
 database **del redesign**, poi `next build`). Dopo il deploy: stato `READY`,
 smoke test su `/`, `/login`, `/api/v1/registry`.
