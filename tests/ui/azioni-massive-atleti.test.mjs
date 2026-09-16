@@ -150,9 +150,11 @@ test("«seleziona tutti» sopra la soglia vale per l'intero archivio filtrato", 
   const aperture = Array.from(testo.matchAll(/scope: bulkScopeOf\(/g)).length;
   assert.equal(
     aperture,
-    5,
-    "ogni azione di massa — attiva, sospendi, disattiva, elimina, cambia categoria — passa dal risolutore di ambito",
+    4,
+    "ogni azione di massa di stato — attiva, sospendi, disattiva, elimina — passa dal risolutore di ambito",
   );
+  /* «Cambia categoria» (ADR-0194) risolve i bersagli con lo stesso risolutore prima di aprire il cassetto. */
+  assert.match(testo, /risolviBersagliMassivi\(bulkScopeOf\(righe\), righe\)/, "e il cambio di categoria pure, prima dell'anteprima");
 });
 
 test("se i bersagli non si possono contare, la conferma non si apre", () => {

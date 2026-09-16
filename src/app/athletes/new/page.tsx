@@ -19,12 +19,10 @@ import { AthleteCreateForm } from "@/components/forms/AthleteCreateForm";
 import { TrialMatchNotice } from "@/components/trials/v2/TrialMatchNotice";
 import { convertTrialAthlete, type TrialAthlete } from "@/lib/trials/client";
 import { roleHasPermission } from "@/lib/permissions/catalog";
-import {
-  findCategoryForBirthDate,
-  selectableCategoryOptions,
-} from "@/lib/category-utils";
+import { selectableCategoryOptions } from "@/lib/category-utils";
 import { buildCategoryDisplayIndex } from "@/lib/categories/display";
-import { buildCategoryGroups, normalizeClubSites } from "@/lib/club-sites";
+import { buildCategoryGroups, normalizeClubSites, type ClubSite } from "@/lib/club-sites";
+import { useMembershipTargetIndex } from "@/components/athletes/v2/AthleteCategoryMembershipEditor";
 import {
   addClubAthlete,
   updateClubAthlete,
@@ -69,13 +67,16 @@ function NewAthletePageContent() {
   );
   const [categories, setCategories] = React.useState<any[]>([]);
   const [categoryGroups, setCategoryGroups] = React.useState<any[]>([]);
+  const [clubSites, setClubSites] = React.useState<ClubSite[]>([]);
   const [federations, setFederations] = React.useState<ClubFederation[]>([]);
 
   /** Come si scrive una categoria qui (ADR-0185): la sede solo dove serve. */
   const categoryDisplay = React.useMemo(
-    () => buildCategoryDisplayIndex({ categories, groups: categoryGroups }),
-    [categories, categoryGroups],
+    () => buildCategoryDisplayIndex({ categories, groups: categoryGroups, sites: clubSites }),
+    [categories, categoryGroups, clubSites],
   );
+  /** Le squadre scegliibili (ADR-0194): la sede dell'atleta si deriva da qui. */
+  const membershipTargetIndex = useMembershipTargetIndex({ categories, groups: categoryGroups, sites: clubSites });
   const [dirty, setDirty] = React.useState(false);
   const [guardOpen, setGuardOpen] = React.useState(false);
 
@@ -125,10 +126,12 @@ function NewAthletePageContent() {
         Array.isArray(rows) ? rows : [],
       );
       setCategories(sortByName(selezionabili, (row: any) => row?.name));
+      const sedi = normalizeClubSites(sites);
+      setClubSites(sedi);
       setCategoryGroups(
         buildCategoryGroups({
           categories: selezionabili,
-          sites: normalizeClubSites(sites),
+          sites: sedi,
           groups,
         }),
       );
@@ -181,40 +184,25 @@ function NewAthletePageContent() {
     }
 
     try {
-      const linkedCategory =
-        categories.find((category) => category.id === draft.categoryId) ||
-        findCategoryForBirthDate(draft.birthDate, categories);
-
-      const secondaryIds: string[] = Array.isArray(draft.secondaryCategoryIds)
-        ? draft.secondaryCategoryIds
-        : [];
-
       /*
-        Le appartenenze si scrivono alla creazione, primaria e secondarie: un
-        atleta che si allena con due gruppi lo fa dal primo giorno, e finora la
-        seconda si poteva aggiungere solo riaprendo la scheda.
+        Le appartenenze arrivano dall'editor condiviso (ADR-0194): primaria e
+        secondarie con la **sede della squadra** scelta, non una categoria e
+        una sede a parte. Il modulo ha gia applicato la categoria suggerita
+        per anno di nascita quando nomina una squadra sola.
       */
-      const categoryMemberships = [
-        ...(linkedCategory
-          ? [
-              {
-                category_id: linkedCategory.id,
-                category_name: linkedCategory.name,
-                is_primary: true,
-              },
-            ]
-          : []),
-        ...secondaryIds
-          .filter((id) => id && id !== linkedCategory?.id)
-          .map((id) => {
-            const category = categories.find((item) => item.id === id);
-            return {
-              category_id: id,
-              category_name: category?.name || id,
-              is_primary: false,
-            };
-          }),
-      ];
+      const scelte: Array<{ categoryId: string; categoryName: string; isPrimary: boolean; siteId: string }> = Array.isArray(draft.memberships)
+        ? draft.memberships
+        : [];
+      const primaria = scelte.find((m) => m.isPrimary) || null;
+      const linkedCategory = primaria
+        ? categories.find((category) => category.id === primaria.categoryId) || { id: primaria.categoryId, name: primaria.categoryName }
+        : null;
+      const categoryMemberships = scelte.map((m) => ({
+        category_id: m.categoryId,
+        category_name: m.categoryName,
+        is_primary: m.isPrimary,
+        site_id: m.siteId || "",
+      }));
 
       let saved: { id?: string } | null = null;
       if (trialToUse) {
@@ -224,11 +212,17 @@ function NewAthletePageContent() {
           fallisce la scheda esiste gia e la prova e collegata: si va sulla
           scheda e lo si dice, invece di lasciare credere che non ci sia.
         */
+        /*
+          La sede della scheda nata dalla prova e quella della **squadra
+          scelta qui**, non quella scritta sulla prova: se il modulo non ha
+          una primaria, resta la collocazione della prova (categoria e sede
+          della sua squadra).
+        */
         const esito = await convertTrialAthlete(trialToUse.id, {
           create: {
             status: "active",
             categoryId: linkedCategory?.id || null,
-            siteId: trialToUse.siteId || null,
+            siteId: primaria ? primaria.siteId || null : trialToUse.siteId || null,
           },
         });
         saved = { id: esito.athleteId };
@@ -329,6 +323,7 @@ function NewAthletePageContent() {
               formId="athlete-create-form"
               categories={categories}
               categoryLabel={(categoryId) => categoryDisplay.label(categoryId)}
+              membershipIndex={membershipTargetIndex}
               federations={federations}
               onSubmit={handleSubmit}
               onCancel={goBack}

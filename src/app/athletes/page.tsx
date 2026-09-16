@@ -120,6 +120,7 @@ import {
 } from "@/components/athletes/v2/athletes-context-controls";
 import { withClubId } from "@/components/web/hooks/use-route-club-id";
 import { BulkCategoryDrawer } from "@/components/athletes/v2/bulk-category-drawer";
+import { useMembershipTargetIndex } from "@/components/athletes/v2/AthleteCategoryMembershipEditor";
 import { AthletesViewSwitch } from "@/components/athletes/v2/AthletesViewSwitch";
 
 import type {
@@ -148,7 +149,7 @@ const AthleteImportDialog = dynamic(
   nessun confronto poteva riconoscerli. La traduzione ora e esplicita e sta
   in `ATHLETE_BULK_STATUS_ACTIONS`.
 */
-type BulkActionType = AthleteBulkStatusAction | "delete" | "changeCategory";
+type BulkActionType = AthleteBulkStatusAction | "delete";
 
 type PendingBulkAction = {
   scope: "selected" | "all";
@@ -171,13 +172,6 @@ type PendingBulkAction = {
    * separati sono due risposte che un giorno divergono.
    */
   targetIds: string[];
-  targetCategoryId?: string | null;
-  /**
-   * La sede da assegnare insieme alla categoria. E la procedura con cui un
-   * club che ha appena configurato le sue sedi colloca il dato storico senza
-   * aprire duecento schede una per una (ADR-0055).
-   */
-  targetSiteId?: string | null;
 };
 
 const normalizeCategoryKey = (value: string) =>
@@ -384,6 +378,14 @@ export default function AthletesPage() {
     useState<PendingBulkAction | null>(null);
   const [bulkRunning, setBulkRunning] = useState(false);
   const [showBulkCategoryDialog, setShowBulkCategoryDialog] = useState(false);
+  /**
+   * Gli atleti su cui «Cambia categoria» girera, risolti **prima** di aprire
+   * il cassetto (selezione o «tutti», come per le altre azioni in blocco): il
+   * cassetto chiede l'anteprima al server per questi identificativi e il
+   * server scrive per questi identificativi (ADR-0194).
+   */
+  const [bulkCategoryTargetIds, setBulkCategoryTargetIds] = useState<string[]>([]);
+  const [bulkCategoryResolving, setBulkCategoryResolving] = useState(false);
   /** Le righe su cui e stato chiesto «Cambia categoria», congelate all'apertura del cassetto. */
   const [bulkCategoryRows, setBulkCategoryRows] = useState<Athlete[]>([]);
 
@@ -413,6 +415,8 @@ export default function AthletesPage() {
     () => buildCategoryDisplayIndex({ categories, groups: categoryGroups }),
     [categories, categoryGroups],
   );
+  /** Le squadre scegliibili per «Cambia categoria» (ADR-0194): la sede e quella della squadra. */
+  const membershipTargetIndex = useMembershipTargetIndex({ categories, groups: categoryGroups, sites });
 
   /**
    * Le squadre fra cui si puo scegliere, adesso.
@@ -1000,12 +1004,29 @@ export default function AthletesPage() {
         usedCategoryIds.add(linkedCategory.id);
       }
 
+      /*
+        La squadra riconosciuta dall'anteprima porta la sede (ADR-0194 §17):
+        si scrive come appartenenza, con la sede della squadra. Senza sede
+        riconosciuta il writer la deriva se la categoria ha una squadra sola,
+        e rifiuta se ne ha piu di una: la riga torna come fallita, con il motivo.
+      */
+      const categoryMemberships = linkedCategory?.id
+        ? [
+            {
+              category_id: linkedCategory.id,
+              category_name: linkedCategory.name,
+              is_primary: true,
+              site_id: row.siteId || "",
+            },
+          ]
+        : [];
       return {
         firstName: row.firstName,
         lastName: row.lastName,
         birthDate: row.birthDate,
         category: linkedCategory?.id || null,
         categoryName: linkedCategory?.name || row.categoryLabel || null,
+        ...(categoryMemberships.length ? { categoryMemberships } : {}),
         status: "active",
         data: {
           gender: row.gender || "",
@@ -1410,10 +1431,6 @@ export default function AthletesPage() {
       return "mettere in prestito";
     }
 
-    if (action === "changeCategory") {
-      return "spostare";
-    }
-
     return "eliminare";
   };
 
@@ -1530,15 +1547,6 @@ export default function AthletesPage() {
       return `Stai per eliminare ${athletesCount} ${athletesCount === 1 ? "atleta" : "atleti"} tra ${scopeLabel}. Questa azione non può essere annullata. Gli atleti che hanno file, consensi, richieste o consegne documentali non vengono eliminati: vanno trattati uno per uno dalla sezione «Dati personali» della loro scheda. Al termine viene detto quanti sono stati eliminati e quanti no. Vuoi continuare?`;
     }
 
-    if (pendingBulkAction.action === "changeCategory") {
-      const targetCategoryName =
-        categories.find(
-          (category) => category.id === pendingBulkAction.targetCategoryId,
-        )?.name || "nuova categoria";
-
-      return `Stai per spostare ${athletesCount} ${athletesCount === 1 ? "atleta" : "atleti"} tra ${scopeLabel} nella categoria ${targetCategoryName}. Confermi l'operazione?`;
-    }
-
     return `Stai per ${getBulkActionLabel(pendingBulkAction.action)} ${athletesCount} ${athletesCount === 1 ? "atleta" : "atleti"} tra ${scopeLabel}. Confermi l'operazione?`;
   };
 
@@ -1624,36 +1632,6 @@ export default function AthletesPage() {
                     (falliti[0]?.motivo || "operazione non riuscita"),
               );
             }
-          } else if (pendingBulkAction.action === "changeCategory") {
-            const targetCategory = categories.find(
-              (category) => category.id === pendingBulkAction.targetCategoryId,
-            );
-
-            if (!targetCategory) {
-              throw new Error("Categoria di destinazione non trovata");
-            }
-
-            for (const athleteId of targetIds) {
-              await updateClubAthlete(clubId, athleteId, {
-                category: targetCategory.id,
-                category_id: targetCategory.id,
-                categoryName: targetCategory.name,
-                category_name: targetCategory.name,
-                /*
-                  Senza sede indicata quella dell'atleta resta com'era: un
-                  cambio di categoria non e il momento per cancellare
-                  un'informazione che nessuno ha chiesto di cambiare.
-                */
-                ...(pendingBulkAction.targetSiteId
-                  ? { site_id: pendingBulkAction.targetSiteId }
-                  : {}),
-              });
-            }
-
-            showToast(
-              "success",
-              `${targetIds.length} ${targetIds.length === 1 ? "atleta spostato" : "atleti spostati"} in ${targetCategory.name}`,
-            );
           } else {
             for (const athleteId of targetIds) {
               await updateClubAthlete(clubId, athleteId, {
@@ -1950,7 +1928,17 @@ export default function AthletesPage() {
         hidden: !categories.length,
         onRun: (righe) => {
           setBulkCategoryRows(righe);
+          setBulkCategoryTargetIds([]);
+          setBulkCategoryResolving(true);
           setShowBulkCategoryDialog(true);
+          void risolviBersagliMassivi(bulkScopeOf(righe), righe)
+            .then((ids) => setBulkCategoryTargetIds(ids))
+            .catch((error) => {
+              console.error("Error resolving bulk athlete targets:", error);
+              showToast("error", "Non è stato possibile determinare gli atleti da aggiornare. Riprova.");
+              setShowBulkCategoryDialog(false);
+            })
+            .finally(() => setBulkCategoryResolving(false));
         },
       },
       {
@@ -2301,6 +2289,7 @@ export default function AthletesPage() {
           open={showImportAthletesModal}
           onOpenChange={setShowImportAthletesModal}
           categories={categories}
+          targets={membershipTargetIndex}
           existingAthletes={athletes.map((athlete) => ({
             firstName: athlete.firstName,
             lastName: athlete.lastName,
@@ -2313,21 +2302,27 @@ export default function AthletesPage() {
       <BulkCategoryDrawer
         open={showBulkCategoryDialog}
         onOpenChange={setShowBulkCategoryDialog}
-        categories={categories}
-        categoryLabel={(categoryId) => categoryDisplay.label(categoryId)}
-        sites={sites}
-        selectedCount={new Set(bulkCategoryRows.map((athlete) => athlete.id)).size}
-        onContinue={({ categoryId, siteId }) => {
-          setShowBulkCategoryDialog(false);
-          void apriAzioneMassiva(
-            {
-              scope: bulkScopeOf(bulkCategoryRows),
-              action: "changeCategory",
-              targetCategoryId: categoryId,
-              targetSiteId: siteId,
-            },
-            bulkCategoryRows,
-          );
+        index={membershipTargetIndex}
+        athleteIds={bulkCategoryTargetIds.length ? bulkCategoryTargetIds : Array.from(new Set(bulkCategoryRows.map((athlete) => athlete.id)))}
+        resolvingTargets={bulkCategoryResolving}
+        onApplied={(report) => {
+          const { updated, unchanged, blocked, failed, notAttempted } = report.totals;
+          if (failed || notAttempted) {
+            const motivo = report.athletes.find((a) => a.error)?.error || "operazione non riuscita";
+            showToast(
+              "error",
+              `Cambio di categoria interrotto: ${formatInteger(updated)} aggiornati, ${formatInteger(failed + notAttempted)} non aggiornati (${motivo})`,
+            );
+          } else {
+            showToast(
+              "success",
+              `${formatInteger(updated)} ${updated === 1 ? "atleta aggiornato" : "atleti aggiornati"} in ${report.target?.label || "categoria"}` +
+                (unchanged ? `, ${formatInteger(unchanged)} già a posto` : "") +
+                (blocked ? `, ${formatInteger(blocked)} da guardare` : ""),
+            );
+          }
+          clearAthleteSelection();
+          void refreshAthletesData();
         }}
       />
 

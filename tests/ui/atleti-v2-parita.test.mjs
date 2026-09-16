@@ -263,31 +263,30 @@ test("§2.2 · le azioni di massa: attiva, sospendi, disattiva, cambia categoria
   );
 });
 
-test("§2.3c · il cassetto «Cambia categoria»: nuova categoria e sede", () => {
+test("§2.3c · il cassetto «Cambia categoria»: squadra, ruolo, politiche e anteprima (ADR-0194)", () => {
   const cassetto = strip(read(CASSETTO));
   assert.match(cassetto, /<Drawer[\s\S]{0,300}width="default"/, "cassetto 480");
-  assert.ok(cassetto.includes("Cambia categoria agli atleti selezionati"));
+  assert.ok(cassetto.includes('title="Cambia categoria"'));
   assert.ok(
     cassetto.includes(
-      "Seleziona la categoria di destinazione per gli atleti selezionati.",
+      "Le presenze e lo storico già registrati non verranno modificati.",
     ),
+    "il testo dice che la storia non si tocca (§27)",
   );
-  assert.match(
-    cassetto,
-    /label="Nuova categoria"\s+htmlFor="bulk-category-target"\s+required/,
-  );
-  assert.match(cassetto, /htmlFor="bulk-site-target"/);
-  assert.ok(cassetto.includes("Lascia la sede attuale"));
+  assert.match(cassetto, /htmlFor="bulk-category-target" required/);
+  assert.doesNotMatch(cassetto, /bulk-site-target|Lascia la sede attuale/, "nessun selettore di sede: la sede e quella della squadra");
+  for (const testo of ["Categoria primaria", "Categoria secondaria", "Rimuovila", "Mantienila come categoria secondaria", "Mantieni le altre categorie associate", "Rimuovi tutte le altre categorie"]) {
+    assert.ok(cassetto.includes(testo), `manca «${testo}»`);
+  }
+  assert.match(cassetto, /previewMembershipChange\(athleteIds, command\)/, "l'anteprima la calcola il server");
+  assert.match(cassetto, /applyMembershipChange\(athleteIds, command, preview\.batchId\)/, "e si applica lo stesso comando con lo stesso batchId");
+  assert.ok(cassetto.includes("Conferma cambio"));
   assert.match(cassetto, /Continua/);
   assert.match(cassetto, /Annulla/);
+  assert.match(cassetto, /disabled=\{!targetId \|\| !athleteIds\.length/, "Continua finche non c'e una squadra");
   assert.match(
     cassetto,
-    /disabled=\{!categoryId\}/,
-    "Continua finche non c'e una categoria",
-  );
-  assert.match(
-    cassetto,
-    /categoryOptions\.length > 8 \? \(\s*<SearchableSelect/,
+    /options\.length > 8 \? \(\s*<SearchableSelect/,
     "sopra otto opzioni la tendina cerca",
   );
 });
@@ -297,7 +296,8 @@ test("§2.3d · la conferma di massa: testi della V1, conferma scritta sopra i v
   assert.ok(elenco.includes('confirmLabel="Sì, conferma"'));
   assert.ok(elenco.includes('cancelLabel="No, annulla"'));
   assert.ok(elenco.includes("Stai per eliminare ${athletesCount}"));
-  assert.ok(elenco.includes("Stai per spostare ${athletesCount}"));
+  /* ADR-0194: «Cambia categoria» ha la sua anteprima nel cassetto, non la conferma generica. */
+  assert.ok(!elenco.includes("Stai per spostare ${athletesCount}"));
   assert.ok(
     elenco.includes(
       "Stai per ${getBulkActionLabel(pendingBulkAction.action)} ${athletesCount}",
@@ -308,7 +308,6 @@ test("§2.3d · la conferma di massa: testi della V1, conferma scritta sopra i v
     "disattivare",
     "sospendere",
     "mettere in prestito",
-    "spostare",
     "eliminare",
   ]) {
     assert.ok(elenco.includes(`"${label}"`), `manca l'etichetta ${label}`);
@@ -593,10 +592,9 @@ test("§3.1–3.2 · la pagina: titolo, sottotitolo, ritorno, avviso senza club"
 test("§3.3 · il modulo: campi, sezioni, valori di partenza, guardia", () => {
   const form = strip(read(FORM));
   for (const campo of [
-    'id="categoryId"',
-    "Automatica per anno di nascita",
-    "Altre categorie",
-    "Categoria suggerita in automatico:",
+    'idPrefix="athlete-create-membership"',
+    "AthleteCategoryMembershipEditor",
+    "Categoria suggerita in automatico per l&apos;anno di nascita:",
     'id="nationality"',
     'id="email"',
     'id="athlete-create-phone"',

@@ -133,6 +133,23 @@ export const buildAthleteColumns = ({
       </>
     ),
   },
+  /*
+    La sede della riga (ADR-0194 §18): e quella dell'appartenenza — la
+    squadra — non una «sede dell'atleta». Ogni riga e un'appartenenza, quindi
+    l'export dice la sede della primaria e quella di ogni secondaria, senza
+    inventare una sede unica per chi gioca in due sedi. L'export prende le
+    colonne visibili: percio la colonna e visibile, e si puo nascondere.
+  */
+  {
+    id: "sede",
+    header: "Sede",
+    label: "Sede",
+    kind: "text",
+    minWidth: 120,
+    sortValue: (row) => row.siteName || "",
+    exportValue: (row) => row.siteName || "-",
+    cell: (row) => <span className="egw-ellipsis">{row.siteName || MISSING}</span>,
+  },
   {
     id: "anno",
     header: "Anno di nascita",

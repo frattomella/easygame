@@ -372,8 +372,7 @@ export function TrialAthletesPanel({
         trial={editing}
         existing={rows}
         categoryOptions={catalog.categoryOptions}
-        groupOptions={catalog.groupOptions}
-        siteOptions={catalog.siteOptions}
+        targetOptions={catalog.targetOptions}
         canEditContacts={canReadContacts}
         saving={saving}
         onSubmit={submitForm}
@@ -390,7 +389,7 @@ export function TrialAthletesPanel({
             if (!open) setConverting(null);
           }}
           trial={converting}
-          categoryOptions={catalog.categoryOptions}
+          targetOptions={catalog.targetOptions}
           saving={convertSaving}
           onConvert={submitConvert}
         />

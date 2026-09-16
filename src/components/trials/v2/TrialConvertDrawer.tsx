@@ -11,7 +11,7 @@ import { Field, FieldSizeProvider, SearchableSelect } from "@/components/web/for
 import { AlertBlock } from "@/components/web/page/Alerts";
 import { formatDateShort } from "@/lib/web/format";
 import { findAthleteCandidates, type AthleteCandidate, type TrialAthlete } from "@/lib/trials/client";
-import type { TrialCategoryOption } from "@/components/trials/v2/use-trial-catalog";
+import type { TrialTargetOption } from "@/components/trials/v2/use-trial-catalog";
 
 /**
  * «Converti in atleta» (ADR-0188). Prima di creare una scheda si guardano
@@ -24,14 +24,15 @@ export function TrialConvertDrawer({
   open,
   onOpenChange,
   trial,
-  categoryOptions,
+  targetOptions,
   saving,
   onConvert,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   trial: TrialAthlete | null;
-  categoryOptions: readonly TrialCategoryOption[];
+  /** Le squadre scegliibili (ADR-0194 §16): la sede della scheda e quella della squadra. */
+  targetOptions: readonly TrialTargetOption[];
   saving: boolean;
   onConvert: (input: { athleteId?: string; create?: { categoryId?: string | null; siteId?: string | null } }) => void | Promise<void>;
 }) {
@@ -39,14 +40,22 @@ export function TrialConvertDrawer({
   const [error, setError] = React.useState<string | null>(null);
   const [mode, setMode] = React.useState<"link" | "create">("create");
   const [athleteId, setAthleteId] = React.useState<string>("");
-  const [categoryId, setCategoryId] = React.useState<string>("");
+  const [targetId, setTargetId] = React.useState<string>("");
 
   React.useEffect(() => {
     if (!open || !trial) return;
     setCandidates(null);
     setError(null);
     setAthleteId("");
-    setCategoryId(trial.categoryId || "");
+    /* La squadra della prova: il gruppo, o la categoria se ha una squadra sola. */
+    const dellaProva =
+      (trial.groupId && targetOptions.find((t) => t.groupId === trial.groupId)) ||
+      (trial.categoryId && (() => {
+        const squadre = targetOptions.filter((t) => t.categoryId === trial.categoryId);
+        return squadre.length === 1 ? squadre[0] : squadre.find((t) => t.siteId === (trial.siteId || ""));
+      })()) ||
+      null;
+    setTargetId(dellaProva?.id || "");
     let annullato = false;
     findAthleteCandidates(trial.id)
       .then((rows) => {
@@ -64,7 +73,7 @@ export function TrialConvertDrawer({
     return () => {
       annullato = true;
     };
-  }, [open, trial]);
+  }, [open, trial, targetOptions]);
 
   const submit = async () => {
     if (mode === "link") {
@@ -72,7 +81,8 @@ export function TrialConvertDrawer({
       await onConvert({ athleteId });
       return;
     }
-    await onConvert({ create: { categoryId: categoryId || null, siteId: trial?.siteId || null } });
+    const target = targetOptions.find((t) => t.id === targetId) || null;
+    await onConvert({ create: { categoryId: target?.categoryId || null, siteId: target ? target.siteId || null : null } });
   };
 
   return (
@@ -180,14 +190,14 @@ export function TrialConvertDrawer({
           </DrawerSection>
 
           {mode === "create" ? (
-            <DrawerSection eyebrow="La scheda nuova" title="Categoria primaria">
-              <Field label="Categoria" htmlFor="trial-convert-category" optional helper="Diventa la squadra primaria della scheda. Vuota: la assegni dopo.">
+            <DrawerSection eyebrow="La scheda nuova" title="Squadra primaria">
+              <Field label="Squadra" htmlFor="trial-convert-category" optional helper="Diventa la squadra primaria della scheda, con la sua sede. Vuota: la assegni dopo.">
                 <SearchableSelect
                   id="trial-convert-category"
-                  value={categoryId || null}
-                  onValueChange={(value) => setCategoryId(value || "")}
-                  options={categoryOptions.map((option) => ({ value: option.id, label: option.label }))}
-                  placeholder="Nessuna categoria"
+                  value={targetId || null}
+                  onValueChange={(value) => setTargetId(value || "")}
+                  options={targetOptions.map((option) => ({ value: option.id, label: option.label }))}
+                  placeholder="Nessuna squadra"
                   allowClear
                 />
               </Field>

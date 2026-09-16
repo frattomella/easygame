@@ -1,10 +1,14 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AthleteCategoryMembershipEditor,
+  type EditorMembership,
+} from "@/components/athletes/v2/AthleteCategoryMembershipEditor";
+import { buildMembershipTargetIndex, type MembershipTargetIndex } from "@/lib/categories/placement";
 import { Plus } from "lucide-react";
 import {
   findCategoryForBirthDate,
-  formatCategoryBirthYears,
 } from "@/lib/category-utils";
 import {
   buildRegistrationFederationReference,
@@ -17,7 +21,6 @@ import {
   PanelHeader,
   InsetBlock,
 } from "@/components/web/primitives/Surface";
-import { Checkbox } from "@/components/web/primitives/Controls";
 import { AlertBlock } from "@/components/web/page/Alerts";
 import { CollapsedSection } from "@/components/web/record/Record";
 import { DirtyGuardDialog } from "@/components/web/overlays/Modal";
@@ -110,6 +113,13 @@ interface AthleteCreateFormProps {
    */
   categoryLabel?: (categoryId: string) => string;
   /**
+   * Le collocazioni scegliibili del club (ADR-0194): si sceglie una squadra
+   * — «Pulcini · S. Cosma» — e la sede e quella della squadra. Senza indice
+   * (chiamanti che non hanno ancora sedi e gruppi) l'editor lavora sul solo
+   * catalogo.
+   */
+  membershipIndex?: MembershipTargetIndex;
+  /**
    * Le federazioni configurate dal club (N2).
    *
    * Qui viveva un campo di testo libero con `placeholder="Es. FIP"`: «FIP»,
@@ -171,6 +181,8 @@ type AthleteDraft = {
   lastName: string;
   birthDate: string;
   categoryId: string;
+  /** Le appartenenze scelte con l'editor condiviso: primaria e secondarie, con la sede derivata. */
+  memberships: EditorMembership[];
   gender: string;
   birthPlace: string;
   birthPlaceCode: string;
@@ -207,6 +219,7 @@ const getInitialFormState = (): AthleteDraft => ({
   lastName: "",
   birthDate: "",
   categoryId: "",
+  memberships: [],
   gender: "",
   birthPlace: "",
   birthPlaceCode: "",
@@ -242,7 +255,6 @@ const getInitialFormState = (): AthleteDraft => ({
   «nessuno» e «seleziona» viaggiano con un valore sentinella e tornano a
   stringa vuota nello stato, cosi il payload resta quello di sempre.
 */
-const AUTO_CATEGORY = "__auto__";
 const NO_FEDERATION = "__none__";
 const NO_RELATIONSHIP = "__none__";
 
@@ -281,6 +293,7 @@ export function AthleteCreateForm({
   identityNotice,
   categories = [],
   categoryLabel,
+  membershipIndex,
   federations = [],
 }: AthleteCreateFormProps) {
   const { showToast } = useToast();
@@ -324,16 +337,26 @@ export function AthleteCreateForm({
       ),
     }));
 
-  /**
-   * Le categorie che si possono aggiungere come secondarie.
-   *
-   * La primaria si esclude: sceglierla due volte non vuol dire niente, e
-   * lasciarla in elenco fa credere che significhi qualcosa.
-   */
-  const secondaryCategoryOptions = useMemo(() => {
-    const primaryId = formData.categoryId || suggestedCategory?.id || "";
-    return categories.filter((category) => category.id !== primaryId);
-  }, [categories, formData.categoryId, suggestedCategory]);
+  /*
+    L'indice delle collocazioni: quello del club, o — per chi non lo passa —
+    il solo catalogo, dove ogni categoria e una squadra senza sede.
+  */
+  const indiceCatalogo = useMemo(
+    () => buildMembershipTargetIndex({ categories, groups: [], sites: [] }),
+    [categories],
+  );
+  const indice = membershipIndex || indiceCatalogo;
+  const primariaScelta = formData.memberships.find((m) => m.isPrimary) || null;
+  /*
+    La categoria suggerita per anno di nascita si applica **solo** se nomina
+    una squadra sola: con «Pulcini · Scauri» e «Pulcini · S. Cosma» la scelta
+    e del club, non di un calcolo.
+  */
+  const squadraSuggerita = useMemo(() => {
+    if (!suggestedCategory) return null;
+    const squadre = indice.forCategory(suggestedCategory.id);
+    return squadre.length === 1 ? squadre[0] : null;
+  }, [indice, suggestedCategory]);
 
   const handleChange = (
     e: React.ChangeEvent<
@@ -400,7 +423,20 @@ export function AthleteCreateForm({
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
         birthDate: formData.birthDate,
-        categoryId: formData.categoryId || suggestedCategory?.id || "",
+        categoryId: primariaScelta?.categoryId || squadraSuggerita?.categoryId || "",
+        memberships: primariaScelta
+          ? formData.memberships
+          : squadraSuggerita
+            ? [
+                {
+                  categoryId: squadraSuggerita.categoryId,
+                  categoryName: squadraSuggerita.categoryName,
+                  isPrimary: true,
+                  siteId: squadraSuggerita.siteId,
+                },
+                ...formData.memberships,
+              ]
+            : formData.memberships,
         medicalCertExpiry: formData.medicalCertExpiry || null,
         data: {
           gender: formData.gender,
@@ -453,7 +489,7 @@ export function AthleteCreateForm({
               ]
             : [],
         },
-        secondaryCategoryIds: formData.secondaryCategoryIds,
+        secondaryCategoryIds: formData.memberships.filter((m) => !m.isPrimary).map((m) => m.categoryId),
       });
 
       if (result === false) {
@@ -482,17 +518,6 @@ export function AthleteCreateForm({
     (category: { id: string; name: string }) =>
       categoryLabel ? categoryLabel(category.id) : category.name,
     [categoryLabel],
-  );
-
-  const categoryOptions = useMemo(
-    () => [
-      { value: AUTO_CATEGORY, label: "Automatica per anno di nascita" },
-      ...categories.map((category) => ({
-        value: category.id,
-        label: `${etichetta(category)} - ${formatCategoryBirthYears(category)}`,
-      })),
-    ],
-    [categories, etichetta],
   );
 
   const federationOptions = useMemo(
@@ -550,68 +575,36 @@ export function AthleteCreateForm({
             })
           : null}
 
-        <FormGrid className="mt-5">
-          <Field
-            label="Categoria"
-            htmlFor="categoryId"
-            helper={
-              suggestedCategory && !formData.categoryId ? (
-                <>
-                  Categoria suggerita in automatico:{" "}
-                  <span className="font-semibold text-egw-ink">
-                    {suggestedCategory.name}
-                  </span>
-                </>
-              ) : undefined
-            }
-          >
-            <Select
-              id="categoryId"
-              name="categoryId"
-              value={formData.categoryId || AUTO_CATEGORY}
-              onValueChange={(next) =>
-                set({ categoryId: next === AUTO_CATEGORY ? "" : next })
-              }
-              options={categoryOptions}
-            />
-          </Field>
-        </FormGrid>
-
         {/*
-          Categorie secondarie. Un atleta che si allena con due gruppi lo fa
-          dal primo giorno, non da quando qualcuno riapre la scheda.
+          Le appartenenze (ADR-0194): l'editor condiviso con la scheda. Si
+          sceglie la squadra, non una categoria e una sede a parte; una
+          categoria suggerita per anno di nascita si propone e si applica al
+          salvataggio solo se nomina una squadra sola.
         */}
-        {secondaryCategoryOptions.length ? (
-          <div className="mt-5">
-            <Field label="Altre categorie">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 laptop:grid-cols-3">
-                {secondaryCategoryOptions.map((category) => (
-                  <label
-                    key={`athlete-create-secondary-${category.id}`}
-                    className="flex min-h-[42px] cursor-pointer items-center gap-2.5 rounded-egw-control border border-egw-field-border bg-egw-page-100 px-3 font-brand text-[13px] font-medium text-egw-ink hover:border-egw-control-border"
-                  >
-                    <Checkbox
-                      size={16}
-                      checked={formData.secondaryCategoryIds.includes(
-                        category.id,
-                      )}
-                      onChange={(event) =>
-                        set({
-                          secondaryCategoryIds: event.target.checked
-                            ? [...formData.secondaryCategoryIds, category.id]
-                            : formData.secondaryCategoryIds.filter(
-                                (id) => id !== category.id,
-                              ),
-                        })
-                      }
-                    />
-                    <span className="egw-ellipsis">{etichetta(category)}</span>
-                  </label>
-                ))}
-              </div>
-            </Field>
-          </div>
-        ) : null}
+        <div className="mt-5" data-test="athlete-create-memberships">
+          {suggestedCategory && !primariaScelta ? (
+            <p className="mb-3 font-brand text-[12.5px] text-egw-ink-62">
+              Categoria suggerita in automatico per l&apos;anno di nascita:{" "}
+              <span className="font-semibold text-egw-ink">
+                {squadraSuggerita ? squadraSuggerita.label : etichetta({ id: String(suggestedCategory.id || ""), name: String(suggestedCategory.name || "") })}
+              </span>
+              {squadraSuggerita
+                ? ". Senza una scelta diversa, l'atleta viene iscritto qui."
+                : ". Questa categoria si svolge in piu sedi: scegli la squadra."}
+            </p>
+          ) : null}
+          <AthleteCategoryMembershipEditor
+            idPrefix="athlete-create-membership"
+            index={indice}
+            memberships={formData.memberships}
+            onChange={(next) =>
+              set({
+                memberships: next,
+                categoryId: next.find((m) => m.isPrimary)?.categoryId || "",
+              })
+            }
+          />
+        </div>
       </Panel>
 
       {/*

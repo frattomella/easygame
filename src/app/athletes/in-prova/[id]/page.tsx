@@ -190,15 +190,14 @@ function TrialAthleteRecordContent() {
         trial={trial}
         existing={[]}
         categoryOptions={catalog.categoryOptions}
-        groupOptions={catalog.groupOptions}
-        siteOptions={catalog.siteOptions}
+        targetOptions={catalog.targetOptions}
         canEditContacts={canReadContacts}
         saving={saving}
         onSubmit={submitEdit}
       />
 
       {canConvert ? (
-        <TrialConvertDrawer open={convertOpen} onOpenChange={setConvertOpen} trial={trial} categoryOptions={catalog.categoryOptions} saving={convertSaving} onConvert={submitConvert} />
+        <TrialConvertDrawer open={convertOpen} onOpenChange={setConvertOpen} trial={trial} targetOptions={catalog.targetOptions} saving={convertSaving} onConvert={submitConvert} />
       ) : null}
 
       {confirmDialog}

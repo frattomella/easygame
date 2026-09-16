@@ -55,6 +55,8 @@ import {
   recordPermissionDenied,
 } from "./audit";
 import { roleHasPermission } from "@/lib/permissions/catalog";
+import { loadMembershipTargetIndex } from "./category-write-guard";
+import { explainUnresolvedPlacement } from "@/lib/categories/placement";
 import { isTrainerAccessRole } from "@/lib/access-roles";
 import {
   accessScopeAllows,
@@ -244,6 +246,12 @@ const resolveCategoryForWrite = async (
  * stesso della scheda atleta — `clubs.club_sites` e `clubs.category_groups`
  * piu il registro — letto con gli stessi normalizzatori (`normalizeClubSites`,
  * `buildCategoryGroups`); un gruppo implicito non e una scelta.
+ *
+ * **La sede e quella del gruppo** (ADR-0194 §16): con un gruppo indicato la
+ * sede si deriva da lui, e una sede diversa e un errore; senza gruppo, una
+ * sede su una categoria che ha i suoi gruppi altrove non si scrive — la
+ * coppia (categoria, sede) deve essere una squadra del club, come per
+ * l'atleta. Una categoria con una squadra sola prende quella.
  */
 const resolveSiteAndGroup = async (
   organizationId: string,
@@ -252,8 +260,6 @@ const resolveSiteAndGroup = async (
 ) => {
   const siteId = asText(input.siteId);
   const groupId = asText(input.groupId);
-  if (!siteId && !groupId) return { site_id: null, group_id: null };
-
   const { sedi, gruppi } = await loadDisplay(organizationId);
   if (siteId && !sedi.some((sede) => sede.id === siteId)) {
     throw new Error("Persona in prova: la sede indicata non esiste nel club");
@@ -269,8 +275,37 @@ const resolveSiteAndGroup = async (
         "Persona in prova: il gruppo indicato appartiene a un'altra categoria",
       );
     }
+    if (siteId && gruppo.siteId && gruppo.siteId !== siteId) {
+      throw new Error(
+        "Persona in prova: la sede indicata non e quella del gruppo scelto",
+      );
+    }
+    return { site_id: gruppo.siteId || siteId || null, group_id: groupId };
   }
-  return { site_id: siteId || null, group_id: groupId || null };
+  if (!categoryId) return { site_id: siteId || null, group_id: null };
+
+  /*
+    Il gruppo resta quello che il chiamante indica: dedurlo qui lo metterebbe
+    sotto il perimetro dei gruppi dell'allenatore (`eventWithinTrainerPerimeter`,
+    che in scrittura fallisce chiuso per chi non ha gruppi assegnati). La
+    sede invece si deriva: una squadra sola, la sua sede.
+  */
+  const index = await loadMembershipTargetIndex(organizationId);
+  const squadre = index.forCategory(categoryId);
+  if (!siteId) {
+    if (squadre.length === 1 && !squadre[0].implicit) {
+      return { site_id: squadre[0].siteId, group_id: null };
+    }
+    return { site_id: null, group_id: null };
+  }
+  const collocazione = index.place({ categoryId, siteId });
+  if (collocazione.status === "resolved") {
+    return { site_id: collocazione.target.siteId, group_id: null };
+  }
+  if (collocazione.status === "unresolved" && collocazione.reason !== "unknown_category") {
+    throw new Error(`Persona in prova: ${explainUnresolvedPlacement(collocazione)}`);
+  }
+  return { site_id: siteId || null, group_id: null };
 };
 
 /* ── Serializzazione ─────────────────────────────────────────────────────── */
@@ -867,6 +902,23 @@ export const updateTrialAthlete = async (
   }
   const cambiaCategoria =
     "category_id" in data && data.category_id !== corrente.category_id;
+  /*
+    Il perimetro sulla categoria si controlla **prima** di risolvere sede e
+    gruppo: un atto fuori dal recinto e un diniego (403, con la sua riga),
+    non un errore di collocazione (400) che direbbe a chi non puo quale
+    squadra esiste.
+  */
+  if (cambiaCategoria) {
+    const perimetro = await readTrialPerimeter(scope, organizationId);
+    await assertCollocazioneNelPerimetro(
+      scope,
+      perimetro,
+      data.category_id as string | null,
+      input.groupId === undefined ? corrente.group_id : asText(input.groupId) || null,
+      input.siteId === undefined ? corrente.site_id : asText(input.siteId) || null,
+      corrente.id,
+    );
+  }
   if (
     input.siteId !== undefined ||
     input.groupId !== undefined ||
@@ -1543,7 +1595,19 @@ export const convertTrialAthlete = async (
           categoryId: create.categoryId ?? trial.category_id ?? "",
           categoryName: create.categoryName ?? trial.category_name ?? "",
         });
-        const siteId = asText(create.siteId ?? trial.site_id ?? "") || null;
+        /*
+          La sede della scheda e quella della **squadra** (ADR-0194 §16): il
+          gruppo della prova se c'e, altrimenti la sede della prova; chi
+          converte puo indicarne un'altra, e il registro generico vaglia la
+          coppia (categoria, sede) come per ogni appartenenza.
+        */
+        const gruppoDellaProva = trial.group_id
+          ? (await loadDisplay(organizationId)).gruppi.find((g) => g.id === trial.group_id) || null
+          : null;
+        const siteId =
+          asText(create.siteId ?? (gruppoDellaProva?.categoryId === categoria.category_id ? gruppoDellaProva.siteId : "") ?? "") ||
+          asText(trial.site_id ?? "") ||
+          null;
         const memberships = categoria.category_id
           ? [
               {

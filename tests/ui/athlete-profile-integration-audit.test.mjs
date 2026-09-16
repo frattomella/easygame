@@ -65,7 +65,7 @@ const AREE = [
   ["rate e incassi", /<InstallmentLedgerList\b/],
   ["voucher e contributi", /<AthleteFundingSummary\b/],
   ["modulistica", /<CompileFormDialog\b/],
-  ["categorie, sede e gruppo", /<AthleteCategoriesPanel\b/],
+  ["categorie e squadra", /<AthleteCategoryMembershipEditor\b/],
   ["documenti", /title="Altri documenti"/],
   ["allegati", /<CertificateAttachmentField\b/],
   ["genitori", /getGuardianDisplayName\b/],
@@ -95,7 +95,7 @@ test("nessun pannello nuovo e montato due volte", () => {
     "AthleteEnrollmentTab",
     "InstallmentLedgerList",
     "AthleteFundingSummary",
-    "AthleteCategoriesPanel",
+    "AthleteCategoryMembershipEditor",
     "CompileFormDialog",
     "AthletePaymentDialogs",
   ].filter((componente) => {

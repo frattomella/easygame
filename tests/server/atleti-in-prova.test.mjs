@@ -290,11 +290,15 @@ test("15 · la categoria si scrive canonica: un nome che ne nomina una diventa i
   assert.equal(trial.categoryId, "u15");
 });
 
-test("16 · la sede e un identificativo del club: una sede inesistente non si scrive", async () => {
-  const trial = await dominio.createTrialAthlete(scopeDirezione, mario({ siteId: "sede-b" }));
-  assert.equal(trial.siteId, "sede-b");
-  assert.equal(trial.siteName, "Sede B");
+test("16 · la sede e quella della squadra (ADR-0194 §16): una sede inesistente non si scrive, una sede dove la categoria non si svolge nemmeno, e con una squadra sola si deriva", async () => {
+  const trial = await dominio.createTrialAthlete(scopeDirezione, mario({ siteId: "sede-a" }));
+  assert.equal(trial.siteId, "sede-a");
+  assert.equal(trial.siteName, "Sede A");
   await assert.rejects(() => dominio.createTrialAthlete(scopeDirezione, mario({ siteId: "sede-fantasma" })), /sede indicata non esiste/);
+  await assert.rejects(() => dominio.createTrialAthlete(scopeDirezione, mario({ siteId: "sede-b" })), /non si svolge nella sede «Sede B»/);
+  const derivata = await dominio.createTrialAthlete(scopeDirezione, mario({ firstName: "Luca" }));
+  assert.equal(derivata.siteId, "sede-a", "Under 15 ha una squadra sola: la sede e la sua");
+  assert.equal(derivata.groupId, null, "il gruppo resta una scelta esplicita: non entra nel perimetro dei gruppi da solo");
 });
 
 test("17 · il gruppo e un identificativo del club, coerente con la categoria", async () => {
@@ -516,11 +520,11 @@ test("35 · l'allenatore legge solo le prove del proprio perimetro, e non le spo
   assert.equal(riletta.category_id, "u15");
 });
 
-test("36 · null azzera la sede; un cambio di categoria non si porta dietro il gruppo di un'altra", async () => {
+test("36 · null azzera il gruppo e la sede torna quella della squadra (ADR-0194 §16); un cambio di categoria non si porta dietro il gruppo di un'altra", async () => {
   const trial = await dominio.createTrialAthlete(scopeDirezione, mario({ siteId: "sede-a", groupId: "group:u15:sede-a" }));
   assert.equal(trial.siteId, "sede-a");
   const senzaSede = await dominio.updateTrialAthlete(scopeDirezione, trial.id, { siteId: null, groupId: null });
-  assert.equal(senzaSede.siteId, null);
+  assert.equal(senzaSede.siteId, "sede-a", "Under 15 si svolge in una sede sola: la sede non e un campo da azzerare, e derivata");
   assert.equal(senzaSede.groupId, null);
   const conGruppo = await dominio.updateTrialAthlete(scopeDirezione, trial.id, { groupId: "group:u15:sede-a" });
   assert.equal(conGruppo.groupId, "group:u15:sede-a");
@@ -590,11 +594,13 @@ test("41 · cancellare la scheda atleta nata da una prova non e vietato dall'arc
 
 test("42 · la modifica lascia nel registro da dove a dove: categoria e sede", async () => {
   const trial = await dominio.createTrialAthlete(scopeDirezione, mario({ siteId: "sede-a" }));
-  await dominio.updateTrialAthlete(scopeDirezione, trial.id, { categoryId: "u13", siteId: "sede-b" });
+  /* Under 13 non ha squadre: la sede di Sede A non la segue (ADR-0194), e la sede B non e una sua squadra. */
+  await assert.rejects(() => dominio.updateTrialAthlete(scopeDirezione, trial.id, { categoryId: "u13", siteId: "sede-b" }), /non si svolge nella sede «Sede B»/);
+  await dominio.updateTrialAthlete(scopeDirezione, trial.id, { categoryId: "u13", siteId: null });
   const voce = (await fake.client.auditLog.findMany({})).find((riga) => riga.action === "trial_athlete.updated");
   assert.ok(voce, "l'audit c'e");
   assert.deepEqual(voce.metadata?.categoryId, { da: "u15", a: "u13" });
-  assert.deepEqual(voce.metadata?.siteId, { da: "sede-a", a: "sede-b" });
+  assert.deepEqual(voce.metadata?.siteId, { da: "sede-a", a: null });
 });
 
 /* ── D-RD-22 chiuso: la conversione e una transazione sola ─────────────── */

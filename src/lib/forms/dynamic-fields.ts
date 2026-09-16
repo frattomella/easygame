@@ -186,20 +186,22 @@ export const DYNAMIC_FIELDS: DynamicFieldDefinition[] = define([
   {
     key: "athlete.categoryName",
     subject: "athlete",
-    label: "Categoria dell'atleta",
+    label: "Squadra dell'atleta (categoria e sede)",
     fieldType: "dropdown",
     path: ["category_name"],
     optionsSource: "club_categories",
-    hint: "Le categorie del club. Approvare iscrive l'atleta alla categoria scelta.",
+    hint: "Le squadre del club: la categoria con la sua sede («Pulcini · S. Cosma»). Approvare iscrive l'atleta alla squadra scelta.",
   },
   {
     key: "athlete.siteId",
     subject: "athlete",
-    label: "Sede dell'atleta",
+    label: "Sede dell'atleta (non piu richiesta)",
     fieldType: "dropdown",
     path: ["data", "siteId"],
     optionsSource: "club_sites",
-    hint: "Le sedi attive del club. Un club con una sede sola non vede la domanda.",
+    /* ADR-0194: la sede e quella della squadra scelta in «Squadra»; un secondo selettore non scrive piu niente. */
+    writable: false,
+    hint: "Non serve piu: la sede e quella della squadra scelta. Resta leggibile nei moduli gia pubblicati.",
   },
   {
     key: "athlete.jerseyNumber",

@@ -108,7 +108,7 @@ test("§4.6 · anagrafica, categorie, tesseramenti e dati personali", () => {
   }
   const drawers = read(path.join(V2, "AthleteProfileDrawers.tsx"));
   assert.match(drawers, /<PersonIdentityFields/);
-  assert.match(drawers, /<AthleteCategoriesPanel/);
+  assert.match(drawers, /<AthleteCategoryMembershipEditor/, "ADR-0194: l'editor condiviso delle appartenenze");
   assert.match(drawers, /Nazionalità/);
 
   const registrations = read(path.join(PROFILE, "athlete-registrations-panel.tsx"));

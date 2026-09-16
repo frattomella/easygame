@@ -7,11 +7,11 @@ import { Drawer, DrawerSection } from "@/components/web/overlays/Drawer";
 import { Button } from "@/components/web/primitives/Button";
 import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
 import { InsetBlock } from "@/components/web/primitives/Surface";
-import { DateInput, Field, FieldSizeProvider, FormGrid, SearchableSelect, Select, TextInput, Textarea, ValidationSummary } from "@/components/web/forms/Field";
+import { DateInput, Field, FieldSizeProvider, FormGrid, SearchableSelect, TextInput, Textarea, ValidationSummary } from "@/components/web/forms/Field";
 import { AlertBlock } from "@/components/web/page/Alerts";
 import { formatDateShort } from "@/lib/web/format";
 import type { TrialAthlete } from "@/lib/trials/client";
-import type { TrialCategoryOption, TrialGroupOption } from "@/components/trials/v2/use-trial-catalog";
+import type { TrialCategoryOption, TrialTargetOption } from "@/components/trials/v2/use-trial-catalog";
 import {
   EMPTY_TRIAL_FORM,
   findTrialMatches,
@@ -34,8 +34,6 @@ import {
  * scelta e di chi registra. `quick` e la forma da palestra: tre campi e la
  * categoria gia scelta dall'allenamento.
  */
-/* Radix Select non ammette un valore vuoto: «nessuno» e una parola, e si toglie prima di salvare. */
-const NESSUNO = "__nessuno__";
 
 export function TrialFormDrawer({
   open,
@@ -43,8 +41,7 @@ export function TrialFormDrawer({
   trial,
   existing,
   categoryOptions,
-  groupOptions,
-  siteOptions,
+  targetOptions,
   canEditContacts,
   defaults,
   quick = false,
@@ -59,8 +56,8 @@ export function TrialFormDrawer({
   /** Le persone in prova gia note, per proporre gli omonimi. */
   existing: readonly TrialAthlete[];
   categoryOptions: readonly TrialCategoryOption[];
-  groupOptions: readonly TrialGroupOption[];
-  siteOptions: readonly { id: string; label: string }[];
+  /** Le squadre scegliibili (ADR-0194): categoria, gruppo e sede in una scelta sola. */
+  targetOptions: readonly TrialTargetOption[];
   canEditContacts: boolean;
   defaults?: Partial<TrialFormState>;
   quick?: boolean;
@@ -82,22 +79,7 @@ export function TrialFormDrawer({
 
   const set = <K extends keyof TrialFormState>(key: K, value: TrialFormState[K]) => {
     setTouched(true);
-    setForm((current) => {
-      const next = { ...current, [key]: value };
-      /* Il gruppo appartiene a una categoria e a una sede: sceglierlo le allinea. */
-      if (key === "groupId" && value) {
-        const group = groupOptions.find((option) => option.id === value);
-        if (group) {
-          next.categoryId = group.categoryId || next.categoryId;
-          next.siteId = group.siteId || next.siteId;
-        }
-      }
-      if (key === "categoryId" && next.groupId) {
-        const group = groupOptions.find((option) => option.id === next.groupId);
-        if (group && group.categoryId !== value) next.groupId = "";
-      }
-      return next;
-    });
+    setForm((current) => ({ ...current, [key]: value }));
   };
 
   const errorFor = (field: keyof TrialFormState) => errors.find((error) => error.field === field)?.message;
@@ -114,10 +96,27 @@ export function TrialFormDrawer({
     await onSubmit(form);
   };
 
-  const groupsForCategory = React.useMemo(
-    () => groupOptions.filter((group) => !form.categoryId || group.categoryId === form.categoryId),
-    [form.categoryId, groupOptions],
-  );
+  /*
+    La squadra della prova, letta dal modulo: il gruppo se c'e, altrimenti la
+    categoria senza sede. Scegliere una squadra scrive categoria, gruppo e
+    sede insieme (ADR-0194 §16): niente tre tendine da tenere d'accordo.
+  */
+  const targetId = React.useMemo(() => {
+    if (form.groupId) return targetOptions.find((t) => t.groupId === form.groupId)?.id || "";
+    if (!form.categoryId) return "";
+    const squadre = targetOptions.filter((t) => t.categoryId === form.categoryId);
+    return squadre.find((t) => !t.groupId)?.id || (squadre.length === 1 ? squadre[0].id : "");
+  }, [form.categoryId, form.groupId, targetOptions]);
+  const scegliSquadra = (id: string | null) => {
+    setTouched(true);
+    const target = id ? targetOptions.find((t) => t.id === id) : null;
+    setForm((current) => ({
+      ...current,
+      categoryId: target?.categoryId || "",
+      groupId: target?.groupId || "",
+      siteId: target?.siteId || "",
+    }));
+  };
 
   return (
     <Drawer
@@ -198,38 +197,21 @@ export function TrialFormDrawer({
             </AlertBlock>
           ) : null}
 
-          <DrawerSection eyebrow="Dove si allena" title="Categoria e sede">
-            <Field label="Categoria" htmlFor="trial-category" optional helper="La squadra con cui prova. Solo le categorie del club.">
+          <DrawerSection eyebrow="Dove si allena" title="Squadra">
+            <Field label="Squadra" htmlFor="trial-category" optional helper="La squadra con cui prova: categoria e sede insieme. Solo le squadre del club.">
               <SearchableSelect
                 id="trial-category"
-                value={form.categoryId || null}
-                onValueChange={(value) => set("categoryId", value || "")}
-                options={categoryOptions.map((option) => ({ value: option.id, label: option.label }))}
-                placeholder="Nessuna categoria"
+                value={targetId || null}
+                onValueChange={scegliSquadra}
+                options={targetOptions.map((option) => ({ value: option.id, label: option.label }))}
+                placeholder="Nessuna squadra"
                 allowClear
               />
             </Field>
-            {!quick ? (
-              <FormGrid columns={2} className="mt-5">
-                <Field label="Gruppo" htmlFor="trial-group" optional>
-                  <Select
-                    id="trial-group"
-                    value={form.groupId || NESSUNO}
-                    onValueChange={(value) => set("groupId", value === NESSUNO ? "" : value)}
-                    options={[{ value: NESSUNO, label: "Nessun gruppo" }, ...groupsForCategory.map((group) => ({ value: group.id, label: group.label }))]}
-                    placeholder="Nessun gruppo"
-                  />
-                </Field>
-                <Field label="Sede" htmlFor="trial-site" optional>
-                  <Select
-                    id="trial-site"
-                    value={form.siteId || NESSUNO}
-                    onValueChange={(value) => set("siteId", value === NESSUNO ? "" : value)}
-                    options={[{ value: NESSUNO, label: "Nessuna sede" }, ...siteOptions.map((site) => ({ value: site.id, label: site.label }))]}
-                    placeholder="Nessuna sede"
-                  />
-                </Field>
-              </FormGrid>
+            {form.categoryId && !targetId ? (
+              <p className="mt-2 font-brand text-[11.5px] text-egw-amber-ink">
+                La categoria di questa prova si svolge in piu sedi: scegli la squadra.
+              </p>
             ) : null}
           </DrawerSection>
 
@@ -264,7 +246,7 @@ export function TrialFormDrawer({
             <InsetBlock className="flex items-center gap-2 py-3">
               <UserRound className="h-4 w-4 text-egw-ink-42" aria-hidden />
               <span className="font-brand text-[12px] text-egw-ink-62">Verra registrata con</span>
-              <DataChip>{categoryOptions.find((option) => option.id === form.categoryId)?.label || "Categoria"}</DataChip>
+              <DataChip>{targetOptions.find((option) => option.id === targetId)?.label || categoryOptions.find((option) => option.id === form.categoryId)?.label || "Categoria"}</DataChip>
             </InsetBlock>
           ) : null}
 

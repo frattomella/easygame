@@ -474,7 +474,7 @@ test("Web corrente e Web V2 leggono la stessa etichetta dallo stesso indice", ()
     "src/components/categories/category-label.tsx",
     "src/components/athletes/profile/v2/AthleteRecordHeader.tsx",
     "src/components/athletes/profile/v2/AthleteActivitySections.tsx",
-    "src/components/athletes/profile/athlete-categories-panel.tsx",
+    "src/components/athletes/v2/AthleteCategoryMembershipEditor.tsx",
     "src/components/trainer/trainer-dashboard-context.tsx",
     "src/app/athletes/page.tsx",
     "src/app/matches/page.tsx",
@@ -484,7 +484,7 @@ test("Web corrente e Web V2 leggono la stessa etichetta dallo stesso indice", ()
     const codice = senzaCommenti(readFileSync(file, "utf8"));
     assert.match(
       codice,
-      /buildCategoryDisplayIndex|<CategoryLabel/,
+      /buildCategoryDisplayIndex|<CategoryLabel|buildMembershipTargetIndex|MembershipTargetIndex/,
       `${file} deve passare dall'indice canonico`,
     );
     assert.doesNotMatch(codice, /\(\$\{[^}\n]*site(Id|Name)[^}\n]*\}\)/, `${file} costruisce a mano «Nome (Sede)»`);
@@ -496,8 +496,10 @@ test("Web corrente e Web V2 leggono la stessa etichetta dallo stesso indice", ()
   assert.doesNotMatch(label, /\(\{descritta\.site\}\)/, "niente parentesi: «Pulcini · Scauri»");
 });
 
-test("i selettori della scheda atleta offrono solo le categorie configurate", () => {
-  const pannello = readFileSync("src/components/athletes/profile/athlete-categories-panel.tsx", "utf8");
-  assert.match(pannello, /selectableCategoryOptions\(categories\)/);
-  assert.match(pannello, /options\.map\(\(category\)/);
+test("i selettori della scheda atleta offrono solo le squadre configurate (ADR-0194: l'editor condiviso sceglie fra le collocazioni)", () => {
+  const editor = readFileSync("src/components/athletes/v2/AthleteCategoryMembershipEditor.tsx", "utf8");
+  assert.match(editor, /index\.targets\.map\(\(t\) => \(\{ value: t\.id, label: t\.label \}\)\)/, "le opzioni sono le collocazioni dell'indice");
+  const collocazione = readFileSync("src/lib/categories/placement.ts", "utf8");
+  assert.match(collocazione, /voce\?\.configured !== false/, "una voce nata da una scheda non e una scelta (ADR-0185 §4)");
+  assert.match(collocazione, /if \(group\?\.active === false\) continue;/, "un gruppo disattivato non e una scelta");
 });

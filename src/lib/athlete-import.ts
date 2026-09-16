@@ -1,3 +1,4 @@
+import type { MembershipTargetIndex } from "@/lib/categories/placement";
 import { findCategoryForBirthDate } from "@/lib/category-utils";
 import { resolveCategoryReference } from "@/lib/categories/identity";
 import { isWellFormedCodiceFiscale } from "@/lib/italian-registry";
@@ -59,6 +60,8 @@ export interface NormalizedImportedAthleteRow {
   phone: string;
   categoryId: string | null;
   categoryLabel: string;
+  /** La sede della squadra riconosciuta («Pulcini · S. Cosma»), o vuota (ADR-0194 §17). */
+  siteId: string;
   status: ImportRowStatus;
   /** Impediscono l'import della riga. */
   errors: string[];
@@ -608,6 +611,12 @@ export const normalizeImportedAthletes = (
     existingAthletes?: ExistingAthleteIdentity[];
     /** Oggi, in forma ISO. Iniettabile perche «nel futuro» sia verificabile. */
     today?: string;
+    /**
+     * Le squadre del club (ADR-0194 §17): «Pulcini · S. Cosma» nella colonna
+     * categoria risolve categoria **e** sede; «Pulcini» con due sedi non
+     * risolve, e la riga si segnala. Senza indice si lavora sui soli nomi.
+     */
+    targets?: MembershipTargetIndex | null;
   } = {},
 ): NormalizedImportedAthleteRow[] => {
   const todayIso =
@@ -695,21 +704,48 @@ export const normalizeImportedAthletes = (
       riga non e «da creare» e non e «collegata» — e da correggere, e lo si
       dice qui, prima di premere Importa.
     */
-    const riferimento = rawCategory
+    /*
+      Prima la squadra (categoria · sede), poi il solo nome: con l'indice in
+      mano un'etichetta che nomina una squadra sola porta anche la sede; il
+      nome di una categoria con piu sedi non basta, e lo si dice con le
+      squadre fra cui scegliere. Senza indice, il vaglio per nome di prima.
+    */
+    const squadra = rawCategory && options.targets ? options.targets.fromLabel(rawCategory) : { target: null, ambiguous: false };
+    const riferimento = rawCategory && !squadra.target && !squadra.ambiguous
       ? resolveCategoryReference(rawCategory, rawCategory, categories)
       : null;
-    const categoryId = rawCategory
-      ? riferimento?.known
-        ? riferimento.id
-        : null
-      : findCategoryForBirthDate(birthDate, categories as any)?.id || null;
+    const suggerita = !rawCategory ? findCategoryForBirthDate(birthDate, categories as any) : null;
+    const squadraSuggerita = suggerita && options.targets ? options.targets.forCategory(suggerita.id) : [];
+    const categoryId = squadra.target
+      ? squadra.target.categoryId
+      : rawCategory
+        ? riferimento?.known
+          ? riferimento.id
+          : null
+        : suggerita?.id || null;
+    const siteId = squadra.target
+      ? squadra.target.siteId
+      : !rawCategory && squadraSuggerita.length === 1
+        ? squadraSuggerita[0].siteId
+        : "";
     const categoryLabel =
+      (squadra.target ? squadra.target.label : "") ||
       categories.find((category) => category.id === categoryId)?.name ||
       rawCategory ||
       "";
+    const squadrePossibili = categoryId && options.targets ? options.targets.forCategory(categoryId) : [];
 
-    if (riferimento?.ambiguous) {
-      errors.push(`La categoria "${rawCategory}" nomina piu squadre del club: indicare quale`);
+    if (squadra.ambiguous || riferimento?.ambiguous) {
+      const fraCui = options.targets
+        ? options.targets.targets.filter((t) => t.categoryName.toLowerCase() === rawCategory.toLowerCase()).map((t) => t.label)
+        : [];
+      errors.push(
+        `La categoria "${rawCategory}" nomina piu squadre del club: indicare quale` +
+          (fraCui.length ? ` (${fraCui.join(", ")})` : ""),
+      );
+    } else if (categoryId && !siteId && squadrePossibili.length > 1) {
+      /* Categoria riconosciuta, ma si svolge in piu sedi: la sede non si indovina (§17). */
+      errors.push(`"${categoryLabel}" si svolge in piu sedi: scrivere la squadra (${squadrePossibili.map((t) => t.label).join(", ")})`);
     } else if (!categoryId && !categoryLabel) {
       warnings.push("Nessuna categoria: verra assegnata dopo l'import");
     } else if (!categoryId) {
@@ -741,6 +777,7 @@ export const normalizeImportedAthletes = (
       phone,
       categoryId,
       categoryLabel: categoryLabel || "Da assegnare",
+      siteId,
       status: errors.length ? "error" : "ready",
       errors,
       warnings,
@@ -772,6 +809,7 @@ export type AthleteImportPayload = {
   phone: string;
   categoryId: string | null;
   categoryLabel: string;
+  siteId: string;
 };
 
 export const toImportPayload = (
@@ -790,6 +828,7 @@ export const toImportPayload = (
       phone: row.phone,
       categoryId: row.categoryId,
       categoryLabel: row.categoryLabel === "Da assegnare" ? "" : row.categoryLabel,
+      siteId: row.siteId,
     }));
 
 export type AthleteImportOutcome = {

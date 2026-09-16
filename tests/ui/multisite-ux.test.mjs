@@ -324,18 +324,15 @@ test("il dato senza sede si colloca in blocco, non scheda per scheda", () => {
   const page = read("app/athletes/page.tsx");
   assert.match(page, /<BulkCategoryDrawer/, "l'elenco monta il cassetto");
 
+  /*
+    ADR-0194: il dato si colloca in blocco scegliendo la **squadra**
+    («Pulcini · S. Cosma»), non una sede a parte: la sede e quella della
+    squadra, e una coppia che il club non ha non si compone.
+  */
   const source = read("components/athletes/v2/bulk-category-drawer.tsx");
-  assert.match(source, /bulk-site-target/);
-  assert.match(
-    source,
-    /Lascia la sede attuale/,
-    "un cambio di categoria non deve cancellare una sede che nessuno ha toccato",
-  );
-  assert.match(
-    source,
-    /isMultiSiteClub\(sites\)/,
-    "la sede si offre solo a un club multi-sede",
-  );
+  assert.doesNotMatch(source, /bulk-site-target|Lascia la sede attuale/, "nessun selettore di sede indipendente");
+  assert.match(source, /index\.targets\.map\(\(t\) => \(\{ value: t\.id, label: t\.label \}\)\)/, "si sceglie fra le squadre del club");
+  assert.match(source, /La sede è quella della squadra scelta\./);
 });
 
 test("cambiare categoria non scollega l'atleta dalla sua sede", () => {

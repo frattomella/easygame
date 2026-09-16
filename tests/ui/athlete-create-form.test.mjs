@@ -271,9 +271,12 @@ test("le categorie secondarie si scelgono alla creazione e vengono scritte", () 
   const list = readCode(LIST);
 
 
-  assert.match(dialog, /secondaryCategoryIds/, "il form deve raccoglierle");
+  /* ADR-0194: primaria e secondarie si scelgono con l'editor condiviso, che offre le squadre e deriva la sede. */
+  assert.match(dialog, /<AthleteCategoryMembershipEditor/, "il form monta l'editor condiviso");
+  assert.match(dialog, /memberships: primariaScelta/, "il modulo consegna le appartenenze scelte");
+  const editor = readCode("components/athletes/v2/AthleteCategoryMembershipEditor.tsx");
   assert.ok(
-    dialog.includes("categories.filter((category) => category.id !== primaryId)"),
+    editor.includes("!presenti.has(t.categoryId.toLowerCase())"),
     "la primaria non si offre anche come secondaria",
   );
 
@@ -282,5 +285,5 @@ test("le categorie secondarie si scelgono alla creazione e vengono scritte", () 
     /categoryMemberships/,
     "senza memberships le categorie secondarie non arrivano in archivio",
   );
-  assert.match(list, /is_primary: false/);
+  assert.match(list, /is_primary: m.isPrimary/, "primaria e secondarie, con la sede della squadra");
 });

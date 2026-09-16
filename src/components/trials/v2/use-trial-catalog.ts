@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { buildMembershipTargetIndex } from "@/lib/categories/placement";
 import { supabase } from "@/lib/supabase";
 import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import { selectableCategoryOptions } from "@/lib/category-utils";
@@ -23,6 +24,8 @@ import {
  */
 export type TrialCategoryOption = { id: string; name: string; label: string };
 export type TrialGroupOption = { id: string; label: string; categoryId: string; siteId: string };
+/** Una squadra scegliibile per la prova: categoria, gruppo (vuoto se la categoria non ha sedi) e sede derivata. */
+export type TrialTargetOption = { id: string; label: string; categoryId: string; groupId: string; siteId: string };
 
 export function useTrialCatalog(clubId: string | null | undefined) {
   const [categories, setCategories] = React.useState<Array<{ id: string; name: string; configured?: boolean | null }>>([]);
@@ -81,5 +84,26 @@ export function useTrialCatalog(clubId: string | null | undefined) {
 
   const siteOptions = React.useMemo(() => sites.map((site) => ({ id: site.id, label: site.name })), [sites]);
 
-  return { loading, categories, sites, groups, display, categoryOptions, groupOptions, siteOptions };
+  /*
+    Le squadre scegliibili (ADR-0194 §16): una per gruppo operativo attivo,
+    la categoria nuda dove non ha sedi. La persona in prova sceglie una
+    squadra, e categoria, gruppo e sede della prova sono quelli della squadra.
+  */
+  const targetIndex = React.useMemo(
+    () => buildMembershipTargetIndex({ categories: selectableCategoryOptions(categories), groups: groups.filter((g) => !g.implicit), sites }),
+    [categories, groups, sites],
+  );
+  const targetOptions = React.useMemo<TrialTargetOption[]>(
+    () =>
+      targetIndex.targets.map((target) => ({
+        id: target.id,
+        label: target.label,
+        categoryId: target.categoryId,
+        groupId: target.implicit ? "" : target.id,
+        siteId: target.siteId,
+      })),
+    [targetIndex],
+  );
+
+  return { loading, categories, sites, groups, display, categoryOptions, groupOptions, siteOptions, targetIndex, targetOptions };
 }

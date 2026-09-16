@@ -50,10 +50,10 @@ const SUPERFICI = [
     gruppi: /buildCategoryDisplayIndex\(\{ categories, groups: categoryGroups \}\)/,
   },
   {
-    nome: "scheda atleta: selettore di primaria e secondarie",
-    file: "src/components/athletes/profile/athlete-categories-panel.tsx",
-    usa: /display\.label\(category\.id\)/,
-    gruppi: /buildCategoryDisplayIndex\(\{ categories, groups, sites \}\)/,
+    nome: "scheda atleta: editor delle appartenenze (ADR-0194: la squadra, con la sua sede)",
+    file: "src/lib/categories/placement.ts",
+    usa: /display\.label\(categoryId\)/,
+    gruppi: /buildCategoryDisplayIndex\(\{ categories: configurate, groups, sites \}\)/,
   },
   {
     nome: "scheda atleta: chip in testata",

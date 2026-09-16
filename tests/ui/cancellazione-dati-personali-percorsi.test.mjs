@@ -116,7 +116,8 @@ test("il riconoscimento del messaggio vive in un posto solo", () => {
 test("la cancellazione massiva tenta ogni atleta per conto suo", () => {
   const ciclo = elenco.slice(
     elenco.indexOf('if (pendingBulkAction.action === "delete") {'),
-    elenco.indexOf('} else if (pendingBulkAction.action === "changeCategory") {'),
+    /* ADR-0194: «Cambia categoria» non passa piu da qui; il ciclo della cancellazione finisce dove si svuota la selezione. */
+    elenco.indexOf("} else {", elenco.indexOf("eDatiPersonaliDaSmaltire(riga.motivo)")),
   );
 
   assert.ok(ciclo.length > 0, "il ramo della cancellazione in blocco deve esistere");
@@ -140,7 +141,8 @@ test("la cancellazione massiva tenta ogni atleta per conto suo", () => {
 test("la cancellazione massiva dichiara l'esito parziale invece di nasconderlo", () => {
   const ciclo = elenco.slice(
     elenco.indexOf('if (pendingBulkAction.action === "delete") {'),
-    elenco.indexOf('} else if (pendingBulkAction.action === "changeCategory") {'),
+    /* ADR-0194: «Cambia categoria» non passa piu da qui; il ciclo della cancellazione finisce dove si svuota la selezione. */
+    elenco.indexOf("} else {", elenco.indexOf("eDatiPersonaliDaSmaltire(riga.motivo)")),
   );
 
   assert.match(

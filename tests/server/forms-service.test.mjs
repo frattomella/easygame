@@ -722,10 +722,13 @@ const giveClubSitesAndCategories = (
     { id: "sede-sud", name: "Palestra Sud", active: true },
   ],
   categories = [{ id: "cat-u14", name: "Under 14" }],
+  /* ADR-0194: la sede e quella della squadra; le squadre sono i gruppi operativi del club. */
+  groups = [{ categoryId: "cat-u14", siteId: "sede-nord", active: true }],
 ) => {
   const club = fake.rows("club").find((row) => row.id === CLUB_A);
   club.club_sites = sites;
   club.categories = categories;
+  club.category_groups = groups;
 };
 
 const SITE_FIELD = {
@@ -758,7 +761,7 @@ test("il modulo pubblico offre le sedi del club, non quelle scritte nel modulo",
   assert.deepEqual(sede.options, ["Palestra Nord", "Palestra Sud"]);
 });
 
-test("approvare scrive l'identificativo della sede, non il nome scelto", async () => {
+test("il campo «Sede» a parte non scrive piu niente (ADR-0194 §15): la sede e quella della squadra", async () => {
   giveClubSitesAndCategories();
 
   const template = await publishedTemplate([...ATHLETE_FIELDS, SITE_FIELD]);
@@ -770,11 +773,8 @@ test("approvare scrive l'identificativo della sede, non il nome scelto", async (
 
   await submissions.decideFormSubmission(scopeA(), id, { decision: "approve" });
 
-  assert.equal(
-    fake.rows("athlete")[0].data.siteId,
-    "sede-sud",
-    "il nome di una sede cambia, il suo identificativo no",
-  );
+  assert.equal(fake.rows("athlete")[0].data.siteId, undefined, "nessuna copia della sede in data: la sede sta sull'appartenenza");
+  assert.equal(fake.rows("athleteCategoryMembership").length, 0, "una sede senza squadra non e una collocazione");
 });
 
 test("approvare con una categoria iscrive l'atleta e colloca l'iscrizione nella sede", async () => {
@@ -785,11 +785,15 @@ test("approvare con una categoria iscrive l'atleta e colloca l'iscrizione nella 
     SITE_FIELD,
     CATEGORY_FIELD,
   ]);
+  const match = await forms.findPublicFormBySlug(template.publicSlug);
+  const categoria = match.schema.fields.find((field) => field.id === "f_cat");
+  assert.deepEqual(categoria.options, ["Under 14 · Palestra Nord"], "il modulo offre le squadre: categoria con la sua sede");
+
   const id = await submitOne(template, {
     f_nome: "Mario",
     f_cognome: "Rossi",
-    f_sede: "Palestra Nord",
-    f_cat: "Under 14",
+    f_sede: "Palestra Sud",
+    f_cat: "Under 14 · Palestra Nord",
   });
 
   await submissions.decideFormSubmission(scopeA(), id, { decision: "approve" });
@@ -802,17 +806,19 @@ test("approvare con una categoria iscrive l'atleta e colloca l'iscrizione nella 
   assert.equal(iscrizioni.length, 1);
   assert.equal(iscrizioni[0].athlete_id, atleta.id);
   assert.equal(iscrizioni[0].category_id, "cat-u14");
-  assert.equal(iscrizioni[0].site_id, "sede-nord");
+  assert.equal(iscrizioni[0].site_id, "sede-nord", "la sede della squadra scelta, non quella del campo «Sede» (Palestra Sud)");
   assert.equal(iscrizioni[0].organization_id, CLUB_A);
   assert.equal(iscrizioni[0].is_primary, true);
 });
 
-test("un club con una sede sola non chiede nulla e assegna comunque la sede", async () => {
-  giveClubSitesAndCategories([
-    { id: "sede-unica", name: "Palestra unica", active: true },
-  ]);
+test("un club con una sede sola non chiede nulla; la sede arriva dalla squadra, e una categoria senza squadre resta senza sede", async () => {
+  giveClubSitesAndCategories(
+    [{ id: "sede-unica", name: "Palestra unica", active: true }],
+    [{ id: "cat-u14", name: "Under 14" }],
+    [],
+  );
 
-  const template = await publishedTemplate([...ATHLETE_FIELDS, SITE_FIELD]);
+  const template = await publishedTemplate([...ATHLETE_FIELDS, SITE_FIELD, CATEGORY_FIELD]);
   const match = await forms.findPublicFormBySlug(template.publicSlug);
 
   assert.equal(
@@ -820,11 +826,15 @@ test("un club con una sede sola non chiede nulla e assegna comunque la sede", as
     false,
     "con una sede sola la domanda non si pone",
   );
+  assert.deepEqual(match.schema.fields.find((field) => field.id === "f_cat").options, ["Under 14"], "senza gruppi la squadra e la categoria nuda");
 
-  const id = await submitOne(template, { f_nome: "Mario", f_cognome: "Rossi" });
+  const id = await submitOne(template, { f_nome: "Mario", f_cognome: "Rossi", f_cat: "Under 14" });
   await submissions.decideFormSubmission(scopeA(), id, { decision: "approve" });
 
-  assert.equal(fake.rows("athlete")[0].data.siteId, "sede-unica");
+  assert.equal(fake.rows("athlete")[0].data.siteId, undefined);
+  const iscrizioni = fake.rows("athleteCategoryMembership");
+  assert.equal(iscrizioni.length, 1);
+  assert.equal(iscrizioni[0].site_id, null, "nessuna squadra configurata: niente da derivare (la sede si assegna configurando la squadra)");
 });
 
 test("una sede che il club non ha non entra nemmeno approvando", async () => {

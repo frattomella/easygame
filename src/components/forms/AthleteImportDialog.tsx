@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import type { MembershipTargetIndex } from "@/lib/categories/placement";
 import {
   guessAthleteImportMapping,
   normalizeImportedAthletes,
@@ -58,6 +59,8 @@ interface AthleteImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   categories: { id: string; name: string }[];
+  /** Le squadre del club (ADR-0194 §17): «Pulcini · S. Cosma» risolve categoria e sede. */
+  targets?: MembershipTargetIndex | null;
   /** Anagrafiche gia presenti: servono a riconoscere i duplicati. */
   existingAthletes?: ExistingAthleteIdentity[];
   onImport: (
@@ -107,6 +110,7 @@ export function AthleteImportDialog({
   open,
   onOpenChange,
   categories,
+  targets = null,
   existingAthletes,
   onImport,
 }: AthleteImportDialogProps) {
@@ -161,8 +165,9 @@ export function AthleteImportDialog({
     () =>
       normalizeImportedAthletes(rows, mapping, categories, {
         existingAthletes,
+        targets,
       }),
-    [rows, mapping, categories, existingAthletes],
+    [rows, mapping, categories, existingAthletes, targets],
   );
 
   const summary = useMemo(

@@ -22,10 +22,11 @@ import {
   readPersonIdentity,
   writePersonIdentity,
 } from "@/lib/person-identity";
-import type { AthleteCategoryMembership } from "@/lib/athlete-category-memberships";
-import type { CategoryGroupLike } from "@/lib/categories/display";
-import type { ClubSite } from "@/lib/club-sites";
-import { AthleteCategoriesPanel } from "../athlete-categories-panel";
+import type { MembershipTargetIndex } from "@/lib/categories/placement";
+import {
+  AthleteCategoryMembershipEditor,
+  type EditorMembership,
+} from "@/components/athletes/v2/AthleteCategoryMembershipEditor";
 
 /**
  * I cassetti di modifica dell'area Profilo (guideline 08 §8.5): la finestra
@@ -63,16 +64,15 @@ export function AthleteSectionEditDrawer({
   onOpenChange: (open: boolean) => void;
   formData: Record<string, any>;
   setFormData: React.Dispatch<React.SetStateAction<any>>;
+  /**
+   * Le appartenenze (ADR-0194): si sceglie una squadra, la sede e derivata.
+   * L'editor e quello condiviso con la creazione; la pagina resta l'unico
+   * posto che decide come si salvano.
+   */
   categories: {
-    groups: readonly CategoryGroupLike[];
-    catalog: { id: string; name: string }[];
-    memberships: AthleteCategoryMembership[];
-    primaryCategoryId: string;
-    primarySiteId: string;
-    sites: ClubSite[];
-    onPrimaryCategoryChange: (categoryId: string) => void;
-    onPrimarySiteChange: (siteId: string) => void;
-    onToggleSecondaryCategory: (categoryId: string, enabled: boolean) => void;
+    index: MembershipTargetIndex;
+    memberships: EditorMembership[];
+    onChange: (next: EditorMembership[]) => void;
   };
   onSave: () => void | Promise<void>;
   onCancel: () => void;
@@ -145,25 +145,14 @@ export function AthleteSectionEditDrawer({
                 </Field>
               </div>
             </DrawerSection>
-            <DrawerSection eyebrow="Categorie e sede">
-              <AthleteCategoriesPanel
-                groups={categories.groups}
-                categories={categories.catalog}
+            <DrawerSection eyebrow="Categorie">
+              <AthleteCategoryMembershipEditor
+                idPrefix="athlete-edit-membership"
+                index={categories.index}
                 memberships={categories.memberships}
-                primaryCategoryId={categories.primaryCategoryId}
-                primarySiteId={categories.primarySiteId}
-                sites={categories.sites}
-                onPrimaryCategoryChange={(id) => {
+                onChange={(next) => {
                   setDirty(true);
-                  categories.onPrimaryCategoryChange(id);
-                }}
-                onPrimarySiteChange={(id) => {
-                  setDirty(true);
-                  categories.onPrimarySiteChange(id);
-                }}
-                onToggleSecondaryCategory={(id, enabled) => {
-                  setDirty(true);
-                  categories.onToggleSecondaryCategory(id, enabled);
+                  categories.onChange(next);
                 }}
               />
             </DrawerSection>

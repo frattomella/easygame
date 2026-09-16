@@ -182,6 +182,7 @@ import {
   AthleteStoredDocumentsList,
   summarizeIdentityDocument,
 } from "@/components/athletes/profile/v2/AthleteDocumentSections";
+import { useMembershipTargetIndex, type EditorMembership } from "@/components/athletes/v2/AthleteCategoryMembershipEditor";
 import {
   AthleteGuardianDrawer,
   AthleteSectionEditDrawer,
@@ -1026,123 +1027,37 @@ export default function AthleteProfilePage() {
     editFormData,
     clubCategoryOptions,
   );
-  const primaryEditCategoryId =
-    getPrimaryAthleteCategoryMembership(editCategoryMemberships, clubCategoryOptions)
-      ?.categoryId || "";
-  const primaryEditSiteId =
-    getPrimaryAthleteCategoryMembership(editCategoryMemberships, clubCategoryOptions)
-      ?.siteId || "";
+  /*
+    Le collocazioni scegliibili del club (ADR-0194): una squadra per gruppo
+    operativo attivo, la categoria nuda dove non ci sono sedi. La sede
+    dell'atleta si deriva da qui, non si sceglie a parte.
+  */
+  const membershipTargetIndex = useMembershipTargetIndex({
+    categories: clubCategoryOptions,
+    groups: clubCategoryGroups,
+    sites: clubSites,
+  });
 
   /**
-   * La sede sta sull'appartenenza, non sull'anagrafica (ADR-0038): dice dove
-   * l'atleta svolge **quella** categoria. Cambiarla non tocca la categoria e
-   * non tocca le appartenenze secondarie.
+   * L'editor condiviso restituisce l'insieme intero delle appartenenze:
+   * si scrive nel modulo come righe (`categoryMemberships`) e come etichette.
+   * Il salvataggio le manda al writer del dominio, che deriva e vaglia la
+   * sede e conserva le righe storiche che l'editor non nomina.
    */
-  const handlePrimarySiteChange = (siteId: string) => {
+  const handleMembershipsChange = (next: EditorMembership[]) => {
     setEditFormData({
       ...editFormData,
-      categoryMemberships: editCategoryMemberships.map((membership) => ({
+      categoryMemberships: next.map((membership) => ({
         category_id: membership.categoryId,
         category_name: membership.categoryName,
-        stored_category_name: membership.storedCategoryName,
+        stored_category_name: membership.storedCategoryName || membership.categoryName,
         is_primary: membership.isPrimary,
-        site_id: membership.isPrimary ? siteId : membership.siteId || "",
+        site_id: membership.siteId || "",
       })),
-    });
-  };
-
-  const handlePrimaryCategoryChange = (categoryId: string) => {
-    const category = clubCategoryOptions.find((item) => item.id === categoryId);
-    if (!category) {
-      return;
-    }
-
-    const existingSecondaryMemberships = editCategoryMemberships
-      .filter((membership) => !membership.isPrimary && membership.categoryId !== categoryId)
-      .map((membership) => ({
-        category_id: membership.categoryId,
-        category_name: membership.categoryName,
-        stored_category_name: membership.storedCategoryName,
-        is_primary: false,
-        site_id: membership.siteId || "",
-      }));
-
-    setEditFormData({
-      ...editFormData,
-      categoryMemberships: [
-        {
-          category_id: category.id,
-          category_name: category.name,
-          is_primary: true,
-          // La sede non si perde cambiando categoria: l'atleta resta dove si
-          // allena, cambia solo in che fascia gioca (ADR-0038).
-          site_id: primaryEditSiteId,
-        },
-        ...existingSecondaryMemberships,
-      ],
       categories: [
-        category.name,
-        ...existingSecondaryMemberships.map(
-          (membership) => membership.category_name,
-        ),
+        ...next.filter((m) => m.isPrimary).map((m) => m.categoryName),
+        ...next.filter((m) => !m.isPrimary).map((m) => m.categoryName),
       ],
-    });
-  };
-
-  const handleToggleSecondaryCategory = (
-    categoryId: string,
-    enabled: boolean,
-  ) => {
-    const category = clubCategoryOptions.find((item) => item.id === categoryId);
-    if (!category) {
-      return;
-    }
-
-    const primaryMembership =
-      getPrimaryAthleteCategoryMembership(editCategoryMemberships, clubCategoryOptions) ||
-      null;
-    const secondaryMemberships = editCategoryMemberships
-      .filter((membership) => !membership.isPrimary && membership.categoryId !== categoryId)
-      .map((membership) => ({
-        category_id: membership.categoryId,
-        category_name: membership.categoryName,
-        stored_category_name: membership.storedCategoryName,
-        is_primary: false,
-        site_id: membership.siteId || "",
-      }));
-
-    if (enabled) {
-      secondaryMemberships.push({
-        category_id: category.id,
-        category_name: category.name,
-        /* Una scelta nuova non ha un nome storico: la riga nasce con quello corrente. */
-        stored_category_name: category.name,
-        is_primary: false,
-        // Una categoria secondaria nasce senza sede: dichiararla per conto
-        // dell'utente vorrebbe dire indovinare dove si allena.
-        site_id: "",
-      });
-    }
-
-    const nextMemberships = [
-      ...(primaryMembership
-        ? [
-            {
-              category_id: primaryMembership.categoryId,
-              category_name: primaryMembership.categoryName,
-              stored_category_name: primaryMembership.storedCategoryName,
-              is_primary: true,
-              site_id: primaryMembership.siteId || "",
-            },
-          ]
-        : []),
-      ...secondaryMemberships,
-    ];
-
-    setEditFormData({
-      ...editFormData,
-      categoryMemberships: nextMemberships,
-      categories: nextMemberships.map((membership) => membership.category_name),
     });
   };
 
@@ -4437,15 +4352,15 @@ export default function AthleteProfilePage() {
         formData={editFormData}
         setFormData={setEditFormData}
         categories={{
-          groups: clubCategoryGroups,
-          catalog: clubCategoryOptions,
-          memberships: editCategoryMemberships,
-          primaryCategoryId: primaryEditCategoryId,
-          primarySiteId: primaryEditSiteId,
-          sites: clubSites,
-          onPrimaryCategoryChange: handlePrimaryCategoryChange,
-          onPrimarySiteChange: handlePrimarySiteChange,
-          onToggleSecondaryCategory: handleToggleSecondaryCategory,
+          index: membershipTargetIndex,
+          memberships: editCategoryMemberships.map((membership) => ({
+            categoryId: membership.categoryId,
+            categoryName: membership.categoryName,
+            storedCategoryName: membership.storedCategoryName,
+            isPrimary: membership.isPrimary,
+            siteId: membership.siteId || "",
+          })),
+          onChange: handleMembershipsChange,
         }}
         onSave={handleSaveSection}
         onCancel={handleCancelEdit}

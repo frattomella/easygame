@@ -1,3 +1,5 @@
+import { loadMembershipTargetIndex } from "./category-write-guard";
+import { buildMembershipTargetIndex, type MembershipTargetIndex } from "@/lib/categories/placement";
 import { randomBytes, randomUUID } from "crypto";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { canAccessClubResource } from "@/lib/access-roles";
@@ -728,6 +730,13 @@ export type ClubFormOptions = {
   /** Le sedi **attive**: l'approvazione risolve su queste, non su tutte. */
   sites: ClubSite[];
   categories: Array<{ id: string; name: string }>;
+  /**
+   * Le squadre scegliibili (ADR-0194 §15): le opzioni di «Categoria» del
+   * modulo sono le loro etichette («Pulcini · S. Cosma»), e l'approvazione
+   * risolve l'etichetta in categoria **e** sede. Il genitore non compone mai
+   * una coppia che il club non ha.
+   */
+  targets: MembershipTargetIndex;
 };
 
 const readClubCategories = (value: unknown): Array<{ id: string; name: string }> =>
@@ -738,24 +747,33 @@ const readClubCategories = (value: unknown): Array<{ id: string; name: string }>
     }))
     .filter((entry) => entry.id && entry.name);
 
-export const buildClubFormOptions = (club: {
-  club_sites?: unknown;
-  categories?: unknown;
-} | null): ClubFormOptions => {
+const INDICE_VUOTO = buildMembershipTargetIndex({});
+
+export const buildClubFormOptions = (
+  club: {
+    club_sites?: unknown;
+    categories?: unknown;
+  } | null,
+  targets: MembershipTargetIndex = INDICE_VUOTO,
+): ClubFormOptions => {
   if (!club) {
-    return { catalog: EMPTY_FORM_OPTION_CATALOG, sites: [], categories: [] };
+    return { catalog: EMPTY_FORM_OPTION_CATALOG, sites: [], categories: [], targets };
   }
 
   const sites = getActiveClubSites(normalizeClubSites(club.club_sites));
-  const categories = readClubCategories(club.categories);
+  /* Il catalogo delle categorie e quello del vaglio del server (club_resource_items + clubs.categories), non la sola colonna. */
+  const categories = targets.targets.length
+    ? Array.from(new Map(targets.targets.map((t) => [t.categoryId, { id: t.categoryId, name: t.categoryName }])).values())
+    : readClubCategories(club.categories);
 
   return {
     catalog: buildFormOptionCatalog({
       siteNames: sites.map((site) => site.name),
-      categoryNames: categories.map((category) => category.name),
+      categoryNames: targets.targets.length ? targets.targets.map((target) => target.label) : categories.map((category) => category.name),
     }),
     sites,
     categories,
+    targets,
   };
 };
 
@@ -768,12 +786,15 @@ export const buildClubFormOptions = (club: {
 export const loadClubFormOptions = async (
   organizationId: string,
 ): Promise<ClubFormOptions> => {
-  const club = await (prisma as any).club.findUnique({
-    where: { id: organizationId },
-    select: { club_sites: true, categories: true },
-  });
+  const [club, targets] = await Promise.all([
+    (prisma as any).club.findUnique({
+      where: { id: organizationId },
+      select: { club_sites: true, categories: true },
+    }),
+    loadMembershipTargetIndex(organizationId),
+  ]);
 
-  return buildClubFormOptions(club);
+  return buildClubFormOptions(club, targets);
 };
 
 /* -------------------------------------------------------- lato pubblico */

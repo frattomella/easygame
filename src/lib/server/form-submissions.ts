@@ -35,7 +35,6 @@ import {
 } from "./document-templates";
 import { resolveDocumentForSubject } from "./document-placeholders";
 import { renderFilledDocumentHtml } from "@/lib/documents/document-view";
-import { buildSiteIndex } from "@/lib/club-sites";
 import {
   buildAttachmentReference,
   MAX_ATTACHMENT_BYTES,
@@ -1741,69 +1740,52 @@ const buildAthletePatch = (
 };
 
 /**
- * Dove l'atleta viene iscritto: sede e categoria.
+ * Dove va l'atleta di una domanda approvata (ADR-0194 §15).
  *
- * **Perche non basta scrivere la risposta.** Il modulo raccoglie un *nome* —
- * «Palestra Nord», «Under 14» — perche e cio che una persona sa leggere e
- * scegliere. L'anagrafica lavora con identificativi. La traduzione avviene
- * qui, una volta, contro le sedi e le categorie del club **proprietario del
- * modulo**: un nome che non e in quegli elenchi non diventa niente, e non
- * c'e un percorso per cui il testo scritto da chi compila finisca in un
- * `site_id`.
- *
- * **Perche un club con una sede sola la assegna comunque.** La domanda non
- * gli e stata mostrata — sceglierla fra una non e una scelta — ma la sede
- * resta il dato giusto da scrivere: senza, l'atleta nascerebbe «senza sede»
- * in un club che di sedi ne ha una, e il giorno in cui ne apre una seconda
- * nessuno saprebbe piu dove stava.
+ * Il modulo chiede una **squadra** — «Pulcini · S. Cosma», o «Under 17»
+ * dove la categoria non ha sedi — e l'etichetta si risolve sull'indice delle
+ * collocazioni del club: categoria e sede insieme, mai una coppia che il
+ * club non ha configurato. Il campo «Sede» a parte (`athlete.siteId`) non
+ * scrive piu niente: era il secondo selettore indipendente, e con due
+ * «Pulcini» su due sedi produceva l'atleta di S. Cosma nella squadra di
+ * Scauri. Un'etichetta che nomina piu squadre non ne nomina nessuna
+ * (ADR-0155): chi approva lo legge e la assegna dalla scheda.
  */
 const resolveEnrollmentPlacement = (
   values: Record<string, string>,
   options: ClubFormOptions,
 ) => {
-  const siteIndex = buildSiteIndex(options.sites);
-  const answeredSite = asText(values["athlete.siteId"]);
-  const resolvedSite = answeredSite ? siteIndex.resolveSiteId(answeredSite) : "";
-
-  const siteId = siteIndex.has(resolvedSite)
-    ? resolvedSite
-    : options.sites.length === 1
-      ? options.sites[0].id
-      : "";
-
-  /*
-    **Un nome che ne nomina due non ne nomina nessuna** (ADR-0155, D-RD-17).
-    Qui c'era `find`, che prende la prima: con due «Pulcini» — una per sede —
-    ogni iscrizione approvata finiva sulla prima. Il modulo chiede il nome, e
-    il nome risolve solo se e di una sola categoria; altrimenti l'iscrizione
-    resta senza categoria e la sede, se c'e, si scrive lo stesso.
-  */
   const answeredCategory = asText(values["athlete.categoryName"]);
-  const risolta = resolveCategoryReference(
-    answeredCategory,
-    answeredCategory,
-    options.categories,
-  );
-  const category = risolta?.known
-    ? options.categories.find((entry) => entry.id === risolta.id) || null
+  const { target, ambiguous } = answeredCategory
+    ? options.targets.fromLabel(answeredCategory)
+    : { target: null, ambiguous: false };
+
+  /* Ripiego per un modulo pubblicato con i soli nomi (prima delle squadre): il nome che ne nomina una sola. */
+  const risolta = !target && !ambiguous && answeredCategory
+    ? resolveCategoryReference(answeredCategory, answeredCategory, options.categories)
     : null;
+  const category = target
+    ? { id: target.categoryId, name: target.categoryName }
+    : risolta?.known
+      ? options.categories.find((entry) => entry.id === risolta.id) || null
+      : null;
 
   return {
-    siteId,
+    siteId: target && !target.implicit ? target.siteId : "",
     category,
     /* Il nome che nomina piu squadre: chi approva lo deve sapere, non scoprirlo dopo (revisione ostile A15). */
-    categoriaAmbigua: risolta?.ambiguous ? answeredCategory : "",
+    categoriaAmbigua: ambiguous || risolta?.ambiguous ? answeredCategory : "",
   };
 };
 
 /**
  * Allinea l'appartenenza categoria-sede dopo un'approvazione.
  *
- * **Cosa scrive e cosa no.** Con una categoria scelta crea o aggiorna
- * l'appartenenza a quella categoria. Con la sola sede aggiorna le
- * appartenenze che **non ne dichiarano una**: un'appartenenza gia collocata
- * e stata decisa da qualcuno che ne sapeva piu di un modulo, e sovrascriverla
- * sposterebbe un atleta di palestra senza che nessuno lo abbia chiesto.
+ * **Cosa scrive e cosa no.** Con una squadra scelta crea l'appartenenza a
+ * quella categoria con la sede della squadra, o — se l'atleta ha gia quella
+ * categoria — ne allinea la sede. Senza categoria non scrive niente: una
+ * sede da sola non e una collocazione (ADR-0194). Le righe passano dal
+ * registro generico, che vaglia la coppia (categoria, sede).
  */
 const syncEnrollmentMembership = async (
   scope: FormsAccessScope,
@@ -1856,22 +1838,6 @@ const syncEnrollmentMembership = async (
     }
 
     return applied;
-  }
-
-  if (!input.siteId) return applied;
-
-  const orphans = existing.filter((row: any) => !asText(row.site_id));
-  for (const row of orphans) {
-    await updateResource(
-      "athlete_category_memberships",
-      row.id,
-      { site_id: input.siteId },
-      scope,
-    );
-  }
-
-  if (orphans.length) {
-    applied.push(`Sede assegnata a ${orphans.length} iscrizioni`);
   }
 
   return applied;
@@ -2622,16 +2588,12 @@ const eseguiDecisione = async (
     placement = resolveEnrollmentPlacement(values, clubOptions);
 
     /*
-      `buildAthletePatch` ha scritto in `data.siteId` il **nome** scelto,
-      perche e quello che il catalogo dice di scrivere in quel percorso. Qui
-      lo si sostituisce con l'identificativo: il nome di una sede cambia, il
-      suo identificativo no, e ogni filtro sede risolve gli identificativi.
+      La sede non si scrive piu in `data.siteId` (ADR-0194 §25): e quella
+      dell'appartenenza, derivata dalla squadra, e la scrive
+      `syncEnrollmentMembership` sulla riga. Il nome che il catalogo dei
+      campi metteva qui — `athlete.siteId` non e piu scrivibile — si toglie.
     */
-    if (placement.siteId) {
-      patch.data.siteId = placement.siteId;
-    } else {
-      delete patch.data.siteId;
-    }
+    delete patch.data.siteId;
 
     if (placement.category) {
       patch.columns.category_id = placement.category.id;
@@ -2736,7 +2698,7 @@ const eseguiDecisione = async (
     }
   }
 
-  if (athleteId && (placement.category || placement.siteId)) {
+  if (athleteId && placement.category) {
     applied.push(
       ...(await syncEnrollmentMembership(scope, {
         organizationId,
