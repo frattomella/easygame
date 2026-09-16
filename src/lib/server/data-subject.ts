@@ -1418,7 +1418,11 @@ export const eraseDataSubject = async (
 
     await (prisma as any).formSubmission.update({
       where: { id: submission.id },
-      data: { subjects },
+      data: {
+        subjects,
+        /* La scheda nata dalla pratica e questa persona: il riferimento si toglie con lei. */
+        ...(asText(submission.athlete_id) === subjectId ? { athlete_id: null } : {}),
+      },
     });
     conta(anonymized, "form_submissions", 1);
     manualReview.push({

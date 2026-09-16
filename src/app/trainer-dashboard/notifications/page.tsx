@@ -74,7 +74,7 @@ export default function TrainerNotificationsPage() {
                   key={alert.key}
                   type="button"
                   onClick={() => router.push(alert.actionHref)}
-                  className="group flex w-full flex-col gap-3 rounded-egw-panel-sm border border-egw-tint-amber-bd bg-egw-tint-amber/80 px-4 py-4 text-left transition hover:border-egw-tint-amber-bd hover:bg-egw-tint-amber sm:flex-row sm:items-center sm:justify-between"
+                  className="group flex w-full flex-col gap-3 rounded-egw-panel-sm border border-egw-tint-amber-bd bg-egw-tint-amber px-4 py-4 text-left transition hover:border-egw-tint-amber-bd hover:bg-egw-tint-amber sm:flex-row sm:items-center sm:justify-between"
                 >
                   <span className="flex min-w-0 items-start gap-3">
                     <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-egw-panel-sm bg-white text-egw-amber-ink shadow-egw-plane-1">

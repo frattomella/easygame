@@ -96,7 +96,7 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     a: ["href", "target", "rel", "title"],
     img: ["src", "alt", "title", "width", "height", "style", "data-align"],
     div: ["class", "data-type"],
-    span: ["class", "data-token", "data-type", "style"],
+    span: ["class", "data-token", "data-type", "style", "title"],
     td: ["colspan", "rowspan", "style"],
     th: ["colspan", "rowspan", "style"],
     table: ["style"],
@@ -132,11 +132,19 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
       return !ALLOWED_IMAGE_SRC.test(src);
     }
     if (frame.tag === "div") {
-      /* Un `div` sopravvive solo come interruzione di pagina. */
-      return String(frame.attribs.class || "") !== PAGE_BREAK_CLASS;
+      const classi = String(frame.attribs.class || "").split(/\s+/);
+      return classi.includes(PAGE_BREAK_CLASS) ? false : "excludeTag";
     }
     return false;
   },
+  /*
+    Un `div` sopravvive solo come interruzione di pagina: ogni altro `div`
+    perde il tag e **tiene il contenuto** (`excludeTag`, non l'esclusione
+    intera — che cancellava l'intera sezione di un documento dell'editor
+    precedente o di un incolla da Word).
+  */
+  nonTextTags: ["script", "style", "textarea", "option", "noscript"],
+  nestingLimit: 40,
 };
 
 /** Il testo formattato, ridotto a cio che puo contenere. */

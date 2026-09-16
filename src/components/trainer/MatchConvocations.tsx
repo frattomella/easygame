@@ -606,7 +606,7 @@ export function MatchConvocations({
                 </Button>
                 {selectedAthleteIds.size > 0 && (
                   <Button
-                    className="bg-egw-green hover:bg-egw-green/90 flex items-center gap-1"
+                    className="bg-egw-green hover:bg-egw-green flex items-center gap-1"
                     onClick={() => {
                       showToast(
                         "success",
@@ -693,7 +693,7 @@ export function MatchConvocations({
             return (
             <div
               key={athleteId}
-              className={`rounded-egw-control border p-4 transition-colors ${isSelected ? "border-egw-tint-blue-bd bg-egw-tint-blue dark:border-egw-navy-800 dark:bg-egw-navy-900/20" : "hover:bg-egw-page-050 dark:hover:bg-egw-navy-800"} ${!isEditing ? "cursor-default" : "cursor-pointer"}`}
+              className={`rounded-egw-control border p-4 transition-colors ${isSelected ? "border-egw-tint-blue-bd bg-egw-tint-blue dark:border-egw-navy-800 dark:bg-egw-navy-900" : "hover:bg-egw-page-050 dark:hover:bg-egw-navy-800"} ${!isEditing ? "cursor-default" : "cursor-pointer"}`}
               onClick={() => handleToggleAthlete(athleteId)}
               role={isEditing ? "button" : undefined}
               aria-pressed={isEditing ? isSelected : undefined}

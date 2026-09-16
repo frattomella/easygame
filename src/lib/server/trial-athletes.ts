@@ -1457,10 +1457,23 @@ export const convertTrialAthlete = async (
     trialId,
     "trials.convert",
   );
-  if (trial.status === "enrolled" && trial.athlete_id)
-    throw new Error("La persona e gia iscritta");
-
   const richiestaScheda = asText(input.athleteId);
+  if (trial.status === "enrolled" && trial.athlete_id) {
+    /*
+      Gia convertita (revisione ostile A-F3): ripetere la conversione verso la
+      stessa scheda — o senza indicarne una — e idempotente e restituisce cio
+      che c'e; verso una scheda diversa e un errore.
+    */
+    if (richiestaScheda && richiestaScheda !== trial.athlete_id)
+      throw new Error("La persona e gia iscritta con un'altra scheda");
+    if (!richiestaScheda && input.create) throw new Error("La persona e gia iscritta");
+    const [display, stats] = await Promise.all([loadDisplay(organizationId), loadTrialStats(organizationId, [trial.id])]);
+    return {
+      trial: serializeTrial(trial, stats.get(trial.id)!, display, canReadTrialContacts(scope.activeRole)),
+      athleteId: trial.athlete_id,
+      created: false,
+    };
+  }
   if (richiestaScheda && !UUID.test(richiestaScheda))
     throw new Error("Identificativo della scheda non valido");
 

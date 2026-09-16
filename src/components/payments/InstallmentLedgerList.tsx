@@ -451,13 +451,13 @@ export function InstallmentLedgerList({
                     segreteria un totale che non esiste.
                   */}
                   {coverage ? (
-                    <div className="mt-2 rounded-egw-control border border-egw-tint-blue-bd bg-egw-tint-blue/60 p-2 text-xs dark:border-sky-900 dark:bg-sky-950/30">
+                    <div className="mt-2 rounded-egw-control border border-egw-tint-blue-bd bg-egw-tint-blue p-2 text-xs dark:border-sky-900 dark:bg-sky-950/30">
                       <p className="font-medium text-sky-900 dark:text-sky-200">
                         Coperta da voucher per{" "}
                         {formatCurrency(coverage.plannedCoverage)} · a carico
                         della famiglia {formatCurrency(coverage.familyDueAmount)}
                       </p>
-                      <p className="mt-1 text-egw-blue-800/80 dark:text-sky-300/80">
+                      <p className="mt-1 text-egw-blue-800 dark:text-sky-300/80">
                         Maturato {formatCurrency(coverage.accruedCoverage)} ·
                         liquidato dall&apos;ente{" "}
                         {formatCurrency(coverage.settledCoverage)}

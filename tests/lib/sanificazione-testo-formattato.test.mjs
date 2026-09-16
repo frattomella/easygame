@@ -63,3 +63,10 @@ test("tabelle, elenchi, titoli, interruzione di pagina e segnaposto restano; un 
 test("il solo testo, per impronte e riassunti", () => {
   assert.equal(richHtmlToText("<h2>Informativa</h2><p>Testo   con <b>grassetto</b></p>"), "Informativa Testo con grassetto");
 });
+
+test("un div qualunque perde il tag e tiene il contenuto (documenti dell'editor precedente, incolla da Word)", () => {
+  assert.equal(sanitizeRichHtml("<div><p>Hello</p><p>World</p></div><p>after</p>"), "<p>Hello</p><p>World</p><p>after</p>");
+  assert.equal(sanitizeRichHtml("<div>uno</div><div>due</div>"), "unodue");
+  assert.match(sanitizeRichHtml('<div class="easygame-page-break foo"></div>'), /class="easygame-page-break"/, "l'interruzione resta anche con altre classi accanto");
+  assert.match(sanitizeRichHtml('<div class="WordSection1"><p>testo</p></div>'), /<p>testo<\/p>/);
+});

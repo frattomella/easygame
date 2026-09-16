@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { readRequestId, reportServerError } from "@/lib/server/observability";
 import { findPublicFormBySlug } from "@/lib/server/forms";
-import { readAttachment } from "@/lib/server/attachments";
+import { getAttachmentMetadata, readAttachment } from "@/lib/server/attachments";
+import { isPublicFormContentAsset } from "@/lib/forms/public-assets";
 import { buildStoredFileResponse } from "@/lib/server/stored-file-response";
 import {
   AUTH_RATE_LIMITS,
@@ -27,7 +28,6 @@ export const runtime = "nodejs";
 
 type Context = { params: { publicSlug: string; attachmentId: string } };
 
-const CONTENT_CATEGORY = "contenuto-modulo";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const notFound = () =>
@@ -35,7 +35,7 @@ const notFound = () =>
 
 export async function GET(request: Request, context: Context) {
   try {
-    const limit = await consumeAuthRateLimit(AUTH_RATE_LIMITS.publicFormView, getRequestIp(request));
+    const limit = await consumeAuthRateLimit(AUTH_RATE_LIMITS.publicFormAsset, getRequestIp(request));
     if (!limit.allowed) {
       return NextResponse.json(
         { data: null, error: { message: "Troppe richieste. Riprova fra qualche minuto.", code: "RATE_LIMITED" } },
@@ -48,18 +48,11 @@ export async function GET(request: Request, context: Context) {
     const match = await findPublicFormBySlug(context.params.publicSlug);
     if (!match) return notFound();
 
+    /* Prima i metadati, poi i byte: un identificativo qualunque non carica niente in memoria. */
+    const meta = await getAttachmentMetadata(id);
+    if (!meta || !isPublicFormContentAsset(meta, match)) return notFound();
     const attachment = await readAttachment(id);
     if (!attachment) return notFound();
-    const meta = attachment.metadata;
-    if (
-      meta.organizationId !== match.organizationId ||
-      meta.ownerType !== "form" ||
-      meta.ownerId !== match.templateId ||
-      meta.category !== CONTENT_CATEGORY ||
-      !String(meta.mimeType || "").toLowerCase().startsWith("image/")
-    ) {
-      return notFound();
-    }
 
     const response = buildStoredFileResponse({
       content: attachment.content,

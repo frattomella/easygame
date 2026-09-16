@@ -37,6 +37,7 @@ import {
   recordAuditEvent,
 } from "./audit";
 import { backfillProviderFees } from "./payment-gateway";
+import { purgeExpiredFormDrafts } from "./form-drafts";
 import { reportServerError, sanitizeErrorMessage } from "./observability";
 
 export type MaintenanceStep = {
@@ -175,6 +176,13 @@ export const runScheduledMaintenance = async (
       qualcuno scopre dopo aver perso dei dati.
     */
     await runStep("audit_logs", async () => Number(await purgeExpiredAuditEvents(now))),
+
+    /*
+      Le bozze pubbliche scadute (ADR-0189 §3): dati personali di chi non ha
+      mai inviato, senza uno scopo passati i trenta giorni. Il gettone smette
+      di aprirle da solo; la riga la toglie questo passo.
+    */
+    await runStep("form_drafts", async () => purgeExpiredFormDrafts(now)),
 
     /*
       La commissione del PSP non vive nell'evento: vive sul

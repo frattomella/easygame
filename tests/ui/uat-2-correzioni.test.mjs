@@ -79,7 +79,8 @@ test("la barra superiore non porta un controllo della stagione; l'identita del c
 
 test("«In prova» e una vista accanto ad «Atleti», con il conteggio, e non sta piu nel menu a tre puntini", () => {
   const selettore = senzaCommenti(leggi("src/components/athletes/v2/AthletesViewSwitch.tsx"));
-  assert.match(selettore, /SegmentedControl<AthletesView>/, "e un selettore di vista del sistema");
+  assert.match(selettore, /<nav aria-label="Vista"/, "sono due pagine: link con aria-current, non una tablist");
+  assert.ok(selettore.includes('aria-current={attiva ? "page" : undefined}'), "la voce attiva e la pagina corrente");
   assert.match(selettore, /listTrialAthletes\(\{ status: "in_trial" \}\)/, "conta le persone in prova");
   assert.match(selettore, /roleHasPermission\(role, "trials\.read"\)/, "solo a chi puo leggerle");
   const atleti = senzaCommenti(leggi("src/app/athletes/page.tsx"));
@@ -87,4 +88,14 @@ test("«In prova» e una vista accanto ad «Atleti», con il conteggio, e non st
   assert.doesNotMatch(atleti, /<MenuItem[^>]*>\s*<UserRoundSearch \/>\s*Atleti in prova/, "non e piu una voce del menu");
   const prova = senzaCommenti(leggi("src/app/athletes/in-prova/page.tsx"));
   assert.match(prova, /<AthletesViewSwitch value="trials"/, "e la pagina In prova pure, con il conteggio che gia sa");
+});
+
+test("un colore del sistema non porta mai un modificatore di opacita: le variabili CSS non hanno un canale alfa e la classe cadrebbe", () => {
+  const elenco = execSync(
+    'git grep -h -o -E "(text|bg|border|ring|from|to|via|placeholder|divide|fill|stroke|outline|shadow)-egw-[a-z0-9-]+/[0-9]+" -- src || true',
+    { cwd: root, encoding: "utf8" },
+  )
+    .split(/\r?\n/)
+    .filter(Boolean);
+  assert.deepEqual([...new Set(elenco)], [], `opacita su un colore del sistema (verrebbe scartata): ${elenco.join(", ")}`);
 });

@@ -26,8 +26,12 @@ export const rewriteAssetUrls = (html: string, assetBase: string) =>
       )
     : html;
 
+/** Una tabella larga scorre da sola dentro il proprio contenitore, senza perdere la semantica di tabella. */
+const wrapTables = (html: string) =>
+  html.replace(/<table\b/gi, '<div class="egw-table-scroll"><table').replace(/<\/table>/gi, "</table></div>");
+
 export function RichContent({ html, className, assetBase = "" }: { html: string; className?: string; assetBase?: string }) {
-  const safe = React.useMemo(() => rewriteAssetUrls(sanitizeRichHtml(html), assetBase), [assetBase, html]);
+  const safe = React.useMemo(() => wrapTables(rewriteAssetUrls(sanitizeRichHtml(html), assetBase)), [assetBase, html]);
   if (!safe) return null;
   return (
     <div

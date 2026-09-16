@@ -49,7 +49,7 @@ export function TrialMatchNotice({
   const [dismissedKey, setDismissedKey] = React.useState<string | null>(null);
   const nome = firstName.trim();
   const cognome = lastName.trim();
-  const chiave = `${nome.toLowerCase()}|${cognome.toLowerCase()}|${birthDate}`;
+  const chiave = `${nome.toLowerCase()}|${cognome.toLowerCase()}`;
 
   React.useEffect(() => {
     if (!enabled || nome.length < 2 || cognome.length < 2) {
@@ -103,6 +103,7 @@ export function TrialMatchNotice({
     <div
       role="region"
       aria-label="Possibile anagrafica già presente"
+      aria-live="polite"
       data-test="trial-match-notice"
       className="mt-4 rounded-egw-panel border border-egw-tint-amber-bd bg-egw-tint-amber p-4"
     >

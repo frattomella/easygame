@@ -13,6 +13,7 @@
 import { createHash } from "crypto";
 import {
   getLegalFields,
+  isFieldVisible,
   type FormDeclaration,
   type FormSchema,
   type FormSubmissionFile,
@@ -48,7 +49,10 @@ export const buildDeclarations = ({
   respondent: string;
   at?: Date;
 }): FormDeclaration[] =>
-  getLegalFields(schema).map((field) => {
+  /* Una casella nascosta da una condizione non e stata mostrata: nessuna prova di cio che non si e visto. */
+  getLegalFields(schema)
+    .filter((field) => isFieldVisible(field, answers))
+    .map((field) => {
     const text = testoMostrato(schema, field.id);
     return {
       fieldId: field.id,

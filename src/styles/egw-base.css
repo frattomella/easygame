@@ -312,8 +312,11 @@
 .egw-rich-content table {
   width: 100%;
   border-collapse: collapse;
-  display: block;
+}
+.egw-rich-content .egw-table-scroll,
+.egw-rich-editor .tableWrapper {
   overflow-x: auto;
+  max-width: 100%;
 }
 .egw-rich-content th,
 .egw-rich-content td {

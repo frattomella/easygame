@@ -342,7 +342,7 @@ export default function ClubAppointmentsDashboardPage() {
             {puoConfermare ? (
               <Button
                 size="sm"
-                className="bg-egw-green hover:bg-egw-green/90"
+                className="bg-egw-green hover:bg-egw-green"
                 disabled={inCorso}
                 onClick={() =>
                   esegui(

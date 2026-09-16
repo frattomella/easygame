@@ -346,9 +346,21 @@ export function FormFieldCard({
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <Select
                   value={field.visibleWhen?.fieldId || NESSUNA}
-                  onValueChange={(next) =>
-                    onChange({ visibleWhen: next === NESSUNA ? null : { fieldId: next, equals: field.visibleWhen?.fieldId === next ? field.visibleWhen.equals : "" } })
-                  }
+                  onValueChange={(next) => {
+                    if (next === NESSUNA) return onChange({ visibleWhen: null });
+                    const scelto = controllabili.find((f) => f.id === next);
+                    onChange({
+                      visibleWhen: {
+                        fieldId: next,
+                        equals:
+                          field.visibleWhen?.fieldId === next
+                            ? field.visibleWhen.equals
+                            : scelto?.type === "checkbox"
+                              ? "true"
+                              : scelto?.options[0] || "",
+                      },
+                    });
+                  }}
                 >
                   <SelectTrigger id={`visible-${field.id}`}>
                     <SelectValue placeholder="Sempre visibile" />

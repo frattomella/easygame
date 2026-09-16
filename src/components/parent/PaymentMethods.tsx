@@ -336,7 +336,7 @@ export function PaymentMethods({
                   {paymentMethods.map((method) => (
                     <div
                       key={method.id}
-                      className={`p-3 border rounded-egw-control flex items-center justify-between cursor-pointer ${selectedMethod?.id === method.id ? "border-blue-500 bg-egw-tint-blue dark:bg-egw-navy-900/20" : "hover:bg-egw-page-050 dark:hover:bg-egw-navy-800"}`}
+                      className={`p-3 border rounded-egw-control flex items-center justify-between cursor-pointer ${selectedMethod?.id === method.id ? "border-blue-500 bg-egw-tint-blue dark:bg-egw-navy-900" : "hover:bg-egw-page-050 dark:hover:bg-egw-navy-800"}`}
                       onClick={() => handleSelectMethod(method)}
                     >
                       <div className="flex items-center gap-3">

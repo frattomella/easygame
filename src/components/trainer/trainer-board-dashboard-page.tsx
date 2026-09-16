@@ -109,7 +109,7 @@ export default function TrainerBoardDashboardPage() {
             {visibleReminders.map((reminder: any, index: number) => (
               <article
                 key={String(reminder?.id || `nota-${index}`)}
-                className="rounded-egw-panel-sm border border-egw-tint-amber-bd bg-egw-tint-amber/70 p-4"
+                className="rounded-egw-panel-sm border border-egw-tint-amber-bd bg-egw-tint-amber p-4"
               >
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <h3 className="min-w-0 text-sm font-semibold text-egw-ink">

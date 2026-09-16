@@ -124,6 +124,7 @@ export function SubmissionReviewDialog({
   const [trialToUse, setTrialToUse] = useState<string | null>(null);
   const [dismissedTrials, setDismissedTrials] = useState(false);
   const [requestOpen, setRequestOpen] = useState(false);
+  const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [requestedFieldIds, setRequestedFieldIds] = useState<string[]>([]);
 
   const load = useCallback(async () => {
@@ -144,6 +145,8 @@ export function SubmissionReviewDialog({
 
   const linkToExisting = async (subject: string, recordId: string, label: string) => {
     if (!review) return;
+    /* Collegare una scheda e convertire una prova sono due strade: se ne tiene una. */
+    if (subject === "athlete") setTrialToUse(null);
     setBusy(true);
     try {
       const subjects = review.submission.subjects.some(
@@ -315,7 +318,7 @@ export function SubmissionReviewDialog({
               */
               <section className="space-y-2 rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-4" data-test="trial-candidates">
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-egw-amber-ink">
-                  <UserRoundSearch className="h-4 w-4" />
+                  <UserRoundSearch className="h-4 w-4" aria-hidden />
                   Possibile corrispondenza con una persona in prova
                 </h3>
                 {review.trialCandidates.map((trial) => (
@@ -536,13 +539,19 @@ export function SubmissionReviewDialog({
             />
 
             <div className="space-y-2">
-              <Label htmlFor="review-note">Nota interna</Label>
+              <Label htmlFor="review-note">
+                {requestOpen ? "Nota per la famiglia" : "Nota per la famiglia (visibile sulla ricevuta)"}
+              </Label>
               <Textarea
                 id="review-note"
                 rows={2}
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
-                placeholder="Perche l'hai approvata o rifiutata. Resta in EasyGame."
+                placeholder={
+                  requestOpen
+                    ? "Cosa correggere e perche: arriva alla famiglia con l'elenco dei campi."
+                    : "Perche l'hai approvata o rifiutata. La famiglia la legge sulla ricevuta."
+                }
               />
             </div>
 
@@ -571,16 +580,24 @@ export function SubmissionReviewDialog({
                     </li>
                   ))}
                 </ul>
-                <p className="text-xs text-egw-ink-62">La nota qui sotto viene inviata alla famiglia insieme all&apos;elenco.</p>
+                <p className="text-xs text-egw-ink-62">La «Nota per la famiglia» qui sotto viene inviata insieme all&apos;elenco.</p>
               </section>
             ) : null}
 
             {submissionIsOpen(review.submission.status) ? (
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
-                <Button type="button" variant="ghost" disabled={busy} onClick={() => decide("archive")}>
-                  <Archive className="mr-2 h-4 w-4" />
-                  Archivia
-                </Button>
+                {archiveConfirm ? (
+                  <span className="flex flex-wrap items-center gap-2 rounded-egw-control border border-egw-hairline bg-egw-page-100 px-3 py-2 text-sm text-egw-ink-72" role="group" aria-label="Conferma archiviazione">
+                    Archiviare? La famiglia la vedra «archiviata».
+                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => decide("archive")}>Si, archivia</Button>
+                    <Button type="button" size="sm" variant="ghost" disabled={busy} onClick={() => setArchiveConfirm(false)}>No</Button>
+                  </span>
+                ) : (
+                  <Button type="button" variant="ghost" disabled={busy} onClick={() => setArchiveConfirm(true)}>
+                    <Archive className="mr-2 h-4 w-4" />
+                    Archivia
+                  </Button>
+                )}
                 {review.submission.status === "pending" ? (
                   <>
                     {requestOpen ? (

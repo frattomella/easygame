@@ -91,7 +91,7 @@ export function MonthGrid({
           <div className="grid grid-cols-7" role="grid" aria-label={`Calendario di ${monthLabel}`} aria-busy={loading || undefined}>
             {cells.map((day, index) => {
               if (!day) {
-                return <span key={`empty-${index}`} className="min-h-[64px] border-b border-r border-egw-rule bg-egw-page-100/60 md:min-h-[112px]" aria-hidden />;
+                return <span key={`empty-${index}`} className="min-h-[64px] border-b border-r border-egw-rule bg-egw-page-100 md:min-h-[112px]" aria-hidden />;
               }
               const key = formatLocalDateOnly(day);
               const events = eventsByDay.get(key) || [];

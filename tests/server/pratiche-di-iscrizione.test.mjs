@@ -323,8 +323,10 @@ test("20 · il reinvio con la ricevuta cambia solo i campi chiesti, conserva la 
 
   const contesto = await submissions.readPublicRevisionContext(receiptReference);
   assert.deepEqual(contesto.allowedFieldIds, ["f_nascita", "f_cert"]);
-  assert.equal(contesto.answers.f_nome, "Mario");
+  assert.equal(contesto.answers.f_nome, undefined, "la ricevuta non rilegge l'anagrafica: solo i campi da correggere");
+  assert.equal(contesto.answers.f_nascita, "2015-05-05");
   assert.equal(contesto.files[0].fieldId, "f_cert");
+  assert.ok(!("settings" in contesto.schema), "lo schema e un elenco chiuso");
   const vista = await iscrizioni.readPublicEnrollmentStatus(receiptReference);
   assert.equal(vista.state, "changes_requested");
   assert.deepEqual(vista.changesRequested.fields.map((f) => f.label), ["Data di nascita", "Certificato"]);
@@ -412,7 +414,7 @@ test("27 · approvare collegando a un atleta esistente aggiorna quella scheda e 
   assert.equal(fake.rows("athlete").length, 1);
   assert.equal(fake.rows("athlete")[0].first_name, "Mario Luigi");
   assert.equal(esito.submission.athleteId, "atleta-1");
-  assert.equal(esito.submission.status, "approved", "una scheda che c'era gia: approvata, non «atleta creato»");
+  assert.equal(esito.submission.status, "converted", "collegare una scheda che la pratica non nominava e una conversione (ADR-0189 §4)");
 });
 
 /* --------------------------------------------- 19 (§19) prova → atleta */
@@ -523,4 +525,104 @@ test("lo schema rifiuta una condizione su un campo che viene dopo e un consenso 
   assert.ok(esito.errors.some((e) => /viene dopo/.test(e)));
   const consenso = normalizeFormSchema(schemaWith([{ id: "c", type: "checkbox", label: "C", legalKind: "optional_consent", required: true }]));
   assert.equal(consenso.fields[0].required, false, "il modello lo spegne da solo");
+});
+
+/* ── Revisione ostile (secondo lotto): cio che la prima stesura non provava ── */
+
+test("R-A2 · un'approvazione caduta dopo la creazione della scheda riparte da quella scheda: nessun doppione", async () => {
+  const template = await publishedTemplate();
+  const { submissionId } = await submitOne(template);
+  /* La membership fallisce dopo la scheda: la presa si rilascia, ma athlete_id resta annotato. */
+  const originale = fake.client.athleteCategoryMembership.create;
+  fake.client.athleteCategoryMembership.create = async () => { throw new Error("guasto simulato"); };
+  const clubRow = fake.rows("club").find((c) => c.id === CLUB_A);
+  clubRow.club_sites = [{ id: "sede-a", name: "Sede A", active: true }];
+  try {
+    await submissions.decideFormSubmission(scopeA(), submissionId, { decision: "approve" }).catch(() => undefined);
+  } finally {
+    fake.client.athleteCategoryMembership.create = originale;
+  }
+  const dopoIlGuasto = rigaPratica(submissionId);
+  const schedePrima = fake.rows("athlete").length;
+  if (dopoIlGuasto.status === "pending") {
+    assert.ok(dopoIlGuasto.athlete_id || schedePrima === 0, "se una scheda e nata, la pratica la nomina");
+    const esito = await submissions.decideFormSubmission(scopeA(), submissionId, { decision: "approve" });
+    assert.equal(esito.submission.status, "converted");
+  }
+  assert.equal(fake.rows("athlete").length, Math.max(schedePrima, 1), "una scheda sola, mai due");
+});
+
+test("R-A4 · archiviare e condizionato: una pratica gia convertita o presa in esame non si archivia", async () => {
+  const template = await publishedTemplate();
+  const { submissionId } = await submitOne(template);
+  await submissions.decideFormSubmission(scopeA(), submissionId, { decision: "approve" });
+  await assert.rejects(() => submissions.decideFormSubmission(scopeA(), submissionId, { decision: "archive" }), /non si puo archiviare/);
+  const seconda = await submitOne(template, { ...RISPOSTE, f_nome: "Luca" });
+  /* Una presa in esame fresca blocca l'archiviazione altrui. */
+  const riga = rigaPratica(seconda.submissionId);
+  riga.reviewed_at = new Date();
+  riga.reviewed_by = "qualcun-altro";
+  await assert.rejects(() => submissions.decideFormSubmission(scopeA(), seconda.submissionId, { decision: "archive" }), /cambiata nel frattempo/);
+});
+
+test("R-A6 · una casella legale nascosta da una condizione non produce nessuna dichiarazione; il reinvio conserva le dichiarazioni non ritoccate con la loro ora", async () => {
+  const template = await publishedTemplate([
+    ...FIELDS,
+    { id: "f_aut", type: "checkbox", label: "Autorizzo l'uscita autonoma", legalKind: "authorization", visibleWhen: { fieldId: "f_minore", equals: "false" } },
+  ]);
+  const { submissionId, receiptReference } = await submitOne(template, { ...RISPOSTE, f_minore: true });
+  const riga = rigaPratica(submissionId);
+  assert.ok(!riga.declarations.some((d) => d.fieldId === "f_aut"), "mai mostrata, mai dichiarata");
+  const oraPresa = riga.declarations.find((d) => d.fieldId === "f_presa").at;
+  await submissions.decideFormSubmission(scopeA(), submissionId, { decision: "request_changes", fieldIds: ["f_nascita"], note: "n" });
+  await new Promise((r) => setTimeout(r, 5));
+  await submissions.resubmitPublicSubmission(receiptReference, { answers: { f_nascita: "2015-06-06" }, files: [] });
+  assert.equal(rigaPratica(submissionId).declarations.find((d) => d.fieldId === "f_presa").at, oraPresa, "la presa visione non e stata rifatta: stessa ora");
+});
+
+test("R-A3 · ripetere la conversione di una prova gia convertita e idempotente", async () => {
+  const prova = await trials.createTrialAthlete(scopeA(), { firstName: "Mario", lastName: "Rossi", birthDate: "2015-05-05" });
+  const prima = await trials.convertTrialAthlete(scopeA(), prova.id, { create: {} }, { userId: OWNER_A });
+  const seconda = await trials.convertTrialAthlete(scopeA(), prova.id, {}, { userId: OWNER_A });
+  assert.equal(seconda.athleteId, prima.athleteId);
+  assert.equal(seconda.created, false);
+  await assert.rejects(() => trials.convertTrialAthlete(scopeA(), prova.id, { athleteId: "aaaaaaaa-1111-4000-8000-000000000009" }, { userId: OWNER_A }), /altra scheda/);
+  assert.equal(fake.rows("athlete").length, 1);
+});
+
+test("R-B1/B7 · la rotta pubblica delle immagini serve solo gli allegati di contenuto del modulo dello slug", async () => {
+  const { isPublicFormContentAsset } = await import("../../src/lib/forms/public-assets.ts");
+  const match = { organizationId: CLUB_A, templateId: "t1" };
+  const ok = { organizationId: CLUB_A, ownerType: "form", ownerId: "t1", category: "contenuto-modulo", mimeType: "image/png" };
+  assert.equal(isPublicFormContentAsset(ok, match), true);
+  assert.equal(isPublicFormContentAsset({ ...ok, category: "compilazione-modulo" }, match), false, "il certificato di una famiglia no");
+  assert.equal(isPublicFormContentAsset({ ...ok, ownerId: "t2" }, match), false, "un altro modulo no");
+  assert.equal(isPublicFormContentAsset({ ...ok, organizationId: CLUB_B }, match), false, "un altro club no");
+  assert.equal(isPublicFormContentAsset({ ...ok, mimeType: "application/pdf" }, match), false, "un PDF no");
+  const rotta = readFileSync(path.join(process.cwd(), "src/app/api/public/forms/[publicSlug]/assets/[attachmentId]/route.ts"), "utf8");
+  assert.match(rotta, /getAttachmentMetadata\(id\)/, "prima i metadati, poi i byte");
+  assert.match(rotta, /isPublicFormContentAsset\(meta, match\)/);
+});
+
+test("R-C1 · cambiare contenuto, semantica legale, condizione o regole di caricamento rende due schemi diversi", async () => {
+  const { normalizeFormSchema, schemasAreEqual, FIELD_COMPARISON_KEYS, normalizeFormField } = await import("../../src/lib/forms/model.ts");
+  const base = normalizeFormSchema(schemaWith(FIELDS));
+  const con = (patch, id) => normalizeFormSchema(schemaWith(FIELDS.map((f) => (f.id === id ? { ...f, ...patch } : f))));
+  assert.equal(schemasAreEqual(base, con({ content: "<p>altro</p>" }, "f_info")), false);
+  assert.equal(schemasAreEqual(base, con({ legalKind: "authorization" }, "f_presa")), false);
+  assert.equal(schemasAreEqual(base, con({ visibleWhen: { fieldId: "f_minore", equals: "false" } }, "f_tutore")), false);
+  assert.equal(schemasAreEqual(base, con({ upload: { accept: "images", maxBytes: 1024 * 1024 } }, "f_cert")), false);
+  assert.equal(schemasAreEqual(base, normalizeFormSchema(schemaWith(FIELDS))), true);
+  /* Ogni chiave di un campo entra nel confronto: la nona non ripetera la storia dell'ottava. */
+  assert.deepEqual([...FIELD_COMPARISON_KEYS].sort(), Object.keys(normalizeFormField({ type: "short_text" })).sort());
+});
+
+test("R-B/M1 · la ricevuta non rilegge l'anagrafica: il contesto dell'integrazione porta solo i campi da correggere e chi li governa", async () => {
+  const template = await publishedTemplate();
+  const { submissionId, receiptReference } = await submitOne(template);
+  await submissions.decideFormSubmission(scopeA(), submissionId, { decision: "request_changes", fieldIds: ["f_tutore"], note: "n" });
+  const contesto = await submissions.readPublicRevisionContext(receiptReference);
+  assert.deepEqual(Object.keys(contesto.answers).sort(), ["f_minore", "f_tutore"], "il tutore e la casella che lo mostra");
+  assert.equal(contesto.files.length, 0, "nessun nome di file dei campi non chiesti");
+  assert.deepEqual(Object.keys(contesto.schema).sort(), ["description", "fields", "title"]);
 });

@@ -152,7 +152,7 @@ export function FormRenderer({
             <div
               key={field.id}
               data-legal-kind={field.legalKind}
-              className={`space-y-2 rounded-egw-panel border p-4 ${optional ? "border-egw-hairline bg-egw-page-050" : "border-egw-tint-blue-bd bg-egw-tint-blue/40"}`}
+              className={`space-y-2 rounded-egw-panel border p-4 ${optional ? "border-egw-hairline bg-egw-page-050" : "border-egw-tint-blue-bd bg-egw-tint-blue"}`}
             >
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-brand text-[10px] font-bold uppercase tracking-[var(--egw-track-eyebrow)] text-egw-ink-62">
@@ -209,15 +209,17 @@ export function FormRenderer({
               <p className="text-sm text-egw-ink-72">{field.description}</p>
             ) : null}
 
-            {locked ? (
-              <p className="text-xs text-egw-ink-62">Questo campo non e fra quelli da correggere.</p>
-            ) : null}
 
             {field.type === "long_text" ? (
               <Textarea
                 id={field.id}
                 rows={4}
-                disabled={readOnlyHere}
+                disabled={readOnly}
+                readOnly={locked}
+                aria-readonly={locked || undefined}
+                aria-invalid={Boolean(error) || undefined}
+                aria-describedby={error ? `${field.id}-error` : undefined}
+                className="min-h-[44px]"
                 placeholder={field.placeholder}
                 value={String(value ?? "")}
                 onChange={(event) => set(field.id, event.target.value)}
@@ -229,7 +231,12 @@ export function FormRenderer({
             ) ? (
               <Input
                 id={field.id}
-                disabled={readOnlyHere}
+                disabled={readOnly}
+                readOnly={locked}
+                aria-readonly={locked || undefined}
+                aria-invalid={Boolean(error) || undefined}
+                aria-describedby={error ? `${field.id}-error` : undefined}
+                className="min-h-[44px]"
                 type={
                   field.type === "number"
                     ? "number"
@@ -253,7 +260,7 @@ export function FormRenderer({
                 value={String(value ?? "")}
                 onValueChange={(next) => set(field.id, next)}
               >
-                <SelectTrigger id={field.id}>
+                <SelectTrigger id={field.id} className="min-h-[44px]" aria-invalid={Boolean(error) || undefined} aria-describedby={error ? `${field.id}-error` : undefined}>
                   <SelectValue placeholder="Scegli" />
                 </SelectTrigger>
                 <SelectContent>
@@ -373,7 +380,7 @@ export function FormRenderer({
             ) : null}
 
             {error ? (
-              <p role="alert" className="text-sm font-medium text-egw-red">
+              <p id={`${field.id}-error`} role="alert" className="text-sm font-medium text-egw-red">
                 {error}
               </p>
             ) : null}

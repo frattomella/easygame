@@ -2582,7 +2582,7 @@ export function ParentSecretariatPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Lascialo</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-egw-red hover:bg-egw-red/90"
+              className="bg-egw-red hover:bg-egw-red"
               onClick={(evento) => {
                 evento.preventDefault();
                 void handleCancelAppointment();

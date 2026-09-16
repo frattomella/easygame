@@ -124,8 +124,27 @@ export default function DocumentEditor({
 
   const save = () => onSave?.(sanitizeRichHtml(fromAtoms(content)));
 
+  /* A tutto schermo e una finestra: Escape la chiude e la pagina sotto non scorre. */
+  React.useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsFullscreen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = overflow;
+    };
+  }, [isFullscreen]);
+
   return (
-    <div className={cn(isFullscreen && "fixed inset-0 z-50 overflow-y-auto bg-egw-page p-4")} data-test="document-editor">
+    <div
+      className={cn(isFullscreen && "fixed inset-0 z-[60] overflow-y-auto bg-egw-page p-4")}
+      data-test="document-editor"
+      {...(isFullscreen ? { role: "dialog", "aria-modal": true, "aria-label": "Editor del modello a tutto schermo" } : {})}
+    >
       <div className={cn("space-y-3", isFullscreen && "mx-auto max-w-5xl")}>
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs text-egw-ink-62">

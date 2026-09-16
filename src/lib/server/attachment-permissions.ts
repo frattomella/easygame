@@ -142,6 +142,14 @@ export const canAccessAttachmentOwner = (
     hanno `clinical.read` — e chiude il caso che il difetto apriva.
   */
   if (tipo === "form") {
+    /*
+      Le immagini di contenuto di un modulo (ADR-0190: il logo nell'informativa,
+      una foto della sede) non sono un documento di una persona: le legge chi
+      lavora sui moduli. Tutto il resto di `form` — gli allegati delle
+      compilazioni, che possono essere certificati — resta dietro il dato
+      clinico.
+    */
+    if (String(category || "") === "contenuto-modulo") return canAccessClubResource(activeRole, "forms", action);
     if (!hasHealthPermission(activeRole, "clinical.read")) return false;
   }
 

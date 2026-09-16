@@ -233,12 +233,18 @@ function NewAthletePageContent() {
         });
         saved = { id: esito.athleteId };
         try {
+          /*
+            `updateClubAthlete` fonde le chiavi **piatte** dentro `data`
+            (revisione ostile A-F1): i dati del modulo — codice fiscale,
+            recapiti, tutori, tesseramenti — si passano spacchettati, non
+            sotto una chiave `data` che finirebbe in `data.data`.
+          */
           await updateClubAthlete(clubId, esito.athleteId, {
             firstName: draft.firstName,
             lastName: draft.lastName,
             birthDate: draft.birthDate,
             medicalCertExpiry: draft.medicalCertExpiry || null,
-            data: draft.data || {},
+            ...(draft.data || {}),
             ...(categoryMemberships.length ? { categoryMemberships } : {}),
           });
         } catch (error) {

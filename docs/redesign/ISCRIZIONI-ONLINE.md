@@ -58,3 +58,68 @@ sono referenziate da niente altro.
   bozze per recapito (D-RD-23).
 - FEA/FEQ, marca temporale, conservazione a norma, PDF server (D-RD-24, D38).
 - Promozione dello staging ufficiale (§54).
+
+## 5. Revisione ostile (§50): quattro revisori in sola lettura, un solo scrittore
+
+Trovati: **Critical 2** (progresso e avvisi invisibili sul modulo pubblico —
+`OutsideShell bare` lasciava il contesto «cielo» acceso; `schemasAreEqual`
+ignorava `content`/`legalKind`/`visibleWhen`/`upload`, quindi un blocco di
+testo modificato non si salvava ne si pubblicava), **High 8**, **Medium 27**,
+**Low 34**. Alla chiusura: **Critical 0, High 0**; Medium chiusi 22, Low
+chiusi 18.
+
+Chiusure principali, per revisore:
+
+- **A · Dominio/dati** — «Nuovo atleta» con prova riconosciuta passava i dati
+  del modulo sotto `data.data` (persi tutori e recapiti): chiavi piatte.
+  Un'approvazione caduta dopo la creazione della scheda ne creava una seconda
+  al secondo clic: `athlete_id` si annota **subito** e il tentativo successivo
+  riparte da li. Una conversione gia fatta ora e idempotente (stessa scheda →
+  stesso esito). «Archivia» e condizionato sullo stato in archivio e sulla
+  presa. «Collega ad atleta esistente» deciso dal club e `converted`, come dice
+  ADR-0189. Una casella legale nascosta da una condizione non produce
+  nessuna dichiarazione; il reinvio conserva le dichiarazioni non ritoccate
+  con la loro ora. `purgeExpiredFormDrafts` gira nel cron di manutenzione.
+  `athleteWithinAccessScope` legge dal client della transazione. La
+  cancellazione dell'interessato toglie `athlete_id` dalle pratiche condivise.
+- **B · Sicurezza/privacy** — il contesto dell'integrazione porta **solo** i
+  campi da correggere (e chi li governa), non l'anagrafica intera; lo schema
+  pubblico e un elenco chiuso; gli allegati nuovi di un reinvio fallito si
+  scartano; il gettone di ripresa viaggia nel frammento dell'URL e si toglie
+  dalla barra; la rotta delle immagini legge i metadati prima dei byte, con
+  una policy di frequenza propria, e la regola e una funzione pura provata;
+  `forms.templates.read` e applicato sul server; scrivere un tutore da una
+  pratica richiede `forms.submissions.convert`; le immagini di contenuto non
+  sono un dato clinico; il recapito di una bozza deve avere la forma di un
+  indirizzo; tetto di bozze vive per modulo.
+- **C · Moduli/editor** — il confronto degli schemi usa **tutte** le chiavi di
+  un campo (prova che le confronta con `normalizeFormField`); un `div`
+  qualunque perde il tag e tiene il contenuto (l'esclusione intera cancellava
+  sezioni dei documenti dell'editor precedente); un blocco di testo vuoto si
+  salva e non si pubblica; una condizione nasce con un valore; segnaposto
+  dell'editor con l'estensione vera; opzioni di TipTap 2.27 (`shouldAutoLink`);
+  estensioni e contenuto iniziale memorizzati (niente tre sanificazioni per
+  tasto); creazione e duplicazione sanificano.
+- **D · UX/a11y** — `SkyProvider onSky={false}` sulle pagine pubbliche
+  bianche; «Nota per la famiglia» invece di «Nota interna» (la nota arrivava
+  alla famiglia); niente alfa sui colori del sistema (`bg-egw-tint-blue/40`
+  cadeva; guardia estesa a tutti i token e 11 usi preesistenti ripuliti);
+  controlli a 44 px sul modulo pubblico; errori associati ai campi
+  (`aria-describedby`, `aria-invalid`); campi bloccati `readOnly` e non
+  `disabled`; la tavolozza ha un gruppo «Dichiarazioni» solo; il selettore
+  Atleti/In prova e una `nav` con `aria-current`; barra dell'editor con le
+  frecce e anello di fuoco; tabelle in un contenitore che scorre senza perdere
+  la semantica; editor a tutto schermo come `dialog` con Escape; avviso
+  della prova con `aria-live`; «Archivia» chiede conferma; i contatori dicono
+  il numero e lo stato attivo; il link della ricevuta e completo di host.
+
+Aperti e dichiarati (Low/Medium fuori dal lotto o rinviati): `window.prompt`
+per link e testo alternativo dell'editor; dimensione minima del testo nei
+moduli web (la scala e unica per documenti e moduli); ordine dei titoli
+(`h3` sotto `h1`) del renderer preesistente; icona 32 px della barra;
+cornice 375 px dell'anteprima dentro un viewport da 375 px; `forms.evidence`
+senza una rotta dedicata; cancellazione delle bozze per recapito e
+esportazione delle bozze (D-RD-23); dipendenti di un campo consentito
+nell'integrazione (se il club apre il campo che governa, deve aprire anche i
+dipendenti obbligatori — I1); FEA/FEQ, marca temporale, conservazione
+(D-RD-24).

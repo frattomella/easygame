@@ -1303,5 +1303,5 @@ test("una decisione fallita rilascia la presa: il tentativo successivo passa", a
     decision: "approve",
     subjects: [{ subject: "athlete", recordId: "atleta-1", label: "Mario Rossi" }],
   });
-  assert.equal(esito.submission.status, "approved");
+  assert.equal(esito.submission.status, "converted", "la decisione ha collegato una scheda che la pratica non nominava (ADR-0189)");
 });

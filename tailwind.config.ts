@@ -41,7 +41,7 @@ const config = {
         un valore fuori scala viene **scartato in silenzio** e l'elemento
         eredita l'inchiostro scuro della pagina — cosi le briciole e l'eyebrow
         della dashboard erano illeggibili sul cielo. La prova
-        `tests/ui/opacita-sul-cielo.test.mjs` vieta ogni `/NN` fuori da qui.
+        `tests/ui/uat-2-correzioni.test.mjs` vieta ogni `/NN` fuori da qui.
       */
       opacity: {
         12: "0.12",

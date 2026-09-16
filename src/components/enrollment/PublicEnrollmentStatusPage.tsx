@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { StatusPill } from "@/components/web/primitives/StatusPill";
 import { ENROLMENT_REQUEST_STATUS } from "@/lib/web/status";
 import { OutsideShell, OutsideStatus } from "@/components/web/shell/OutsideShell";
+import { buildEnrollmentReceiptPath } from "@/lib/forms/enrollment-receipt";
 
 /**
  * **La pagina pubblica di una domanda di iscrizione** (`/iscrizione/[reference]`).
@@ -245,8 +246,8 @@ export function PublicEnrollmentStatusPage({ reference }: { reference: string })
               <p className="mt-2 text-sm text-egw-ink-72">{view.changesRequested.note}</p>
             ) : null}
             <a
-              href={`${typeof window === "undefined" ? "" : window.location.pathname}/integra`}
-              className="mt-3 inline-flex min-h-[44px] w-full items-center justify-center rounded-egw-control bg-egw-action px-4 text-sm font-bold text-white shadow-egw-glow"
+              href={`${buildEnrollmentReceiptPath(reference)}/integra`}
+              className="mt-3 inline-flex min-h-[44px] w-full items-center justify-center rounded-egw-control bg-egw-action px-4 text-sm font-bold text-white shadow-egw-glow focus-visible:outline-none focus-visible:shadow-egw-focus-dark"
             >
               Integra la pratica
             </a>

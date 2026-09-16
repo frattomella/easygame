@@ -162,11 +162,13 @@ export const athleteWithinAccessScope = async (
   organizationId: string,
   athleteId: string,
   scope: ScopeConPerimetro | undefined | null,
+  /** La transazione di chi chiama (D-RD-22): la scheda nascente si vede solo da li. */
+  client: { athlete: { count: typeof prisma.athlete.count } } = prisma,
 ): Promise<boolean> => {
   const condizioni = buildAthleteAccessScopeConditions(scope);
   if (!condizioni) return true;
 
-  const dentro = await prisma.athlete.count({
+  const dentro = await client.athlete.count({
     where: { id: athleteId, organization_id: organizationId, AND: condizioni },
   });
 

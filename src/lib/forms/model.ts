@@ -458,8 +458,9 @@ export const normalizeFormField = (value: unknown): FormField => {
       : "";
 
   const visibleWhenRecord = asRecord(record.visibleWhen);
+  /* Una condizione senza valore non e una condizione: si scarta, non si conserva a meta. */
   const visibleWhen: FormVisibilityRule | null =
-    asText(visibleWhenRecord.fieldId) && asText(visibleWhenRecord.equals) !== undefined && asText(visibleWhenRecord.fieldId) !== firstText(record.id)
+    asText(visibleWhenRecord.fieldId) && asText(visibleWhenRecord.equals) && asText(visibleWhenRecord.fieldId) !== firstText(record.id)
       ? { fieldId: asText(visibleWhenRecord.fieldId), equals: asText(visibleWhenRecord.equals) }
       : null;
 
@@ -532,10 +533,14 @@ export const isFieldVisible = (
 ): boolean => {
   if (!field.visibleWhen) return true;
   const raw = answers[field.visibleWhen.fieldId];
-  const wanted = field.visibleWhen.equals;
-  if (Array.isArray(raw)) return raw.map((v) => String(v)).includes(wanted);
-  if (typeof raw === "boolean") return String(raw) === wanted || (raw && wanted === "si");
-  return String(raw ?? "").trim() === wanted;
+  const wanted = field.visibleWhen.equals.trim().toLowerCase();
+  if (Array.isArray(raw)) return raw.map((v) => String(v).trim().toLowerCase()).includes(wanted);
+  /* Una casella mai toccata vale «non spuntata»: «mostra se non e spuntata» funziona dal primo istante. */
+  if (typeof raw === "boolean" || raw === undefined || raw === null || raw === "") {
+    const spuntata = raw === true;
+    return spuntata ? wanted === "true" || wanted === "si" : wanted === "false" || wanted === "no";
+  }
+  return String(raw).trim().toLowerCase() === wanted;
 };
 
 /** Le caselle con una semantica legale: quelle di cui la pratica conserva la prova. */
@@ -716,6 +721,8 @@ export type FormTemplateDetail = FormTemplateSummary & {
 };
 
 export type FormSubmissionFile = {
+  /** SHA-256 esadecimale dei byte, come lo dichiara l'allegato: entra nell'impronta della pratica. */
+  checksum?: string;
   fieldId: string;
   fieldLabel: string;
   fileName: string;
@@ -864,21 +871,34 @@ export const getAnswerableFields = (schema: FormSchema) =>
 export const schemasAreEqual = (left: FormSchema, right: FormSchema) =>
   serializeSchemaForComparison(left) === serializeSchemaForComparison(right);
 
+/**
+ * Le chiavi di un campo che entrano nel confronto: **tutte** quelle del tipo,
+ * e un test le confronta con `normalizeFormField` — la storia dell'ottava
+ * impostazione (qui sotto) si e ripetuta con `content`, `legalKind`,
+ * `visibleWhen` e `upload` (revisione ostile C1): un elenco a mano non
+ * cresce da solo.
+ */
+export const FIELD_COMPARISON_KEYS = [
+  "id",
+  "type",
+  "label",
+  "description",
+  "required",
+  "placeholder",
+  "options",
+  "binding",
+  "consentKey",
+  "legalKind",
+  "content",
+  "visibleWhen",
+  "upload",
+] as const satisfies readonly (keyof FormField)[];
+
 const serializeSchemaForComparison = (schema: FormSchema) =>
   JSON.stringify([
     schema.title,
     schema.description,
-    schema.fields.map((field) => [
-      field.id,
-      field.type,
-      field.label,
-      field.description,
-      field.required,
-      field.placeholder,
-      field.options,
-      field.binding,
-      field.consentKey,
-    ]),
+    schema.fields.map((field) => FIELD_COMPARISON_KEYS.map((key) => field[key] ?? null)),
     /*
       **Le impostazioni si elencano a mano, e una mancava.**
 

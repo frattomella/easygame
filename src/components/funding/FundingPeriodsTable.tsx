@@ -578,7 +578,7 @@ export function FundingPeriodsTable({
                 */}
                 {Array.isArray(accrual?.data?.manualDecisions) &&
                 accrual.data.manualDecisions.length > 0 ? (
-                  <div className="mt-2 rounded-egw-control bg-egw-tint-blue/60 p-2 dark:bg-indigo-950/20">
+                  <div className="mt-2 rounded-egw-control bg-egw-tint-blue p-2 dark:bg-indigo-950/20">
                     <p className="text-xs font-semibold uppercase tracking-wide text-egw-indigo dark:text-indigo-300">
                       Decisioni della societa
                     </p>
@@ -634,7 +634,7 @@ export function FundingPeriodsTable({
                   cercare un controllo che non esisteva.
                 */}
                 {accrediti.length > 0 ? (
-                  <div className="mt-2 rounded-egw-control bg-egw-tint-green/60 p-2 dark:bg-emerald-950/20">
+                  <div className="mt-2 rounded-egw-control bg-egw-tint-green p-2 dark:bg-emerald-950/20">
                     <p className="text-xs font-semibold uppercase tracking-wide text-egw-green dark:text-emerald-300">
                       Accrediti dell&apos;ente
                     </p>

@@ -19,6 +19,7 @@ export type AuthRateLimitPolicy = {
     | "public_form_draft_read"
     | "public_form_draft_write"
     | "public_form_resubmit"
+    | "public_form_asset"
     | "access_token_redeem"
     /** Cambio di un fattore su un account gia autenticato (PP-05). */
     | "credential_change"
@@ -123,6 +124,8 @@ export const AUTH_RATE_LIMITS = {
   publicFormDraftRead: { scope: "public_form_draft_read", limit: 60, windowMs: 15 * 60_000 },
   publicFormDraftWrite: { scope: "public_form_draft_write", limit: 30, windowMs: 15 * 60_000 },
   publicFormResubmit: { scope: "public_form_resubmit", limit: 10, windowMs: 60 * 60_000 },
+  /* Le immagini di contenuto: un modulo ne ha N, la risposta e in cache; non si conta con le aperture. */
+  publicFormAsset: { scope: "public_form_asset", limit: 300, windowMs: 15 * 60_000 },
   /*
     Il link di pagamento (W2-B). Due contatori per gesto, e non uno: quello
     **per token** ferma chi martella un link che ha ricevuto o indovinato,

@@ -294,7 +294,7 @@ export function LogoUpload({
         className={cn(
           "relative cursor-pointer transition-all duration-200 border-2 border-dashed rounded-egw-control overflow-visible",
           aspectRatio === "square" ? "w-32 h-32" : "w-48 h-24",
-          isDragging ? "border-blue-500 bg-egw-tint-blue dark:bg-egw-navy-900/20" : "border-egw-hairline dark:border-gray-600",
+          isDragging ? "border-blue-500 bg-egw-tint-blue dark:bg-egw-navy-900" : "border-egw-hairline dark:border-gray-600",
           isHovering && !disabled && "border-blue-400 bg-egw-page-100 dark:bg-gray-800",
           disabled && "cursor-not-allowed opacity-60"
         )}

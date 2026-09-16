@@ -117,6 +117,10 @@ const ensureOrganizationAccess = (
   if (!canAccessClubResource(scope.activeRole, "forms", "read")) {
     throw denied("i moduli della societa li gestisce chi ci lavora dentro");
   }
+  /* E la chiave di catalogo (ADR-0189 §7): un ruolo personalizzato puo toglierla. */
+  if (!roleHasPermission(scope.activeRole, "forms.templates.read")) {
+    throw denied("vedere i moduli online e di chi gestisce le pratiche");
+  }
 };
 
 /**
@@ -480,7 +484,7 @@ export const createFormTemplate = async (
     conosciamo non e un errore di chi crea un modulo.
   */
   const entry = findFormCatalogEntry(options.starter);
-  const draft =
+  const draft = conContenutoSanificato(
     entry && isDistributableFormEntry(entry)
       ? buildFormFromCatalog(entry)
       : normalizeFormSchema(
@@ -489,7 +493,8 @@ export const createFormTemplate = async (
               ? (options.starter as StarterTemplateKey)
               : "blank",
           ),
-        );
+        ),
+  );
 
   const id = randomUUID();
 
@@ -664,7 +669,7 @@ export const duplicateFormTemplate = async (
 ): Promise<FormTemplateDetail> => {
   const row = await loadTemplateRow(scope, id);
   assertTemplatePermission(scope, "forms.templates.manage", "duplicare un modulo e di chi gestisce le pratiche");
-  const source = normalizeFormSchema(row.draft);
+  const source = conContenutoSanificato(normalizeFormSchema(row.draft));
   const draft: FormSchema = { ...source, title: `${source.title} (copia)` };
   const newId = randomUUID();
 

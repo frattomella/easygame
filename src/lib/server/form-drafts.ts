@@ -28,6 +28,7 @@ const asText = (value: unknown) => String(value ?? "").trim();
 export const FORM_DRAFT_TTL_MS = 30 * 24 * 60 * 60_000;
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{40,64}$/;
+export const MAX_LIVE_DRAFTS_PER_TEMPLATE = 5000;
 
 export const generateResumeToken = () => randomBytes(32).toString("base64url");
 
@@ -114,7 +115,9 @@ export const saveFormDraft = async (
   if (JSON.stringify(answers).length > FORM_LIMITS.maxSubmissionBodyBytes) {
     throw new FormDraftError("La bozza e troppo grande.", 413);
   }
-  const email = asText(input.respondentEmail).slice(0, 200).toLowerCase() || null;
+  const emailRaw = asText(input.respondentEmail).slice(0, 200).toLowerCase();
+  /* Un recapito che non ha la forma di un indirizzo non si conserva: e una scrittura pubblica. */
+  const email = emailRaw && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(emailRaw) ? emailRaw : null;
   const expiresAt = new Date(Date.now() + FORM_DRAFT_TTL_MS);
   const token = asText(input.token);
 
@@ -126,6 +129,17 @@ export const saveFormDraft = async (
       data: { answers, respondent_email: email ?? row.respondent_email, expires_at: expiresAt, version_id: match.versionId },
     });
     return { token, draft: serialize(updated), created: false };
+  }
+
+  /*
+    Un tetto per modulo alle bozze vive: una rotta senza sessione non deve
+    poter far crescere una tabella senza limite. Un club vero ne ha decine.
+  */
+  const vive = await (prisma as any).formDraft.count({
+    where: { template_id: match.templateId, submitted_id: null, expires_at: { gt: new Date() } },
+  });
+  if (vive >= MAX_LIVE_DRAFTS_PER_TEMPLATE) {
+    throw new FormDraftError("Troppe bozze aperte per questo modulo: riprova piu tardi.", 429);
   }
 
   const nuovo = generateResumeToken();

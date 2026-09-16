@@ -11,6 +11,7 @@ import Table from "@tiptap/extension-table";
 import TableRow from "@tiptap/extension-table-row";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
+import Placeholder from "@tiptap/extension-placeholder";
 import {
   AlignCenter,
   AlignJustify,
@@ -157,15 +158,15 @@ export function RichTextEditor({
   const [uploading, setUploading] = React.useState(false);
   const lastEmitted = React.useRef<string>(value);
 
-  const editor = useEditor({
-    immediatelyRender: false,
-    extensions: [
+  const extensions = React.useMemo(
+    () => [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
         codeBlock: false,
         code: false,
       }),
       Underline,
+      Placeholder.configure({ placeholder, emptyEditorClass: "is-editor-empty" }),
       TextStyle,
       FontSize,
       BlockSpacing,
@@ -173,7 +174,8 @@ export function RichTextEditor({
       Link.configure({
         openOnClick: false,
         autolink: true,
-        validate: (href) => isAllowedHref(href),
+        shouldAutoLink: (href) => isAllowedHref(href),
+        isAllowedUri: (href) => isAllowedHref(href),
         HTMLAttributes: { rel: "noopener noreferrer nofollow", target: "_blank" },
       }),
       Table.configure({ resizable: false }),
@@ -184,7 +186,14 @@ export function RichTextEditor({
       PlaceholderToken,
       ...(allowPageBreaks ? [PageBreak] : []),
     ],
-    content: sanitizeRichHtml(value) || "<p></p>",
+    [allowPageBreaks, placeholder],
+  );
+  const initialContent = React.useRef(sanitizeRichHtml(value) || "<p></p>");
+
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions,
+    content: initialContent.current,
     editorProps: {
       attributes: {
         class: "egw-rich-content egw-rich-editor focus:outline-none",
@@ -212,17 +221,6 @@ export function RichTextEditor({
     editor.commands.setContent(sanitizeRichHtml(value) || "<p></p>", false);
   }, [editor, value]);
 
-  const [, forceRender] = React.useReducer((n: number) => n + 1, 0);
-  React.useEffect(() => {
-    if (!editor) return;
-    const rerender = () => forceRender();
-    editor.on("selectionUpdate", rerender);
-    editor.on("transaction", rerender);
-    return () => {
-      editor.off("selectionUpdate", rerender);
-      editor.off("transaction", rerender);
-    };
-  }, [editor]);
 
   if (!editor) {
     return <div className={cn("rounded-egw-control border border-egw-hairline bg-white", className)} style={{ minHeight }} />;
@@ -277,8 +275,22 @@ export function RichTextEditor({
   const currentWidth = String(editor.getAttributes("image").width || "");
 
   return (
-    <div className={cn("rounded-egw-control border border-egw-hairline bg-white", className)} data-test="rich-text-editor">
-      <div role="toolbar" aria-label="Formattazione" className="egw-scroll flex flex-wrap items-center gap-1 border-b border-egw-hairline p-2">
+    <div className={cn("rounded-egw-control border border-egw-hairline bg-white focus-within:border-egw-blue focus-within:shadow-egw-focus", className)} data-test="rich-text-editor">
+      <div
+        role="toolbar"
+        aria-label="Formattazione"
+        className="egw-scroll flex flex-wrap items-center gap-1 border-b border-egw-hairline p-2"
+        onKeyDown={(event) => {
+          /* Frecce fra i comandi, un solo tab stop: la barra non costa 25 tab per arrivare al testo. */
+          if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+          const controlli = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled]), select"));
+          const indice = controlli.indexOf(document.activeElement as HTMLElement);
+          if (indice < 0) return;
+          event.preventDefault();
+          const prossimo = controlli[(indice + (event.key === "ArrowRight" ? 1 : -1) + controlli.length) % controlli.length];
+          prossimo?.focus();
+        }}
+      >
         <ToolbarSelect
           label="Stile del blocco"
           value={blockValue}

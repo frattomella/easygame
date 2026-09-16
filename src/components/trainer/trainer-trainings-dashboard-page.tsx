@@ -622,7 +622,7 @@ export default function TrainerTrainingsDashboardPage() {
                       className={`min-h-[132px] rounded-egw-panel-sm border p-3 text-left transition ${
                         isSelected
                           ? "border-egw-tint-blue-bd bg-egw-tint-blue shadow-egw-plane-1"
-                          : "border-egw-hairline bg-white hover:border-egw-tint-blue-bd hover:bg-egw-tint-blue/40"
+                          : "border-egw-hairline bg-white hover:border-egw-tint-blue-bd hover:bg-egw-tint-blue"
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">

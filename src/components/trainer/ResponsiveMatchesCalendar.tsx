@@ -110,7 +110,7 @@ function MatchAgendaItem({
     <button
       type="button"
       onClick={() => onSelectMatch(match)}
-      className="w-full rounded-egw-field border border-egw-hairline bg-white p-3 text-left shadow-egw-plane-1 transition hover:border-egw-tint-blue-bd hover:bg-egw-tint-blue/50"
+      className="w-full rounded-egw-field border border-egw-hairline bg-white p-3 text-left shadow-egw-plane-1 transition hover:border-egw-tint-blue-bd hover:bg-egw-tint-blue"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

@@ -274,7 +274,7 @@ export function EnrollmentPaymentBreakdown({
           </p>
         </div>
         {showSettlementTotals ? (
-          <div className="rounded-egw-control bg-egw-tint-blue p-4 dark:bg-egw-navy-900/20">
+          <div className="rounded-egw-control bg-egw-tint-blue p-4 dark:bg-egw-navy-900">
             <p className="text-sm font-medium text-muted-foreground">Residuo</p>
             <p className="mt-1 text-2xl font-bold text-egw-blue-700 dark:text-blue-300">
               {formatCurrency(summary?.residual)}

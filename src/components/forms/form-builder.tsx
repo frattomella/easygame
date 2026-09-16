@@ -107,14 +107,12 @@ const newField = (type: FormFieldType): FormField => ({
 });
 
 /** La tavolozza del builder, a famiglie (ADR-0190 §1). */
-const PALETTE: Array<{ label: string; types: FormFieldType[]; legalKind?: Exclude<FormLegalKind, ""> }> = [
-  { label: "Contenuto", types: ["content", "section"] },
-  { label: "Campi", types: ["short_text", "long_text", "number", "date", "email", "phone", "single_choice", "multiple_choice", "dropdown", "checkbox", "file_upload", "image_upload"] },
-  { label: "Dichiarazioni", types: ["checkbox"], legalKind: "acknowledgement" },
-  { label: "Dichiarazioni", types: ["checkbox"], legalKind: "required_acceptance" },
-  { label: "Dichiarazioni", types: ["checkbox"], legalKind: "optional_consent" },
-  { label: "Dichiarazioni", types: ["checkbox"], legalKind: "authorization" },
-  { label: "Evidenza grafica", types: ["signature"] },
+type PaletteEntry = { type: FormFieldType; legalKind?: Exclude<FormLegalKind, ""> };
+const PALETTE: Array<{ label: string; entries: PaletteEntry[] }> = [
+  { label: "Contenuto", entries: [{ type: "content" }, { type: "section" }] },
+  { label: "Campi", entries: ["short_text", "long_text", "number", "date", "email", "phone", "single_choice", "multiple_choice", "dropdown", "checkbox", "file_upload", "image_upload"].map((type) => ({ type: type as FormFieldType })) },
+  { label: "Dichiarazioni", entries: [{ type: "checkbox", legalKind: "acknowledgement" }, { type: "checkbox", legalKind: "required_acceptance" }, { type: "checkbox", legalKind: "optional_consent" }, { type: "checkbox", legalKind: "authorization" }] },
+  { label: "Evidenza grafica", entries: [{ type: "signature" }] },
 ];
 
 export function FormBuilder({
@@ -466,17 +464,17 @@ export function FormBuilder({
                     {PALETTE.map((group) => (
                       <React.Fragment key={group.label}>
                         <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
-                        {group.types.map((type) => {
-                          const option = FORM_FIELD_TYPES.find((entry) => entry.value === type)!;
+                        {group.entries.map((entry) => {
+                          const option = FORM_FIELD_TYPES.find((candidate) => candidate.value === entry.type)!;
                           return (
                             <DropdownMenuItem
-                              key={`${group.label}-${option.value}-${group.legalKind || ""}`}
-                              onSelect={() => addField(option.value, group.legalKind)}
+                              key={`${option.value}-${entry.legalKind || ""}`}
+                              onSelect={() => addField(option.value, entry.legalKind)}
                               className="flex-col items-start gap-0.5"
                             >
-                              <span className="font-medium">{group.legalKind ? FORM_LEGAL_KIND_LABELS[group.legalKind] : option.label}</span>
+                              <span className="font-medium">{entry.legalKind ? FORM_LEGAL_KIND_LABELS[entry.legalKind] : option.label}</span>
                               <span className="text-xs text-egw-ink-62">
-                                {group.legalKind ? FORM_LEGAL_KIND_HINTS[group.legalKind] : option.hint}
+                                {entry.legalKind ? FORM_LEGAL_KIND_HINTS[entry.legalKind] : option.hint}
                               </span>
                             </DropdownMenuItem>
                           );

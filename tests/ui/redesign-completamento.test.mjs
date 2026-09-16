@@ -138,7 +138,7 @@ test("la vista «Atleti in prova» sta nell'area Atleti, con scheda, stati e con
   const atleti = leggi("src/app/athletes/page.tsx");
   assert.match(atleti, /<AthletesViewSwitch/, "l'area Atleti la apre con il selettore di vista");
   const selettore = leggi("src/components/athletes/v2/AthletesViewSwitch.tsx");
-  assert.match(selettore, /withClubId\(next === "trials" \? "\/athletes\/in-prova" : "\/athletes", clubId\)/, "e porta il club");
+  assert.match(selettore, /withClubId\("\/athletes\/in-prova", clubId\)/, "e porta il club");
   const pannello = leggi("src/components/trials/v2/TrialAthletesPanel.tsx");
   assert.match(pannello, /TRIAL_STATUS|StatusPill/, "lo stato e una pillola");
   const conversione = leggi("src/components/trials/v2/TrialConvertDrawer.tsx");

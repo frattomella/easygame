@@ -167,9 +167,6 @@ export const validateSchema = (schema: FormSchema): SchemaValidationResult => {
     if (field.type === "checkbox" && field.legalKind === "optional_consent" && field.required) {
       errors.push(`«${field.label}»: un consenso facoltativo non puo essere obbligatorio.`);
     }
-    if (field.type === "content" && asText(field.content).length === 0) {
-      errors.push(`Il blocco di testo «${field.label}» e vuoto.`);
-    }
   }
 
   return { valid: errors.length === 0, errors };
@@ -184,6 +181,13 @@ export const validateSchemaForPublish = (
 
   if (getAnswerableFields(schema).length === 0) {
     errors.push("Un modulo senza campi da compilare non si pubblica.");
+  }
+
+  /* Un blocco di testo vuoto si salva (e appena stato aggiunto) ma non si pubblica. */
+  for (const field of schema.fields) {
+    if (field.type === "content" && asText(field.content).length === 0) {
+      errors.push(`Il blocco di testo «${field.label}» e vuoto.`);
+    }
   }
 
   for (const field of schema.fields) {

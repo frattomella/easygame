@@ -425,7 +425,7 @@ export function OnlineFormsSection() {
       {
         id: "completeness",
         header: "Completezza",
-        kind: "classification",
+        kind: "chips",
         cell: (row) => {
           const legali = row.declarations.length;
           const accettate = row.declarations.filter((d) => d.answer).length;
@@ -566,10 +566,10 @@ export function OnlineFormsSection() {
           server. «Completate» sono le pratiche da cui e nata una scheda.
         */
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" data-test="inbox-counters">
-          <KpiCard label="Da revisionare" value={formatInteger(statusTotals.pending)} icon={<Inbox />} iconTone="amber" onClick={() => setStatusFilter("pending")} ariaLabel="Mostra le pratiche da revisionare" />
-          <KpiCard label="Integrazione richiesta" value={formatInteger(statusTotals.changes_requested)} icon={<MessageSquareWarning />} iconTone="orange" onClick={() => setStatusFilter("changes_requested")} ariaLabel="Mostra le pratiche in attesa di integrazione" />
-          <KpiCard label="Approvate" value={formatInteger(statusTotals.approved)} icon={<CheckCircle2 />} iconTone="green" onClick={() => setStatusFilter("approved")} ariaLabel="Mostra le pratiche approvate" />
-          <KpiCard label="Completate" value={formatInteger(statusTotals.converted)} qualifier="atleta creato o collegato" icon={<UserCheck />} iconTone="blue" onClick={() => setStatusFilter("converted")} ariaLabel="Mostra le pratiche completate" />
+          <KpiCard label="Da revisionare" value={formatInteger(statusTotals.pending)} icon={<Inbox />} iconTone="amber" onClick={() => setStatusFilter("pending")} ariaLabel={`Da revisionare: ${formatInteger(statusTotals.pending)}. Mostra queste pratiche`} className={statusFilter === "pending" ? "ring-2 ring-egw-blue" : undefined} />
+          <KpiCard label="Integrazione richiesta" value={formatInteger(statusTotals.changes_requested)} icon={<MessageSquareWarning />} iconTone="orange" onClick={() => setStatusFilter("changes_requested")} ariaLabel={`Integrazione richiesta: ${formatInteger(statusTotals.changes_requested)}. Mostra queste pratiche`} className={statusFilter === "changes_requested" ? "ring-2 ring-egw-blue" : undefined} />
+          <KpiCard label="Approvate" value={formatInteger(statusTotals.approved)} icon={<CheckCircle2 />} iconTone="green" onClick={() => setStatusFilter("approved")} ariaLabel={`Approvate: ${formatInteger(statusTotals.approved)}. Mostra queste pratiche`} className={statusFilter === "approved" ? "ring-2 ring-egw-blue" : undefined} />
+          <KpiCard label="Completate" value={formatInteger(statusTotals.converted)} qualifier="atleta creato o collegato" icon={<UserCheck />} iconTone="blue" onClick={() => setStatusFilter("converted")} ariaLabel={`Completate: ${formatInteger(statusTotals.converted)}. Mostra queste pratiche`} className={statusFilter === "converted" ? "ring-2 ring-egw-blue" : undefined} />
         </div>
       ) : null}
 

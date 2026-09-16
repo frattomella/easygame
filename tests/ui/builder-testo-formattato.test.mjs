@@ -110,3 +110,25 @@ test("pubblicare congela una versione, duplicare crea un modello nuovo, e chi pu
   assert.match(servizio, /conContenutoSanificato\(/, "il contenuto si sanifica prima di salvare e prima di pubblicare");
   assert.match(servizio, /export const duplicateFormTemplate/);
 });
+
+test("revisione ostile: le pagine pubbliche non sono sul cielo, l'editor ha il segnaposto vero, la condizione nasce con un valore, i pulsanti sono di una famiglia sola", () => {
+  const pubblica = senzaCommenti(leggi("src/components/forms/public-form-page.tsx"));
+  assert.match(pubblica, /<SkyProvider onSky=\{false\}>/, "la barra di avanzamento e gli avvisi si vestono da pagina chiara");
+  assert.doesNotMatch(pubblica, /from "@\/components\/ui\/button"/, "una famiglia di pulsanti sola");
+  assert.match(pubblica, /url\.hash = `riprendi=\$\{token\}`/, "il gettone di ripresa viaggia nel frammento");
+  const revisione = senzaCommenti(leggi("src/components/enrollment/PublicEnrollmentRevisionPage.tsx"));
+  assert.match(revisione, /<SkyProvider onSky=\{false\}>/);
+  assert.match(revisione, /assetBase=/);
+  assert.match(editor, /Placeholder\.configure\(\{ placeholder, emptyEditorClass: "is-editor-empty" \}\)/);
+  assert.match(editor, /shouldAutoLink/, "l'opzione di TipTap 2.27, non quella deprecata");
+  assert.doesNotMatch(editor, /editor\.on\("transaction"/, "TipTap ridisegna gia a ogni transazione");
+  assert.match(card, /scelto\?\.type === "checkbox"\s*\?\s*"true"/, "una condizione su una casella nasce con «e spuntato»");
+  assert.doesNotMatch(renderer, /bg-egw-tint-blue\/40/, "niente alfa su un colore del sistema");
+  assert.match(renderer, /readOnly=\{locked\}/, "un campo bloccato si legge e si copia: readOnly, non disabled");
+  const dialogo = senzaCommenti(leggi("src/components/forms/submission-review-dialog.tsx"));
+  assert.match(dialogo, /Nota per la famiglia/, "la nota e onesta: la famiglia la legge");
+  assert.doesNotMatch(dialogo, /Nota interna/);
+  assert.match(dialogo, /Conferma archiviazione/, "archiviare chiede conferma");
+  const validazione = senzaCommenti(leggi("src/lib/forms/validation.ts"));
+  assert.ok(validazione.indexOf("Il blocco di testo") > validazione.indexOf("validateSchemaForPublish"), "un blocco vuoto si salva, non si pubblica");
+});

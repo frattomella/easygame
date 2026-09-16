@@ -4,12 +4,12 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { CheckCircle2, Save, Send } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Button as WebButton } from "@/components/web/primitives/Button";
 import { AlertBlock } from "@/components/web/page/Alerts";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { OutsideShell, OutsideStatus } from "@/components/web/shell/OutsideShell";
+import { SkyProvider } from "@/components/web/primitives/Surface";
 import { FormRenderer } from "./form-renderer";
 import {
   fieldCollectsAnswer,
@@ -107,8 +107,24 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
     trenta giorni, e che si consuma all'invio. Esce in chiaro una volta, nel
     link mostrato qui; in archivio resta l'impronta.
   */
+  /*
+    Il gettone viaggia nel **frammento** (`#riprendi=`), che il browser non
+    manda al server: non finisce nei log di richiesta ne nei referrer. Letto
+    una volta, si toglie dalla barra degli indirizzi. Si accetta ancora la
+    query string per i link salvati prima di questa scelta.
+  */
   const searchParams = useSearchParams();
-  const resumeParam = searchParams?.get("riprendi") || "";
+  const [resumeParam, setResumeParam] = useState("");
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const token = hash.get("riprendi") || searchParams?.get("riprendi") || "";
+    if (!token) return;
+    setResumeParam(token);
+    const pulita = new URL(window.location.href);
+    pulita.hash = "";
+    pulita.searchParams.delete("riprendi");
+    window.history.replaceState(null, "", pulita.toString());
+  }, [searchParams]);
   const [serverDraftToken, setServerDraftToken] = useState<string>("");
   const [savingDraft, setSavingDraft] = useState(false);
   const [resumeLink, setResumeLink] = useState("");
@@ -193,7 +209,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
       setServerDraftToken(token);
       const url = new URL(window.location.href);
       url.search = "";
-      url.searchParams.set("riprendi", token);
+      url.hash = `riprendi=${token}`;
       setResumeLink(url.toString());
     } catch {
       setResumeFailure("Salvataggio non riuscito. Controlla la connessione.");
@@ -364,9 +380,9 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
               */}
               <a
                 href={receiptPath}
-                className="mt-3 block break-all rounded-egw-control bg-white px-3 py-2 text-sm font-medium text-egw-blue-800 underline decoration-sky-300 underline-offset-2"
+                className="mt-3 block break-all rounded-egw-control bg-white px-3 py-2 text-sm font-medium text-egw-blue-800 underline underline-offset-2"
               >
-                {receiptPath}
+                {typeof window === "undefined" ? receiptPath : `${window.location.origin}${receiptPath}`}
               </a>
             </div>
           ) : null}
@@ -383,7 +399,12 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
 
   return (
     <OutsideShell width="wide" bare>
-      {/* Una colonna sola a ogni larghezza: e un modulo, non un cruscotto. */}
+      {/*
+        Una colonna sola a ogni larghezza: e un modulo, non un cruscotto. Il
+        pannello e bianco: le primitive che leggono il cielo (barra di
+        avanzamento, avvisi) qui devono vestirsi da pagina chiara.
+      */}
+      <SkyProvider onSky={false}>
       <div className="w-full">
         <header className="rounded-t-egw-panel border border-b-0 border-white/60 bg-white p-5 shadow-egw-plane-2">
           <div className="flex items-center gap-3">
@@ -432,21 +453,12 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
                 consensi vanno rifatti.
               </p>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Button
-                  type="button"
-                  className="min-h-[44px] w-full sm:w-auto"
-                  onClick={resumeDraft}
-                >
+                <WebButton type="button" variant="primary" className="min-h-[44px] w-full sm:w-auto" onClick={resumeDraft}>
                   Riprendi
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="min-h-[44px] w-full bg-white sm:w-auto"
-                  onClick={discardDraft}
-                >
+                </WebButton>
+                <WebButton type="button" variant="secondary" className="min-h-[44px] w-full sm:w-auto" onClick={discardDraft}>
                   Ricomincia
-                </Button>
+                </WebButton>
               </div>
             </div>
           ) : null}
@@ -473,6 +485,8 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
                 <Input
                   id="respondent-email"
                   type="email"
+                  aria-invalid={Boolean(errors.respondentEmail) || undefined}
+                  aria-describedby={errors.respondentEmail ? "respondent-email-error" : undefined}
                   className="min-h-[44px] bg-white"
                   value={respondentEmail}
                   onChange={(event) => {
@@ -482,7 +496,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
                   placeholder="per essere ricontattati"
                 />
                 {errors.respondentEmail ? (
-                  <p role="alert" className="text-sm font-medium text-egw-red">
+                  <p id="respondent-email-error" role="alert" className="text-sm font-medium text-egw-red">
                     {errors.respondentEmail}
                   </p>
                 ) : null}
@@ -527,7 +541,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
             telefono l'invio non deve essere cercato oltre l'ultimo campo, e
             «quanto manca» si legge senza scorrere.
           */}
-          <div className="sticky bottom-0 -mx-5 -mb-5 space-y-3 border-t border-egw-hairline bg-white/95 p-4 backdrop-blur sm:mx-0 sm:mb-0 sm:rounded-egw-control sm:border">
+          <div className="sticky bottom-0 -mx-5 -mb-5 space-y-3 rounded-b-egw-panel border-t border-egw-hairline bg-white/95 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur sm:mx-0 sm:mb-0 sm:rounded-egw-control sm:border">
             {progress.total > 0 ? (
               <ProgressBar
                 value={progress.done}
@@ -555,6 +569,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
 
         <p className="py-4 text-center text-[11.5px] text-white/70">Modulo gestito con EasyGame</p>
       </div>
+      </SkyProvider>
     </OutsideShell>
   );
 }

@@ -5,6 +5,7 @@ import { CheckCircle2, Send } from "lucide-react";
 import { Button as WebButton } from "@/components/web/primitives/Button";
 import { AlertBlock } from "@/components/web/page/Alerts";
 import { OutsideShell, OutsideStatus } from "@/components/web/shell/OutsideShell";
+import { SkyProvider } from "@/components/web/primitives/Surface";
 import { FormRenderer } from "@/components/forms/form-renderer";
 import { normalizeFormSchema, type FormSchema } from "@/lib/forms/model";
 import { buildEnrollmentReceiptPath } from "@/lib/forms/enrollment-receipt";
@@ -29,6 +30,7 @@ type Contesto = {
   allowedFieldIds: string[];
   note: string;
   revision: number;
+  publicSlug: string;
 };
 
 export function PublicEnrollmentRevisionPage({ reference }: { reference: string }) {
@@ -144,6 +146,7 @@ export function PublicEnrollmentRevisionPage({ reference }: { reference: string 
 
   return (
     <OutsideShell width="wide" bare>
+      <SkyProvider onSky={false}>
       <div className="w-full">
         <header className="rounded-t-egw-panel border border-b-0 border-white/60 bg-white p-5 shadow-egw-plane-2">
           <p className="font-brand text-sm font-semibold text-egw-ink-72">{contesto.clubName}</p>
@@ -169,6 +172,7 @@ export function PublicEnrollmentRevisionPage({ reference }: { reference: string 
             errors={errors}
             editableFieldIds={contesto.allowedFieldIds}
             existingFiles={existingFiles}
+            assetBase={contesto.publicSlug ? `/api/public/forms/${encodeURIComponent(contesto.publicSlug)}/assets` : ""}
             onChange={(fieldId, value) => {
               setValues((current) => ({ ...current, [fieldId]: value }));
               setErrors((current) => ({ ...current, [fieldId]: "" }));
@@ -181,7 +185,7 @@ export function PublicEnrollmentRevisionPage({ reference }: { reference: string 
 
           {failure ? <AlertBlock severity="danger" role="alert" title={failure} /> : null}
 
-          <div className="sticky bottom-0 -mx-5 -mb-5 border-t border-egw-hairline bg-white/95 p-4 backdrop-blur sm:mx-0 sm:mb-0 sm:rounded-egw-control sm:border">
+          <div className="sticky bottom-0 -mx-5 -mb-5 rounded-b-egw-panel border-t border-egw-hairline bg-white/95 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur sm:mx-0 sm:mb-0 sm:rounded-egw-control sm:border">
             <WebButton type="submit" variant="primary" loading={sending} icon={<Send />} className="min-h-[44px] w-full">
               Reinvia la pratica
             </WebButton>
@@ -190,6 +194,7 @@ export function PublicEnrollmentRevisionPage({ reference }: { reference: string 
 
         <p className="py-4 text-center text-[11.5px] text-white/70">Modulo gestito con EasyGame</p>
       </div>
+      </SkyProvider>
     </OutsideShell>
   );
 }

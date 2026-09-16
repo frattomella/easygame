@@ -372,6 +372,7 @@ const normalizeFiles = (value: unknown): FormSubmissionFile[] =>
         mimeType: asText(record.mimeType),
         sizeBytes: Number(record.sizeBytes) || 0,
         reference: asText(record.reference),
+        ...(asText(record.checksum) ? { checksum: asText(record.checksum) } : {}),
       };
     })
     .filter((file) => file.reference);
@@ -698,12 +699,21 @@ export const submitPublicForm = async (
 export type PublicRevisionContext = {
   clubName: string;
   templateTitle: string;
-  schema: FormSchema;
+  /** Un elenco chiuso: titolo, descrizione e campi della versione compilata — non le impostazioni. */
+  schema: Pick<FormSchema, "title" | "description" | "fields">;
+  /**
+   * **Solo** le risposte dei campi da correggere e dei campi da cui
+   * quelli dipendono (`visibleWhen`): la ricevuta apre lo stato di una
+   * pratica, non la rilettura dell'anagrafica di un minore (ADR-0191 §1).
+   */
   answers: Record<string, unknown>;
+  /** I file gia inviati, per nome, dei soli campi da correggere. */
   files: Array<{ fieldId: string; fileName: string }>;
   allowedFieldIds: string[];
   note: string;
   revision: number;
+  /** Lo slug del modulo, per le immagini di contenuto dalla rotta pubblica. */
+  publicSlug: string;
 };
 
 const trovaPraticaConRicevuta = async (reference: unknown): Promise<SubmissionRow | null> => {
@@ -724,17 +734,30 @@ export const readPublicRevisionContext = async (reference: unknown): Promise<Pub
   const richiesta = normalizeChangesRequested(row.changes_requested);
   if (!richiesta) return null;
   const schema = normalizeFormSchema(row.template_version?.schema_json);
-  const club = await prisma.club.findUnique({ where: { id: row.organization_id }, select: { name: true } });
-  const answers = row.answers && typeof row.answers === "object" ? (row.answers as Record<string, unknown>) : {};
+  const [club, modello] = await Promise.all([
+    prisma.club.findUnique({ where: { id: row.organization_id }, select: { name: true } }),
+    (prisma as any).formTemplate.findUnique({ where: { id: row.template_id }, select: { public_slug: true, public_enabled: true } }),
+  ]);
+  const tutte = row.answers && typeof row.answers === "object" ? (row.answers as Record<string, unknown>) : {};
+  const consentiti = new Set(richiesta.fieldIds);
+  /* I campi che governano la visibilita di un campo da correggere servono al renderer. */
+  for (const field of schema.fields) {
+    if (consentiti.has(field.id) && field.visibleWhen) consentiti.add(field.visibleWhen.fieldId);
+  }
+  const answers: Record<string, unknown> = {};
+  for (const id of consentiti) if (id in tutte) answers[id] = tutte[id];
   return {
     clubName: asText(club?.name),
     templateTitle: row.template?.title || schema.title,
-    schema,
+    schema: { title: schema.title, description: schema.description, fields: schema.fields },
     answers,
-    files: normalizeFiles(row.files).map((file) => ({ fieldId: file.fieldId, fileName: file.fileName })),
+    files: normalizeFiles(row.files)
+      .filter((file) => richiesta.fieldIds.includes(file.fieldId))
+      .map((file) => ({ fieldId: file.fieldId, fileName: file.fileName })),
     allowedFieldIds: richiesta.fieldIds,
     note: richiesta.note,
     revision: Number(row.revision) || 1,
+    publicSlug: modello?.public_enabled ? asText(modello.public_slug) : "",
   };
 };
 
@@ -798,10 +821,20 @@ export const resubmitPublicSubmission = async (
   }
 
   const respondent = asText(row.respondent_name) || asText(row.respondent_email);
-  const declarations = buildDeclarations({ schema, versionId: row.version_id, answers: validated.answers, respondent });
+  /*
+    Le dichiarazioni dei campi **non** corretti restano quelle dell'invio
+    originale, con la loro ora (EDPB 05/2020 §108: «quando»); si rifanno solo
+    quelle delle caselle che il club ha chiesto di rivedere.
+  */
+  const precedenti = normalizeDeclarations(row.declarations);
+  const rifatte = buildDeclarations({ schema, versionId: row.version_id, answers: validated.answers, respondent });
+  const declarations = rifatte.map((nuova) =>
+    consentiti.has(nuova.fieldId) ? nuova : precedenti.find((d) => d.fieldId === nuova.fieldId) || nuova,
+  );
   const snapshotHash = buildSnapshotHash({ versionId: row.version_id, answers: validated.answers, declarations, files });
   const revisionePrecedente = Number(row.revision) || 1;
 
+  try {
   await prisma.$transaction(async (tx) => {
     await (tx as any).formSubmissionRevision.create({
       data: {
@@ -833,6 +866,13 @@ export const resubmitPublicSubmission = async (
     });
     if (esito.count !== 1) throw new FormSubmissionError("La pratica e cambiata nel frattempo: ricarica.", 409);
   });
+  } catch (errore: any) {
+    /* Gli allegati appena caricati non restano orfani: nessuna pratica li cita. */
+    await scartaAllegati(nuoviFile).catch(() => undefined);
+    /* Due reinvii simultanei: uno solo scrive la revisione (unico su submission_id+revision). */
+    if (errore?.code === "P2002") throw new FormSubmissionError("La pratica e cambiata nel frattempo: ricarica.", 409);
+    throw errore;
+  }
 
   await recordAuditEvent({
     action: AUDIT_ACTIONS.formSubmissionResubmitted,
@@ -2289,17 +2329,31 @@ export const decideFormSubmission = async (
     if (statoCorrente === "converted" || statoCorrente === "archived") {
       throw new Error("Questa pratica non si puo archiviare.");
     }
-    const archiviata = await (prisma as any).formSubmission.update({
-      where: { id: row.id },
+    /*
+      Condizionata sullo stato **in archivio** e sulla presa (revisione ostile
+      A-F4): un dialogo aperto da prima non archivia una pratica che nel
+      frattempo e diventata «atleta creato», e non scavalca un'approvazione in
+      corso.
+    */
+    const adesso = new Date();
+    const archiviazione = await (prisma as any).formSubmission.updateMany({
+      where: {
+        id: row.id,
+        status: { in: ["pending", "changes_requested", "rejected", "approved"] },
+        OR: [{ reviewed_at: null }, { status: { in: ["rejected", "approved"] } }, { reviewed_at: { lt: new Date(adesso.getTime() - LEASE_ESAME_MS) } }],
+      },
       data: {
         status: "archived",
-        archived_at: new Date(),
+        archived_at: adesso,
         reviewed_by: scope.userId || null,
-        reviewed_at: new Date(),
+        reviewed_at: adesso,
         review_note: asText(decision.note).slice(0, 2000) || row.review_note || null,
       },
-      include: SUBMISSION_INCLUDE,
     });
+    if (archiviazione.count !== 1) {
+      throw new Error("La pratica e cambiata nel frattempo (in esame o gia decisa): ricarica.");
+    }
+    const archiviata = await (prisma as any).formSubmission.findUnique({ where: { id: row.id }, include: SUBMISSION_INCLUDE });
     await recordAuditEvent({
       action: AUDIT_ACTIONS.formSubmissionArchived,
       actorUserId: scope.userId || null,
@@ -2407,6 +2461,17 @@ const rilasciaEsame = (id: string, presa: Date) =>
     })
     .catch(() => undefined);
 
+/**
+ * La scheda nata (o convertita) si annota sulla pratica **subito**, sotto la
+ * presa in esame: se cio che segue fallisce e la presa si rilascia, il
+ * secondo tentativo trova `athlete_id` e riparte da li.
+ */
+const annotaSchedaSullaPratica = (id: string, athleteId: string, trialAthleteId: string) =>
+  (prisma as any).formSubmission.updateMany({
+    where: { id, status: "pending" },
+    data: { athlete_id: athleteId || null, ...(trialAthleteId ? { trial_athlete_id: trialAthleteId } : {}) },
+  });
+
 const eseguiDecisione = async (
   scope: FormsAccessScope,
   row: SubmissionRow,
@@ -2503,6 +2568,25 @@ const eseguiDecisione = async (
   );
   let athleteRecord = currentAthlete;
 
+  /*
+    **Un tentativo fallito a meta non crea una seconda scheda** (revisione
+    ostile A-F2). Se una approvazione precedente ha creato la scheda e poi e
+    caduta (perimetro, tutore, documento), la pratica porta gia `athlete_id`:
+    si riparte da quella scheda, non da una nuova.
+  */
+  if (!athleteId && asText(row.athlete_id)) {
+    athleteId = asText(row.athlete_id);
+    athleteRecord = await (prisma as any).athlete.findFirst({
+      where: { id: athleteId, organization_id: organizationId },
+    });
+    if (!athleteRecord) athleteId = "";
+  }
+  if (athleteId && asText(decision.trialAthleteId)) {
+    throw new Error(
+      "La pratica nomina gia una scheda: non si puo anche convertire una persona in prova. Scegli una delle due strade.",
+    );
+  }
+
   const athleteChange = review.changeSet.subjects.find(
     (subject) => subject.subject === "athlete",
   );
@@ -2521,6 +2605,15 @@ const eseguiDecisione = async (
     category: null,
     categoriaAmbigua: "",
   };
+
+  /*
+    Scrivere in anagrafica — la scheda, un tutore, un allenatore — e la
+    capacita `forms.submissions.convert`, qualunque soggetto sia: chi ha
+    solo `review` approva un modulo che non scrive nessuno.
+  */
+  if (review.changeSet.subjects.length && !roleHasPermission(scope.activeRole, "forms.submissions.convert")) {
+    throw denied("scrivere in anagrafica da una pratica e di chi gestisce le pratiche");
+  }
 
   if (athleteChange) {
     const values = applyValues(athleteChange);
@@ -2579,6 +2672,7 @@ const eseguiDecisione = async (
       );
       athleteId = esito.athleteId;
       trialUsata = asText(decision.trialAthleteId);
+      await annotaSchedaSullaPratica(row.id, athleteId, trialUsata);
       applied.push(
         `Persona in prova convertita in atleta: ${athleteChange.recordLabel} (${esito.trial.trialsCount} ${esito.trial.trialsCount === 1 ? "prova" : "prove"} prima dell'iscrizione)`,
       );
@@ -2616,6 +2710,7 @@ const eseguiDecisione = async (
       );
       athleteId = asText((created as any)?.id);
       athleteRecord = created as any;
+      await annotaSchedaSullaPratica(row.id, athleteId, "");
       applied.push(`Atleta creato: ${athleteChange.recordLabel}`);
       if (placement.categoriaAmbigua) {
         applied.push(
@@ -3018,7 +3113,17 @@ const eseguiDecisione = async (
     collegata una (ADR-0189 §1); `approved` quando ha scritto consensi e
     documenti su una scheda che gia c'era o su nessuna.
   */
-  const schedaNataOCollegata = Boolean(athleteId) && (!schedaEsistenteAllInizio || Boolean(trialUsata));
+  /*
+    `converted` = da questa decisione e nata una scheda, o ne e stata collegata
+    una che la pratica **non nominava** (ADR-0189 §4, ADR-0193 §2): il
+    collegamento deciso dal club conta quanto la creazione. Una pratica gia
+    intestata dall'inizio (la famiglia dall'area, il rinnovo) resta `approved`.
+  */
+  const nominataDallaRiga = asText(
+    normalizeSelections(row.subjects).find((selection) => selection.subject === "athlete")?.recordId,
+  );
+  const schedaNataOCollegata =
+    Boolean(athleteId) && (!schedaEsistenteAllInizio || Boolean(trialUsata) || (nominataDallaRiga !== athleteId && asText(row.athlete_id) !== athleteId));
   const statoFinale = schedaNataOCollegata ? "converted" : "approved";
   const updated = await (prisma as any).formSubmission.update({
     where: { id: row.id },

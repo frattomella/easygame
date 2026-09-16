@@ -6806,7 +6806,7 @@ export const createResource = async (
     ).trim();
 
     if (atleta && club) {
-      const dentro = await athleteWithinAccessScope(club, atleta, scope);
+      const dentro = await athleteWithinAccessScope(club, atleta, scope, (options?.client as any) || prisma);
       if (!dentro) {
         throw new Error(
           "Accesso negato: questo atleta e fuori dal perimetro di sede o categoria dell'accesso",
