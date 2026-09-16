@@ -145,6 +145,8 @@ test("un passo che fallisce non ferma gli altri", async (t) => {
       "auth_verification_challenges",
       "auth_rate_limit_buckets",
       "audit_logs",
+      /* Le bozze pubbliche scadute (ADR-0189 §3). */
+      "form_drafts",
       "payment_provider_fees",
     ],
   );
