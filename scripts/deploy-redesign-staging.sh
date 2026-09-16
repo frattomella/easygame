@@ -17,6 +17,7 @@ EXPECTED_PROJECT_ID="prj_wGBiRPtiqrsCd4Ay48Jq91EWtXEj"
 EXPECTED_ORG_ID="team_56v15oRca8im4pq2sNHthbwM"
 EXPECTED_DB="ep-dry-block-alkxdiiu"
 
+ROOT="$(git rev-parse --show-toplevel)"
 SHA="$(git rev-parse --short "${1:-HEAD}")"
 WT="${DEPLOY_WT_ROOT:-C:/Users/Francesco/AppData/Local/Temp/deploy_wt}/redesign-${SHA}"
 
@@ -24,7 +25,7 @@ echo "EXPECTED PROJECT: ${EXPECTED_PROJECT} (${EXPECTED_PROJECT_ID})"
 echo "EXPECTED DB:      ${EXPECTED_DB}"
 
 git worktree add --detach "${WT}" "${SHA}" >/dev/null
-trap 'git worktree remove --force "${WT}" >/dev/null 2>&1 || true' EXIT
+trap 'cd "${ROOT}" && git worktree remove --force "${WT}" >/dev/null 2>&1 || true' EXIT
 cd "${WT}"
 
 mkdir -p .vercel
