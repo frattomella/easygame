@@ -80,6 +80,35 @@ incassi / rate / atleti        → mai toccati, in nessun caso
   vista SQL non cambia, nessuna migrazione.
 - I dati del pilota non si toccano.
 
-## UAT (deploy `easygame-redesign-staging`, club QA UAT `ae3d545b`)
+## UAT (deploy `e24e0c4b` su `easygame-redesign-staging`, club QA UAT `ae3d545b`)
 
-Vedi il rapporto finale del lotto.
+- Wizard: «UAT5 Stagione C» (2027-07-01 → 2028-06-30, futura, non attivata),
+  passo Tesserati **0/209 spuntati**, riepilogo «Tesserati nelle squadre 0 su
+  209» + «Nessun tesserato riconfermato», creata. DB: 3 categorie copiate in
+  C, **0 appartenenze** in C, totali del club invariati (209 appartenenze,
+  211 atleti, 25 incassi, 3 rate); audit `season.rollover` con
+  `athletesRequested true, athletesProposed 209, athletesConfirmed 0,
+  athleteMembershipsCreated 0, athletesCarried 0`.
+- API `POST /seasons/:id/rollover` senza `athleteIds` e con `null` → 400
+  «Indica quali tesserati riportare…»; con `[]` (anteprima) → confirmed 0,
+  created 0.
+- Scelta esplicita: riporto diretto con un solo id (Sara Blu Qa
+  `9a9620a5`) → created 1, appartenenze in C = 1, club 210. Nell'elenco
+  atleti la riga della stagione futura si legge «Categoria Inesistente ·
+  stagione UAT5 Stagione C» (la primaria si sposta sulla riga nuova: regola
+  W1 pre-esistente).
+- Prima nota: una sola lettura, `season_id=` stagione attiva, stato vuoto
+  che spiega e rimanda a «Tutte le stagioni». Conto «UAT5 Cassa»
+  `3c152bae`, movimento del 15 set 2026 (`6cbec962`, data nella finestra di
+  **entrambe** le stagioni) con header stagione → `season_id` = attiva;
+  storno → stessa stagione; elenco: stagione attiva 2 righe, stagione
+  archiviata 25 (i suoi incassi del 28 ago), nessuna riga in entrambe.
+- Elenco atleti: archivio paginato con chip «Attivi 211» (= intestazione),
+  375 px senza scorrimento orizzontale.
+- Invarianti (sola lettura, 3 club): appartenenze fuori catalogo 0, doppie
+  primarie 0, colonne dangling 0, `data.siteId` 0; censimento legacy 0/0/0.
+
+Residui UAT su QA UAT Club (cleanup su autorizzazione): stagione
+`season-2027-07-01-2028-06-30-31epu` con 3 categorie copiate e 1 piano,
+appartenenza di Sara Blu Qa in C, conto `3c152bae`, movimento `6cbec962` +
+storno.
