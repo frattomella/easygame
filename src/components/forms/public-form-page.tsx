@@ -6,7 +6,7 @@ import { CheckCircle2, Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { EasyGameLogo } from "@/components/brand/easygame-logo";
+import { OutsideShell, OutsideStatus } from "@/components/web/shell/OutsideShell";
 import { FormRenderer } from "./form-renderer";
 import { normalizeFormField, type FormField } from "@/lib/forms/model";
 import { buildEnrollmentReceiptPath } from "@/lib/forms/enrollment-receipt";
@@ -229,51 +229,36 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
 
   if (loading) {
     return (
-      <main className="flex min-h-[100dvh] items-center justify-center bg-slate-50 p-6">
-        <p
-          role="status"
-          aria-live="polite"
-          className="flex items-center gap-2 text-sm text-slate-600"
-        >
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Carico il modulo…
-        </p>
-      </main>
+      <OutsideShell width="form">
+        <OutsideStatus icon={<Send />} title="Modulo" description="Un momento: carico il modulo." busy busyLabel="Carico il modulo…" />
+      </OutsideShell>
     );
   }
 
   if (!payload) {
     return (
-      <main className="flex min-h-[100dvh] items-center justify-center bg-slate-50 p-6">
-        <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-6 text-center">
-          <h1 className="font-display text-lg font-semibold text-slate-900">
-            Modulo non disponibile
-          </h1>
-          <p className="mt-2 text-sm text-slate-600">
-            {failure ||
-              "Il link non e piu valido. Chiedi alla societa un link aggiornato."}
-          </p>
-        </div>
-      </main>
+      <OutsideShell width="form">
+        <OutsideStatus
+          icon={<Send />}
+          tone="amber"
+          title="Modulo non disponibile"
+          description={failure || "Il link non e piu valido. Chiedi alla societa un link aggiornato."}
+        />
+      </OutsideShell>
     );
   }
 
   if (success) {
     return (
-      <main className="flex min-h-[100dvh] items-center justify-center bg-slate-50 p-6">
-        <div className="w-full max-w-md rounded-lg border border-emerald-200 bg-white p-6 text-center">
-          <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-600" />
-          <h1 className="mt-3 font-display text-lg font-semibold text-slate-900">
-            Inviato
-          </h1>
-          <p className="mt-2 text-sm text-slate-600">{success}</p>
-
+      <OutsideShell width="form">
+        <OutsideStatus icon={<CheckCircle2 />} tone="green" title="Inviato" description={success} />
+        <div className="text-center">
           {receiptPath ? (
-            <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4 text-left">
-              <p className="text-sm font-semibold text-slate-900">
+            <div className="mt-4 rounded-egw-control border border-egw-hairline bg-egw-page-100 p-4 text-left">
+              <p className="text-sm font-semibold text-egw-ink">
                 Segui la tua domanda da qui
               </p>
-              <p className="mt-1 text-xs text-slate-600">
+              <p className="mt-1 text-xs text-egw-ink-72">
                 Salva questo link: e l&#8217;unico modo per rileggere lo stato della
                 domanda, e non puo essere ristampato.
               </p>
@@ -284,7 +269,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
               */}
               <a
                 href={receiptPath}
-                className="mt-3 block break-all rounded-md bg-white px-3 py-2 text-sm font-medium text-sky-700 underline decoration-sky-300 underline-offset-2"
+                className="mt-3 block break-all rounded-egw-control bg-white px-3 py-2 text-sm font-medium text-egw-blue-800 underline decoration-sky-300 underline-offset-2"
               >
                 {receiptPath}
               </a>
@@ -292,20 +277,20 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
           ) : null}
 
           {payload.club.contactEmail ? (
-            <p className="mt-4 text-xs text-slate-500">
+            <p className="mt-4 text-xs text-egw-ink-62">
               Per modifiche scrivi a {payload.club.contactEmail}.
             </p>
           ) : null}
         </div>
-      </main>
+      </OutsideShell>
     );
   }
 
   return (
-    <main className="min-h-[100dvh] bg-slate-50 py-6">
+    <OutsideShell width="wide" bare>
       {/* Una colonna sola a ogni larghezza: e un modulo, non un cruscotto. */}
-      <div className="mx-auto w-full max-w-2xl px-4">
-        <header className="rounded-t-lg border border-b-0 border-slate-200 bg-white p-5">
+      <div className="w-full">
+        <header className="rounded-t-egw-panel border border-b-0 border-white/60 bg-white p-5 shadow-egw-plane-2">
           <div className="flex items-center gap-3">
             {payload.club.logoUrl ? (
               <Image
@@ -314,19 +299,19 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
                 width={44}
                 height={44}
                 unoptimized
-                className="h-11 w-11 rounded-md object-contain"
+                className="h-11 w-11 rounded-egw-control object-contain"
               />
             ) : null}
-            <p className="font-display text-sm font-semibold text-slate-700">
+            <p className="font-brand text-sm font-semibold text-egw-ink-72">
               {payload.club.name}
             </p>
           </div>
 
-          <h1 className="mt-4 font-display text-xl font-semibold text-slate-900 sm:text-2xl">
+          <h1 className="mt-4 font-brand text-xl font-semibold text-egw-ink sm:text-2xl">
             {payload.form.title}
           </h1>
           {payload.form.description ? (
-            <p className="mt-2 whitespace-pre-line text-sm text-slate-600">
+            <p className="mt-2 whitespace-pre-line text-sm text-egw-ink-72">
               {payload.form.description}
             </p>
           ) : null}
@@ -334,7 +319,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
 
         <form
           onSubmit={submit}
-          className="space-y-6 rounded-b-lg border border-slate-200 bg-white p-5"
+          className="space-y-6 rounded-b-egw-panel border border-t-0 border-white/60 bg-white p-5 shadow-egw-plane-2"
         >
           {/*
             **Si propone, non si ripristina.** Chi torna deve sapere che quello
@@ -343,7 +328,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
             I due limiti si dicono qui, non in una nota a fondo pagina.
           */}
           {foundDraft ? (
-            <div className="space-y-3 rounded-md border border-sky-200 bg-sky-50 p-4">
+            <div className="space-y-3 rounded-egw-control border border-egw-tint-blue-bd bg-egw-tint-blue p-4">
               <p className="text-sm font-semibold text-sky-900">
                 Abbiamo ritrovato quello che avevi iniziato a compilare
               </p>
@@ -372,7 +357,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
           ) : null}
 
           {payload.form.collectRespondentEmail ? (
-            <div className="space-y-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+            <div className="space-y-4 rounded-egw-control border border-egw-hairline bg-egw-page-100 p-4">
               <div className="space-y-2">
                 <Label htmlFor="respondent-name">Chi sta compilando</Label>
                 <Input
@@ -388,7 +373,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="respondent-email">
-                  Email <span className="text-red-600">*</span>
+                  Email <span className="text-egw-red">*</span>
                 </Label>
                 <Input
                   id="respondent-email"
@@ -402,7 +387,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
                   placeholder="per essere ricontattati"
                 />
                 {errors.respondentEmail ? (
-                  <p role="alert" className="text-sm font-medium text-red-600">
+                  <p role="alert" className="text-sm font-medium text-egw-red">
                     {errors.respondentEmail}
                   </p>
                 ) : null}
@@ -429,7 +414,7 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
           {failure ? (
             <p
               role="alert"
-              className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+              className="rounded-egw-control border border-egw-tint-red-bd bg-egw-tint-red p-3 text-sm text-egw-red"
             >
               {failure}
             </p>
@@ -449,12 +434,8 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
           </Button>
         </form>
 
-        <footer className="flex items-center justify-center gap-2 py-6 text-xs text-slate-500">
-          <span>Modulo gestito con</span>
-          <EasyGameLogo className="h-4 w-4" tone="dark" />
-          <span className="font-display font-semibold">EasyGame</span>
-        </footer>
+        <p className="py-4 text-center text-[11.5px] text-white/70">Modulo gestito con EasyGame</p>
       </div>
-    </main>
+    </OutsideShell>
   );
 }

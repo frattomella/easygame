@@ -60,14 +60,14 @@ export function ChangePlanForm({
         </DialogHeader>
         <div className="space-y-4 py-4">
           {normalizedPaymentPlans.length === 0 ? (
-            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            <div className="rounded-egw-control border border-dashed p-4 text-sm text-muted-foreground">
               Nessun piano di pagamento configurato.
             </div>
           ) : null}
           {normalizedPaymentPlans.map((plan) => (
             <div
               key={plan.id}
-              className={`p-4 border rounded-lg cursor-pointer transition-colors ${selectedPlanId === plan.id ? "border-blue-500 bg-blue-50" : "hover:border-gray-400"}`}
+              className={`p-4 border rounded-egw-control cursor-pointer transition-colors ${selectedPlanId === plan.id ? "border-blue-500 bg-egw-tint-blue" : "hover:border-gray-400"}`}
               onClick={() => setSelectedPlanId(plan.id)}
             >
               <div className="flex items-start justify-between">
@@ -93,7 +93,7 @@ export function ChangePlanForm({
                   </div>
                 </div>
                 {selectedPlanId === plan.id && (
-                  <div className="h-6 w-6 rounded-full bg-blue-500 flex items-center justify-center">
+                  <div className="h-6 w-6 rounded-full bg-egw-blue flex items-center justify-center">
                     <Check className="h-4 w-4 text-white" />
                   </div>
                 )}
@@ -107,7 +107,7 @@ export function ChangePlanForm({
           </Button>
           <Button
             onClick={handleSubmit}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-egw-blue hover:bg-egw-blue-700"
             disabled={!selectedPlanId}
           >
             Conferma

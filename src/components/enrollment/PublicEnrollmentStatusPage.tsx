@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { CalendarClock, CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
-import { EasyGameLogo } from "@/components/brand/easygame-logo";
+import { OutsideShell, OutsideStatus } from "@/components/web/shell/OutsideShell";
 
 /**
  * **La pagina pubblica di una domanda di iscrizione** (`/iscrizione/[reference]`).
@@ -91,10 +91,10 @@ const VESTITO: Record<
   PublicEnrollmentView["state"],
   { icona: React.ComponentType<{ className?: string }>; classe: string }
 > = {
-  sent: { icona: Clock, classe: "bg-slate-100 text-slate-700" },
-  in_review: { icona: CalendarClock, classe: "bg-sky-100 text-sky-800" },
-  approved: { icona: CheckCircle2, classe: "bg-emerald-100 text-emerald-800" },
-  rejected: { icona: XCircle, classe: "bg-rose-100 text-rose-800" },
+  sent: { icona: Clock, classe: "bg-egw-page-100 text-egw-ink-72" },
+  in_review: { icona: CalendarClock, classe: "bg-egw-tint-blue text-egw-blue-800" },
+  approved: { icona: CheckCircle2, classe: "bg-egw-tint-green text-egw-green" },
+  rejected: { icona: XCircle, classe: "bg-egw-tint-red text-egw-red" },
 };
 
 /**
@@ -113,20 +113,14 @@ const COSA_FARE: Record<PublicEnrollmentView["state"], string> = {
     "L'iscrizione non e stata accettata. Il motivo e qui sotto, se la societa lo ha scritto.",
 };
 
+/* Il guscio fuori dal club (ambiente 3): una colonna sola, e una risposta, non un cruscotto. */
 const Guscio = ({ children }: { children: React.ReactNode }) => (
-  <main className="min-h-[100dvh] bg-slate-50 py-6">
-    {/* Una colonna sola a ogni larghezza: e una risposta, non un cruscotto. */}
-    <div className="mx-auto w-full max-w-lg px-4">{children}</div>
-  </main>
+  <OutsideShell width="stepper" bare>
+    <div className="w-full [&>header]:rounded-t-egw-panel [&>header]:border-white/60 [&>header]:shadow-egw-plane-2 [&>section]:border-white/60 [&>section:last-of-type]:rounded-b-egw-panel">{children}</div>
+  </OutsideShell>
 );
 
-const Piede = () => (
-  <footer className="flex items-center justify-center gap-2 py-6 text-xs text-slate-500">
-    <span>Iscrizione gestita con</span>
-    <EasyGameLogo className="h-4 w-4" tone="dark" />
-    <span className="font-display font-semibold">EasyGame</span>
-  </footer>
-);
+const Piede = () => <p className="py-4 text-center text-[11.5px] text-white/70">Iscrizione gestita con EasyGame</p>;
 
 const Riga = ({ etichetta, valore }: { etichetta: string; valore: string }) => {
   if (!valore) return null;
@@ -138,10 +132,10 @@ const Riga = ({ etichetta, valore }: { etichetta: string; valore: string }) => {
       capo verrebbe tagliato dal contenitore.
     */
     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-2">
-      <span className="text-xs uppercase tracking-wide text-slate-500">
+      <span className="text-xs uppercase tracking-wide text-egw-ink-62">
         {etichetta}
       </span>
-      <span className="min-w-0 break-words text-sm font-medium text-slate-900">
+      <span className="min-w-0 break-words text-sm font-medium text-egw-ink">
         {valore}
       </span>
     </div>
@@ -181,24 +175,17 @@ export function PublicEnrollmentStatusPage({ reference }: { reference: string })
 
   if (loading) {
     return (
-      <main className="flex min-h-[100dvh] items-center justify-center bg-slate-50 p-6">
-        <p
-          role="status"
-          aria-live="polite"
-          className="flex items-center gap-2 text-sm text-slate-600"
-        >
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Cerco la domanda…
-        </p>
-      </main>
+      <OutsideShell width="form">
+        <OutsideStatus icon={<Loader2 />} title="Domanda di iscrizione" description="Un momento: cerco la domanda." busy busyLabel="Cerco la domanda…" />
+      </OutsideShell>
     );
   }
 
   if (!view) {
     return (
       <Guscio>
-        <div className="rounded-lg border border-slate-200 bg-white p-6 text-center">
-          <h1 className="font-display text-lg font-semibold text-slate-900">
+        <div className="rounded-egw-panel border border-white/60 bg-white p-6 text-center shadow-egw-plane-2">
+          <h1 className="font-brand text-[20px] font-extrabold tracking-[var(--egw-track-display)] text-egw-ink">
             Domanda non disponibile
           </h1>
           {/*
@@ -207,7 +194,7 @@ export function PublicEnrollmentStatusPage({ reference }: { reference: string })
             risponde l'API: distinguerli direbbe a chi prova riferimenti a caso
             quando ne ha indovinato uno.
           */}
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-egw-ink-72">
             {failure ||
               "Il riferimento non risulta. Controlla il link che hai ricevuto, oppure chiedi alla societa."}
           </p>
@@ -222,24 +209,24 @@ export function PublicEnrollmentStatusPage({ reference }: { reference: string })
 
   return (
     <Guscio>
-      <header className="rounded-t-lg border border-b-0 border-slate-200 bg-white p-5">
-        <p className="text-xs uppercase tracking-wide text-slate-500">
+      <header className="rounded-t-egw-panel border border-b-0 border-egw-hairline bg-white p-5">
+        <p className="text-xs uppercase tracking-wide text-egw-ink-62">
           {view.kindLabel}
         </p>
-        <h1 className="mt-1 font-display text-lg font-semibold text-slate-900">
+        <h1 className="mt-1 font-brand text-lg font-semibold text-egw-ink">
           {view.clubName}
         </h1>
-        <p className="mt-1 text-sm text-slate-600">{view.templateTitle}</p>
+        <p className="mt-1 text-sm text-egw-ink-72">{view.templateTitle}</p>
       </header>
 
-      <section className="border border-b-0 border-slate-200 bg-white px-5 py-4">
+      <section className="border border-b-0 border-egw-hairline bg-white px-5 py-4">
         <span
           className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold ${vestito.classe}`}
         >
           <Icona className="h-4 w-4" />
           {view.stateLabel}
         </span>
-        <p className="mt-3 text-sm text-slate-700">{COSA_FARE[view.state]}</p>
+        <p className="mt-3 text-sm text-egw-ink-72">{COSA_FARE[view.state]}</p>
 
         {view.reviewNote ? (
           /*
@@ -248,31 +235,31 @@ export function PublicEnrollmentStatusPage({ reference }: { reference: string })
             famiglia, e tenerla nascosta su un'approvazione con riserva
             obbligherebbe a telefonare.
           */
-          <p className="mt-3 rounded-md bg-slate-50 p-3 text-sm text-slate-700">
+          <p className="mt-3 rounded-egw-control bg-egw-page-100 p-3 text-sm text-egw-ink-72">
             {view.reviewNote}
           </p>
         ) : null}
       </section>
 
       {view.pendingDocuments.length ? (
-        <section className="border border-b-0 border-slate-200 bg-white px-5 py-4">
-          <h2 className="text-sm font-semibold text-slate-900">
+        <section className="border border-b-0 border-egw-hairline bg-white px-5 py-4">
+          <h2 className="text-sm font-semibold text-egw-ink">
             Documenti che la societa aspetta
           </h2>
           <ul className="mt-2 space-y-2">
             {view.pendingDocuments.map((documento, indice) => (
               <li
                 key={`${documento.title}-${indice}`}
-                className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-md bg-slate-50 px-3 py-2"
+                className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-egw-control bg-egw-page-100 px-3 py-2"
               >
-                <span className="min-w-0 break-words text-sm text-slate-800">
+                <span className="min-w-0 break-words text-sm text-egw-ink">
                   {documento.title}
                   {documento.required ? (
-                    <span className="ml-1 text-rose-600">*</span>
+                    <span className="ml-1 text-egw-red">*</span>
                   ) : null}
                 </span>
                 {documento.dueDate ? (
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-egw-ink-62">
                     entro il {giorno(documento.dueDate)}
                   </span>
                 ) : null}
@@ -282,13 +269,13 @@ export function PublicEnrollmentStatusPage({ reference }: { reference: string })
         </section>
       ) : null}
 
-      <section className="rounded-b-lg border border-slate-200 bg-white px-5 py-2">
+      <section className="rounded-b-egw-panel border border-egw-hairline bg-white px-5 py-2">
         <Riga etichetta="Stagione" valore={view.seasonLabel} />
         <Riga etichetta="Inviata il" valore={giorno(view.submittedAt)} />
         <Riga etichetta="Esaminata il" valore={giorno(view.reviewedAt)} />
       </section>
 
-      <p className="mt-4 text-center text-xs text-slate-500">
+      <p className="mt-4 text-center text-xs text-egw-ink-62">
         Conserva questo link: e l&#8217;unico modo per rileggere lo stato della
         domanda, e non puo essere ristampato.
       </p>

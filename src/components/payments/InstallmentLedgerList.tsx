@@ -40,10 +40,10 @@ import { withFamilyShare } from "@/lib/payments/coverage-ledger";
  */
 
 const STATUS_BADGE_CLASS: Record<string, string> = {
-  "IN ATTESA": "border-amber-200 bg-amber-50 text-amber-700",
-  "PARZIALMENTE PAGATA": "border-sky-200 bg-sky-50 text-sky-700",
-  PAGATA: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  SCADUTA: "border-red-200 bg-red-50 text-red-700",
+  "IN ATTESA": "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink",
+  "PARZIALMENTE PAGATA": "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-800",
+  PAGATA: "border-egw-tint-green-bd bg-egw-tint-green text-egw-green",
+  SCADUTA: "border-egw-tint-red-bd bg-egw-tint-red text-egw-red",
 };
 
 const formatCurrency = (value: unknown) =>
@@ -88,7 +88,7 @@ const TransactionRows = ({
 }) => {
   if (transactions.length === 0) {
     return (
-      <p className="px-3 py-2 text-sm text-slate-500">
+      <p className="px-3 py-2 text-sm text-egw-ink-62">
         Nessun incasso registrato su questa rata.
       </p>
     );
@@ -126,7 +126,7 @@ const TransactionRows = ({
             return (
               <tr
                 key={transaction.id}
-                className={`border-b ${settled ? "" : "text-slate-400 line-through"}`}
+                className={`border-b ${settled ? "" : "text-egw-ink-42 line-through"}`}
               >
                 <td className="p-2 whitespace-nowrap">
                   {formatDate(transaction.paidAt)}
@@ -161,7 +161,7 @@ const TransactionRows = ({
                     <>
                       {transaction.notes || "-"}
                       {refund && refund.refundedCents > 0 ? (
-                        <span className="ml-2 text-xs text-slate-500">
+                        <span className="ml-2 text-xs text-egw-ink-62">
                           Rimborsato{" "}
                           {formatCurrency(refund.refundedCents / 100)}
                         </span>
@@ -176,7 +176,7 @@ const TransactionRows = ({
                       {refund?.pending.length ? (
                         <Badge
                           variant="outline"
-                          className="ml-2 border-sky-200 bg-sky-50 text-sky-700"
+                          className="ml-2 border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-800"
                         >
                           Rimborso in elaborazione
                         </Badge>
@@ -350,7 +350,7 @@ export function InstallmentLedgerList({
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({});
 
   if (ledgers.length === 0) {
-    return <p className="text-sm text-slate-500">{emptyMessage}</p>;
+    return <p className="text-sm text-egw-ink-62">{emptyMessage}</p>;
   }
 
   return (
@@ -381,12 +381,12 @@ export function InstallmentLedgerList({
         return (
           <div
             key={key}
-            className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-950/40"
+            className="rounded-egw-control border border-egw-hairline bg-white p-3 dark:border-slate-800 dark:bg-slate-950/40"
           >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-medium text-slate-900 dark:text-slate-100">
+                  <p className="font-medium text-egw-ink dark:text-slate-100">
                     {ledger.label}
                   </p>
                   {ledger.statusLabels.map((label) => (
@@ -400,7 +400,7 @@ export function InstallmentLedgerList({
                   ))}
                 </div>
 
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-egw-ink-62">
                   {ledger.dueDate
                     ? `Scadenza ${formatDate(ledger.dueDate)}`
                     : "Scadenza non definita"}
@@ -428,14 +428,14 @@ export function InstallmentLedgerList({
                     <span
                       className={
                         residuoFamiglia > 0
-                          ? "text-amber-700 dark:text-amber-300"
-                          : "text-emerald-700 dark:text-emerald-300"
+                          ? "text-egw-amber-ink dark:text-amber-300"
+                          : "text-egw-green dark:text-emerald-300"
                       }
                     >
                       Residuo {formatCurrency(residuoFamiglia)}
                     </span>
                     {coverage ? (
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-egw-ink-62">
                         su {formatCurrency(lordo.dueAmount)} di quota
                       </span>
                     ) : null}
@@ -451,18 +451,18 @@ export function InstallmentLedgerList({
                     segreteria un totale che non esiste.
                   */}
                   {coverage ? (
-                    <div className="mt-2 rounded-md border border-sky-200 bg-sky-50/60 p-2 text-xs dark:border-sky-900 dark:bg-sky-950/30">
+                    <div className="mt-2 rounded-egw-control border border-egw-tint-blue-bd bg-egw-tint-blue/60 p-2 text-xs dark:border-sky-900 dark:bg-sky-950/30">
                       <p className="font-medium text-sky-900 dark:text-sky-200">
                         Coperta da voucher per{" "}
                         {formatCurrency(coverage.plannedCoverage)} · a carico
                         della famiglia {formatCurrency(coverage.familyDueAmount)}
                       </p>
-                      <p className="mt-1 text-sky-800/80 dark:text-sky-300/80">
+                      <p className="mt-1 text-egw-blue-800/80 dark:text-sky-300/80">
                         Maturato {formatCurrency(coverage.accruedCoverage)} ·
                         liquidato dall&apos;ente{" "}
                         {formatCurrency(coverage.settledCoverage)}
                       </p>
-                      <p className="mt-1 text-[0.95em] text-slate-500">
+                      <p className="mt-1 text-[0.95em] text-egw-ink-62">
                         La copertura non e un incasso: entra in cassa solo
                         quando l&apos;ente versa.
                       </p>
@@ -513,7 +513,7 @@ export function InstallmentLedgerList({
                 */}
                 {pendingOnlineInstallmentId &&
                 pendingOnlineInstallmentId === String(ledger.installmentId) ? (
-                  <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-700">
+                  <Badge variant="outline" className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-800">
                     Pagamento in verifica
                   </Badge>
                 ) : null}
@@ -552,7 +552,7 @@ export function InstallmentLedgerList({
             </div>
 
             {isOpen ? (
-              <div className="mt-3 rounded-md border border-slate-100 dark:border-slate-800">
+              <div className="mt-3 rounded-egw-control border border-egw-rule dark:border-slate-800">
                 <TransactionRows
                   transactions={ledger.transactions}
                   canManage={canManage}
@@ -581,7 +581,7 @@ export function InstallmentLedgerList({
                 />
 
                 {canManage && (onEditInstallment || onDeleteInstallment) ? (
-                  <div className="flex flex-wrap justify-end gap-2 border-t border-slate-100 p-2 dark:border-slate-800">
+                  <div className="flex flex-wrap justify-end gap-2 border-t border-egw-rule p-2 dark:border-slate-800">
                     {onEditInstallment && ledger.paidAmount === 0 ? (
                       <Button
                         variant="outline"
@@ -602,7 +602,7 @@ export function InstallmentLedgerList({
                       <Button
                         variant="outline"
                         size="sm"
-                        className="border-red-200 text-red-700 hover:bg-red-50"
+                        className="border-egw-tint-red-bd text-egw-red hover:bg-egw-tint-red"
                         onClick={() => onDeleteInstallment(ledger)}
                       >
                         <Trash2 className="mr-1 h-3.5 w-3.5" />

@@ -263,7 +263,7 @@ export function CertificateAttachmentField({
                 variant="ghost"
                 size="sm"
                 disabled={disabled || busy}
-                className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                className="text-egw-red hover:bg-egw-tint-red hover:text-egw-red"
                 onClick={() => setConfirmingDelete(true)}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
@@ -275,7 +275,7 @@ export function CertificateAttachmentField({
       </div>
 
       {hasFile ? (
-        <p className="flex items-center gap-1 text-sm text-green-700 dark:text-green-400">
+        <p className="flex items-center gap-1 text-sm text-egw-green dark:text-green-400">
           <CheckCircle2 className="h-4 w-4" />
           File allegato
         </p>

@@ -756,11 +756,11 @@ export default function DocumentEditor({
     >
       <Card
         className={cn(
-          "w-full overflow-hidden border-slate-200 shadow-sm",
+          "w-full overflow-hidden border-egw-hairline shadow-egw-plane-1",
           isFullscreen && "mx-auto max-w-7xl",
         )}
       >
-        <CardHeader className="sticky top-0 z-10 border-b border-slate-100 bg-white/95 backdrop-blur">
+        <CardHeader className="sticky top-0 z-10 border-b border-egw-rule bg-white/95 backdrop-blur">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <CardTitle>Editor documento</CardTitle>
             <div className="flex flex-wrap items-center gap-2">
@@ -874,15 +874,15 @@ export default function DocumentEditor({
         <CardContent className="p-0">
           <div className="grid min-h-[680px] lg:grid-cols-[280px_minmax(0,1fr)]">
             {!readOnly ? (
-              <aside className="border-b border-slate-200 bg-slate-50 p-4 lg:border-b-0 lg:border-r">
-                <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-800">
-                  <Tags className="h-4 w-4 text-blue-600" />
+              <aside className="border-b border-egw-hairline bg-egw-page-100 p-4 lg:border-b-0 lg:border-r">
+                <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-egw-ink">
+                  <Tags className="h-4 w-4 text-egw-blue-700" />
                   Campi dinamici
                 </div>
                 <div className="space-y-4">
                   {Object.entries(tokensByGroup).map(([group, groupTokens]) => (
                     <div key={group} className="space-y-2">
-                      <p className="text-xs font-semibold uppercase text-slate-500">
+                      <p className="text-xs font-semibold uppercase text-egw-ink-62">
                         {group}
                       </p>
                       <div className="flex flex-wrap gap-2">
@@ -903,7 +903,7 @@ export default function DocumentEditor({
                             }}
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => insertToken(token)}
-                            className="inline-flex items-center rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 transition hover:border-blue-200 hover:bg-blue-100"
+                            className="inline-flex items-center rounded-full border border-egw-tint-blue-bd bg-egw-tint-blue px-2.5 py-1 text-xs font-medium text-egw-blue-700 transition hover:border-egw-tint-blue-bd hover:bg-egw-tint-blue"
                           >
                             {token.label}
                           </button>
@@ -913,8 +913,8 @@ export default function DocumentEditor({
                   ))}
                 </div>
 
-                <div className="mt-5 space-y-2 border-t border-slate-200 pt-4">
-                  <p className="text-xs font-semibold uppercase text-slate-500">
+                <div className="mt-5 space-y-2 border-t border-egw-hairline pt-4">
+                  <p className="text-xs font-semibold uppercase text-egw-ink-62">
                     Firme
                   </p>
                   {SIGNATURE_TOKENS.map((signature) => (
@@ -931,17 +931,17 @@ export default function DocumentEditor({
                       }}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => insertSignature(signature)}
-                      className="flex w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                      className="flex w-full items-center gap-2 rounded-egw-control border border-egw-hairline bg-white px-3 py-2 text-left text-sm font-medium text-egw-ink-72 transition hover:bg-[#e9eef9]"
                     >
-                      <PenLine className="h-4 w-4 text-slate-500" />
+                      <PenLine className="h-4 w-4 text-egw-ink-62" />
                       {signature.label}
                     </button>
                   ))}
                 </div>
 
                 {hasSelectedImage ? (
-                  <div className="mt-5 space-y-3 border-t border-slate-200 pt-4">
-                    <p className="text-xs font-semibold uppercase text-slate-500">
+                  <div className="mt-5 space-y-3 border-t border-egw-hairline pt-4">
+                    <p className="text-xs font-semibold uppercase text-egw-ink-62">
                       Immagine selezionata
                     </p>
                     <div className="grid grid-cols-3 gap-2">
@@ -1030,7 +1030,7 @@ export default function DocumentEditor({
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="w-full text-red-600 hover:text-red-700"
+                      className="w-full text-egw-red hover:text-egw-red"
                       onClick={removeSelectedImage}
                     >
                       Rimuovi immagine
@@ -1040,7 +1040,7 @@ export default function DocumentEditor({
               </aside>
             ) : null}
 
-            <section className="bg-slate-100 p-4 md:p-8">
+            <section className="bg-egw-page-100 p-4 md:p-8">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1067,7 +1067,7 @@ export default function DocumentEditor({
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={handleDrop}
                   className={cn(
-                    "easygame-document-page min-h-[1120px] w-full max-w-[794px] rounded-sm bg-white px-10 py-12 text-[15px] leading-7 text-slate-800 shadow-sm outline-none md:px-16",
+                    "easygame-document-page min-h-[1120px] w-full max-w-[794px] rounded-sm bg-white px-10 py-12 text-[15px] leading-7 text-egw-ink shadow-egw-plane-1 outline-none md:px-16",
                     !readOnly &&
                       "ring-1 ring-slate-200 focus:ring-2 focus:ring-blue-500",
                   )}
@@ -1077,8 +1077,8 @@ export default function DocumentEditor({
           </div>
 
           {!readOnly ? (
-            <div className="flex flex-col gap-3 border-t border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-slate-500">
+            <div className="flex flex-col gap-3 border-t border-egw-hairline bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-egw-ink-62">
                 I campi dinamici restano salvati nel template e vengono compilati solo in fase di compilazione/export.
               </p>
               <div className="flex flex-wrap gap-2">

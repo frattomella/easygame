@@ -168,13 +168,13 @@ export function CoverageDialog({
                 return (
                   <div
                     key={riga.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 p-2 text-sm"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-egw-control border border-egw-hairline p-2 text-sm"
                   >
                     <div className="min-w-0">
                       <p className="font-medium">
                         {overview?.program?.name || "Programma"}
                       </p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-egw-ink-62">
                         {formatCurrency(riga.amount)}
                       </p>
                     </div>
@@ -198,7 +198,7 @@ export function CoverageDialog({
           ) : null}
 
           {adesioni.length === 0 ? (
-            <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+            <p className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-3 text-xs text-egw-amber-ink">
               Questo atleta non ha adesioni attive a nessun programma di
               contributo. Iscrivilo prima a un bando attivo.
             </p>
@@ -210,7 +210,7 @@ export function CoverageDialog({
                   id="coverage-enrollment"
                   value={enrollmentId}
                   onChange={(event) => setEnrollmentId(event.target.value)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  className="h-10 w-full rounded-egw-control border border-input bg-background px-3 text-sm"
                 >
                   {adesioni.map((overview: any) => (
                     <option
@@ -232,7 +232,7 @@ export function CoverageDialog({
                   onChange={(event) => setAmount(event.target.value)}
                   placeholder="0,00"
                 />
-                <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                <div className="flex flex-wrap gap-2 text-xs text-egw-ink-62">
                   <Badge variant="outline">
                     Sulla rata restano {formatCurrency(capienzaRata)}
                   </Badge>
@@ -252,13 +252,13 @@ export function CoverageDialog({
                   ) : null}
                 </div>
                 {errore ? (
-                  <p className="text-xs text-red-600">{errore}</p>
+                  <p className="text-xs text-egw-red">{errore}</p>
                 ) : null}
               </div>
             </>
           )}
 
-          <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          <p className="rounded-egw-control border border-egw-hairline bg-egw-page-100 p-3 text-xs text-egw-ink-72">
             Una copertura <strong>non e un incasso</strong>: dice quanto il club
             si aspetta dall&apos;ente, e riduce solo la quota a carico della
             famiglia. In cassa entra quando l&apos;ente versa.

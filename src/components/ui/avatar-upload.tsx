@@ -136,8 +136,8 @@ export function AvatarUpload({
         <Avatar
           className={cn(
             sizeClasses[size],
-            shape === "square" && "rounded-lg",
-            "border-2 border-gray-200 dark:border-gray-700",
+            shape === "square" && "rounded-egw-control",
+            "border-2 border-egw-hairline dark:border-gray-700",
             isDragging && "border-blue-500 border-dashed",
             isHovering && !disabled && "border-blue-400"
           )}
@@ -147,7 +147,7 @@ export function AvatarUpload({
           ) : (
             <AvatarFallback
               className={cn(
-                shape === "square" && "rounded-lg",
+                shape === "square" && "rounded-egw-control",
                 "bg-transparent p-0"
               )}
             >
@@ -167,7 +167,7 @@ export function AvatarUpload({
           <div
             className={cn(
               "absolute inset-0 flex items-center justify-center bg-black/50 transition-opacity",
-              shape === "circle" ? "rounded-full" : "rounded-lg"
+              shape === "circle" ? "rounded-full" : "rounded-egw-control"
             )}
           >
             <Camera className="h-6 w-6 text-white" />
@@ -180,7 +180,7 @@ export function AvatarUpload({
             variant="destructive"
             size="icon"
             className={cn(
-              "absolute -top-1 -right-1 rounded-full shadow-lg",
+              "absolute -top-1 -right-1 rounded-full shadow-egw-plane-1",
               buttonSizeClasses[size === "sm" ? "sm" : "sm"]
             )}
             onClick={handleRemove}
@@ -292,10 +292,10 @@ export function LogoUpload({
     <div className={cn("relative", className)}>
       <div
         className={cn(
-          "relative cursor-pointer transition-all duration-200 border-2 border-dashed rounded-lg overflow-visible",
+          "relative cursor-pointer transition-all duration-200 border-2 border-dashed rounded-egw-control overflow-visible",
           aspectRatio === "square" ? "w-32 h-32" : "w-48 h-24",
-          isDragging ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20" : "border-gray-300 dark:border-gray-600",
-          isHovering && !disabled && "border-blue-400 bg-gray-50 dark:bg-gray-800",
+          isDragging ? "border-blue-500 bg-egw-tint-blue dark:bg-egw-navy-900/20" : "border-egw-hairline dark:border-gray-600",
+          isHovering && !disabled && "border-blue-400 bg-egw-page-100 dark:bg-gray-800",
           disabled && "cursor-not-allowed opacity-60"
         )}
         onMouseEnter={() => !disabled && setIsHovering(true)}
@@ -320,7 +320,7 @@ export function LogoUpload({
               label={name || "Logo"}
               className="opacity-80"
             />
-            <span className="text-xs text-center px-2 text-gray-400 mt-1">
+            <span className="text-xs text-center px-2 text-egw-ink-42 mt-1">
               {isDragging ? "Rilascia qui" : "Carica logo"}
             </span>
           </div>
@@ -338,7 +338,7 @@ export function LogoUpload({
           <Button
             variant="destructive"
             size="icon"
-            className="absolute -right-2 -top-2 z-20 h-6 w-6 rounded-full shadow-lg"
+            className="absolute -right-2 -top-2 z-20 h-6 w-6 rounded-full shadow-egw-plane-1"
             onClick={handleRemove}
           >
             <X className="h-3 w-3" />
@@ -397,7 +397,7 @@ export function ProfileAvatar({
       )}
       onClick={onClick}
     >
-      <Avatar className={cn(avatarSizes[size], "border border-gray-200 dark:border-gray-700")}>
+      <Avatar className={cn(avatarSizes[size], "border border-egw-hairline dark:border-gray-700")}>
         {image ? (
           <AvatarImage src={image} alt={name} className="object-cover" />
         ) : (

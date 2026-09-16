@@ -54,12 +54,12 @@ const FieldLabel = ({
   prefilled: boolean;
 }) => (
   <div className="flex flex-wrap items-center gap-2">
-    <Label htmlFor={field.id} className="text-sm font-medium text-slate-800">
+    <Label htmlFor={field.id} className="text-sm font-medium text-egw-ink">
       {field.label}
-      {field.required ? <span className="ml-1 text-red-600">*</span> : null}
+      {field.required ? <span className="ml-1 text-egw-red">*</span> : null}
     </Label>
     {prefilled ? (
-      <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] text-sky-700">
+      <span className="inline-flex items-center gap-1 rounded-full border border-egw-tint-blue-bd bg-egw-tint-blue px-2 py-0.5 text-[11px] text-egw-blue-800">
         <Sparkles className="h-3 w-3" />
         Dato gia in archivio
       </span>
@@ -94,12 +94,12 @@ export function FormRenderer({
       {fields.map((field) => {
         if (!fieldCollectsAnswer(field.type)) {
           return (
-            <div key={field.id} className="border-t border-slate-200 pt-5">
-              <h3 className="font-display text-base font-semibold text-slate-900">
+            <div key={field.id} className="border-t border-egw-hairline pt-5">
+              <h3 className="font-brand text-base font-semibold text-egw-ink">
                 {field.label}
               </h3>
               {field.description ? (
-                <p className="mt-1 text-sm text-slate-600">{field.description}</p>
+                <p className="mt-1 text-sm text-egw-ink-72">{field.description}</p>
               ) : null}
             </div>
           );
@@ -113,7 +113,7 @@ export function FormRenderer({
             <FieldLabel field={field} prefilled={prefilled.has(field.id)} />
 
             {field.description ? (
-              <p className="text-sm text-slate-600">{field.description}</p>
+              <p className="text-sm text-egw-ink-72">{field.description}</p>
             ) : null}
 
             {field.type === "long_text" ? (
@@ -174,7 +174,7 @@ export function FormRenderer({
                 {field.options.map((option) => (
                   <label
                     key={option}
-                    className="flex items-start gap-3 rounded-md border border-slate-200 p-3 text-sm"
+                    className="flex items-start gap-3 rounded-egw-control border border-egw-hairline p-3 text-sm"
                   >
                     <input
                       type="radio"
@@ -197,7 +197,7 @@ export function FormRenderer({
                   return (
                     <label
                       key={option}
-                      className="flex items-start gap-3 rounded-md border border-slate-200 p-3 text-sm"
+                      className="flex items-start gap-3 rounded-egw-control border border-egw-hairline p-3 text-sm"
                     >
                       <Checkbox
                         disabled={readOnly}
@@ -219,7 +219,7 @@ export function FormRenderer({
             ) : null}
 
             {field.type === "checkbox" ? (
-              <label className="flex items-start gap-3 rounded-md border border-slate-200 p-3 text-sm">
+              <label className="flex items-start gap-3 rounded-egw-control border border-egw-hairline p-3 text-sm">
                 <Checkbox
                   disabled={readOnly}
                   checked={Boolean(value)}
@@ -241,12 +241,12 @@ export function FormRenderer({
                   }
                 />
                 {files[field.id] ? (
-                  <p className="flex items-center gap-2 text-xs text-slate-600">
+                  <p className="flex items-center gap-2 text-xs text-egw-ink-72">
                     <Paperclip className="h-3 w-3" />
                     {files[field.id]?.name}
                   </p>
                 ) : (
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-egw-ink-62">
                     PDF o foto, fino a 8 MB.
                   </p>
                 )}
@@ -255,7 +255,7 @@ export function FormRenderer({
 
             {field.type === "signature" ? (
               readOnly ? (
-                <div className="rounded-md border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
+                <div className="rounded-egw-control border border-dashed border-egw-hairline p-6 text-center text-sm text-egw-ink-62">
                   Qui chi compila traccia la firma.
                 </div>
               ) : (
@@ -267,7 +267,7 @@ export function FormRenderer({
             ) : null}
 
             {error ? (
-              <p role="alert" className="text-sm font-medium text-red-600">
+              <p role="alert" className="text-sm font-medium text-egw-red">
                 {error}
               </p>
             ) : null}
@@ -276,7 +276,7 @@ export function FormRenderer({
       })}
 
       {fields.every((field) => !fieldCollectsAnswer(field.type)) ? (
-        <p className="rounded-md border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
+        <p className="rounded-egw-control border border-dashed border-egw-hairline p-6 text-center text-sm text-egw-ink-62">
           Questo modulo non ha ancora campi da compilare.
         </p>
       ) : null}

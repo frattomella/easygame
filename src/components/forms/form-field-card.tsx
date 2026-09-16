@@ -76,8 +76,8 @@ export function FormFieldCard({
 
   return (
     <div
-      className={`rounded-lg border bg-white p-4 ${
-        isSection ? "border-slate-300 bg-slate-50" : "border-slate-200"
+      className={`rounded-egw-control border bg-white p-4 ${
+        isSection ? "border-egw-hairline bg-egw-page-100" : "border-egw-hairline"
       }`}
     >
       {/* Intestazione: una colonna a 375 px, due da sm in su. */}
@@ -95,7 +95,7 @@ export function FormFieldCard({
           />
 
           {bindingLabel ? (
-            <p className="flex items-center gap-1.5 text-xs text-sky-700">
+            <p className="flex items-center gap-1.5 text-xs text-egw-blue-800">
               <Link2 className="h-3 w-3" />
               {bindingLabel}
             </p>
@@ -127,9 +127,9 @@ export function FormFieldCard({
       </div>
 
       {/* Comandi: scorrono nel proprio contenitore, non allargano la pagina. */}
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-slate-100 pt-3">
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-egw-rule pt-3">
         {!isSection ? (
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+          <label className="flex items-center gap-2 text-sm text-egw-ink-72">
             <Switch
               checked={field.required}
               onCheckedChange={(checked) => onChange({ required: checked })}
@@ -176,7 +176,7 @@ export function FormFieldCard({
             aria-label="Elimina campo"
             onClick={onRemove}
           >
-            <Trash2 className="h-4 w-4 text-red-600" />
+            <Trash2 className="h-4 w-4 text-egw-red" />
           </Button>
           <Button
             type="button"
@@ -192,7 +192,7 @@ export function FormFieldCard({
       </div>
 
       {expanded ? (
-        <div className="mt-4 space-y-4 rounded-md bg-slate-50 p-4">
+        <div className="mt-4 space-y-4 rounded-egw-control bg-egw-page-100 p-4">
           <div className="space-y-2">
             <Label htmlFor={`description-${field.id}`}>
               Descrizione o istruzioni
@@ -223,7 +223,7 @@ export function FormFieldCard({
           {definition.hasOptions && serverOptions ? (
             <div className="space-y-2">
               <Label>Opzioni</Label>
-              <p className="rounded-md border border-dashed border-muted-foreground/40 p-3 text-sm text-muted-foreground">
+              <p className="rounded-egw-control border border-dashed border-muted-foreground/40 p-3 text-sm text-muted-foreground">
                 Le voci di questo campo le mette EasyGame quando il modulo
                 viene aperto: sono le sedi e le categorie di questa societa,
                 aggiornate al momento. Non vanno scritte qui, e non restano
@@ -267,7 +267,7 @@ export function FormFieldCard({
                 }
                 placeholder="privacy, immagini, sanitari…"
               />
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-egw-ink-62">
                 Con una chiave, la spunta non resta dentro la compilazione:
                 all&apos;approvazione diventa un consenso della persona, che si
                 puo dimostrare e revocare. La chiave e quella del consenso
@@ -301,7 +301,7 @@ export function FormFieldCard({
                   </Button>
                 ) : null}
               </div>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-egw-ink-62">
                 Un campo collegato si precompila da solo e, all&apos;approvazione,
                 aggiorna la scheda della persona.
               </p>

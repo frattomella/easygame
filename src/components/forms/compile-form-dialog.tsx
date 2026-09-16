@@ -223,7 +223,7 @@ export function CompileFormDialog({
             </Select>
 
             {!loading && templates.length === 0 ? (
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-egw-ink-72">
                 Nessun modulo pubblicato. Creane uno da Modulistica: solo un
                 modulo pubblicato si puo compilare.
               </p>
@@ -231,10 +231,10 @@ export function CompileFormDialog({
           </div>
 
           {context ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-              <UserCheck className="h-4 w-4 text-emerald-600" />
+            <div className="flex flex-wrap items-center gap-2 rounded-egw-control border border-egw-hairline bg-egw-page-100 p-3 text-sm text-egw-ink-72">
+              <UserCheck className="h-4 w-4 text-egw-green" />
               <span className="font-medium">{athleteName}</span>
-              <span className="text-slate-500">
+              <span className="text-egw-ink-62">
                 atleta gia selezionato · versione {context.version}
               </span>
             </div>
@@ -262,7 +262,7 @@ export function CompileFormDialog({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-egw-ink-62">
                 Il modulo chiede dati del genitore: scegli quale, cosi le
                 risposte tornano sulla persona giusta.
               </p>
@@ -273,7 +273,7 @@ export function CompileFormDialog({
             <p
               role="status"
               aria-live="polite"
-              className="flex items-center gap-2 py-8 text-sm text-slate-600"
+              className="flex items-center gap-2 py-8 text-sm text-egw-ink-72"
             >
               <Loader2 className="h-4 w-4 animate-spin" />
               Preparo il modulo…
@@ -282,7 +282,7 @@ export function CompileFormDialog({
 
           {context && !loading ? (
             <>
-              <div className="rounded-lg border border-slate-200 p-4">
+              <div className="rounded-egw-control border border-egw-hairline p-4">
                 <FormRenderer
                   fields={context.schema.fields}
                   values={values}

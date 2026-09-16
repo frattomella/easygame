@@ -39,43 +39,43 @@ const iconConfig: Record<
 > = {
   athlete: {
     icon: UserRound,
-    className: "border-blue-100 bg-blue-50 text-blue-700",
-    iconClassName: "text-blue-700",
+    className: "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700",
+    iconClassName: "text-egw-blue-700",
   },
   user: {
     icon: UserCircle,
-    className: "border-slate-200 bg-slate-50 text-slate-700",
-    iconClassName: "text-slate-700",
+    className: "border-egw-hairline bg-egw-page-100 text-egw-ink-72",
+    iconClassName: "text-egw-ink-72",
   },
   sponsor: {
     icon: Handshake,
-    className: "border-amber-100 bg-amber-50 text-amber-700",
-    iconClassName: "text-amber-700",
+    className: "border-amber-100 bg-egw-tint-amber text-egw-amber-ink",
+    iconClassName: "text-egw-amber-ink",
   },
   member: {
     icon: Users,
-    className: "border-emerald-100 bg-emerald-50 text-emerald-700",
-    iconClassName: "text-emerald-700",
+    className: "border-emerald-100 bg-egw-tint-green text-egw-green",
+    iconClassName: "text-egw-green",
   },
   staff: {
     icon: UserCog,
-    className: "border-indigo-100 bg-indigo-50 text-indigo-700",
-    iconClassName: "text-indigo-700",
+    className: "border-indigo-100 bg-egw-tint-blue text-egw-indigo",
+    iconClassName: "text-egw-indigo",
   },
   trainer: {
     icon: ClipboardList,
-    className: "border-violet-100 bg-violet-50 text-violet-700",
-    iconClassName: "text-violet-700",
+    className: "border-violet-100 bg-egw-tint-blue text-egw-indigo",
+    iconClassName: "text-egw-indigo",
   },
   organization: {
     icon: Building2,
-    className: "border-sky-100 bg-sky-50 text-sky-700",
-    iconClassName: "text-sky-700",
+    className: "border-sky-100 bg-egw-tint-blue text-egw-blue-800",
+    iconClassName: "text-egw-blue-800",
   },
   default: {
     icon: CircleUserRound,
-    className: "border-slate-200 bg-slate-50 text-slate-600",
-    iconClassName: "text-slate-600",
+    className: "border-egw-hairline bg-egw-page-100 text-egw-ink-72",
+    iconClassName: "text-egw-ink-72",
   },
 };
 
@@ -110,7 +110,7 @@ export function EntityIcon({
       role={label ? "img" : undefined}
       className={cn(
         "inline-flex shrink-0 items-center justify-center border",
-        shape === "circle" ? "rounded-full" : "rounded-xl",
+        shape === "circle" ? "rounded-full" : "rounded-egw-field",
         sizeClasses[size],
         config.className,
         className,

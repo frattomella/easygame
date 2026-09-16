@@ -244,7 +244,7 @@ test("D · le due decisioni manuali sono pulsanti, e sono visibili", () => {
     elenco esiste: una decisione che si raggiunge solo dopo aver aperto un
     accordion e una decisione che la segreteria non prende.
   */
-  const pannello = source.indexOf('border-t border-slate-100 px-3 pb-3 pt-2');
+  const pannello = source.indexOf('border-t border-egw-rule px-3 pb-3 pt-2');
   const azioni = source.indexOf("Segna come maturato");
   assert.ok(
     azioni > 0 && pannello > 0,

@@ -32,12 +32,12 @@ export function SportWorkStat({
 }) {
   const toneClass =
     tone === "positive"
-      ? "text-emerald-600"
+      ? "text-egw-green"
       : tone === "warning"
-        ? "text-amber-600"
+        ? "text-egw-amber-ink"
         : tone === "danger"
-          ? "text-rose-600"
-          : "text-slate-900 dark:text-slate-100";
+          ? "text-egw-red"
+          : "text-egw-ink dark:text-slate-100";
 
   return (
     <Card>
@@ -50,7 +50,7 @@ export function SportWorkStat({
               <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
             ) : null}
           </div>
-          {icon ? <div className="shrink-0 text-slate-400">{icon}</div> : null}
+          {icon ? <div className="shrink-0 text-egw-ink-42">{icon}</div> : null}
         </div>
       </CardContent>
     </Card>

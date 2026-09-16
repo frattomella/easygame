@@ -88,15 +88,15 @@ const TRANSITION_LABELS: Record<string, string> = {
 };
 
 const PROGRAM_STATUS: Record<string, { label: string; className: string }> = {
-  draft: { label: "BOZZA", className: "border-slate-200 bg-slate-100 text-slate-600" },
-  active: { label: "ATTIVO", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  closed: { label: "CHIUSO", className: "border-slate-200 bg-slate-100 text-slate-600" },
+  draft: { label: "BOZZA", className: "border-egw-hairline bg-egw-page-100 text-egw-ink-72" },
+  active: { label: "ATTIVO", className: "border-egw-tint-green-bd bg-egw-tint-green text-egw-green" },
+  closed: { label: "CHIUSO", className: "border-egw-hairline bg-egw-page-100 text-egw-ink-72" },
 };
 
 const ENROLLMENT_STATUS: Record<string, { label: string; className: string }> = {
-  active: { label: "ATTIVA", className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
-  suspended: { label: "SOSPESA", className: "border-amber-200 bg-amber-50 text-amber-700" },
-  closed: { label: "CHIUSA", className: "border-slate-200 bg-slate-100 text-slate-600" },
+  active: { label: "ATTIVA", className: "border-egw-tint-green-bd bg-egw-tint-green text-egw-green" },
+  suspended: { label: "SOSPESA", className: "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink" },
+  closed: { label: "CHIUSA", className: "border-egw-hairline bg-egw-page-100 text-egw-ink-72" },
 };
 
 type EnrollmentRow = {
@@ -476,7 +476,7 @@ export function FundingProgramDetail({
           </div>
 
           {visible.length === 0 ? (
-            <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+            <p className="rounded-egw-control border border-dashed p-4 text-sm text-muted-foreground">
               {detail.enrollments.length === 0
                 ? "Nessun atleta iscritto. Usa «Iscrivi atleti» per ammettere i beneficiari: senza iscritti il programma non matura niente."
                 : "Nessun iscritto corrisponde ai filtri."}
@@ -491,7 +491,7 @@ export function FundingProgramDetail({
                 return (
                   <div
                     key={row.enrollment.id}
-                    className="rounded-md border p-3"
+                    className="rounded-egw-control border p-3"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="min-w-0">

@@ -65,7 +65,7 @@ export function ClubPaymentSettings({
           </p>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="rounded-md border p-3">
+          <div className="rounded-egw-control border p-3">
             <p className="text-sm text-muted-foreground">Stato scelto dal club</p>
             <div className="mt-2 flex items-center gap-2">
               <Switch
@@ -80,7 +80,7 @@ export function ClubPaymentSettings({
               </Badge>
             </div>
           </div>
-          <div className="rounded-md border p-3">
+          <div className="rounded-egw-control border p-3">
             <p className="text-sm text-muted-foreground">Valuta</p>
             <p className="mt-2 text-lg font-semibold">EUR</p>
           </div>
@@ -109,7 +109,7 @@ export function ClubPaymentSettings({
         </CardHeader>
         <CardContent className="space-y-3">
           <PaymentMethodEnablementTable settings={settings} onChange={onChange} />
-          <div className="flex items-center justify-between rounded-md border p-3">
+          <div className="flex items-center justify-between rounded-egw-control border p-3">
             <Label>Metodi online pronti per le iscrizioni</Label>
             <Badge variant={availableCount > 0 ? "default" : "secondary"}>
               {availableCount}

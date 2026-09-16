@@ -21,7 +21,7 @@ export function NotificationBadge({
       onClick={onClick}
     >
       <Bell className="h-5 w-5" />
-      <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-medium text-white">
+      <span className="absolute -top-2 -right-2 flex h-5 w-5 items-center justify-center rounded-full bg-egw-red text-[10px] font-medium text-white">
         {count > 99 ? "99+" : count}
       </span>
     </div>

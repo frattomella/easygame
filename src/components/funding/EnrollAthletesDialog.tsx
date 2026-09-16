@@ -241,7 +241,7 @@ export function EnrollAthletesDialog(props: EnrollAthletesDialogProps) {
         tablet in su e una scheda centrata. Sotto i 375 px l'elenco degli
         atleti scorre da solo invece di spingere i pulsanti fuori dallo schermo.
       */}
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-xl bg-white shadow-xl sm:rounded-xl dark:bg-slate-950">
+      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-xl bg-white shadow-egw-plane-1 sm:rounded-egw-field dark:bg-slate-950">
         <div className="border-b p-4">
           <h3 className="text-base font-semibold">
             {props.mode === "program"
@@ -272,7 +272,7 @@ export function EnrollAthletesDialog(props: EnrollAthletesDialogProps) {
               </div>
 
               {visibleAthletes.length === 0 ? (
-                <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
+                <p className="rounded-egw-control border border-dashed p-4 text-sm text-muted-foreground">
                   {props.athletes.length === 0
                     ? "Tutti gli atleti del club sono gia iscritti a questo programma."
                     : "Nessun atleta corrisponde alla ricerca."}
@@ -285,7 +285,7 @@ export function EnrollAthletesDialog(props: EnrollAthletesDialogProps) {
                     return (
                       <div
                         key={athlete.id}
-                        className="rounded-md border p-3"
+                        className="rounded-egw-control border p-3"
                       >
                         <label className="flex cursor-pointer items-center gap-3">
                           <input

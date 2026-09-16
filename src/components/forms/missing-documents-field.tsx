@@ -93,13 +93,13 @@ export function MissingDocumentsField({
     );
 
   return (
-    <section className="space-y-3 rounded-md border border-slate-200 p-4">
+    <section className="space-y-3 rounded-egw-control border border-egw-hairline p-4">
       <div className="space-y-1">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-          <FileWarning className="h-4 w-4 text-amber-600" aria-hidden />
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-egw-ink">
+          <FileWarning className="h-4 w-4 text-egw-amber-ink" aria-hidden />
           Manca un documento?
         </h3>
-        <p className="text-xs text-slate-600">
+        <p className="text-xs text-egw-ink-72">
           Chiedilo approvando: la domanda va avanti e il documento diventa una
           richiesta nel fascicolo della persona, con la sua scadenza. Rifiutare
           per un allegato mancante costa alla famiglia una compilazione da
@@ -108,7 +108,7 @@ export function MissingDocumentsField({
       </div>
 
       {!canRequest ? (
-        <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+        <p className="rounded-egw-control border border-egw-hairline bg-egw-page-100 p-3 text-xs text-egw-ink-72">
           Questa compilazione non crea ne aggiorna nessun atleta: non c&apos;e
           nessuno a cui intestare la richiesta.
         </p>
@@ -117,7 +117,7 @@ export function MissingDocumentsField({
           {value.map((riga) => (
             <div
               key={riga.key}
-              className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-3"
+              className="space-y-3 rounded-egw-control border border-egw-hairline bg-egw-page-100 p-3"
             >
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
@@ -192,7 +192,7 @@ export function MissingDocumentsField({
                 </div>
 
                 <div className="flex items-end">
-                  <label className="flex items-center gap-2 text-sm text-slate-800">
+                  <label className="flex items-center gap-2 text-sm text-egw-ink">
                     <Checkbox
                       disabled={disabled}
                       checked={riga.required !== false}

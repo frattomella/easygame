@@ -81,7 +81,7 @@ export function SignaturePad({ hasSignature, onChange }: SignaturePadProps) {
           pagina invece di tracciare la firma, ed e il difetto per cui una
           firma su smartphone diventa una riga storta.
         */
-        className="h-36 w-full touch-none rounded-md border border-slate-300 bg-white"
+        className="h-36 w-full touch-none rounded-egw-control border border-egw-hairline bg-white"
         onPointerDown={(event) => {
           drawingRef.current = true;
           event.currentTarget.setPointerCapture(event.pointerId);
@@ -113,7 +113,7 @@ export function SignaturePad({ hasSignature, onChange }: SignaturePadProps) {
           <Trash2 className="mr-2 h-4 w-4" />
           Cancella
         </Button>
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-egw-ink-62">
           {hasSignature ? "Firma acquisita." : "Firma nel riquadro."}
         </span>
       </div>

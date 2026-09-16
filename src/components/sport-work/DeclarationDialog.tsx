@@ -193,7 +193,7 @@ export function DeclarationDialog({
             />
           </div>
 
-          <p className="rounded-md bg-slate-50 p-3 text-xs text-muted-foreground dark:bg-gray-800">
+          <p className="rounded-egw-control bg-egw-page-100 p-3 text-xs text-muted-foreground dark:bg-gray-800">
             Questa dichiarazione non serve solo a calcolare meglio: serve a
             provare cosa la societa sapeva e quando. Se la dichiarazione e falsa
             o tardiva la responsabilita e del lavoratore, ma il danno operativo
@@ -203,7 +203,7 @@ export function DeclarationDialog({
           {history.length > 0 ? (
             <div className="space-y-2">
               <p className="text-sm font-medium">Dichiarazioni gia acquisite</p>
-              <ul className="divide-y divide-slate-100 text-sm dark:divide-gray-700">
+              <ul className="divide-y divide-egw-rule text-sm dark:divide-gray-700">
                 {history.map((row) => (
                   <li
                     key={row.id}

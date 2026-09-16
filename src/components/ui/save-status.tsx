@@ -65,19 +65,19 @@ export function SaveStatus({
       ? {
           icon: <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />,
           label: "Salvataggio...",
-          tone: "text-slate-500",
+          tone: "text-egw-ink-62",
         }
       : state === "saved" && savedVisible
         ? {
             icon: <Check className="h-3.5 w-3.5" aria-hidden />,
             label: time ? `Salvato alle ${time}` : "Salvato",
-            tone: "text-emerald-700",
+            tone: "text-egw-green",
           }
         : state === "error"
           ? {
               icon: <TriangleAlert className="h-3.5 w-3.5" aria-hidden />,
               label: message || "Non salvato: riprova a modificare",
-              tone: "text-red-700",
+              tone: "text-egw-red",
             }
           : null;
 

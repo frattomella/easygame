@@ -2,7 +2,9 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
-import { EasyGameLogo } from "@/components/brand/easygame-logo";
+import Image from "next/image";
+import { ProgressBar } from "@/components/web/primitives/Controls";
+import iconBrand from "@/../public/images/brand/icon-w.png";
 
 /**
  * Attese dell'applicazione, con una voce sola.
@@ -31,27 +33,24 @@ export function AppLoadingScreen({
       role="status"
       aria-live="polite"
       className={cn(
-        "rounded-xl border border-slate-200 bg-white",
+        "rounded-egw-panel border border-egw-panel-border bg-white font-brand shadow-egw-plane-1",
         compact ? "p-5" : "p-8",
         className,
       )}
     >
       <div className="flex flex-col items-center text-center">
-        <EasyGameLogo className="h-12 w-12" />
+        <span className="inline-flex h-12 w-12 items-center justify-center rounded-egw-chip bg-egw-action shadow-egw-glow">
+          <Image src={iconBrand} alt="" aria-hidden width={26} height={26} className="h-[26px] w-[26px] object-contain" />
+        </span>
 
         <div className="mt-4 space-y-1">
-          <p className="font-display text-base font-semibold tracking-tight text-slate-900">
+          <p className="font-brand text-base font-semibold tracking-tight text-egw-ink">
             {title}
           </p>
-          <p className="text-sm text-slate-500">{subtitle}</p>
+          <p className="text-sm text-egw-ink-62">{subtitle}</p>
         </div>
 
-        <div
-          aria-hidden
-          className="mt-5 h-1 w-40 overflow-hidden rounded-full bg-slate-100"
-        >
-          <div className="h-full w-1/3 animate-[eg-progress_1.4s_ease-in-out_infinite] rounded-full bg-[var(--eg-blue)]" />
-        </div>
+        <ProgressBar value={null} className="mt-5 w-40" />
       </div>
     </div>
   );
@@ -73,11 +72,11 @@ export function AppBlockingOverlay({
   }
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/40 px-4">
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[var(--egw-scrim)] px-4">
       <AppLoadingScreen
         title={title}
         subtitle={subtitle}
-        className="w-full max-w-sm shadow-lg"
+        className="w-full max-w-sm shadow-egw-plane-1"
       />
     </div>
   );
@@ -107,14 +106,14 @@ export function ListSkeleton({
       {Array.from({ length: rows }).map((_, index) => (
         <div
           key={index}
-          className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3"
+          className="flex items-center gap-3 rounded-egw-control border border-egw-hairline bg-white p-3"
         >
-          <div className="h-9 w-9 shrink-0 animate-pulse rounded-full bg-slate-100" />
+          <div className="h-9 w-9 shrink-0 egw-skeleton rounded-full" />
           <div className="min-w-0 flex-1 space-y-2">
-            <div className="h-3 w-1/3 animate-pulse rounded bg-slate-100" />
-            <div className="h-3 w-1/5 animate-pulse rounded bg-slate-100" />
+            <div className="h-3 w-1/3 egw-skeleton rounded-egw-micro" />
+            <div className="h-3 w-1/5 egw-skeleton rounded-egw-micro" />
           </div>
-          <div className="hidden h-3 w-16 animate-pulse rounded bg-slate-100 sm:block" />
+          <div className="hidden h-3 w-16 egw-skeleton rounded-egw-micro sm:block" />
         </div>
       ))}
     </div>
@@ -137,7 +136,7 @@ export function CardsSkeleton({
       {Array.from({ length: cards }).map((_, index) => (
         <div
           key={index}
-          className="h-24 animate-pulse rounded-xl border border-slate-200 bg-white"
+          className="egw-skeleton h-24 rounded-egw-field"
         />
       ))}
     </div>

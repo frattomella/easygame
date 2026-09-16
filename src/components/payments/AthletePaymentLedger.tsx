@@ -101,7 +101,7 @@ export function AthletePaymentLedger({
             Pagamenti della famiglia
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900/40">
+            <div className="rounded-egw-control bg-egw-page-100 p-3 dark:bg-slate-900/40">
               <p className="text-xs font-medium text-muted-foreground">
                 Totale rate
               </p>
@@ -109,30 +109,30 @@ export function AthletePaymentLedger({
                 {formatCurrency(ledger.totals.dueAmount)}
               </p>
             </div>
-            <div className="rounded-lg bg-emerald-50 p-3 dark:bg-emerald-900/20">
+            <div className="rounded-egw-control bg-egw-tint-green p-3 dark:bg-emerald-900/20">
               <p className="text-xs font-medium text-muted-foreground">
                 Incassato
               </p>
-              <p className="mt-1 text-xl font-bold text-emerald-700 dark:text-emerald-300">
+              <p className="mt-1 text-xl font-bold text-egw-green dark:text-emerald-300">
                 {formatCurrency(ledger.totals.paidAmount)}
               </p>
             </div>
-            <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">
+            <div className="rounded-egw-control bg-egw-tint-amber p-3 dark:bg-amber-900/20">
               <p className="text-xs font-medium text-muted-foreground">
                 Residuo
               </p>
-              <p className="mt-1 text-xl font-bold text-amber-700 dark:text-amber-300">
+              <p className="mt-1 text-xl font-bold text-egw-amber-ink dark:text-amber-300">
                 {formatCurrency(ledger.totals.residualAmount)}
               </p>
               {ledger.totals.overdueCount > 0 ? (
-                <p className="mt-1 text-xs text-red-600">
+                <p className="mt-1 text-xs text-egw-red">
                   {ledger.totals.overdueCount} rate scadute per{" "}
                   {formatCurrency(ledger.totals.overdueAmount)}
                 </p>
               ) : null}
             </div>
           </div>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-egw-ink-62">
             Voucher e contributi degli enti sono contati a parte: un contributo
             maturato e un credito, non denaro incassato.
           </p>
@@ -141,15 +141,15 @@ export function AthletePaymentLedger({
 
       {showHeading ? (
         <div className="flex items-center gap-2">
-          <Wallet className="h-4 w-4 text-blue-600" />
-          <h4 className="font-semibold text-slate-950 dark:text-slate-50">
+          <Wallet className="h-4 w-4 text-egw-blue-700" />
+          <h4 className="font-semibold text-egw-ink dark:text-slate-50">
             Rate e incassi
           </h4>
         </div>
       ) : null}
 
       {ledger.isLoading && ledger.transactions.length === 0 ? (
-        <p className="text-sm text-slate-500">Lettura degli incassi...</p>
+        <p className="text-sm text-egw-ink-62">Lettura degli incassi...</p>
       ) : (
         <InstallmentLedgerList
           ledgers={ledger.ledgers}

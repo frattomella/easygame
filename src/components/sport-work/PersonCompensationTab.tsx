@@ -226,7 +226,7 @@ export function PersonCompensationTab({
                 {creating ? "Censimento…" : "Censisci nel modulo compensi"}
               </Button>
               {!nameIsUsable ? (
-                <p className="text-xs text-amber-700">
+                <p className="text-xs text-egw-amber-ink">
                   La scheda non porta nome e cognome: completali prima, oppure
                   crea la persona da «Lavoro sportivo → Rapporti».
                 </p>
@@ -268,7 +268,7 @@ export function PersonCompensationTab({
               Nessun rapporto di lavoro sportivo per questa persona.
             </p>
           ) : (
-            <ul className="divide-y divide-slate-100 dark:divide-gray-700">
+            <ul className="divide-y divide-egw-rule dark:divide-gray-700">
               {relationships.map((relationship) => {
                 const badge = statusBadgeOf(
                   relationshipStatusBadge,
@@ -279,7 +279,7 @@ export function PersonCompensationTab({
                   <li key={relationship.id}>
                     <button
                       type="button"
-                      className="flex w-full items-center justify-between gap-3 px-6 py-3 text-left transition-colors hover:bg-slate-50 dark:hover:bg-gray-800"
+                      className="flex w-full items-center justify-between gap-3 px-6 py-3 text-left transition-colors hover:bg-egw-page-050 dark:hover:bg-egw-navy-800"
                       onClick={() =>
                         router.push(
                           clubId

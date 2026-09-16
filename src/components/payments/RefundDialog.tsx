@@ -188,7 +188,7 @@ export function RefundDialog({
             sta decidendo *quanto*, e la decisione si prende leggendo questi.
           */}
           {availability ? (
-            <dl className="space-y-1 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/40">
+            <dl className="space-y-1 rounded-egw-control border border-egw-hairline bg-egw-page-100 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/40">
               <div className="flex justify-between gap-4">
                 <dt className="text-muted-foreground">Pagamento originale</dt>
                 <dd className="font-medium">
@@ -201,7 +201,7 @@ export function RefundDialog({
                   {formatCurrency(fromCents(availability.refundedCents))}
                 </dd>
               </div>
-              <div className="flex justify-between gap-4 border-t border-slate-200 pt-1 dark:border-slate-800">
+              <div className="flex justify-between gap-4 border-t border-egw-hairline pt-1 dark:border-slate-800">
                 <dt className="font-medium">Rimborsabile</dt>
                 <dd className="font-semibold">
                   {formatCurrency(fromCents(availability.refundableCents))}
@@ -269,7 +269,7 @@ export function RefundDialog({
           {/* ------------------------------------------ cosa succede dopo */}
 
           {preview ? (
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/40">
+            <div className="rounded-egw-control border border-egw-hairline bg-egw-page-100 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/40">
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Dopo il rimborso
               </p>
@@ -307,7 +307,7 @@ export function RefundDialog({
                   rimborsato. Dirlo qui e il modo per accorgersene se un giorno
                   smettesse di succedere.
                 */}
-                <div className="flex justify-between gap-4 border-t border-slate-200 pt-1 dark:border-slate-800">
+                <div className="flex justify-between gap-4 border-t border-egw-hairline pt-1 dark:border-slate-800">
                   <dt className="text-muted-foreground">
                     Commissione EasyGame restituita
                   </dt>
@@ -332,7 +332,7 @@ export function RefundDialog({
           </p>
 
           {touched && validationError ? (
-            <p className="text-sm font-medium text-red-600">{validationError}</p>
+            <p className="text-sm font-medium text-egw-red">{validationError}</p>
           ) : null}
         </div>
 

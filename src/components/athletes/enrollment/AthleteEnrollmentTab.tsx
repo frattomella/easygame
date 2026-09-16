@@ -111,10 +111,10 @@ const formatDate = (value?: unknown) => {
 };
 
 const STATE_BADGE_CLASS: Record<string, string> = {
-  no_plan: "border-slate-200 bg-slate-100 text-slate-600",
-  pending: "border-amber-200 bg-amber-50 text-amber-700",
-  partial: "border-sky-200 bg-sky-50 text-sky-700",
-  paid: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  no_plan: "border-egw-hairline bg-egw-page-100 text-egw-ink-72",
+  pending: "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink",
+  partial: "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-800",
+  paid: "border-egw-tint-green-bd bg-egw-tint-green text-egw-green",
 };
 
 /**
@@ -159,9 +159,9 @@ const Section = ({
             className="-my-2 flex min-h-[44px] min-w-0 flex-1 items-center gap-2 py-2 text-left"
           >
             {open ? (
-              <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+              <ChevronDown className="h-4 w-4 shrink-0 text-egw-ink-42" />
             ) : (
-              <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+              <ChevronRight className="h-4 w-4 shrink-0 text-egw-ink-42" />
             )}
             <CardTitle className="truncate text-base">
               {title}
@@ -195,7 +195,7 @@ const AmountLine = ({
   hint?: string;
   emphasis?: boolean;
 }) => (
-  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-b border-dashed border-slate-100 py-1.5 last:border-0 dark:border-slate-800">
+  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-b border-dashed border-egw-rule py-1.5 last:border-0 dark:border-slate-800">
     <span className="text-sm text-muted-foreground">
       {label}
       {hint ? (
@@ -203,7 +203,7 @@ const AmountLine = ({
       ) : null}
     </span>
     <span
-      className={`tabular-nums ${emphasis ? "text-lg font-bold text-slate-900 dark:text-slate-100" : "text-sm font-medium"}`}
+      className={`tabular-nums ${emphasis ? "text-lg font-bold text-egw-ink dark:text-slate-100" : "text-sm font-medium"}`}
     >
       {formatCurrency(value)}
     </span>
@@ -503,7 +503,7 @@ export function AthleteEnrollmentTab({
           </div>
 
           {hasVoucher ? (
-            <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900/40">
+            <p className="rounded-egw-control border border-egw-hairline bg-egw-page-100 p-3 text-xs text-egw-ink-72 dark:border-slate-800 dark:bg-slate-900/40">
               La copertura di un voucher <strong>non e un incasso</strong>:
               riduce quanto la famiglia deve, e in cassa entra solo quando
               l&apos;ente versa. Il maturato e un credito verso l&apos;ente, non
@@ -518,7 +518,7 @@ export function AthleteEnrollmentTab({
             stesso.
           */}
           {ledger.familyTotals.overdueCount > 0 ? (
-            <p className="text-sm font-medium text-red-600">
+            <p className="text-sm font-medium text-egw-red">
               {ledger.familyTotals.overdueCount}{" "}
               {ledger.familyTotals.overdueCount === 1
                 ? "rata scaduta"
@@ -561,7 +561,7 @@ export function AthleteEnrollmentTab({
             colorato a tutta larghezza. Chi apre questa scheda vuole sapere
             quanto resta da incassare, non se una spunta e verde.
           */}
-          <div className="flex flex-col gap-3 rounded-lg border border-dashed border-slate-200 p-3 sm:flex-row sm:items-end sm:justify-between dark:border-slate-800">
+          <div className="flex flex-col gap-3 rounded-egw-control border border-dashed border-egw-hairline p-3 sm:flex-row sm:items-end sm:justify-between dark:border-slate-800">
             <div className="flex items-center gap-3">
               <Switch
                 id="enrollment"
@@ -607,7 +607,7 @@ export function AthleteEnrollmentTab({
               Niente da incassare, niente pulsante: una CTA che non porta da
               nessuna parte e peggio dell'assenza di CTA.
             */
-            <p className="text-sm font-medium text-emerald-700">
+            <p className="text-sm font-medium text-egw-green">
               Pagamenti completati
             </p>
           ) : (
@@ -684,7 +684,7 @@ export function AthleteEnrollmentTab({
         }
       >
         {ledger.isLoading && ledger.transactions.length === 0 ? (
-          <p className="text-sm text-slate-500">Lettura degli incassi...</p>
+          <p className="text-sm text-egw-ink-62">Lettura degli incassi...</p>
         ) : (
           <>
             <p className="mb-3 text-xs text-muted-foreground">
@@ -878,7 +878,7 @@ export function AthleteEnrollmentTab({
                 {fiscalDocuments.map((document) => (
                   <li
                     key={`${document.kind}-${document.id}`}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-800"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-egw-control border border-egw-hairline p-3 dark:border-slate-800"
                   >
                     <span className="min-w-0">
                       <span className="block truncate font-medium">
@@ -919,7 +919,7 @@ export function AthleteEnrollmentTab({
                 {documents.map((document) => (
                   <li
                     key={document.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-800"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-egw-control border border-egw-hairline p-3 dark:border-slate-800"
                   >
                     <span className="min-w-0">
                       <span className="block truncate font-medium">
@@ -953,7 +953,7 @@ export function AthleteEnrollmentTab({
                         aria-label={`Elimina ${document.name}`}
                         onClick={() => onRemoveDocument(document.id)}
                       >
-                        <Trash2 className="h-4 w-4 text-red-500" />
+                        <Trash2 className="h-4 w-4 text-egw-red" />
                       </Button>
                     </span>
                   </li>

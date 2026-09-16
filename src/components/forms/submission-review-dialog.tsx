@@ -67,10 +67,10 @@ type SubmissionReviewDialogProps = {
 };
 
 const CHANGE_TONES: Record<FormFieldChange["kind"], string> = {
-  add: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  replace: "border-amber-200 bg-amber-50 text-amber-900",
-  unchanged: "border-slate-200 bg-white text-slate-500",
-  empty: "border-slate-200 bg-white text-slate-400",
+  add: "border-egw-tint-green-bd bg-egw-tint-green text-egw-green",
+  replace: "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink",
+  unchanged: "border-egw-hairline bg-white text-egw-ink-62",
+  empty: "border-egw-hairline bg-white text-egw-ink-42",
 };
 
 const CHANGE_LABELS: Record<FormFieldChange["kind"], string> = {
@@ -219,7 +219,7 @@ export function SubmissionReviewDialog({
         {issues.length ? (
           <section
             role="alert"
-            className="space-y-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-900"
+            className="space-y-3 rounded-egw-control border border-egw-tint-red-bd bg-egw-tint-red p-4 text-sm text-egw-red"
           >
             <h3 className="flex items-center gap-2 font-semibold">
               <AlertTriangle className="h-4 w-4" aria-hidden />
@@ -247,7 +247,7 @@ export function SubmissionReviewDialog({
           <p
             role="status"
             aria-live="polite"
-            className="flex items-center gap-2 py-10 text-sm text-slate-600"
+            className="flex items-center gap-2 py-10 text-sm text-egw-ink-72"
           >
             <Loader2 className="h-4 w-4 animate-spin" />
             Calcolo la proposta…
@@ -255,21 +255,21 @@ export function SubmissionReviewDialog({
         ) : (
           <div className="space-y-6">
             {review.duplicates.length ? (
-              <section className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-4">
-                <h3 className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+              <section className="space-y-2 rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-4">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-egw-amber-ink">
                   <AlertTriangle className="h-4 w-4" />
                   Potrebbe essere una scheda che esiste gia
                 </h3>
                 {review.duplicates.map((duplicate) => (
                   <div
                     key={`${duplicate.subject}-${duplicate.recordId}`}
-                    className="flex flex-col gap-2 rounded-md border border-amber-200 bg-white p-3 sm:flex-row sm:items-center"
+                    className="flex flex-col gap-2 rounded-egw-control border border-egw-tint-amber-bd bg-white p-3 sm:flex-row sm:items-center"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium text-slate-900">
+                      <p className="font-medium text-egw-ink">
                         {duplicate.label}
                       </p>
-                      <p className="text-xs text-slate-600">
+                      <p className="text-xs text-egw-ink-72">
                         {duplicate.reasons
                           .map((reason) => DUPLICATE_MATCH_LABELS[reason])
                           .join(" · ")}
@@ -300,7 +300,7 @@ export function SubmissionReviewDialog({
             ))}
 
             {review.changeSet.subjects.length === 0 ? (
-              <p className="rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+              <p className="rounded-egw-control border border-egw-hairline bg-egw-page-100 p-4 text-sm text-egw-ink-72">
                 Nessun campo di questo modulo e collegato a un dato EasyGame:
                 approvando non cambia niente in anagrafica, la compilazione
                 resta archiviata com&apos;e.
@@ -309,17 +309,17 @@ export function SubmissionReviewDialog({
 
             {review.changeSet.unmappedAnswers.length ? (
               <section className="space-y-2">
-                <h3 className="text-sm font-semibold text-slate-900">
+                <h3 className="text-sm font-semibold text-egw-ink">
                   Altre risposte
                 </h3>
-                <dl className="divide-y divide-slate-100 rounded-md border border-slate-200">
+                <dl className="divide-y divide-egw-rule rounded-egw-control border border-egw-hairline">
                   {review.changeSet.unmappedAnswers.map((answer) => (
                     <div
                       key={answer.fieldId}
                       className="grid grid-cols-1 gap-1 p-3 text-sm sm:grid-cols-3"
                     >
-                      <dt className="text-slate-600">{answer.label}</dt>
-                      <dd className="text-slate-900 sm:col-span-2">
+                      <dt className="text-egw-ink-72">{answer.label}</dt>
+                      <dd className="text-egw-ink sm:col-span-2">
                         {answer.value}
                       </dd>
                     </div>
@@ -330,7 +330,7 @@ export function SubmissionReviewDialog({
 
             {review.submission.files.length ? (
               <section className="space-y-2">
-                <h3 className="text-sm font-semibold text-slate-900">Allegati</h3>
+                <h3 className="text-sm font-semibold text-egw-ink">Allegati</h3>
                 <ul className="space-y-1">
                   {review.submission.files.map((file) => (
                     <li key={`${file.fieldId}-${file.reference}`}>
@@ -338,7 +338,7 @@ export function SubmissionReviewDialog({
                         href={resolveSubmissionFileUrl(file.reference)}
                         target="_blank"
                         rel="noreferrer"
-                        className="flex items-center gap-2 rounded-md border border-slate-200 p-2 text-sm text-sky-700 hover:bg-slate-50"
+                        className="flex items-center gap-2 rounded-egw-control border border-egw-hairline p-2 text-sm text-egw-blue-800 hover:bg-egw-page-050"
                       >
                         <Paperclip className="h-4 w-4 shrink-0" />
                         <span className="min-w-0 truncate">
@@ -348,7 +348,7 @@ export function SubmissionReviewDialog({
                     </li>
                   ))}
                 </ul>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-egw-ink-62">
                   Approvando, gli allegati vengono collegati ai documenti di
                   iscrizione della persona.
                 </p>
@@ -418,9 +418,9 @@ export function SubmissionReviewDialog({
 function SubjectChanges({ subject }: { subject: FormSubjectChange }) {
   return (
     <section className="space-y-2">
-      <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900">
+      <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-egw-ink">
         {subject.mode === "create" ? (
-          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800">
+          <span className="inline-flex items-center gap-1 rounded-full border border-egw-tint-green-bd bg-egw-tint-green px-2 py-0.5 text-xs text-egw-green">
             <UserPlus className="h-3 w-3" />
             Nuovo
           </span>
@@ -428,14 +428,14 @@ function SubjectChanges({ subject }: { subject: FormSubjectChange }) {
         {subject.subjectLabel}: {subject.recordLabel}
       </h3>
 
-      <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
+      <div className="divide-y divide-egw-rule rounded-egw-control border border-egw-hairline">
         {subject.changes.map((change) => (
           <div
             key={change.fieldId}
             className="grid grid-cols-1 gap-2 p-3 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] sm:items-center"
           >
             <div className="min-w-0">
-              <p className="text-slate-700">{change.label}</p>
+              <p className="text-egw-ink-72">{change.label}</p>
               <span
                 className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[11px] ${CHANGE_TONES[change.kind]}`}
               >
@@ -445,21 +445,21 @@ function SubjectChanges({ subject }: { subject: FormSubjectChange }) {
 
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               {change.currentValue ? (
-                <span className="min-w-0 truncate text-slate-400 line-through">
+                <span className="min-w-0 truncate text-egw-ink-42 line-through">
                   {change.currentValue}
                 </span>
               ) : null}
               {change.kind === "add" || change.kind === "replace" ? (
                 <>
                   {change.currentValue ? (
-                    <ArrowRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                    <ArrowRight className="h-3.5 w-3.5 shrink-0 text-egw-ink-42" />
                   ) : null}
-                  <span className="min-w-0 truncate font-medium text-slate-900">
+                  <span className="min-w-0 truncate font-medium text-egw-ink">
                     {formatAnswer(change.proposedValue)}
                   </span>
                 </>
               ) : (
-                <span className="min-w-0 truncate text-slate-500">
+                <span className="min-w-0 truncate text-egw-ink-62">
                   {formatAnswer(change.proposedValue)}
                 </span>
               )}

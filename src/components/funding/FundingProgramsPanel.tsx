@@ -72,15 +72,15 @@ const formatDate = (value?: unknown) => {
 const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   draft: {
     label: "BOZZA",
-    className: "border-slate-200 bg-slate-100 text-slate-600",
+    className: "border-egw-hairline bg-egw-page-100 text-egw-ink-72",
   },
   active: {
     label: "ATTIVO",
-    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    className: "border-egw-tint-green-bd bg-egw-tint-green text-egw-green",
   },
   closed: {
     label: "CHIUSO",
-    className: "border-amber-200 bg-amber-50 text-amber-700",
+    className: "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink",
   },
 };
 
@@ -207,9 +207,9 @@ export function FundingProgramsPanel() {
 
       <CardContent>
         {isLoading && programs.length === 0 ? (
-          <p className="text-sm text-slate-500">Lettura dei programmi...</p>
+          <p className="text-sm text-egw-ink-62">Lettura dei programmi...</p>
         ) : programs.length === 0 ? (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-egw-ink-62">
             Nessun programma configurato. Un voucher regionale, un contributo
             comunale o un bando privato si descrivono tutti con gli stessi
             campi.
@@ -231,7 +231,7 @@ export function FundingProgramsPanel() {
                   key={String(program.id)}
                   type="button"
                   onClick={() => setOpenProgramId(String(program.id))}
-                  className="w-full rounded-lg border border-slate-200 p-3 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 dark:border-slate-800 dark:hover:bg-slate-900"
+                  className="w-full rounded-egw-control border border-egw-hairline p-3 text-left transition-colors hover:border-egw-hairline hover:bg-egw-page-050 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 dark:border-slate-800 dark:hover:bg-slate-900"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-medium">{program.name}</p>
@@ -242,7 +242,7 @@ export function FundingProgramsPanel() {
                       Apri la scheda
                     </span>
                   </div>
-                  <p className="mt-1 text-sm text-slate-500">
+                  <p className="mt-1 text-sm text-egw-ink-62">
                     {program.funder_name} · dal {formatDate(program.valid_from)}{" "}
                     al {formatDate(program.valid_to)}
                   </p>
@@ -412,7 +412,7 @@ export function FundingProgramsPanel() {
               di EasyGame fanno nascere un credito o solo una previsione. Sta
               prima del requisito perche ne cambia il significato (ADR-0054).
             */}
-            <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+            <div className="space-y-2 rounded-egw-control border border-egw-hairline p-3 dark:border-slate-800">
               <Label>Fonte della maturazione *</Label>
               <p className="text-xs text-muted-foreground">
                 Dove viene registrata la frequenza che fa maturare il
@@ -537,7 +537,7 @@ export function FundingProgramsPanel() {
             </div>
 
             {validationError ? (
-              <p className="text-sm font-medium text-amber-600">
+              <p className="text-sm font-medium text-egw-amber-ink">
                 {validationError}
               </p>
             ) : null}

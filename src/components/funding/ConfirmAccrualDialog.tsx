@@ -112,7 +112,7 @@ export function ConfirmAccrualDialog({
 
         {accrual ? (
           <div className="space-y-4 py-2">
-            <div className="rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-900/40">
+            <div className="rounded-egw-control bg-egw-page-100 p-3 text-sm dark:bg-slate-900/40">
               <p className="font-medium capitalize">{accrual.period_label}</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Previsione EasyGame:{" "}
@@ -174,7 +174,7 @@ export function ConfirmAccrualDialog({
             </div>
 
             {accrual.confirmed_at ? (
-              <p className="text-xs text-amber-700">
+              <p className="text-xs text-egw-amber-ink">
                 Questo periodo era gia confermato a{" "}
                 {formatCurrency(accrual.accrued_amount)}. La correzione resta
                 nello storico e il periodo torna da rendicontare.
@@ -182,7 +182,7 @@ export function ConfirmAccrualDialog({
             ) : null}
 
             {error ? (
-              <p className="text-sm font-medium text-red-600" role="alert">
+              <p className="text-sm font-medium text-egw-red" role="alert">
                 {error}
               </p>
             ) : null}

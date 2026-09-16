@@ -207,11 +207,11 @@ export function RenewalForm({
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-6">
+      <div className="rounded-egw-panel-sm border border-egw-hairline bg-white p-6">
         <p
           role="status"
           aria-live="polite"
-          className="flex items-center gap-2 text-sm text-slate-600"
+          className="flex items-center gap-2 text-sm text-egw-ink-72"
         >
           <Loader2 className="h-4 w-4 animate-spin" />
           Preparo il modulo…
@@ -227,8 +227,8 @@ export function RenewalForm({
       niente. Qui si dice cosa ha risposto il server e si offre di riprovare.
     */
     return (
-      <div className="space-y-3 rounded-2xl border border-red-200 bg-red-50 p-6">
-        <p role="alert" className="text-sm text-red-800">
+      <div className="space-y-3 rounded-egw-panel-sm border border-egw-tint-red-bd bg-egw-tint-red p-6">
+        <p role="alert" className="text-sm text-egw-red">
           {failure || "Modulo di rinnovo non disponibile"}
         </p>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -254,27 +254,27 @@ export function RenewalForm({
   }
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white">
-      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 p-5">
+    <section className="rounded-egw-panel-sm border border-egw-hairline bg-white">
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-egw-hairline p-5">
         <div className="min-w-0">
-          <p className="eg-eyebrow-sm text-slate-500">{draft.clubName}</p>
-          <h2 className="mt-1 font-display text-lg font-semibold text-slate-950">
+          <p className="eg-eyebrow-sm text-egw-ink-62">{draft.clubName}</p>
+          <h2 className="mt-1 font-brand text-lg font-semibold text-egw-ink">
             {draft.form.title}
           </h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-egw-ink-72">
             {draft.isEnrollment === false ? "Per" : "Rinnovo per"}{" "}
             {draft.athleteName}
             {draft.seasonLabel ? (
               <>
                 {" · stagione "}
-                <span className="eg-tabular font-medium text-slate-800">
+                <span className="eg-tabular font-medium text-egw-ink">
                   {draft.seasonLabel}
                 </span>
               </>
             ) : null}
           </p>
           {draft.form.description ? (
-            <p className="mt-2 whitespace-pre-line text-sm text-slate-600">
+            <p className="mt-2 whitespace-pre-line text-sm text-egw-ink-72">
               {draft.form.description}
             </p>
           ) : null}
@@ -294,11 +294,11 @@ export function RenewalForm({
       <form onSubmit={submit} className="space-y-6 p-5">
         {/* Si propone, non si ripristina: come sul modulo pubblico. */}
         {foundDraft ? (
-          <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <p className="text-sm font-semibold text-amber-900">
+          <div className="space-y-3 rounded-egw-field border border-egw-tint-amber-bd bg-egw-tint-amber p-4">
+            <p className="text-sm font-semibold text-egw-amber-ink">
               Avevi gia iniziato a compilare questo modulo
             </p>
-            <p className="text-sm text-amber-900">
+            <p className="text-sm text-egw-amber-ink">
               E rimasto su questo dispositivo e non e stato inviato. Allegati e
               consensi vanno rifatti.
             </p>
@@ -322,14 +322,14 @@ export function RenewalForm({
           </div>
         ) : null}
 
-        <p className="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+        <p className="flex items-start gap-2 rounded-egw-field border border-egw-tint-blue-bd bg-egw-tint-blue p-3 text-sm text-sky-900">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
           Abbiamo gia compilato cio che il club sa di te: controlla, correggi
           quello che e cambiato e invia.
         </p>
 
         {draft.form.collectRespondentEmail ? (
-          <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="space-y-4 rounded-egw-field border border-egw-hairline bg-egw-page-100 p-4">
             <div className="space-y-2">
               <Label htmlFor="renewal-respondent-name">Chi sta compilando</Label>
               <Input
@@ -345,7 +345,7 @@ export function RenewalForm({
             </div>
             <div className="space-y-2">
               <Label htmlFor="renewal-respondent-email">
-                Email <span className="text-red-600">*</span>
+                Email <span className="text-egw-red">*</span>
               </Label>
               <Input
                 id="renewal-respondent-email"
@@ -359,7 +359,7 @@ export function RenewalForm({
                 placeholder="per essere ricontattati"
               />
               {errors.respondentEmail ? (
-                <p role="alert" className="text-sm font-medium text-red-600">
+                <p role="alert" className="text-sm font-medium text-egw-red">
                   {errors.respondentEmail}
                 </p>
               ) : null}
@@ -387,7 +387,7 @@ export function RenewalForm({
         {failure ? (
           <p
             role="alert"
-            className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            className="rounded-egw-field border border-egw-tint-red-bd bg-egw-tint-red p-3 text-sm text-egw-red"
           >
             {failure}
           </p>

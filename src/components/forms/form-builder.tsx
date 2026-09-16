@@ -237,7 +237,7 @@ export function FormBuilder({
   return (
     <div className="space-y-4">
       {/* Barra: impila sotto sm, non produce mai scorrimento orizzontale. */}
-      <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-center">
+      <div className="flex flex-col gap-3 rounded-egw-control border border-egw-hairline bg-white p-3 sm:flex-row sm:items-center">
         <Button type="button" variant="ghost" size="sm" onClick={onBack}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Moduli
@@ -284,7 +284,7 @@ export function FormBuilder({
       </div>
 
       {hasUnpublishedChanges ? (
-        <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+        <p className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-3 text-sm text-egw-amber-ink">
           Stai modificando la bozza. Chi apre il link pubblico vede ancora la
           versione {template.publishedVersion}: premi «Pubblica» per
           sostituirla.
@@ -317,7 +317,7 @@ export function FormBuilder({
               onChange={(event) =>
                 setSchema((current) => ({ ...current, title: event.target.value }))
               }
-              className="h-auto border-0 px-0 font-display text-xl font-semibold shadow-none focus-visible:ring-0"
+              className="h-auto border-0 px-0 font-brand text-xl font-semibold shadow-none focus-visible:ring-0"
               placeholder="Titolo del modulo"
             />
             <Label htmlFor="form-description" className="sr-only">
@@ -339,7 +339,7 @@ export function FormBuilder({
           </div>
 
           {subjects.length ? (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-egw-ink-62">
               Questo modulo riguarda:{" "}
               {subjects.map((subject) => FORM_SUBJECTS[subject].label).join(", ")}.
               Alla compilazione verra chiesto quale.
@@ -349,7 +349,7 @@ export function FormBuilder({
 
         <CardContent className="space-y-4">
           {mode === "preview" ? (
-            <div className="rounded-lg border border-dashed border-slate-300 p-4 sm:p-6">
+            <div className="rounded-egw-control border border-dashed border-egw-hairline p-4 sm:p-6">
               <FormRenderer
                 fields={previewSchema.fields}
                 values={previewValues}
@@ -375,7 +375,7 @@ export function FormBuilder({
               ))}
 
               {schema.fields.length === 0 ? (
-                <p className="rounded-md border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
+                <p className="rounded-egw-control border border-dashed border-egw-hairline p-8 text-center text-sm text-egw-ink-62">
                   Nessun campo. Comincia da «Aggiungi campo».
                 </p>
               ) : null}
@@ -400,7 +400,7 @@ export function FormBuilder({
                         className="flex-col items-start gap-0.5"
                       >
                         <span className="font-medium">{option.label}</span>
-                        <span className="text-xs text-slate-500">
+                        <span className="text-xs text-egw-ink-62">
                           {option.hint}
                         </span>
                       </DropdownMenuItem>
@@ -490,13 +490,13 @@ function FormSettingsPanel({
               value={schema.settings.closeAt.slice(0, 10)}
               onChange={(event) => onChange({ closeAt: event.target.value })}
             />
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-egw-ink-62">
               Dopo questa data il link pubblico non accetta piu risposte.
             </p>
           </div>
 
           <div className="space-y-3">
-            <label className="flex items-start gap-3 text-sm text-slate-700">
+            <label className="flex items-start gap-3 text-sm text-egw-ink-72">
               <Switch
                 checked={schema.settings.collectRespondentEmail}
                 onCheckedChange={(checked) =>
@@ -506,13 +506,13 @@ function FormSettingsPanel({
               />
               <span>
                 Chiedi l&apos;email a chi compila
-                <span className="block text-xs text-slate-500">
+                <span className="block text-xs text-egw-ink-62">
                   Serve alla segreteria per ricontattare chi ha sbagliato un dato.
                 </span>
               </span>
             </label>
 
-            <label className="flex items-start gap-3 text-sm text-slate-700">
+            <label className="flex items-start gap-3 text-sm text-egw-ink-72">
               <Switch
                 checked={schema.settings.notifyOnSubmit}
                 onCheckedChange={(checked) =>
@@ -522,7 +522,7 @@ function FormSettingsPanel({
               />
               <span>
                 Avvisami a ogni invio
-                <span className="block text-xs text-slate-500">
+                <span className="block text-xs text-egw-ink-62">
                   Notifica in EasyGame e per email.
                 </span>
               </span>
@@ -534,7 +534,7 @@ function FormSettingsPanel({
               diversa — la stessa iscrizione rimandata a settembre, e poi a
               ottobre, con una virgola cambiata.
             */}
-            <label className="flex items-start gap-3 text-sm text-slate-700">
+            <label className="flex items-start gap-3 text-sm text-egw-ink-72">
               <Switch
                 checked={schema.settings.singleSubmission}
                 onCheckedChange={(checked) =>
@@ -544,7 +544,7 @@ function FormSettingsPanel({
               />
               <span>
                 Si compila una volta sola
-                <span className="block text-xs text-slate-500">
+                <span className="block text-xs text-egw-ink-62">
                   Chi lo ha gia inviato dall&apos;area famiglia non puo rimandarlo. Dal
                   link pubblico il vincolo non si applica: li chi compila non e
                   ancora in archivio, e non c&apos;e nessuno da riconoscere. Vale per atleta, e
@@ -617,7 +617,7 @@ function FormPurposeSetting({
           <SelectItem value="generic">Altro modulo</SelectItem>
         </SelectContent>
       </Select>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-egw-ink-62">
         Solo i moduli di iscrizione compaiono alla famiglia sotto «cosa vuoi
         rinnovare». Un questionario o una raccolta di adesioni non ci deve
         stare.
@@ -675,7 +675,7 @@ function DocumentTemplateSetting({
   const NESSUNO = "__nessuno__";
 
   return (
-    <div className="space-y-2 border-t border-slate-100 pt-5">
+    <div className="space-y-2 border-t border-egw-rule pt-5">
       <Label htmlFor="document-template">Documento da generare</Label>
       <Select
         value={value || NESSUNO}
@@ -694,7 +694,7 @@ function DocumentTemplateSetting({
           ))}
         </SelectContent>
       </Select>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-egw-ink-62">
         {error
           ? error
           : "All'approvazione, il modello viene riempito con i dati della persona e il documento resta collegato alla sua scheda. Il modello dev'essere pubblicato e parlare dello stesso soggetto del modulo."}

@@ -61,7 +61,7 @@ export function TrainingGroupSelector({
   return (
     <div className="space-y-2">
       <Label>Gruppi</Label>
-      <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+      <div className="max-h-40 space-y-1 overflow-y-auto rounded-egw-control border p-2">
         {groups.length ? (
           groups.map((group) => {
             const descritta = descrivi(group);
@@ -75,7 +75,7 @@ export function TrainingGroupSelector({
                 <input
                   type="checkbox"
                   id={`${idPrefix}-${group.id}`}
-                  className="h-4 w-4 rounded border-gray-300"
+                  className="h-4 w-4 rounded border-egw-hairline"
                   checked={selectedGroupIds.includes(group.id)}
                   onChange={(event) => onToggle(group, event.target.checked)}
                 />
@@ -96,7 +96,7 @@ export function TrainingGroupSelector({
           </p>
         )}
       </div>
-      {error ? <p className="text-xs text-red-500">{error}</p> : null}
+      {error ? <p className="text-xs text-egw-red">{error}</p> : null}
     </div>
   );
 }

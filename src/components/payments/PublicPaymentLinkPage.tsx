@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { CheckCircle2, CreditCard, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { EasyGameLogo } from "@/components/brand/easygame-logo";
+import { OutsideShell, OutsideStatus } from "@/components/web/shell/OutsideShell";
 
 /**
  * La pagina pubblica del link di pagamento (`/pay/[token]`).
@@ -57,20 +57,14 @@ const giorno = (value: string | null) => {
       });
 };
 
+/* Il guscio fuori dal club (ambiente 3): una colonna sola, e una ricevuta, non un cruscotto. */
 const Guscio = ({ children }: { children: React.ReactNode }) => (
-  <main className="min-h-[100dvh] bg-slate-50 py-6">
-    {/* Una colonna sola a ogni larghezza: e una ricevuta, non un cruscotto. */}
-    <div className="mx-auto w-full max-w-lg px-4">{children}</div>
-  </main>
+  <OutsideShell width="stepper" bare>
+    <div className="w-full [&>header]:rounded-t-egw-panel [&>header]:border-white/60 [&>header]:shadow-egw-plane-2 [&>section]:border-white/60 [&>section:last-of-type]:rounded-b-egw-panel">{children}</div>
+  </OutsideShell>
 );
 
-const Piede = () => (
-  <footer className="flex items-center justify-center gap-2 py-6 text-xs text-slate-500">
-    <span>Pagamento gestito con</span>
-    <EasyGameLogo className="h-4 w-4" tone="dark" />
-    <span className="font-display font-semibold">EasyGame</span>
-  </footer>
-);
+const Piede = () => <p className="py-4 text-center text-[11.5px] text-white/70">Pagamento gestito con EasyGame</p>;
 
 export function PublicPaymentLinkPage({ token }: { token: string }) {
   const [view, setView] = useState<PublicPaymentView | null>(null);
@@ -163,27 +157,20 @@ export function PublicPaymentLinkPage({ token }: { token: string }) {
 
   if (loading) {
     return (
-      <main className="flex min-h-[100dvh] items-center justify-center bg-slate-50 p-6">
-        <p
-          role="status"
-          aria-live="polite"
-          className="flex items-center gap-2 text-sm text-slate-600"
-        >
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Carico il pagamento…
-        </p>
-      </main>
+      <OutsideShell width="form">
+        <OutsideStatus icon={<Loader2 />} title="Pagamento" description="Un momento: carico il pagamento." busy busyLabel="Carico il pagamento…" />
+      </OutsideShell>
     );
   }
 
   if (!view) {
     return (
       <Guscio>
-        <div className="rounded-lg border border-slate-200 bg-white p-6 text-center">
-          <h1 className="font-display text-lg font-semibold text-slate-900">
+        <div className="rounded-egw-panel border border-white/60 bg-white p-6 text-center shadow-egw-plane-2">
+          <h1 className="font-brand text-[20px] font-extrabold tracking-[var(--egw-track-display)] text-egw-ink">
             Link non disponibile
           </h1>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-egw-ink-72">
             {failure ||
               "Il link non e piu valido. Chiedi alla societa un link aggiornato."}
           </p>
@@ -197,7 +184,7 @@ export function PublicPaymentLinkPage({ token }: { token: string }) {
 
   return (
     <Guscio>
-      <header className="rounded-t-lg border border-b-0 border-slate-200 bg-white p-5">
+      <header className="rounded-t-egw-panel border border-b-0 border-egw-hairline bg-white p-5">
         <div className="flex items-center gap-3">
           {view.clubLogoUrl ? (
             <Image
@@ -206,49 +193,49 @@ export function PublicPaymentLinkPage({ token }: { token: string }) {
               width={44}
               height={44}
               unoptimized
-              className="h-11 w-11 rounded-md object-contain"
+              className="h-11 w-11 rounded-egw-control object-contain"
             />
           ) : null}
-          <p className="font-display text-sm font-semibold text-slate-700">
+          <p className="font-brand text-sm font-semibold text-egw-ink-72">
             {view.clubName}
           </p>
         </div>
 
-        <h1 className="mt-4 font-display text-xl font-semibold text-slate-900 sm:text-2xl">
+        <h1 className="mt-4 font-brand text-xl font-semibold text-egw-ink sm:text-2xl">
           {saldata ? "Rata gia saldata" : "Pagamento della quota"}
         </h1>
         {view.athleteName ? (
-          <p className="mt-1 text-sm text-slate-600">{view.athleteName}</p>
+          <p className="mt-1 text-sm text-egw-ink-72">{view.athleteName}</p>
         ) : null}
       </header>
 
-      <section className="rounded-b-lg border border-slate-200 bg-white p-5">
+      <section className="rounded-b-egw-panel border border-egw-hairline bg-white p-5">
         <dl className="space-y-3 text-sm">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <dt className="text-slate-600">Causale</dt>
-            <dd className="font-medium text-slate-900">{view.description}</dd>
+            <dt className="text-egw-ink-72">Causale</dt>
+            <dd className="font-medium text-egw-ink">{view.description}</dd>
           </div>
 
           {view.dueDate ? (
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <dt className="text-slate-600">Scadenza</dt>
-              <dd className="font-medium text-slate-900">
+              <dt className="text-egw-ink-72">Scadenza</dt>
+              <dd className="font-medium text-egw-ink">
                 {giorno(view.dueDate)}
               </dd>
             </div>
           ) : null}
 
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <dt className="text-slate-600">Importo della rata</dt>
-            <dd className="font-medium text-slate-900">
+            <dt className="text-egw-ink-72">Importo della rata</dt>
+            <dd className="font-medium text-egw-ink">
               {euro(view.dueAmount)}
             </dd>
           </div>
 
           {view.paidAmount > 0 ? (
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <dt className="text-slate-600">Gia versato</dt>
-              <dd className="font-medium text-emerald-700">
+              <dt className="text-egw-ink-72">Gia versato</dt>
+              <dd className="font-medium text-egw-green">
                 {euro(view.paidAmount)}
               </dd>
             </div>
@@ -256,21 +243,21 @@ export function PublicPaymentLinkPage({ token }: { token: string }) {
         </dl>
 
         <div
-          className={`mt-4 rounded-md border p-4 ${
+          className={`mt-4 rounded-egw-control border p-4 ${
             saldata
-              ? "border-emerald-200 bg-emerald-50"
-              : "border-slate-200 bg-slate-50"
+              ? "border-egw-tint-green-bd bg-egw-tint-green"
+              : "border-egw-hairline bg-egw-page-100"
           }`}
         >
           {saldata ? (
-            <p className="flex items-center gap-2 text-sm font-medium text-emerald-800">
+            <p className="flex items-center gap-2 text-sm font-medium text-egw-green">
               <CheckCircle2 className="h-5 w-5 shrink-0" />
               Non c&apos;e niente da pagare: risulta tutto versato.
             </p>
           ) : (
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <span className="text-sm text-slate-600">Da pagare adesso</span>
-              <span className="font-display text-2xl font-semibold text-slate-900">
+              <span className="text-sm text-egw-ink-72">Da pagare adesso</span>
+              <span className="font-brand text-2xl font-semibold text-egw-ink">
                 {euro(view.residualAmount)}
               </span>
             </div>
@@ -280,7 +267,7 @@ export function PublicPaymentLinkPage({ token }: { token: string }) {
         {notice ? (
           <p
             role="status"
-            className="mt-4 rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800"
+            className="mt-4 rounded-egw-control border border-egw-tint-blue-bd bg-egw-tint-blue p-3 text-sm text-egw-blue-800"
           >
             {notice}
           </p>
@@ -289,7 +276,7 @@ export function PublicPaymentLinkPage({ token }: { token: string }) {
         {failure ? (
           <p
             role="alert"
-            className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+            className="mt-4 rounded-egw-control border border-egw-tint-red-bd bg-egw-tint-red p-3 text-sm text-egw-red"
           >
             {failure}
           </p>
@@ -311,7 +298,7 @@ export function PublicPaymentLinkPage({ token }: { token: string }) {
               Paga {euro(view.residualAmount)}
             </Button>
 
-            <p className="mt-3 flex items-start gap-2 text-xs text-slate-500">
+            <p className="mt-3 flex items-start gap-2 text-xs text-egw-ink-62">
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
               Il pagamento avviene sul circuito sicuro del fornitore. EasyGame
               non vede e non conserva i dati della tua carta.
@@ -320,7 +307,7 @@ export function PublicPaymentLinkPage({ token }: { token: string }) {
         ) : null}
 
         {view.clubContactEmail ? (
-          <p className="mt-4 text-xs text-slate-500">
+          <p className="mt-4 text-xs text-egw-ink-62">
             Per informazioni scrivi a {view.clubContactEmail}.
           </p>
         ) : null}

@@ -75,7 +75,7 @@ export function DynamicFieldPicker({
         </DialogHeader>
 
         <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-egw-ink-42" />
           <Input
             autoFocus
             className="pl-9"
@@ -102,7 +102,7 @@ export function DynamicFieldPicker({
         <div className="space-y-5">
           {grouped.map((group) => (
             <section key={group.subject} className="space-y-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-egw-ink-62">
                 {group.definition.pluralLabel}
               </h3>
               <div className="space-y-1">
@@ -114,24 +114,24 @@ export function DynamicFieldPicker({
                       onPick(field);
                       onClose();
                     }}
-                    className={`flex w-full items-start gap-3 rounded-md border p-3 text-left text-sm transition ${
+                    className={`flex w-full items-start gap-3 rounded-egw-control border p-3 text-left text-sm transition ${
                       field.key === currentKey
-                        ? "border-sky-300 bg-sky-50"
-                        : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                        ? "border-egw-tint-blue-bd bg-egw-tint-blue"
+                        : "border-egw-hairline hover:border-egw-hairline hover:bg-egw-page-050"
                     }`}
                   >
-                    <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                    <Link2 className="mt-0.5 h-4 w-4 shrink-0 text-egw-ink-42" />
                     <span className="min-w-0">
-                      <span className="block font-medium text-slate-900">
+                      <span className="block font-medium text-egw-ink">
                         {field.label}
                       </span>
                       {field.hint ? (
-                        <span className="block text-xs text-slate-500">
+                        <span className="block text-xs text-egw-ink-62">
                           {field.hint}
                         </span>
                       ) : null}
                       {!field.writable ? (
-                        <span className="mt-1 inline-block rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
+                        <span className="mt-1 inline-block rounded-full border border-egw-hairline bg-egw-page-100 px-2 py-0.5 text-[11px] text-egw-ink-72">
                           Sola lettura
                         </span>
                       ) : null}
@@ -143,7 +143,7 @@ export function DynamicFieldPicker({
           ))}
 
           {grouped.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-500">
+            <p className="py-6 text-center text-sm text-egw-ink-62">
               Nessun dato con questo nome.
             </p>
           ) : null}

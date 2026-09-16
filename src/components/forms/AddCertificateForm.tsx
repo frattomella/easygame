@@ -435,7 +435,7 @@ export function AddCertificateForm({
         <Label htmlFor="athleteId">Atleta</Label>
         <div className="relative">
           {isAthleteLocked ? (
-            <div className="h-10 rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
+            <div className="h-10 rounded-egw-control border border-input bg-muted px-3 py-2 text-sm text-muted-foreground">
               {athleteName ||
                 localAthletes.find((item) => item.id === athleteId)?.name ||
                 "Atleta selezionato"}
@@ -455,7 +455,7 @@ export function AddCertificateForm({
                 name="athleteId"
                 value={formData.athleteId}
                 onChange={handleChange}
-                className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                className="w-full h-10 rounded-egw-control border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                 required
               >
                 <option value="" disabled>
@@ -491,7 +491,7 @@ export function AddCertificateForm({
           name="certificateType"
           value={formData.certificateType}
           onChange={handleChange}
-          className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+          className="w-full h-10 rounded-egw-control border border-input bg-background px-3 py-2 text-sm ring-offset-background"
           required
         >
           {certificateTypes.map((type) => (
@@ -633,7 +633,7 @@ export function AddCertificateForm({
           </Button>
           <Button
             onClick={handleSubmit}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-egw-blue hover:bg-egw-blue-700"
             disabled={isSubmitting}
           >
             {isSubmitting ? "Salvataggio..." : isEditing ? "Salva modifiche" : "Salva"}

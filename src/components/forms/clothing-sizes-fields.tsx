@@ -54,7 +54,7 @@ export function ClothingSizesFields({
     onChange({ ...sizes, ...patch });
 
   const selectClassName =
-    "h-10 w-full rounded-md border border-input bg-background px-3 text-sm";
+    "h-10 w-full rounded-egw-control border border-input bg-background px-3 text-sm";
 
   return (
     <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-2", className)}>

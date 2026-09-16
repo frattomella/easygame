@@ -311,9 +311,12 @@ test("i modali dei moduli restano raggiungibili in fondo su telefono", () => {
 test("il modulo pubblico e a colonna singola e con comandi da 44 px", () => {
   const source = read("components/forms/public-form-page.tsx");
 
-  assert.match(source, /max-w-2xl/, "una colonna sola, anche su desktop");
+  /* Redesign: il modulo sta nel guscio fuori dal club, che e a colonna singola (720px) e alto 100dvh. */
+  assert.match(source, /<OutsideShell width="wide" bare>/, "una colonna sola, anche su desktop");
   assert.match(source, /min-h-\[44px\]/, "comandi toccabili con il pollice");
-  assert.match(source, /min-h-\[100dvh\]/, "non 100vh: su telefono e piu alto dello schermo");
+  const shell = readFileSync(path.join(process.cwd(), "src/components/web/shell/OutsideShell.tsx"), "utf8");
+  assert.match(shell, /min-h-\[100dvh\]/, "non 100vh: su telefono e piu alto dello schermo");
+  assert.match(shell, /wide: "max-w-\[720px\]"/);
   assert.ok(
     !/sm:grid-cols|lg:grid-cols/.test(source),
     "un modulo di iscrizione non diventa a due colonne su desktop",

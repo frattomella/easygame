@@ -120,9 +120,9 @@ export const DocumentDecisionDialog = ({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {kind === "invoice" ? (
-              <FileText className="h-4 w-4 text-blue-600" />
+              <FileText className="h-4 w-4 text-egw-blue-700" />
             ) : (
-              <Receipt className="h-4 w-4 text-blue-600" />
+              <Receipt className="h-4 w-4 text-egw-blue-700" />
             )}
             {kind ? KIND_LABELS[kind] : "Documento"}: cosa stai per emettere
           </DialogTitle>
@@ -133,19 +133,19 @@ export const DocumentDecisionDialog = ({
         </DialogHeader>
 
         {isLoading ? (
-          <p className="flex items-center gap-2 text-sm text-slate-500">
+          <p className="flex items-center gap-2 text-sm text-egw-ink-62">
             <Loader2 className="h-4 w-4 animate-spin" />
             Lettura della proposta...
           </p>
         ) : error ? (
-          <p className="text-sm text-red-600">{error}</p>
+          <p className="text-sm text-egw-red">{error}</p>
         ) : decision ? (
           <div className="space-y-3 text-sm">
-            <p className="text-slate-700 dark:text-slate-200">
+            <p className="text-egw-ink-72 dark:text-slate-200">
               {decision.reason}
             </p>
 
-            <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-1 rounded-lg bg-slate-50 p-3 dark:bg-slate-900/40">
+            <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-1 rounded-egw-control bg-egw-page-100 p-3 dark:bg-slate-900/40">
               <dt className="text-xs text-muted-foreground">Intestatario</dt>
               <dd className="text-xs">{preview?.recipient?.name || "—"}</dd>
 
@@ -172,7 +172,7 @@ export const DocumentDecisionDialog = ({
               <dd className="text-xs">
                 {preview?.amounts?.taxableAmountCents === null ||
                 preview?.amounts?.taxableAmountCents === undefined ? (
-                  <span className="text-amber-700 dark:text-amber-400">
+                  <span className="text-egw-amber-ink dark:text-amber-400">
                     aliquota non dichiarata sulla causale
                   </span>
                 ) : (
@@ -187,7 +187,7 @@ export const DocumentDecisionDialog = ({
                 {classification?.declared ? (
                   classification.label
                 ) : (
-                  <span className="font-semibold text-amber-700 dark:text-amber-400">
+                  <span className="font-semibold text-egw-amber-ink dark:text-amber-400">
                     {classification?.label || "NON CLASSIFICATO"}
                   </span>
                 )}
@@ -195,7 +195,7 @@ export const DocumentDecisionDialog = ({
             </dl>
 
             {classification && !classification.declared ? (
-              <p className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+              <p className="flex items-start gap-2 rounded-egw-control bg-egw-tint-amber p-3 text-xs text-egw-amber-ink dark:bg-amber-900/20 dark:text-amber-200">
                 <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>
                   Nessuno ha classificato questo incasso. Il documento si emette
@@ -206,20 +206,20 @@ export const DocumentDecisionDialog = ({
             ) : null}
 
             {preview?.amounts?.stampDuty?.undetermined ? (
-              <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+              <p className="rounded-egw-control bg-egw-tint-amber p-3 text-xs text-egw-amber-ink dark:bg-amber-900/20 dark:text-amber-200">
                 {preview.amounts.stampDuty.reason}
               </p>
             ) : null}
 
             {notAllowed ? (
-              <p className="rounded-lg bg-red-50 p-3 text-xs text-red-700 dark:bg-red-900/20 dark:text-red-300">
+              <p className="rounded-egw-control bg-egw-tint-red p-3 text-xs text-egw-red dark:bg-red-900/20 dark:text-red-300">
                 Questa operazione non prevede{" "}
                 {kind === "invoice" ? "una fattura" : "una ricevuta"}.
               </p>
             ) : null}
 
             {blockers.length ? (
-              <div className="rounded-lg bg-red-50 p-3 text-xs text-red-700 dark:bg-red-900/20 dark:text-red-300">
+              <div className="rounded-egw-control bg-egw-tint-red p-3 text-xs text-egw-red dark:bg-red-900/20 dark:text-red-300">
                 <p className="font-medium">Per la fattura mancano:</p>
                 <ul className="mt-1 list-disc pl-4">
                   {blockers.map((entry) => (

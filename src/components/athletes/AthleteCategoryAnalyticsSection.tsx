@@ -31,14 +31,14 @@ const statusBadgeClass = (status: string) => {
   const normalized = status.trim().toLowerCase();
 
   if (normalized === "presente" || normalized === "convocato") {
-    return "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50";
+    return "border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green";
   }
 
   if (normalized === "non registrato" || normalized === "non convocato") {
-    return "border-slate-200 bg-white text-slate-500 hover:bg-white";
+    return "border-egw-hairline bg-white text-egw-ink-62 hover:bg-white";
   }
 
-  return "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50";
+  return "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink hover:bg-egw-tint-amber";
 };
 
 function MetricTile({
@@ -49,9 +49,9 @@ function MetricTile({
   value: string | number;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-      <p className="text-xs font-medium text-slate-500">{label}</p>
-      <p className="mt-1 text-xl font-semibold text-slate-950">{value}</p>
+    <div className="rounded-egw-field border border-egw-hairline bg-egw-page-100 p-3">
+      <p className="text-xs font-medium text-egw-ink-62">{label}</p>
+      <p className="mt-1 text-xl font-semibold text-egw-ink">{value}</p>
     </div>
   );
 }
@@ -68,30 +68,30 @@ function RecentEventList({
   emptyLabel: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
+    <div className="rounded-egw-field border border-egw-hairline bg-white p-4">
       <div className="mb-3 flex items-center gap-2">
-        <Icon className="h-4 w-4 text-blue-600" />
-        <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+        <Icon className="h-4 w-4 text-egw-blue-700" />
+        <h4 className="text-sm font-semibold text-egw-ink">{title}</h4>
       </div>
       {events.length === 0 ? (
-        <p className="text-sm text-slate-500">{emptyLabel}</p>
+        <p className="text-sm text-egw-ink-62">{emptyLabel}</p>
       ) : (
         <div className="space-y-2">
           {events.slice(0, 5).map((event) => (
             <div
               key={event.id}
-              className="rounded-lg border border-slate-100 bg-slate-50 p-3"
+              className="rounded-egw-control border border-egw-rule bg-egw-page-100 p-3"
             >
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-slate-900">
+                  <p className="truncate text-sm font-medium text-egw-ink">
                     {event.title}
                   </p>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-egw-ink-62">
                     {formatDate(event.date)}
                   </p>
                   {event.notes ? (
-                    <p className="mt-1 text-xs text-slate-600">
+                    <p className="mt-1 text-xs text-egw-ink-72">
                       Note: {event.notes}
                     </p>
                   ) : null}
@@ -134,14 +134,14 @@ function UnclassifiedEvents({
           {events.slice(0, 8).map((event) => (
             <div
               key={event.id}
-              className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-3"
+              className="rounded-egw-field border border-dashed border-egw-hairline bg-egw-page-100 p-3"
             >
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-sm font-medium text-slate-900">
+                  <p className="text-sm font-medium text-egw-ink">
                     {event.title}
                   </p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-egw-ink-62">
                     {event.type === "training" ? "Allenamento" : "Gara"} -{" "}
                     {formatDate(event.date)}
                   </p>
@@ -181,7 +181,7 @@ export function AthleteCategoryAnalyticsSection({
         </CardHeader>
         <CardContent>
           {analytics.categories.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-muted-foreground">
+            <div className="rounded-egw-field border border-dashed border-egw-hairline bg-egw-page-100 p-6 text-center text-sm text-muted-foreground">
               Nessuna categoria disponibile per calcolare le analitiche.
             </div>
           ) : (
@@ -189,22 +189,22 @@ export function AthleteCategoryAnalyticsSection({
               {analytics.categories.map((category) => (
                 <div
                   key={category.categoryId}
-                  className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                  className="rounded-egw-panel-sm border border-egw-hairline bg-white p-4 shadow-egw-plane-1"
                 >
                   <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <h3 className="text-lg font-semibold text-slate-950">
+                      <h3 className="text-lg font-semibold text-egw-ink">
                         {categoryLabel
                           ? categoryLabel({ categoryId: category.categoryId, categoryName: category.categoryName })
                           : category.categoryName}
                       </h3>
-                      <p className="text-sm text-slate-500">
+                      <p className="text-sm text-egw-ink-62">
                         {category.isPrimary
                           ? "Categoria primaria"
                           : "Categoria secondaria"}
                       </p>
                     </div>
-                    <Badge className="w-fit border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
+                    <Badge className="w-fit border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue">
                       {membershipRoleLabel(Boolean(category.isPrimary))}
                     </Badge>
                   </div>

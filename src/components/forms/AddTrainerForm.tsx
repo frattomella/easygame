@@ -151,7 +151,7 @@ export function AddTrainerForm({
           </Button>
           <Button
             onClick={handleSubmit}
-            className="bg-blue-600 hover:bg-blue-700"
+            className="bg-egw-blue hover:bg-egw-blue-700"
           >
             Salva
           </Button>
@@ -324,14 +324,14 @@ export function AddTrainerForm({
         <div className="space-y-2">
           <Label>Categorie Allenate *</Label>
           {!Array.isArray(categories) || categories.length === 0 ? (
-            <div className="p-4 border border-yellow-200 bg-yellow-50 rounded-md">
-              <p className="text-sm text-yellow-800">
+            <div className="p-4 border border-egw-tint-amber-bd bg-egw-tint-amber rounded-egw-control">
+              <p className="text-sm text-egw-amber-ink">
                 Nessuna categoria disponibile. Crea prima delle categorie per
                 assegnarle agli allenatori.
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto border border-gray-200 rounded-md p-2">
+            <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto border border-egw-hairline rounded-egw-control p-2">
               {categories.map((category) => (
                 <div key={category.id} className="flex items-center space-x-2">
                   <input
@@ -339,7 +339,7 @@ export function AddTrainerForm({
                     id={`category-${category.id}`}
                     checked={formData.selectedCategories.includes(category.id)}
                     onChange={() => handleCategoryChange(category.id)}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="h-4 w-4 rounded border-egw-hairline text-egw-blue-700 focus:ring-blue-500"
                   />
                   <Label
                     htmlFor={`category-${category.id}`}

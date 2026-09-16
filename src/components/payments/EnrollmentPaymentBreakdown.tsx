@@ -11,10 +11,10 @@ import {
 import { describeProrationResult } from "@/lib/payment-plan-utils";
 
 const INSTALLMENT_BADGE_CLASS: Record<InstallmentPaymentState, string> = {
-  paid: "border-green-200 bg-green-50 text-green-700 hover:bg-green-50",
-  partial: "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-50",
-  pending: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-50",
-  unbilled: "border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-100",
+  paid: "border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green",
+  partial: "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-800 hover:bg-egw-tint-blue",
+  pending: "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink hover:bg-egw-tint-amber",
+  unbilled: "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
 };
 
 const formatCurrency = (value: unknown) =>
@@ -192,15 +192,15 @@ export function EnrollmentPaymentBreakdown({
           <p className="text-sm font-medium text-muted-foreground">
             Piano / abbonamento
           </p>
-          <h3 className="text-lg font-semibold text-slate-950 dark:text-slate-50">
+          <h3 className="text-lg font-semibold text-egw-ink dark:text-slate-50">
             {summary?.planName || "Nessun piano selezionato"}
           </h3>
           {summary?.planDescription ? (
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            <p className="mt-1 text-sm text-egw-ink-72 dark:text-egw-ink-42">
               {summary.planDescription}
             </p>
           ) : null}
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-egw-ink-62">
             {summary?.enrollmentDate ? (
               <Badge variant="outline">
                 Data iscrizione {formatDate(summary.enrollmentDate)}
@@ -239,7 +239,7 @@ export function EnrollmentPaymentBreakdown({
               <CreditCard className="mr-2 h-4 w-4" />
               {payNowPending ? "Apertura…" : "Paga ora"}
             </Button>
-            <p className="mt-2 text-xs text-slate-500">{payNowHint}</p>
+            <p className="mt-2 text-xs text-egw-ink-62">{payNowHint}</p>
           </div>
         ) : null}
       </div>
@@ -251,50 +251,50 @@ export function EnrollmentPaymentBreakdown({
             : "grid grid-cols-1 gap-3 md:grid-cols-3"
         }
       >
-        <div className="rounded-lg bg-slate-50 p-4 dark:bg-slate-900/40">
+        <div className="rounded-egw-control bg-egw-page-100 p-4 dark:bg-slate-900/40">
           <p className="text-sm font-medium text-muted-foreground">
             Totale servizi
           </p>
-          <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
+          <p className="mt-1 text-2xl font-bold text-egw-ink dark:text-slate-100">
             {formatCurrency(summary?.grossAmount)}
           </p>
         </div>
-        <div className="rounded-lg bg-amber-50 p-4 dark:bg-amber-900/20">
+        <div className="rounded-egw-control bg-egw-tint-amber p-4 dark:bg-amber-900/20">
           <p className="text-sm font-medium text-muted-foreground">Sconti</p>
-          <p className="mt-1 text-2xl font-bold text-amber-700 dark:text-amber-300">
+          <p className="mt-1 text-2xl font-bold text-egw-amber-ink dark:text-amber-300">
             -{formatCurrency(summary?.totalDiscounts)}
           </p>
         </div>
-        <div className="rounded-lg bg-green-50 p-4 dark:bg-green-900/20">
+        <div className="rounded-egw-control bg-egw-tint-green p-4 dark:bg-green-900/20">
           <p className="text-sm font-medium text-muted-foreground">
             {showSettlementTotals ? "Totale dovuto" : "Quota del piano"}
           </p>
-          <p className="mt-1 text-2xl font-bold text-green-700 dark:text-green-300">
+          <p className="mt-1 text-2xl font-bold text-egw-green dark:text-green-300">
             {formatCurrency(summary?.expectedTotal)}
           </p>
         </div>
         {showSettlementTotals ? (
-          <div className="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
+          <div className="rounded-egw-control bg-egw-tint-blue p-4 dark:bg-egw-navy-900/20">
             <p className="text-sm font-medium text-muted-foreground">Residuo</p>
-            <p className="mt-1 text-2xl font-bold text-blue-700 dark:text-blue-300">
+            <p className="mt-1 text-2xl font-bold text-egw-blue-700 dark:text-blue-300">
               {formatCurrency(summary?.residual)}
             </p>
-            <p className="mt-1 text-xs text-blue-700 dark:text-blue-300">
+            <p className="mt-1 text-xs text-egw-blue-700 dark:text-blue-300">
               Pagato {formatCurrency(summary?.recordedPaid)}
             </p>
           </div>
         ) : null}
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
+      <div className="rounded-egw-control border border-egw-hairline bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
         <div className="mb-3 flex items-center gap-2">
-          <FileText className="h-4 w-4 text-blue-600" />
-          <h4 className="font-semibold text-slate-950 dark:text-slate-50">
+          <FileText className="h-4 w-4 text-egw-blue-700" />
+          <h4 className="font-semibold text-egw-ink dark:text-slate-50">
             Cosa include
           </h4>
         </div>
         {services.length > 0 ? (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+          <div className="divide-y divide-egw-rule dark:divide-slate-800">
             {services.map((service: any) => (
               <div
                 key={service.id}
@@ -302,7 +302,7 @@ export function EnrollmentPaymentBreakdown({
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium text-slate-900 dark:text-slate-100">
+                    <p className="font-medium text-egw-ink dark:text-slate-100">
                       {service.name}
                     </p>
                     <Badge variant="secondary">
@@ -315,33 +315,33 @@ export function EnrollmentPaymentBreakdown({
                     )}
                   </div>
                   {service.description ? (
-                    <p className="mt-1 text-sm text-slate-500">
+                    <p className="mt-1 text-sm text-egw-ink-62">
                       {service.description}
                     </p>
                   ) : null}
                 </div>
-                <p className="font-semibold text-slate-950 dark:text-slate-50">
+                <p className="font-semibold text-egw-ink dark:text-slate-50">
                   {formatCurrency(service.price)}
                 </p>
               </div>
             ))}
           </div>
         ) : (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-egw-ink-62">
             Nessun servizio dettagliato collegato a questo piano.
           </p>
         )}
       </div>
 
       {discounts.length > 0 ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <div className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-4">
           <p className="mb-2 font-semibold text-amber-950">Sconti applicati</p>
           <div className="flex flex-wrap gap-2">
             {discounts.map((discount: any) => (
               <Badge
                 key={discount.id}
                 variant="secondary"
-                className="bg-white text-amber-900"
+                className="bg-white text-egw-amber-ink"
               >
                 {discount.label}: -{formatCurrency(discount.amount)}
               </Badge>
@@ -360,8 +360,8 @@ export function EnrollmentPaymentBreakdown({
         <div
           className={
             proration.tone === "warning"
-              ? "rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
-              : "rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900"
+              ? "rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-4 text-sm text-egw-amber-ink"
+              : "rounded-egw-control border border-egw-tint-blue-bd bg-egw-tint-blue p-4 text-sm text-egw-blue-800"
           }
         >
           <p className="font-semibold">{proration.label}</p>
@@ -377,8 +377,8 @@ export function EnrollmentPaymentBreakdown({
       ) : null}
 
       {installments.length > 0 ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
-          <p className="mb-3 font-semibold text-slate-950 dark:text-slate-50">
+        <div className="rounded-egw-control border border-egw-hairline bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
+          <p className="mb-3 font-semibold text-egw-ink dark:text-slate-50">
             Piano pagamento / rate
           </p>
           <div className="space-y-2">
@@ -391,11 +391,11 @@ export function EnrollmentPaymentBreakdown({
               return (
                 <div
                   key={installment.id}
-                  className="flex flex-col justify-between gap-1 rounded-lg bg-slate-50 px-3 py-2 sm:flex-row sm:items-center dark:bg-slate-900/60"
+                  className="flex flex-col justify-between gap-1 rounded-egw-control bg-egw-page-100 px-3 py-2 sm:flex-row sm:items-center dark:bg-slate-900/60"
                 >
                   <div>
                     <p className="font-medium">{installment.label}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-egw-ink-62">
                       {installment.dueDate
                         ? `Scadenza ${formatDate(installment.dueDate)}`
                         : "Scadenza non definita"}
@@ -419,12 +419,12 @@ export function EnrollmentPaymentBreakdown({
       ) : null}
 
       {showPaymentHistory ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
-          <p className="mb-3 font-semibold text-slate-950 dark:text-slate-50">
+        <div className="rounded-egw-control border border-egw-hairline bg-white p-4 dark:border-slate-800 dark:bg-slate-950/40">
+          <p className="mb-3 font-semibold text-egw-ink dark:text-slate-50">
             Storico pagamenti
           </p>
           {paymentItems.length > 0 ? (
-            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            <div className="divide-y divide-egw-rule dark:divide-slate-800">
               {paymentItems.map((payment) => {
                 const isCancelled = isCancelledPayment(payment);
                 const isPaid =
@@ -439,10 +439,10 @@ export function EnrollmentPaymentBreakdown({
                     className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div>
-                      <p className="font-medium text-slate-900 dark:text-slate-100">
+                      <p className="font-medium text-egw-ink dark:text-slate-100">
                         {payment.description || "Pagamento"}
                       </p>
-                      <p className="text-sm text-slate-500">
+                      <p className="text-sm text-egw-ink-62">
                         {formatDate(normalizePaymentDate(payment))}
                       </p>
                     </div>
@@ -454,10 +454,10 @@ export function EnrollmentPaymentBreakdown({
                         variant="outline"
                         className={
                           isCancelled
-                            ? "border-slate-200 bg-slate-100 text-slate-600"
+                            ? "border-egw-hairline bg-egw-page-100 text-egw-ink-72"
                             : isPaid
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                            : "border-amber-200 bg-amber-50 text-amber-700"
+                            ? "border-egw-tint-green-bd bg-egw-tint-green text-egw-green"
+                            : "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink"
                         }
                       >
                         {isCancelled ? (
@@ -498,7 +498,7 @@ export function EnrollmentPaymentBreakdown({
               })}
             </div>
           ) : (
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-egw-ink-62">
               Nessun pagamento registrato.
             </p>
           )}
@@ -506,7 +506,7 @@ export function EnrollmentPaymentBreakdown({
       ) : null}
 
       {summary?.planNotes && mode === "club" ? (
-        <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">
+        <p className="rounded-egw-control bg-egw-page-100 p-3 text-sm text-egw-ink-72 dark:bg-slate-900/60 dark:text-egw-ink-42">
           {summary.planNotes}
         </p>
       ) : null}

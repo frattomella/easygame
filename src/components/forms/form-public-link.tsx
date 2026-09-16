@@ -70,18 +70,18 @@ export function FormPublicLink({
   };
 
   return (
-    <div className="space-y-3 rounded-md border border-slate-200 bg-slate-50 p-4">
+    <div className="space-y-3 rounded-egw-control border border-egw-hairline bg-egw-page-100 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Label htmlFor="public-link">Link pubblico</Label>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-egw-ink-62">
             {template.status === "published"
               ? "Chi apre questo link vede la versione pubblicata."
               : "Il link risponde solo quando il modulo e pubblicato."}
           </p>
         </div>
 
-        <label className="flex items-center gap-2 text-sm text-slate-700">
+        <label className="flex items-center gap-2 text-sm text-egw-ink-72">
           <Switch
             checked={enabled}
             disabled={busy}
@@ -109,7 +109,7 @@ export function FormPublicLink({
         <div className="flex gap-2">
           <Button type="button" variant="outline" size="sm" onClick={copy}>
             {copied ? (
-              <Check className="mr-2 h-4 w-4 text-emerald-600" />
+              <Check className="mr-2 h-4 w-4 text-egw-green" />
             ) : (
               <Copy className="mr-2 h-4 w-4" />
             )}

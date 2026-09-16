@@ -65,26 +65,26 @@ export function ClubSubscriptionPanel({
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 md:grid-cols-4">
-          <div className="rounded-md border p-3">
+          <div className="rounded-egw-control border p-3">
             <p className="text-sm text-muted-foreground">Piano</p>
             <div className="mt-2 flex items-center gap-2">
               <Badge>{subscription.plan === "plus" ? "Plus" : "Free"}</Badge>
               <Badge variant="secondary">Predisposizione</Badge>
             </div>
           </div>
-          <div className="rounded-md border p-3">
+          <div className="rounded-egw-control border p-3">
             <p className="text-sm text-muted-foreground">Stato</p>
             <p className="mt-2 font-semibold">
               {subscriptionStatusLabel(subscription.status)}
             </p>
           </div>
-          <div className="rounded-md border p-3">
+          <div className="rounded-egw-control border p-3">
             <p className="text-sm text-muted-foreground">Ciclo</p>
             <p className="mt-2 font-semibold">
               {subscription.billingCycle === "annual" ? "Annuale" : "Mensile"}
             </p>
           </div>
-          <div className="rounded-md border p-3">
+          <div className="rounded-egw-control border p-3">
             <p className="text-sm text-muted-foreground">Rinnovo</p>
             <p className="mt-2 font-semibold">
               {subscription.renewalDate || "Non configurato"}
@@ -93,7 +93,7 @@ export function ClubSubscriptionPanel({
         </div>
 
         {readOnly ? (
-          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+          <p className="rounded-egw-control border border-dashed p-3 text-sm text-muted-foreground">
             Piano, stato e servizi aggiuntivi sono gestiti da Cedi. Per
             cambiarli scrivi all&apos;assistenza: da qui si leggono soltanto.
           </p>
@@ -150,14 +150,14 @@ export function ClubSubscriptionPanel({
         </div>
         )}
 
-        <div className="rounded-md border p-4">
+        <div className="rounded-egw-control border p-4">
           <h3 className="font-semibold">Abbonamento Plus</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             Il piano Plus abilita un set di servizi avanzati del gestionale.
           </p>
           <div className="mt-3 grid gap-2 md:grid-cols-2">
             {(subscription.includedServices || []).map((service) => (
-              <div key={service} className="rounded-md bg-muted/40 px-3 py-2 text-sm">
+              <div key={service} className="rounded-egw-control bg-muted/40 px-3 py-2 text-sm">
                 {service}
               </div>
             ))}

@@ -154,11 +154,11 @@ export function DocumentExtractionField({
   const entries = result ? listExtractedFields(result.fields) : [];
 
   return (
-    <div className={cn("space-y-3 rounded-lg border border-dashed p-4", className)}>
+    <div className={cn("space-y-3 rounded-egw-control border border-dashed p-4", className)}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <Label className="flex items-center gap-2">
-            <ScanLine className="h-4 w-4 text-slate-500" aria-hidden />
+            <ScanLine className="h-4 w-4 text-egw-ink-62" aria-hidden />
             Compila dal documento
           </Label>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -170,7 +170,7 @@ export function DocumentExtractionField({
             «perche non legge il mio PDF» e stata posta prima che il rifiuto
             avesse una spiegazione.
           */}
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-egw-ink-62">
             JPG, PNG, WEBP o HEIC, fino a{" "}
             {Math.round(MAX_DOCUMENT_SCAN_BYTES / (1024 * 1024))} MB. Un PDF
             va bene se contiene la fotografia del documento — e quello che
@@ -244,7 +244,7 @@ export function DocumentExtractionField({
       </div>
 
       {error ? (
-        <p className="flex items-start gap-1.5 text-xs text-amber-700" role="alert">
+        <p className="flex items-start gap-1.5 text-xs text-egw-amber-ink" role="alert">
           <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           {error}
         </p>
@@ -258,14 +258,14 @@ export function DocumentExtractionField({
           aria-label="Dati letti dal documento"
           className="space-y-3 outline-none"
         >
-          <p className="text-xs font-medium text-slate-600" role="status">
+          <p className="text-xs font-medium text-egw-ink-72" role="status">
             Dati letti — scegli cosa applicare:
           </p>
 
           <ul className="space-y-1">
             {entries.map((entry) => (
               <li key={entry.key}>
-                <label className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-50">
+                <label className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-sm hover:bg-egw-page-050">
                   <Checkbox
                     className="mt-0.5"
                     checked={accepted.has(entry.key)}
@@ -275,16 +275,16 @@ export function DocumentExtractionField({
                     <span className="text-xs text-muted-foreground">
                       {entry.label}
                     </span>
-                    <span className="block truncate font-medium text-slate-900">
+                    <span className="block truncate font-medium text-egw-ink">
                       {entry.value}
                     </span>
                     {entry.confidence === "low" ? (
-                      <span className="text-xs text-amber-700">
+                      <span className="text-xs text-egw-amber-ink">
                         Lettura incerta: controllala prima di applicarla
                       </span>
                     ) : null}
                     {hasValue(entry.key) ? (
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-egw-ink-62">
                         Il campo e gia compilato: applicando lo sostituisci
                       </span>
                     ) : null}

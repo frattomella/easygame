@@ -227,25 +227,25 @@ export function CustomKitComponentsBuilder({
     switch (status) {
       case "pending":
         return (
-          <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded-full">
+          <span className="text-xs px-2 py-1 bg-egw-page-100 text-egw-ink-72 rounded-full">
             In attesa
           </span>
         );
       case "processing":
         return (
-          <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full">
+          <span className="text-xs px-2 py-1 bg-egw-tint-blue text-egw-blue-700 rounded-full">
             In lavorazione
           </span>
         );
       case "shipped":
         return (
-          <span className="text-xs px-2 py-1 bg-amber-100 text-amber-700 rounded-full">
+          <span className="text-xs px-2 py-1 bg-egw-tint-amber text-egw-amber-ink rounded-full">
             Spedito
           </span>
         );
       case "delivered":
         return (
-          <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
+          <span className="text-xs px-2 py-1 bg-egw-tint-green text-egw-green rounded-full">
             Consegnato
           </span>
         );
@@ -287,7 +287,7 @@ export function CustomKitComponentsBuilder({
                     {showJerseyNumbers &&
                       component.name.toLowerCase().includes("maglia") && (
                       <div className="flex items-center space-x-2">
-                        <Shirt className="h-4 w-4 text-blue-500" />
+                        <Shirt className="h-4 w-4 text-egw-blue" />
                         <select
                           className="text-sm border rounded p-1"
                           value={component.jerseyNumber || 0}
@@ -375,7 +375,7 @@ export function CustomKitComponentsBuilder({
                           {component.notes && (
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <Info className="h-4 w-4 text-blue-500 cursor-help" />
+                                <Info className="h-4 w-4 text-egw-blue cursor-help" />
                               </TooltipTrigger>
                               <TooltipContent>
                                 <p className="max-w-xs text-xs">
@@ -432,7 +432,7 @@ export function CustomKitComponentsBuilder({
               {customComponents.map((component) => (
                 <div
                   key={component.id}
-                  className="flex items-center justify-between border rounded-md p-2"
+                  className="flex items-center justify-between border rounded-egw-control p-2"
                 >
                   <div className="flex flex-col space-y-2">
                     <div className="flex items-center space-x-2">
@@ -513,7 +513,7 @@ export function CustomKitComponentsBuilder({
                             {component.notes && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <Info className="h-4 w-4 text-blue-500 cursor-help" />
+                                  <Info className="h-4 w-4 text-egw-blue cursor-help" />
                                 </TooltipTrigger>
                                 <TooltipContent>
                                   <p className="max-w-xs text-xs">
@@ -561,7 +561,7 @@ export function CustomKitComponentsBuilder({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                    className="text-egw-red hover:text-egw-red hover:bg-egw-tint-red"
                     onClick={() => removeComponent(component.id)}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -593,7 +593,7 @@ export function CustomKitComponentsBuilder({
                 </Label>
                 <select
                   id="new-size"
-                  className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                  className="mt-1 flex h-10 w-full rounded-egw-control border border-input bg-background px-3 py-2 text-sm ring-offset-background"
                   value={newComponentSize}
                   onChange={(e) => setNewComponentSize(e.target.value)}
                 >

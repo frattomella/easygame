@@ -97,7 +97,7 @@ test("un solo termine in tutta la superficie: «Registra liquidazione»", () => 
 test("la CTA sta sulla riga del periodo, non dentro il pannello", () => {
   const source = senzaCommenti(leggi(PERIODI));
 
-  const pannello = source.indexOf("border-t border-slate-100 px-3 pb-3 pt-2");
+  const pannello = source.indexOf("border-t border-egw-rule px-3 pb-3 pt-2");
   const cta = source.indexOf("Registra liquidazione");
 
   assert.ok(cta > 0 && pannello > 0);

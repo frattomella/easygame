@@ -78,7 +78,7 @@ function CapabilityRow({
         <span
           className={cn(
             "text-sm font-medium",
-            enabled ? "text-emerald-700" : "text-slate-500",
+            enabled ? "text-egw-green" : "text-egw-ink-62",
           )}
         >
           {enabled ? "Attivi" : "Non attivi"}
@@ -92,11 +92,11 @@ function CapabilityRow({
 }
 
 const TONE_CLASS: Record<string, string> = {
-  neutral: "border-slate-200 bg-slate-50 text-slate-700",
-  info: "border-sky-200 bg-sky-50 text-sky-700",
-  warning: "border-amber-200 bg-amber-50 text-amber-700",
-  success: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  danger: "border-red-200 bg-red-50 text-red-700",
+  neutral: "border-egw-hairline bg-egw-page-100 text-egw-ink-72",
+  info: "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-800",
+  warning: "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink",
+  success: "border-egw-tint-green-bd bg-egw-tint-green text-egw-green",
+  danger: "border-egw-tint-red-bd bg-egw-tint-red text-egw-red",
 };
 
 export function ClubPaymentAccountPanel({
@@ -224,10 +224,10 @@ export function ClubPaymentAccountPanel({
             {isStripe ? (
               <StripeBrandBadge connected={view.account.connected} />
             ) : (
-              <span className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium">
+              <span className="inline-flex items-center gap-2 rounded-egw-control border border-egw-hairline bg-white px-2.5 py-1.5 text-sm font-medium">
                 {providerLabel}
-                <span className="h-4 w-px bg-slate-200" aria-hidden />
-                <span className="text-xs font-medium text-slate-500">
+                <span className="h-4 w-px bg-[rgba(11,26,58,.12)]" aria-hidden />
+                <span className="text-xs font-medium text-egw-ink-62">
                   {view.account.connected ? "Collegato" : "Non collegato"}
                 </span>
               </span>
@@ -236,7 +236,7 @@ export function ClubPaymentAccountPanel({
         </CardHeader>
         <CardContent className="space-y-4">
           <div
-            className={cn("rounded-md border p-3", TONE_CLASS[definition.tone])}
+            className={cn("rounded-egw-control border p-3", TONE_CLASS[definition.tone])}
           >
             <p className="text-sm font-medium">
               {fullyConfigured ? definition.label : "Configurazione incompleta"}
@@ -250,7 +250,7 @@ export function ClubPaymentAccountPanel({
             e riassumerle in una sola riga nasconde proprio il caso in cui
             qualcuno deve fare qualcosa.
           */}
-          <div className="rounded-md border px-3 py-1.5">
+          <div className="rounded-egw-control border px-3 py-1.5">
             <CapabilityRow
               label="Pagamenti online"
               enabled={view.readiness.canCheckout}
@@ -268,7 +268,7 @@ export function ClubPaymentAccountPanel({
           </div>
 
           {view.account.requirements.length ? (
-            <div className="rounded-md border p-3">
+            <div className="rounded-egw-control border p-3">
               <p className="text-sm font-medium">
                 Cosa chiede {providerLabel}
               </p>
@@ -284,7 +284,7 @@ export function ClubPaymentAccountPanel({
             </div>
           ) : null}
 
-          <div className="rounded-md border p-3">
+          <div className="rounded-egw-control border p-3">
             <p className="text-sm text-muted-foreground">
               Commissione EasyGame
             </p>

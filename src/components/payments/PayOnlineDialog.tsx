@@ -141,7 +141,7 @@ export function PayOnlineDialog({
           </div>
 
           {ledger ? (
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/40">
+            <div className="rounded-egw-control border border-egw-hairline bg-egw-page-100 p-3 text-sm dark:border-slate-800 dark:bg-slate-900/40">
               <dl className="space-y-1">
                 <div className="flex justify-between gap-4">
                   <dt className="text-muted-foreground">Residuo della rata</dt>
@@ -153,7 +153,7 @@ export function PayOnlineDialog({
                   <dt className="text-muted-foreground">Questo pagamento</dt>
                   <dd className="font-medium">{formatCurrency(parsedAmount)}</dd>
                 </div>
-                <div className="flex justify-between gap-4 border-t border-slate-200 pt-1 dark:border-slate-800">
+                <div className="flex justify-between gap-4 border-t border-egw-hairline pt-1 dark:border-slate-800">
                   <dt className="font-medium">Residuo dopo</dt>
                   <dd className="font-semibold">
                     {formatCurrency(residualAfter)}
@@ -161,7 +161,7 @@ export function PayOnlineDialog({
                 </div>
               </dl>
               {residualAfter > 0 && parsedAmount > 0 ? (
-                <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                <p className="mt-2 text-xs text-egw-amber-ink dark:text-amber-300">
                   La rata restera parzialmente pagata.
                 </p>
               ) : null}
@@ -181,7 +181,7 @@ export function PayOnlineDialog({
           </p>
 
           {touched && validationError ? (
-            <p className="text-sm font-medium text-red-600">{validationError}</p>
+            <p className="text-sm font-medium text-egw-red">{validationError}</p>
           ) : null}
         </div>
 

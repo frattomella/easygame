@@ -102,7 +102,7 @@ export function PhoneField({
       <div className="flex flex-wrap gap-2">
         <select
           aria-label="Prefisso internazionale"
-          className="h-10 w-[8.5rem] shrink-0 rounded-md border border-input bg-background px-2 text-sm"
+          className="h-10 w-[8.5rem] shrink-0 rounded-egw-control border border-input bg-background px-2 text-sm"
           value={selectedCountry?.code || DEFAULT_PHONE_COUNTRY}
           disabled={disabled}
           onChange={(event) => handleCountryChange(event.target.value)}
@@ -130,13 +130,13 @@ export function PhoneField({
       </div>
 
       {invalid ? (
-        <p className="text-xs text-red-700" role="alert">
+        <p className="text-xs text-egw-red" role="alert">
           Numero non plausibile: controlla le cifre.
         </p>
       ) : null}
 
       {parsed.national && !parsed.dial ? (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-egw-ink-62">
           Numero senza prefisso internazionale: scegline uno per completarlo.
         </p>
       ) : null}

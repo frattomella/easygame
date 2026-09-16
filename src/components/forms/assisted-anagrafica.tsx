@@ -39,7 +39,7 @@ const issueFor = (issues: { field: string; message: string }[], field: string) =
 function FieldError({ message }: { message: string }) {
   if (!message) return null;
   return (
-    <p className="flex items-start gap-1.5 text-xs text-red-700" role="alert">
+    <p className="flex items-start gap-1.5 text-xs text-egw-red" role="alert">
       <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
       {message}
     </p>
@@ -124,7 +124,7 @@ export function AssistedAddressFields({
           />
           <FieldError message={issueFor(issues, "postalCode")} />
           {postalCodeNote && !issueFor(issues, "postalCode") ? (
-            <p className="text-xs text-slate-500">{postalCodeNote}</p>
+            <p className="text-xs text-egw-ink-62">{postalCodeNote}</p>
           ) : null}
         </div>
 
@@ -185,7 +185,7 @@ export function AssistedAddressFields({
           <Label htmlFor={`${idPrefix}-province`}>Provincia</Label>
           <select
             id={`${idPrefix}-province`}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            className="flex h-10 w-full rounded-egw-control border border-input bg-background px-3 py-2 text-sm"
             value={findProvince(values.province)?.code || ""}
             onChange={(event) => handleProvinceChange(event.target.value)}
           >
@@ -198,7 +198,7 @@ export function AssistedAddressFields({
           </select>
           <FieldError message={issueFor(issues, "province")} />
           {values.province && !findProvince(values.province) ? (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-egw-ink-62">
               Valore attuale: {values.province}
             </p>
           ) : null}
@@ -234,7 +234,7 @@ export function AssistedAddressFields({
         <button
           type="button"
           onClick={() => onChange(completion)}
-          className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          className="inline-flex items-center gap-2 rounded-egw-control border border-egw-hairline bg-white px-3 py-1.5 text-xs font-medium text-egw-ink-72 hover:bg-egw-page-050"
         >
           <Wand2 className="h-3.5 w-3.5" aria-hidden />
           Completa i campi mancanti
@@ -344,7 +344,7 @@ export function BirthPlaceField({
           effectiveBelfiore ? (
             <span className="flex flex-wrap items-center gap-1">
               <span>Codice catastale</span>
-              <span className="eg-tabular font-medium text-slate-700">
+              <span className="eg-tabular font-medium text-egw-ink-72">
                 {effectiveBelfiore}
               </span>
               {resolvedComune ? (
@@ -372,7 +372,7 @@ export function BirthPlaceField({
         <div className="space-y-1.5">
           <Label
             htmlFor={`${id}-belfiore`}
-            className="text-xs font-normal text-slate-500"
+            className="text-xs font-normal text-egw-ink-62"
           >
             Codice catastale (es. H501, oppure Z___ per uno stato estero)
           </Label>
@@ -400,7 +400,7 @@ export function BirthPlaceField({
         <button
           type="button"
           onClick={() => setManualBelfioreOpen(true)}
-          className="text-xs font-medium text-slate-500 underline underline-offset-2 hover:text-slate-700"
+          className="text-xs font-medium text-egw-ink-62 underline underline-offset-2 hover:text-egw-ink-72"
         >
           Nato all&apos;estero o in un comune soppresso? Inserisci il codice
           catastale
@@ -504,7 +504,7 @@ export function AssistedFiscalCodeField({
       </div>
 
       {check.status === "valid" ? (
-        <p className="flex items-center gap-1.5 text-xs text-emerald-700">
+        <p className="flex items-center gap-1.5 text-xs text-egw-green">
           <CircleCheck className="h-3.5 w-3.5" aria-hidden />
           {check.message}
         </p>
@@ -514,7 +514,7 @@ export function AssistedFiscalCodeField({
       ) : null}
 
       {enableCompute && !trimmed && !computed.ok ? (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-egw-ink-62">
           Per calcolarlo servono ancora: {computed.missing.join(", ")}.
         </p>
       ) : null}
@@ -673,7 +673,7 @@ export function PersonResidenceFields({
             }
           />
           {postalCodeNote ? (
-            <p className="text-xs text-slate-500">{postalCodeNote}</p>
+            <p className="text-xs text-egw-ink-62">{postalCodeNote}</p>
           ) : null}
         </div>
       </div>

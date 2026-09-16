@@ -83,8 +83,8 @@ const Row = ({
       <p
         className={
           strong
-            ? "text-sm font-semibold text-slate-900 dark:text-slate-100"
-            : "text-sm text-slate-600 dark:text-slate-300"
+            ? "text-sm font-semibold text-egw-ink dark:text-slate-100"
+            : "text-sm text-egw-ink-72 dark:text-egw-ink-42"
         }
       >
         {label}
@@ -193,7 +193,7 @@ export function PersonPositionCard({
         ) : (
           <>
             {!position.hasCurrentDeclaration ? (
-              <div className="flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <div className="flex gap-2 rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-3 text-sm text-egw-amber-ink">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <div>
                   <p className="font-medium">
@@ -208,7 +208,7 @@ export function PersonPositionCard({
               </div>
             ) : null}
 
-            <div className="divide-y divide-slate-100 dark:divide-gray-700">
+            <div className="divide-y divide-egw-rule dark:divide-gray-700">
               <Row
                 label="Compensi erogati dal club"
                 value={formatCurrency(position.clubGross)}
@@ -275,7 +275,7 @@ export function PersonPositionCard({
             </div>
 
             {drift?.hasDrift ? (
-              <div className="space-y-2 rounded-md border border-orange-300 bg-orange-50 p-3 text-sm text-orange-900">
+              <div className="space-y-2 rounded-egw-control border border-egw-tint-orange-bd bg-egw-tint-orange p-3 text-sm text-orange-900">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 shrink-0" />
                   <p className="font-medium">
@@ -309,7 +309,7 @@ export function PersonPositionCard({
             {position.declarationArrivedAfterPayment && !drift?.hasDrift ? (
               <Badge
                 variant="outline"
-                className="border-blue-200 bg-blue-50 text-blue-700"
+                className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700"
               >
                 Dichiarazione ricevuta dopo alcune erogazioni
               </Badge>

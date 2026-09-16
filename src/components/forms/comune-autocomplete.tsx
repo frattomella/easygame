@@ -184,7 +184,7 @@ export function ComuneAutocomplete({
           <ul
             id={listId}
             role="listbox"
-            className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+            className="absolute z-50 mt-1 max-h-64 w-full overflow-y-auto rounded-egw-control border border-egw-hairline bg-white py-1 shadow-egw-plane-1"
           >
             {matches.map((comune, index) => (
               <li key={comune.belfiore} role="option" aria-selected={index === highlight}>
@@ -199,19 +199,19 @@ export function ComuneAutocomplete({
                   onMouseEnter={() => setHighlight(index)}
                   className={cn(
                     "flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm",
-                    index === highlight ? "bg-slate-100" : "bg-white",
+                    index === highlight ? "bg-egw-page-100" : "bg-white",
                   )}
                 >
                   <span className="flex min-w-0 items-center gap-2">
-                    <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
-                    <span className="truncate text-slate-900">{comune.name}</span>
+                    <MapPin className="h-3.5 w-3.5 shrink-0 text-egw-ink-42" aria-hidden />
+                    <span className="truncate text-egw-ink">{comune.name}</span>
                     {comune.otherName ? (
-                      <span className="truncate text-xs text-slate-400">
+                      <span className="truncate text-xs text-egw-ink-42">
                         {comune.otherName}
                       </span>
                     ) : null}
                   </span>
-                  <span className="eg-tabular shrink-0 text-xs text-slate-500">
+                  <span className="eg-tabular shrink-0 text-xs text-egw-ink-62">
                     {comune.province} · {comune.belfiore}
                   </span>
                 </button>
@@ -221,9 +221,9 @@ export function ComuneAutocomplete({
         ) : null}
       </div>
 
-      {hint ? <div className="text-xs text-slate-500">{hint}</div> : null}
+      {hint ? <div className="text-xs text-egw-ink-62">{hint}</div> : null}
       {loading && !matches.length ? (
-        <p className="text-xs text-slate-400">Cerco nell&apos;archivio ISTAT…</p>
+        <p className="text-xs text-egw-ink-42">Cerco nell&apos;archivio ISTAT…</p>
       ) : null}
     </div>
   );

@@ -466,7 +466,7 @@ export function BulkGenerationDialog({
               />
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-egw-ink-72">
               <SelectAllCheckbox
                 selection={selection}
                 ids={filteredIds}
@@ -484,12 +484,12 @@ export function BulkGenerationDialog({
               </span>
             </div>
 
-            <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border p-2">
+            <div className="max-h-64 space-y-1 overflow-y-auto rounded-egw-control border p-2">
               {filtered.length ? (
                 filtered.map((athlete) => (
                   <label
                     key={athlete.id}
-                    className="flex items-center gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-slate-50"
+                    className="flex items-center gap-3 rounded-egw-control px-2 py-1.5 text-sm hover:bg-egw-page-050"
                   >
                     <SelectRowCheckbox
                       selection={selection}
@@ -500,7 +500,7 @@ export function BulkGenerationDialog({
                   </label>
                 ))
               ) : (
-                <p className="px-2 py-6 text-center text-sm text-slate-500">
+                <p className="px-2 py-6 text-center text-sm text-egw-ink-62">
                   Nessun atleta trovato.
                 </p>
               )}
@@ -510,7 +510,7 @@ export function BulkGenerationDialog({
 
         {stage === "preview" && preview ? (
           <div className="space-y-3 py-2 text-sm">
-            <p className="font-medium text-slate-900">
+            <p className="font-medium text-egw-ink">
               Stai per generare {preview.count}{" "}
               {preview.count === 1 ? "documento" : "documenti"}, in{" "}
               {sliceCount(preview.count)}{" "}
@@ -519,14 +519,14 @@ export function BulkGenerationDialog({
             </p>
 
             {preview.error ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+              <p className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-3 text-egw-amber-ink">
                 Non si e potuta calcolare l&apos;anteprima su «
                 {preview.sampleLabel}»: {preview.error}
               </p>
             ) : null}
 
             {preview.warnings.length ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+              <div className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-3 text-egw-amber-ink">
                 <ul className="list-disc space-y-1 pl-4">
                   {preview.warnings.map((warning) => (
                     <li key={warning}>{warning}</li>
@@ -536,7 +536,7 @@ export function BulkGenerationDialog({
             ) : null}
 
             {preview.missing.length || preview.unresolved.length ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+              <div className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-3 text-egw-amber-ink">
                 <p className="font-medium">
                   Su «{preview.sampleLabel}» questi campi restano bianchi
                 </p>
@@ -570,7 +570,7 @@ export function BulkGenerationDialog({
             {progress ? (
               <div className="space-y-2" role="status" aria-live="polite">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium text-slate-900">
+                  <span className="font-medium text-egw-ink">
                     {progress.served} di {progress.total} serviti
                   </span>
                   <span className="text-muted-foreground">
@@ -613,7 +613,7 @@ export function BulkGenerationDialog({
             {interrupted ? (
               <p
                 role="alert"
-                className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900"
+                className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-3 text-egw-amber-ink"
               >
                 {interrupted}
               </p>
@@ -627,7 +627,7 @@ export function BulkGenerationDialog({
             {bundleGap ? (
               <div
                 role="alert"
-                className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900"
+                className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-3 text-egw-amber-ink"
               >
                 <p className="font-medium">
                   {bundleGap.mancanti}{" "}
@@ -672,17 +672,17 @@ export function BulkGenerationDialog({
 
             {batch?.failures.length ? (
               <div>
-                <p className="font-medium text-slate-900">
+                <p className="font-medium text-egw-ink">
                   Non generati, e il motivo
                 </p>
                 {/*
                   Una tabella non si restringe: senza contenitore scrollabile a
                   375 px allargherebbe tutto il dialogo.
                 */}
-                <div className="mt-2 overflow-x-auto rounded-lg border">
+                <div className="mt-2 overflow-x-auto rounded-egw-control border">
                   <table className="w-full min-w-[420px] text-left text-sm">
                     <thead>
-                      <tr className="border-b text-xs uppercase text-slate-500">
+                      <tr className="border-b text-xs uppercase text-egw-ink-62">
                         <th className="px-3 py-2">Atleta</th>
                         <th className="px-3 py-2">Motivo</th>
                       </tr>
@@ -693,10 +693,10 @@ export function BulkGenerationDialog({
                           key={`${failure.id}-${failure.reason}`}
                           className="border-b last:border-0"
                         >
-                          <td className="px-3 py-2 font-medium text-slate-900">
+                          <td className="px-3 py-2 font-medium text-egw-ink">
                             {failure.label}
                           </td>
-                          <td className="px-3 py-2 break-words text-slate-600">
+                          <td className="px-3 py-2 break-words text-egw-ink-72">
                             {failure.reason}
                           </td>
                         </tr>
@@ -708,7 +708,7 @@ export function BulkGenerationDialog({
             ) : null}
 
             {batch?.blanks.length ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+              <div className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-3 text-egw-amber-ink">
                 <p className="font-medium">
                   Prodotti, ma con campi rimasti bianchi
                 </p>
@@ -728,7 +728,7 @@ export function BulkGenerationDialog({
             ) : null}
 
             {bundleParts && bundleParts.length > 1 ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-900">
+              <div className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-3 text-egw-amber-ink">
                 <p className="font-medium">
                   Il fascicolo supera{" "}
                   {Math.round(BUNDLE_HTML_LIMIT_BYTES / (1024 * 1024))} MB

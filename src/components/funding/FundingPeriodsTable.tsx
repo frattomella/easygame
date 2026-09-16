@@ -96,27 +96,27 @@ export const ACCRUAL_STATUS_BADGE: Record<
   */
   planned: {
     label: "PREVISTO",
-    className: "border-dashed border-slate-300 bg-white text-slate-500",
+    className: "border-dashed border-egw-hairline bg-white text-egw-ink-62",
   },
   not_accrued: {
     label: "NON MATURATO",
-    className: "border-slate-200 bg-slate-100 text-slate-600",
+    className: "border-egw-hairline bg-egw-page-100 text-egw-ink-72",
   },
   pending_confirmation: {
     label: "DA CONFERMARE",
-    className: "border-violet-200 bg-violet-50 text-violet-700",
+    className: "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-indigo",
   },
   accrued: {
     label: "MATURATO",
-    className: "border-sky-200 bg-sky-50 text-sky-700",
+    className: "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-800",
   },
   reported: {
     label: "RENDICONTATO",
-    className: "border-amber-200 bg-amber-50 text-amber-700",
+    className: "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink",
   },
   settled: {
     label: "LIQUIDATO",
-    className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    className: "border-egw-tint-green-bd bg-egw-tint-green text-egw-green",
   },
 };
 
@@ -129,11 +129,11 @@ const DetailRow = ({
   value: React.ReactNode;
   hint?: React.ReactNode;
 }) => (
-  <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-dashed border-slate-100 py-1.5 last:border-0 dark:border-slate-800">
+  <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-dashed border-egw-rule py-1.5 last:border-0 dark:border-slate-800">
     <span className="text-xs uppercase tracking-wide text-muted-foreground">
       {label}
     </span>
-    <span className="text-sm font-medium text-slate-900 dark:text-slate-100">
+    <span className="text-sm font-medium text-egw-ink dark:text-slate-100">
       {value}
       {hint ? (
         <span className="ml-2 text-xs font-normal text-muted-foreground">
@@ -254,7 +254,7 @@ export function FundingPeriodsTable({
 
   if (!righe.length) {
     return (
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-egw-ink-62">
         Il programma non genera nessun periodo: controlla le date di validita.
       </p>
     );
@@ -315,7 +315,7 @@ export function FundingPeriodsTable({
         return (
           <li
             key={id}
-            className="rounded-lg border border-slate-200 dark:border-slate-800"
+            className="rounded-egw-control border border-egw-hairline dark:border-slate-800"
           >
             <button
               type="button"
@@ -325,12 +325,12 @@ export function FundingPeriodsTable({
             >
               <span className="flex min-w-0 items-center gap-2">
                 {isOpen ? (
-                  <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+                  <ChevronDown className="h-4 w-4 shrink-0 text-egw-ink-42" />
                 ) : (
-                  <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                  <ChevronRight className="h-4 w-4 shrink-0 text-egw-ink-42" />
                 )}
                 <span className="min-w-0">
-                  <span className="block truncate font-medium capitalize text-slate-900 dark:text-slate-100">
+                  <span className="block truncate font-medium capitalize text-egw-ink dark:text-slate-100">
                     {riga.label}
                   </span>
                   {/*
@@ -338,7 +338,7 @@ export function FundingPeriodsTable({
                     N11). Adesso la frase la sceglie il dominio, e quando non
                     c'e niente da confrontare non si scrive un confronto.
                   */}
-                  <span className="block text-xs text-slate-500">
+                  <span className="block text-xs text-egw-ink-62">
                     {progresso ?? describeFundingPeriodMeasure(riga.measure)}
                   </span>
                 </span>
@@ -349,10 +349,10 @@ export function FundingPeriodsTable({
                   {formatCurrency(importoInEvidenza)}
                 </span>
                 {pending ? (
-                  <span className="text-xs text-violet-700">previsione</span>
+                  <span className="text-xs text-egw-indigo">previsione</span>
                 ) : null}
                 {!accrual ? (
-                  <span className="text-xs text-slate-500">previsto</span>
+                  <span className="text-xs text-egw-ink-62">previsto</span>
                 ) : null}
                 {/*
                   **Quanto resta da ricevere, sulla riga chiusa** (N15). E la
@@ -361,14 +361,14 @@ export function FundingPeriodsTable({
                   periodo uno per uno.
                 */}
                 {daRicevere > 0 ? (
-                  <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                  <span className="text-xs font-medium text-egw-amber-ink dark:text-amber-300">
                     da ricevere {formatCurrency(daRicevere)}
                   </span>
                 ) : null}
                 {riga.manualDecision ? (
                   <Badge
                     variant="outline"
-                    className="border-indigo-200 bg-indigo-50 text-indigo-700"
+                    className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-indigo"
                   >
                     DECISO DALLA SOCIETA
                   </Badge>
@@ -399,7 +399,7 @@ export function FundingPeriodsTable({
                 su tre righe: a quella larghezza si impilano, e ognuno prende la
                 riga intera. Da `sm` in su tornano accanto, dove lo spazio c'e.
               */
-              <div className="flex flex-col gap-2 border-t border-dashed border-slate-100 px-3 py-2 sm:flex-row sm:flex-wrap dark:border-slate-800">
+              <div className="flex flex-col gap-2 border-t border-dashed border-egw-rule px-3 py-2 sm:flex-row sm:flex-wrap dark:border-slate-800">
                 <Button
                   type="button"
                   variant="outline"
@@ -456,7 +456,7 @@ export function FundingPeriodsTable({
               compare affatto: cio che resta e lo storno.
             */}
             {canSettle && onSettle && liquidabile ? (
-              <div className="flex flex-col gap-2 border-t border-dashed border-slate-100 px-3 py-2 sm:flex-row sm:flex-wrap dark:border-slate-800">
+              <div className="flex flex-col gap-2 border-t border-dashed border-egw-rule px-3 py-2 sm:flex-row sm:flex-wrap dark:border-slate-800">
                 <Button
                   type="button"
                   size="sm"
@@ -473,7 +473,7 @@ export function FundingPeriodsTable({
             ) : null}
 
             {isOpen ? (
-              <div className="border-t border-slate-100 px-3 pb-3 pt-2 dark:border-slate-800">
+              <div className="border-t border-egw-rule px-3 pb-3 pt-2 dark:border-slate-800">
                 <DetailRow
                   label="Periodo"
                   value={`${formatDate(riga.start)} — ${formatDate(riga.end)}`}
@@ -578,14 +578,14 @@ export function FundingPeriodsTable({
                 */}
                 {Array.isArray(accrual?.data?.manualDecisions) &&
                 accrual.data.manualDecisions.length > 0 ? (
-                  <div className="mt-2 rounded-md bg-indigo-50/60 p-2 dark:bg-indigo-950/20">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-300">
+                  <div className="mt-2 rounded-egw-control bg-egw-tint-blue/60 p-2 dark:bg-indigo-950/20">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-egw-indigo dark:text-indigo-300">
                       Decisioni della societa
                     </p>
                     <ul className="mt-1 space-y-1">
                       {accrual.data.manualDecisions.map(
                         (voce: any, index: number) => (
-                          <li key={index} className="text-xs text-slate-600">
+                          <li key={index} className="text-xs text-egw-ink-72">
                             {voce.decision === "auto"
                               ? "Restituito al calcolo"
                               : voce.decision === "accrued"
@@ -602,14 +602,14 @@ export function FundingPeriodsTable({
 
                 {Array.isArray(accrual?.data?.previousConfirmations) &&
                 accrual.data.previousConfirmations.length > 0 ? (
-                  <div className="mt-2 rounded-md bg-slate-50 p-2 dark:bg-slate-900/40">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <div className="mt-2 rounded-egw-control bg-egw-page-100 p-2 dark:bg-slate-900/40">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-egw-ink-62">
                       Conferme precedenti
                     </p>
                     <ul className="mt-1 space-y-1">
                       {accrual.data.previousConfirmations.map(
                         (entry: any, index: number) => (
-                          <li key={index} className="text-xs text-slate-600">
+                          <li key={index} className="text-xs text-egw-ink-72">
                             {formatCurrency(entry.amount)} ·{" "}
                             {formatDate(entry.confirmedAt)}
                             {entry.externalReference
@@ -634,15 +634,15 @@ export function FundingPeriodsTable({
                   cercare un controllo che non esisteva.
                 */}
                 {accrediti.length > 0 ? (
-                  <div className="mt-2 rounded-md bg-emerald-50/60 p-2 dark:bg-emerald-950/20">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">
+                  <div className="mt-2 rounded-egw-control bg-egw-tint-green/60 p-2 dark:bg-emerald-950/20">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-egw-green dark:text-emerald-300">
                       Accrediti dell&apos;ente
                     </p>
                     <ul className="mt-1 space-y-1">
                       {accrediti.map((accredito: any) => (
                         <li
                           key={`${accredito.settlementId}-${accredito.amount}`}
-                          className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300"
+                          className="flex flex-wrap items-center justify-between gap-2 text-xs text-egw-ink-72 dark:text-egw-ink-42"
                         >
                           <span className="min-w-0">
                             {formatCurrency(accredito.amount)} ·{" "}
@@ -662,7 +662,7 @@ export function FundingPeriodsTable({
                               rimette indietro un altro, e deve saperlo prima.
                             */}
                             {Number(accredito.lineCount || 1) > 1 ? (
-                              <span className="block text-[0.95em] text-amber-700 dark:text-amber-300">
+                              <span className="block text-[0.95em] text-egw-amber-ink dark:text-amber-300">
                                 quota di un accredito da{" "}
                                 {formatCurrency(accredito.settlementAmount)} su{" "}
                                 {accredito.lineCount} periodi
@@ -708,7 +708,7 @@ export function FundingPeriodsTable({
                 ) : null}
 
                 {accrual?.data?.reason ? (
-                  <p className="mt-2 text-xs text-slate-500">
+                  <p className="mt-2 text-xs text-egw-ink-62">
                     {accrual.data.reason}
                   </p>
                 ) : null}

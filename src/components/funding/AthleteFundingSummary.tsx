@@ -119,13 +119,13 @@ const AmountLine = ({
   hint?: string;
   emphasis?: boolean;
 }) => (
-  <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-dashed border-slate-100 py-1.5 last:border-0 dark:border-slate-800">
+  <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-dashed border-egw-rule py-1.5 last:border-0 dark:border-slate-800">
     <span className="text-sm text-muted-foreground">
       {label}
       {hint ? <span className="ml-2 text-xs opacity-80">{hint}</span> : null}
     </span>
     <span
-      className={`text-sm tabular-nums ${emphasis ? "font-bold text-slate-900 dark:text-slate-100" : "font-medium"}`}
+      className={`text-sm tabular-nums ${emphasis ? "font-bold text-egw-ink dark:text-slate-100" : "font-medium"}`}
     >
       {formatCurrency(value)}
     </span>
@@ -191,7 +191,7 @@ const RemovalDialog = ({
         <div className="space-y-3 py-2 text-sm">
           {esito === "settled" ? (
             <>
-              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-amber-800">
+              <p className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-3 text-egw-amber-ink">
                 L&apos;ente ha gia versato{" "}
                 <strong>{formatCurrency(plan?.settledAmount)}</strong> su questa
                 assegnazione. Annullarla rimetterebbe a carico della famiglia una
@@ -205,7 +205,7 @@ const RemovalDialog = ({
                 l&apos;atleta ha lasciato la societa e la liquidazione resta
                 dov&apos;e — dichiaralo qui sotto: resta a registro.
               </p>
-              <label className="flex min-h-[44px] items-start gap-3 rounded-md border border-slate-200 p-3 dark:border-slate-800">
+              <label className="flex min-h-[44px] items-start gap-3 rounded-egw-control border border-egw-hairline p-3 dark:border-slate-800">
                 <input
                   type="checkbox"
                   className="mt-0.5 h-4 w-4 shrink-0"
@@ -240,7 +240,7 @@ const RemovalDialog = ({
           )}
 
           {plan && plan.liveCoverageCount > 0 ? (
-            <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sky-900">
+            <p className="rounded-egw-control border border-egw-tint-blue-bd bg-egw-tint-blue p-3 text-sky-900">
               {plan.liveCoverageCount === 1
                 ? "1 rata torna a carico della famiglia"
                 : `${plan.liveCoverageCount} rate tornano a carico della famiglia`}
@@ -733,7 +733,7 @@ export function AthleteFundingSummary({
   if (!isLoading && overviews.length === 0) {
     return (
       <div className="space-y-3">
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-egw-ink-62">
           Nessun voucher assegnato a questo atleta: la quota resta interamente a
           carico della famiglia.
           {allowManagement && enrollablePrograms.length === 0
@@ -753,8 +753,8 @@ export function AthleteFundingSummary({
       ) : null}
 
       {overviews.length > 1 ? (
-        <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-900/40">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <div className="rounded-egw-control bg-egw-page-100 p-3 dark:bg-slate-900/40">
+          <p className="text-xs font-semibold uppercase tracking-wide text-egw-ink-62">
             Totale contributi
           </p>
           <div className="mt-1">
@@ -801,13 +801,13 @@ export function AthleteFundingSummary({
         return (
           <div
             key={enrollmentId}
-            className="rounded-lg border border-slate-200 p-4 dark:border-slate-800"
+            className="rounded-egw-control border border-egw-hairline p-4 dark:border-slate-800"
           >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <HandCoins className="h-4 w-4 text-blue-600" />
-                  <p className="font-semibold text-slate-900 dark:text-slate-100">
+                  <HandCoins className="h-4 w-4 text-egw-blue-700" />
+                  <p className="font-semibold text-egw-ink dark:text-slate-100">
                     {overview.program?.name || "Programma"}
                   </p>
                   {overview.enrollment?.voucher_code ? (
@@ -823,13 +823,13 @@ export function AthleteFundingSummary({
                   {stato !== "active" ? (
                     <Badge
                       variant="outline"
-                      className="border-slate-300 bg-slate-100 text-slate-600"
+                      className="border-egw-hairline bg-egw-page-100 text-egw-ink-72"
                     >
                       {stato === "closed" ? "REVOCATO" : "SOSPESO"}
                     </Badge>
                   ) : null}
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-egw-ink-62">
                   {overview.program?.funder_name} ·{" "}
                   {formatCurrency(overview.program?.period_amount)} per periodo
                   {/*
@@ -840,7 +840,7 @@ export function AthleteFundingSummary({
                     ? `, con almeno ${requisito} ${requirementUnitLabel(unit)}`
                     : ", senza requisito di frequenza"}
                 </p>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="mt-1 text-xs text-egw-ink-62">
                   Fonte della maturazione: {fundingAccrualSourceLabel(source)}
                 </p>
               </div>
@@ -871,7 +871,7 @@ export function AthleteFundingSummary({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="w-full text-red-600 hover:text-red-700 sm:w-auto"
+                    className="w-full text-egw-red hover:text-egw-red sm:w-auto"
                     disabled={busyEnrollmentId === enrollmentId}
                     onClick={() => setRemovalTarget(overview)}
                   >
@@ -955,7 +955,7 @@ export function AthleteFundingSummary({
                   )}
                   className="h-2"
                 />
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-egw-ink-62">
                   {/* «1 periodi maturati» lo scrive una macchina, non una persona. */}
                   {summary.accruedPeriodCount}{" "}
                   {summary.accruedPeriodCount === 1
@@ -973,7 +973,7 @@ export function AthleteFundingSummary({
             ) : null}
 
             {impegnato > summary.assignedAmount ? (
-              <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+              <p className="mt-2 rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-2 text-xs text-egw-amber-ink">
                 La copertura promessa supera l&apos;importo assegnato: controlla
                 le coperture sulle rate.
               </p>

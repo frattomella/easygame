@@ -80,11 +80,11 @@ export type SettlementSubmission = {
 };
 
 const Riga = ({ label, value }: { label: string; value: React.ReactNode }) => (
-  <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-dashed border-slate-100 py-1.5 last:border-0 dark:border-slate-800">
+  <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-dashed border-egw-rule py-1.5 last:border-0 dark:border-slate-800">
     <span className="text-xs uppercase tracking-wide text-muted-foreground">
       {label}
     </span>
-    <span className="text-sm font-medium tabular-nums text-slate-900 dark:text-slate-100">
+    <span className="text-sm font-medium tabular-nums text-egw-ink dark:text-slate-100">
       {value}
     </span>
   </div>
@@ -184,7 +184,7 @@ export function SettleAccrualDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
+          <div className="rounded-egw-control border border-egw-hairline p-3 dark:border-slate-800">
             <Riga label="Atleta" value={athleteName || "—"} />
             <Riga label="Ente erogatore" value={funderName || "—"} />
             <Riga label="Programma" value={programName || "—"} />
@@ -238,7 +238,7 @@ export function SettleAccrualDialog({
                 id="settlement-account"
                 value={accountId}
                 onChange={(event) => setAccountId(event.target.value)}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                className="h-10 w-full rounded-egw-control border border-input bg-background px-3 text-sm"
               >
                 <option value="">Scegli il conto</option>
                 {conti.map((conto) => (
@@ -248,13 +248,13 @@ export function SettleAccrualDialog({
                 ))}
               </select>
             ) : (
-              <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+              <p className="rounded-egw-control border border-egw-tint-amber-bd bg-egw-tint-amber p-3 text-xs text-egw-amber-ink">
                 I conti del club li vede chi ne ha il permesso: chiedi a chi
                 amministra la contabilita di registrare questo accredito.
               </p>
             )}
             {canChooseAccount && conti.length === 0 ? (
-              <p className="text-xs text-amber-700">
+              <p className="text-xs text-egw-amber-ink">
                 Nessun conto configurato: aprine uno in «Movimenti» prima di
                 registrare l&apos;accredito.
               </p>
@@ -283,7 +283,7 @@ export function SettleAccrualDialog({
             />
           </div>
 
-          {errore ? <p className="text-xs text-red-600">{errore}</p> : null}
+          {errore ? <p className="text-xs text-egw-red">{errore}</p> : null}
 
           {/*
             La frase che tiene separate le due contabilita. Non e decorativa: e
@@ -291,7 +291,7 @@ export function SettleAccrualDialog({
             della famiglia, che e il modo in cui la stessa quota finirebbe
             contata due volte.
           */}
-          <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900/40">
+          <p className="rounded-egw-control border border-egw-hairline bg-egw-page-100 p-3 text-xs text-egw-ink-72 dark:border-slate-800 dark:bg-slate-900/40">
             Questo <strong>non e un pagamento della famiglia</strong>: e denaro
             che arriva dall&apos;ente. Entra nei movimenti del club sul conto
             scelto e non tocca il piano di pagamento dell&apos;atleta.
