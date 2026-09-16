@@ -540,7 +540,7 @@ export function TrainerDashboardProvider({
     TrainerOperationalAlert[]
   >([]);
   const [matchConvocationDeadlineDays, setMatchConvocationDeadlineDays] =
-    useState(2);
+    useState(getMatchConvocationDeadlineDays({}));
   const [permissions, setPermissions] = useState<TrainerDashboardPermissions>(
     resolveTrainerDashboardPermissions({}),
   );

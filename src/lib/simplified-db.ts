@@ -98,7 +98,8 @@ const isMissingAthleteMembershipResource = (error: any) => {
     message.includes("unsupported resource") ||
     message.includes("athlete_category_memberships") ||
     message.includes("athletecategorymembership") ||
-    message.includes("does not exist")
+    /* La tabella che manca, non una colonna: un errore di colonna non si ingoia (revisione ostile, L9). */
+    /relation .* does not exist/.test(message)
   );
 };
 
@@ -522,17 +523,38 @@ const insertAthleteChunk = async (
   );
 
   if (membershipRows.length) {
-    const { error: membershipError } = await supabase
+    const { data: coniate, error: membershipError } = await supabase
       .from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE)
-      .insert(membershipRows);
+      .insert(membershipRows)
+      .select();
 
     /*
       Un'appartenenza mancata non annulla l'atleta: la scheda resta, la
       categoria si riassegna. Perdere l'anagrafica per una riga di
-      collegamento sarebbe il danno piu grande dei due.
+      collegamento sarebbe il danno piu grande dei due. Ma non resta muta:
+      l'import la riporta come riga fallita, e la scheda non dice righe che
+      non esistono (revisione ostile ADR-0187, M3).
     */
-    if (membershipError && !isMissingAthleteMembershipResource(membershipError)) {
-      console.warn("Error importing athlete memberships:", membershipError);
+    if (membershipError) {
+      if (!isMissingAthleteMembershipResource(membershipError)) {
+        console.warn("Error importing athlete memberships:", membershipError);
+        throw new Error(
+          "Atleti importati, appartenenze non salvate: " +
+            String((membershipError as any)?.message || membershipError),
+        );
+      }
+    } else {
+      /* La proiezione di ogni scheda dice le righe coniate dall'archivio. */
+      const perAtleta = new Map<string, Record<string, any>[]>();
+      for (const riga of Array.isArray(coniate) ? coniate : []) {
+        const chiave = String(riga?.athlete_id ?? "");
+        perAtleta.set(chiave, [...(perAtleta.get(chiave) || []), riga]);
+      }
+      for (let index = 0; index < inserted.length; index += 1) {
+        const righe = perAtleta.get(String(inserted[index].id)) || [];
+        if (!righe.length) continue;
+        inserted[index] = await riallineaProiezioneAppartenenze(clubId, inserted[index], righe);
+      }
     }
   }
 
@@ -688,6 +710,7 @@ const replaceAthleteMemberships = async (
     inserimento prima della discesa sarebbe due primarie, e il rifiuto
     dell'indice.
   */
+  const inserite = new Map<string, string>();
   const discese = daAggiornare.filter(({ campi }) => campi.is_primary === false);
   const salite = daAggiornare.filter(({ campi }) => campi.is_primary === true);
   const altreModifiche = daAggiornare.filter(({ campi }) => campi.is_primary === undefined);
@@ -714,8 +737,17 @@ const replaceAthleteMemberships = async (
     for (const membership of daInserire) {
       const payload = { ...membership, organization_id: clubId, athlete_id: athleteId } as Record<string, any>;
       if (!UUID_PATTERN.test(String(payload.id || "").trim())) delete payload.id;
-      const { error } = await supabase.from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE).insert(payload);
+      const { data: inserita, error } = await supabase
+        .from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE)
+        .insert(payload)
+        .select()
+        .single();
       if (error) throw error;
+      /* L'identificativo vero lo conia l'archivio: la proiezione lo deve dire. */
+      const idConiato = String(inserita?.id ?? "").trim();
+      if (UUID_PATTERN.test(idConiato)) {
+        inserite.set(String(membership.category_id ?? "").trim(), idConiato);
+      }
     }
     for (const modifica of altreModifiche) await aggiorna(modifica);
     for (const modifica of salite) await aggiorna(modifica);
@@ -726,11 +758,93 @@ const replaceAthleteMemberships = async (
     throw error;
   }
 
-  /* Le righe come stanno adesso: le nuove con l'identificativo che avevano prima, se c'era. */
+  /*
+    Le righe come stanno adesso: quelle rimaste con l'identificativo che
+    avevano, quelle nuove con quello **coniato dall'archivio**. Un
+    identificativo sintetico (`<categoria>:membership`) non e una riga, e
+    una proiezione che lo porta dice una riga che non esiste (D-RD-16, R3).
+  */
   return serializedMemberships.map((riga) => {
-    const corrente = correntePerCategoria.get(String(riga.category_id ?? "").trim());
-    return corrente ? { ...riga, id: corrente.id } : riga;
+    const chiave = String(riga.category_id ?? "").trim();
+    const corrente = correntePerCategoria.get(chiave);
+    if (corrente) return { ...riga, id: corrente.id };
+    const coniato = inserite.get(chiave);
+    return coniato ? { ...riga, id: coniato } : riga;
   });
+};
+
+/**
+ * Le appartenenze richieste, con l'identificativo della riga che **gia
+ * esiste** per la stessa categoria: cosi la prima scrittura della scheda dice
+ * la verita per tutto cio che non e nuovo, e la seconda (`riallinea…`) serve
+ * solo alle righe che l'archivio deve ancora coniare. Un client che rimanda
+ * le appartenenze senza `id` (la pagina Categorie, la scheda) non costa piu
+ * due scritture a ogni salvataggio (revisione ostile ADR-0187, M4).
+ */
+const conIdentificativiDelleRighe = (
+  memberships: ReturnType<typeof normalizeAthleteCategoryMemberships>,
+  righe: readonly Record<string, any>[],
+) => {
+  const perCategoria = new Map(
+    righe
+      .filter((riga) => UUID_PATTERN.test(String(riga?.id ?? "").trim()))
+      .map((riga) => [String(riga.category_id ?? "").trim(), String(riga.id)] as const),
+  );
+  return memberships.map((membership) => {
+    if (UUID_PATTERN.test(String(membership.id ?? "").trim())) return membership;
+    const id = perCategoria.get(String(membership.categoryId ?? "").trim());
+    return id ? { ...membership, id } : membership;
+  });
+};
+
+/**
+ * La proiezione `athletes.data.categoryMemberships` deve portare gli
+ * identificativi **delle righe**, non quelli sintetici che il client compone
+ * prima di sapere cosa l'archivio coniera. Il writer salva la scheda prima
+ * delle righe (la scheda nuova non ha ancora un identificativo da dare alle
+ * righe), quindi dopo le righe la proiezione si **riallinea** — solo se
+ * dice qualcosa di diverso, per non scrivere due volte la stessa cosa.
+ */
+const riallineaProiezioneAppartenenze = async (
+  clubId: string,
+  athlete: any,
+  savedMemberships: readonly Record<string, any>[],
+) => {
+  if (!athlete || typeof athlete !== "object") return athlete;
+  const data = isRecord(athlete.data) ? athlete.data : {};
+  const attese = serializeAthleteMemberships(
+    normalizeAthleteCategoryMemberships({
+      ...athlete,
+      data,
+      category_memberships: savedMemberships,
+      categoryMemberships: savedMemberships,
+    }),
+    { clubId, athleteId: athlete.id || null },
+  );
+  const scritte = Array.isArray(data.categoryMemberships) ? data.categoryMemberships : [];
+  const stessaRiga = (a: any, b: any) =>
+    String(a?.id ?? "") === String(b?.id ?? "") &&
+    String(a?.category_id ?? "") === String(b?.category_id ?? "") &&
+    Boolean(a?.is_primary) === Boolean(b?.is_primary) &&
+    String(a?.site_id ?? "") === String(b?.site_id ?? "");
+  const allineata =
+    scritte.length === attese.length &&
+    attese.every((riga) => scritte.some((scritta: any) => stessaRiga(scritta, riga)));
+  if (allineata) return athlete;
+
+  const nuovaData = { ...data, categoryMemberships: attese };
+  const { data: aggiornato, error } = await supabase
+    .from("simplified_athletes")
+    .update({ data: nuovaData })
+    .eq("id", athlete.id)
+    .eq("club_id", clubId)
+    .select()
+    .single();
+  if (error) {
+    console.error("Error realigning athlete membership projection:", error);
+    throw error;
+  }
+  return aggiornato ?? { ...athlete, data: nuovaData };
 };
 
 /**
@@ -1329,7 +1443,10 @@ export async function addClubAthlete(clubId: string, athleteData: any) {
     catalogo,
   );
 
-  return hydrateAthleteWithMemberships(data, savedMemberships);
+  return hydrateAthleteWithMemberships(
+    await riallineaProiezioneAppartenenze(clubId, data, savedMemberships),
+    savedMemberships,
+  );
 }
 
 /**
@@ -1435,10 +1552,13 @@ export async function updateClubAthlete(
     const catalogo = membershipsDeclared
       ? await loadCatalogoPerScrittura(clubId)
       : [];
-    const normalizedMemberships = resolveRequestedAthleteMemberships(
-      athleteWithMemberships,
-      updates,
-      catalogo,
+    const normalizedMemberships = conIdentificativiDelleRighe(
+      resolveRequestedAthleteMemberships(
+        athleteWithMemberships,
+        updates,
+        catalogo,
+      ),
+      membershipRows,
     );
     if (membershipsDeclared) {
       assertMembershipsAreCanonical(
@@ -1597,7 +1717,12 @@ export async function updateClubAthlete(
         )
       : membershipRows;
 
-    return hydrateAthleteWithMemberships(data, savedMemberships);
+    return hydrateAthleteWithMemberships(
+      membershipsDeclared
+        ? await riallineaProiezioneAppartenenze(clubId, data, savedMemberships)
+        : data,
+      savedMemberships,
+    );
   } catch (error) {
     console.error("Error updating club athlete:", error);
     throw error;
@@ -2421,44 +2546,32 @@ export async function saveClubSettings(clubId: string, settings: any) {
       throw new Error("Valid club ID is required");
     }
 
-    // Get current club data
-    const { data: clubData, error: fetchError } = await supabase
+    /*
+      **Solo le proprie chiavi, e la fusione la fa il server** (`settings_patch`,
+      sotto lock: `applyClubSettingsPatch` in `resources.ts`). Rileggere
+      `settings` intero e riscriverlo era una copia vecchia che tornava
+      indietro: chi salvava Gare da una scheda aperta dieci minuti prima
+      riportava anche i Pagamenti com'erano allora, e la scadenza delle
+      convocazioni salvata da un'altra finestra spariva senza errore
+      (revisione ostile ADR-0187, M6). La stessa strada del profilo del club
+      (`saveClubProfileSection`).
+    */
+    const { data: aggiornato, error: updateError } = await supabase
       .from("clubs")
-      .select("settings")
+      .update({ settings_patch: settings })
       .eq("id", clubId)
+      .select("settings")
       .single();
-
-    if (fetchError) {
-      console.error("Error fetching club data:", fetchError);
-      if (fetchError.code === "PGRST116") {
-        throw new Error(`Club with ID ${clubId} not found`);
-      }
-      throw fetchError;
-    }
-
-    if (!clubData) {
-      throw new Error(`Club with ID ${clubId} not found`);
-    }
-
-    // Merge with existing settings
-    const currentSettings = clubData?.settings || {};
-    const updatedSettings = { ...currentSettings, ...settings };
-
-    console.log("Updating club settings:", updatedSettings);
-
-    // Update the club settings
-    const { error: updateError } = await supabase
-      .from("clubs")
-      .update({
-        settings: updatedSettings,
-      })
-      .eq("id", clubId);
 
     if (updateError) {
       console.error("Error updating club settings:", updateError);
       throw updateError;
     }
 
+    const updatedSettings =
+      aggiornato && isRecord(aggiornato.settings)
+        ? aggiornato.settings
+        : { ...settings };
     console.log("Club settings saved successfully");
     return updatedSettings;
   } catch (error) {

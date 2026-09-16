@@ -66,6 +66,8 @@ export const resolveSettingsSection = (param: string | null | undefined): Settin
 
 /** Il valore che si scrive: intero nell'intervallo 0–30, come la lettura lo pretende. */
 export const clampConvocationDeadlineDays = (value: unknown): number => {
+  /* Un campo svuotato non e uno zero: torna al default, non a «il giorno stesso» (revisione ostile, L8). */
+  if (value === "" || value === null || value === undefined) return DEFAULT_MATCH_CONVOCATION_DEADLINE_DAYS;
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return DEFAULT_MATCH_CONVOCATION_DEADLINE_DAYS;
   return Math.max(MATCH_CONVOCATION_DEADLINE_RANGE.min, Math.min(Math.round(parsed), MATCH_CONVOCATION_DEADLINE_RANGE.max));
