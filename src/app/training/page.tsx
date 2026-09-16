@@ -23,6 +23,7 @@ import {
   updateEvent,
 } from "@/lib/events/client";
 import { useAuth } from "@/components/providers/AuthProvider";
+import { roleHasPermission } from "@/lib/permissions/catalog";
 import {
   getParticipationCategoryBadgeLabel,
   getParticipationCategoryContext,
@@ -1794,6 +1795,29 @@ const versioneSalvata = (risposta: any): number | null => {
     () => buildCategoryDisplayIndex({ categories, groups: categoryGroups }),
     [categories, categoryGroups],
   );
+  /*
+    Le persone in prova nel registro presenze (ADR-0188): il ruolo decide se
+    la sezione c'e e cosa puo fare; la categoria dell'allenamento e quella
+    proposta alla registrazione rapida. Le opzioni sono le stesse del filtro.
+  */
+  const ruoloAttivo = activeClub?.role || null;
+  const trialOptions = React.useMemo(
+    () =>
+      roleHasPermission(ruoloAttivo, "trials.read")
+        ? {
+            canRecord: roleHasPermission(ruoloAttivo, "trials.attendance"),
+            canCreate: roleHasPermission(ruoloAttivo, "trials.manage"),
+            canReadContacts: roleHasPermission(ruoloAttivo, "trials.contacts_read"),
+            defaultCategoryId: attendanceModalState?.training?.categoryId || null,
+            categoryOptions: selectableCategoryOptions(categories).map((category) => ({
+              id: String(category.id),
+              name: String(category.name),
+              label: categoryDisplay.label(category.id),
+            })),
+          }
+        : null,
+    [attendanceModalState?.training?.categoryId, categories, categoryDisplay, ruoloAttivo],
+  );
   const gridFilters = React.useMemo(
     () =>
       buildTrainingFilters({
@@ -2044,6 +2068,7 @@ const versioneSalvata = (risposta: any): number | null => {
         clubAthletes={attendanceModalState?.clubAthletes ?? EMPTY_ATHLETES}
         onSave={handleSaveAttendanceSheet}
         saving={savingAttendance}
+        trials={trialOptions}
       />
 
       {showAddTrainingModal ? (

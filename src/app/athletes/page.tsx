@@ -12,6 +12,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   BarChart3,
+  UserRoundSearch,
   CheckSquare,
   MoreHorizontal,
   Search,
@@ -118,6 +119,7 @@ import {
   GroupContextControl,
   SiteContextControl,
 } from "@/components/athletes/v2/athletes-context-controls";
+import { withClubId } from "@/components/web/hooks/use-route-club-id";
 import { BulkCategoryDrawer } from "@/components/athletes/v2/bulk-category-drawer";
 
 import type {
@@ -2093,6 +2095,11 @@ export default function AthletesPage() {
                         </IconButton>
                       </MenuTrigger>
                       <MenuContent align="end" width={220}>
+                        {/* Le persone in prova (ADR-0188): una vista dell'area Atleti, non una categoria. */}
+                        <MenuItem onSelect={() => router.push(withClubId("/athletes/in-prova", resolvedClubId || requestedClubId || activeClub?.id || null))}>
+                          <UserRoundSearch />
+                          Atleti in prova
+                        </MenuItem>
                         <MenuItem onSelect={() => router.push("/reports?report=categories")}>
                           <BarChart3 />
                           Report categorie

@@ -19,7 +19,7 @@ export type StatusSpec = {
   hue: StatusHue;
 };
 
-const spec = (label: string, weight: StatusWeight, hue: StatusHue): StatusSpec =>
+export const spec = (label: string, weight: StatusWeight, hue: StatusHue): StatusSpec =>
   Object.freeze({ label, weight, hue });
 
 /** Lo stato «non lo so»: quieto, neutro, e dice che manca un dato. */
@@ -69,6 +69,13 @@ export const APPOINTMENT_STATUS = Object.freeze({
   rescheduled: spec("RIPROGRAMMATO", "quiet", "neutral"),
 } as const);
 
+/* ── Persona in prova (ADR-0188) ─────────────────────────────────────────── */
+export const TRIAL_STATUS = Object.freeze({
+  in_trial: spec("IN PROVA", "outline", "amber"),
+  enrolled: spec("ISCRITTO", "solid", "green"),
+  declined: spec("NON PROSEGUE", "quiet", "neutral"),
+} as const);
+
 /* ── Denaro ─────────────────────────────────────────────────────────────── */
 export const MONEY_STATUS = Object.freeze({
   paid: spec("INCASSATO", "solid", "green"),
@@ -84,6 +91,17 @@ export const MONEY_STATUS = Object.freeze({
 } as const);
 
 /* ── Attivita (allenamento, gara, appuntamento) ─────────────────────────── */
+/**
+ * Le prenotazioni di una struttura (`StructureBookingStatus`): richiesta,
+ * confermata dal club, annullata. Non e un appuntamento e non e un incasso:
+ * «confermata» qui e verde pieno, e non va cercata negli alias generici.
+ */
+export const BOOKING_STATUS = Object.freeze({
+  pending: spec("IN ATTESA", "outline", "amber"),
+  confirmed: spec("CONFERMATA", "solid", "green"),
+  cancelled: spec("ANNULLATA", "quiet", "neutral"),
+} as const);
+
 export const ACTIVITY_STATUS = Object.freeze({
   completed: spec("COMPLETATO", "solid", "green"),
   in_progress: spec("IN CORSO", "solid", "blue"),
@@ -236,6 +254,9 @@ const ALIASES: Record<string, StatusSpec> = {
   in_progress: ACTIVITY_STATUS.in_progress,
   "in corso": ACTIVITY_STATUS.in_progress,
   scheduled: ACTIVITY_STATUS.scheduled,
+  /* «upcoming» e la parola dell'area famiglia per un evento futuro (parent-dashboard.ts). */
+  upcoming: ACTIVITY_STATUS.scheduled,
+  "in programma": ACTIVITY_STATUS.scheduled,
   programmato: ACTIVITY_STATUS.scheduled,
   planned: ACTIVITY_STATUS.scheduled,
   not_recorded: ACTIVITY_STATUS.not_recorded,

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { PageHeading } from "@/components/dashboard/page-heading";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+import { DataChip } from "@/components/web/primitives/StatusPill";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
@@ -50,8 +50,11 @@ import {
   getAthleteDisplayName,
 } from "@/lib/athlete-name-utils";
 import { calculateCategoryAthleteStats } from "@/lib/category-athlete-stats";
-import { membershipRoleLabel } from "@/lib/categories/display";
+import { MembershipRoleBadge } from "@/components/categories/category-label";
 import { normalizeAthleteCategoryMemberships } from "@/lib/athlete-category-memberships";
+import { roleHasPermission } from "@/lib/permissions/catalog";
+import { Panel, PanelHeader } from "@/components/web/primitives/Surface";
+import { TrialAthletesPanel } from "@/components/trials/v2/TrialAthletesPanel";
 
 type TrainerAthleteRow = {
   id: string;
@@ -113,6 +116,7 @@ const isCertificateExpired = (value: unknown) => {
 export default function TrainerAthletesDashboardPage() {
   const router = useRouter();
   const {
+    activeClub,
     assignedAthletes,
     assignedCategories,
     categories,
@@ -121,6 +125,13 @@ export default function TrainerAthletesDashboardPage() {
     visibleMatches,
     visibleTrainings,
   } = useTrainerDashboard();
+  /*
+    Le persone in prova (ADR-0188): l'allenatore le vede e le registra nel
+    proprio perimetro, che il server applica; convertirle in atleta e della
+    segreteria, e qui il comando non compare.
+  */
+  const ruoloAllenatore = activeClub?.role || null;
+  const vedeProve = roleHasPermission(ruoloAllenatore, "trials.read");
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
     new Set(),
@@ -375,15 +386,7 @@ export default function TrainerAthletesDashboardPage() {
                         <span>{athlete.displayName}</span>
                       )}
                       <div className="mt-1">
-                        <Badge
-                          className={
-                            athlete.membershipType === "secondary"
-                              ? "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-indigo hover:bg-egw-tint-blue"
-                              : "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue"
-                          }
-                        >
-                          {membershipRoleLabel(athlete.membershipType !== "secondary")}
-                        </Badge>
+                        <MembershipRoleBadge isPrimary={athlete.membershipType !== "secondary"} />
                       </div>
                     </div>
                   </div>
@@ -397,7 +400,7 @@ export default function TrainerAthletesDashboardPage() {
                           className={`h-4 w-4 ${
                             isCertificateExpired(athlete.medicalCertExpiry)
                               ? "text-egw-red"
-                              : "text-green-500"
+                              : "text-egw-green"
                           }`}
                         />
                         <span
@@ -471,14 +474,8 @@ export default function TrainerAthletesDashboardPage() {
         />
 
         <div className="flex flex-wrap gap-2">
-          <Badge className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue">
-            {new Set(athleteRows.map((athlete) => athlete.id)).size} atleti
-            visibili
-          </Badge>
-          <Badge className="border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green">
-            {assignedCategories.length || groupedCategories.length} categorie
-            assegnate
-          </Badge>
+          <DataChip tone="blue">{new Set(athleteRows.map((athlete) => athlete.id)).size} atleti visibili</DataChip>
+          <DataChip tone="green">{assignedCategories.length || groupedCategories.length} categorie assegnate</DataChip>
         </div>
       </div>
 
@@ -625,6 +622,23 @@ export default function TrainerAthletesDashboardPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {vedeProve ? (
+        <Panel as="section" className="p-5" aria-label="Persone in prova">
+          <PanelHeader
+            eyebrow="In prova"
+            title="Persone in prova"
+            description="Chi viene ad allenarsi prima di iscriversi. La presenza si segna dal registro presenze dell'allenamento, con «Atleta in prova»."
+          />
+          <TrialAthletesPanel
+            clubId={activeClub?.id ? String(activeClub.id) : null}
+            canManage={roleHasPermission(ruoloAllenatore, "trials.manage")}
+            canConvert={roleHasPermission(ruoloAllenatore, "trials.convert")}
+            canReadContacts={roleHasPermission(ruoloAllenatore, "trials.contacts_read")}
+            profileMode="drawer"
+          />
+        </Panel>
+      ) : null}
     </div>
   );
 }

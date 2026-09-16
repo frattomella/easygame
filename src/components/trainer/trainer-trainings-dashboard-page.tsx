@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import { AttendanceDrawer } from "@/components/training/v2/AttendanceDrawer";
+import { roleHasPermission } from "@/lib/permissions/catalog";
+import { selectableCategoryOptions } from "@/lib/category-utils";
 import {
   readEventAttendanceRoll,
   type VoceDiAppello,
@@ -424,7 +426,7 @@ export default function TrainerTrainingsDashboardPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-amber-500 text-egw-amber-ink hover:bg-egw-tint-amber"
+                      className="border-egw-tint-amber-bd text-egw-amber-ink hover:bg-egw-tint-amber"
                       onClick={() =>
                         setConfirmState({
                           open: true,
@@ -456,7 +458,7 @@ export default function TrainerTrainingsDashboardPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="border-emerald-500 text-egw-green hover:bg-egw-tint-green"
+                      className="border-egw-tint-green-bd text-egw-green hover:bg-egw-tint-green"
                       onClick={() =>
                         setConfirmState({
                           open: true,
@@ -786,6 +788,21 @@ export default function TrainerTrainingsDashboardPage() {
             athletes={getTrainingAthletes(selectedTraining)}
             clubAthletes={getTrainerAthleteOptions()}
             saving={savingAttendance}
+            trials={
+              roleHasPermission(activeClub?.role, "trials.read")
+                ? {
+                    canRecord: roleHasPermission(activeClub?.role, "trials.attendance") && Boolean(permissions.actions.manageAttendance),
+                    canCreate: roleHasPermission(activeClub?.role, "trials.manage"),
+                    canReadContacts: roleHasPermission(activeClub?.role, "trials.contacts_read"),
+                    defaultCategoryId: selectedTraining.categoryId || selectedTraining.category_id || null,
+                    categoryOptions: selectableCategoryOptions(categories as Array<{ id: string; name: string; configured?: boolean | null }>).map((category) => ({
+                      id: String(category.id),
+                      name: String(category.name),
+                      label: categoryDisplay.label(category.id),
+                    })),
+                  }
+                : null
+            }
             onSave={async ({ attendance }) => {
               if (!activeClub?.id) return;
               try {

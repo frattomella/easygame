@@ -152,7 +152,9 @@ test("le caselle che decidono presenze e convocazioni hanno un nome", () => {
   */
   /* Redesign: il registro presenze e il cassetto V2 condiviso (`AttendanceDrawer`); la casella dice «Presente: nome». */
   const registro = fs.readFileSync(path.join(process.cwd(), "src/components/training/v2/AttendanceDrawer.tsx"), "utf8");
-  assert.ok(registro.includes("aria-label={`Presente: ${name}`}"), "AttendanceDrawer: la casella deve dire di chi e");
+  const casella = fs.readFileSync(path.join(process.cwd(), "src/components/training/v2/MarkControl.tsx"), "utf8");
+  assert.ok(casella.includes("aria-label={`${label}: ${name}`}") && casella.includes('label = "Presente"'), "MarkControl: la casella deve dire di chi e");
+  assert.ok(registro.includes("<MarkControl"), "AttendanceDrawer monta la casella condivisa");
   assert.ok(registro.includes("aria-label={`${athlete.name}: ${markLabel(mark)}. Cambia stato`}"), "e la riga annuncia lo stato che cambia");
   for (const [file, etichetta] of [
     ["src/components/trainer/MatchConvocations.tsx", "Convoca: "],

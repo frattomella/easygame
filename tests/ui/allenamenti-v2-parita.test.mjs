@@ -109,8 +109,11 @@ test("le presenze si registrano in un cassetto da 480 con la logica della V1", (
   assert.match(attendance, /Categoria primaria: \$\{athlete\.primaryCategoryName\}/);
   assert.match(attendance, /getMedicalCertificateAvailabilityLabel/);
   assert.match(attendance, /Note per questo atleta/);
-  assert.match(attendance, /aria-label=\{`Presente: \$\{name\}`\}/, "la casella dice di chi e");
-  assert.match(attendance, /"present" \| "absent" \| null/, "tre stati: da segnare → presente → assente");
+  /* La casella a tre stati e una sola, condivisa con le persone in prova (`MarkControl.tsx`). */
+  const casella = readFileSync(path.join(process.cwd(), "src/components/training/v2/MarkControl.tsx"), "utf8");
+  assert.match(casella, /aria-label=\{`\$\{label\}: \$\{name\}`\}/, "la casella dice di chi e");
+  assert.match(attendance, /import \{ MarkControl, nextMark, type Mark \} from "@\/components\/training\/v2\/MarkControl"/, "il cassetto la importa, non la riscrive");
+  assert.match(casella, /"present" \| "absent" \| null/, "tre stati: da segnare → presente → assente");
   assert.match(attendance, /present: row\.mark === "present"/, "chi non e segnato si salva assente, come la V1");
   assert.match(attendance, /<ProgressBar/);
   /* La pagina: roster dai gruppi, rilettura dell'appello, scrittore canonico. */

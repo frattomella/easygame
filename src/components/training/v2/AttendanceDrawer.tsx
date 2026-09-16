@@ -17,6 +17,9 @@ import {
 } from "@/lib/medical-certificates";
 import { formatDateShort, formatTime, joinMeta } from "@/lib/web/format";
 import type { TrainingSession } from "@/components/training/v2/training-page-model";
+import { TrialAttendanceSection, type TrialAttendanceSectionHandle, type TrialAttendanceOptions } from "@/components/training/v2/TrialAttendanceSection";
+import { MarkControl, nextMark, type Mark } from "@/components/training/v2/MarkControl";
+import { useToast } from "@/components/ui/toast-notification";
 
 /**
  * Le presenze in pannello laterale (mockup P4, guideline 09 §9.7): il cassetto
@@ -36,6 +39,11 @@ import type { TrainingSession } from "@/components/training/v2/training-page-mod
  * Chi non e stato segnato si salva come assente: e cio che la V1 faceva con
  * la sua casella spenta, e l'archivio conosce due stati soli. La differenza e
  * che qui si vede **chi manca all'appello** prima di premere Salva.
+ *
+ * **Le persone in prova** (ADR-0188) stanno sotto gli atleti, in una sezione
+ * propria (`TrialAttendanceSection`): si cercano, si registrano al volo con
+ * tre campi, si segnano presenti. Le loro presenze vanno su una tabella
+ * propria, prima dell'appello degli atleti; nessun nominativo libero.
  */
 export type AttendanceDrawerAthlete = {
   id: string;
@@ -74,7 +82,6 @@ export type AttendanceSavePayload = {
   }>;
 };
 
-type Mark = "present" | "absent" | null;
 
 type RowState = {
   athlete: AttendanceDrawerAthlete;
@@ -88,7 +95,6 @@ const initialMark = (athlete: AttendanceDrawerAthlete): Mark => {
   return athlete.present ? "present" : null;
 };
 
-const nextMark = (mark: Mark): Mark => (mark === null ? "present" : mark === "present" ? "absent" : null);
 
 const toRows = (athletes: AttendanceDrawerAthlete[]): RowState[] =>
   athletes.map((athlete) => ({
@@ -108,6 +114,7 @@ export function AttendanceDrawer({
   clubAthletes,
   onSave,
   saving = false,
+  trials = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -116,9 +123,14 @@ export function AttendanceDrawer({
   clubAthletes: AttendanceDrawerAthlete[];
   onSave: (payload: AttendanceSavePayload) => void | Promise<void>;
   saving?: boolean;
+  /** Le persone in prova: presente quando il ruolo puo almeno leggerle. */
+  trials?: TrialAttendanceOptions | null;
 }) {
   const [rows, setRows] = React.useState<RowState[]>(() => toRows(athletes));
   const [dirty, setDirty] = React.useState(false);
+  const trialSection = React.useRef<TrialAttendanceSectionHandle>(null);
+  const { showToast } = useToast();
+  const [trialSaving, setTrialSaving] = React.useState(false);
   const [filter, setFilter] = React.useState<RowFilter>("all");
   const [query, setQuery] = React.useState("");
 
@@ -167,6 +179,29 @@ export function AttendanceDrawer({
 
   const save = async () => {
     if (!training) return;
+    /*
+      Prima le persone in prova, poi gli atleti: due tabelle, due scritture.
+      Se la prima fallisce l'appello degli atleti non parte e il cassetto resta
+      aperto; se riesce e la seconda fallisce, la presenza di prova e salvata
+      e al secondo tentativo si riscrive uguale (una riga per persona).
+    */
+    if (trialSection.current?.hasChanges()) {
+      setTrialSaving(true);
+      try {
+        await trialSection.current.save();
+      } catch (caught: any) {
+        /*
+          Un errore qui si dice e ferma tutto: senza, il rifiuto (perimetro,
+          evento annullato, rete) restava una promessa respinta nel vuoto e
+          l'appello degli atleti non partiva mentre il cassetto sembrava fermo
+          (revisione ostile, H1).
+        */
+        showToast("error", caught?.message || "Presenze di prova non salvate");
+        return;
+      } finally {
+        setTrialSaving(false);
+      }
+    }
     await onSave({
       trainingId: training.id,
       attendance: rows.map((row) => ({
@@ -199,7 +234,7 @@ export function AttendanceDrawer({
       data-test="attendance-drawer"
       footer={
         <>
-          <Button variant="primary" onClick={() => void save()} loading={saving} disabled={!training}>
+          <Button variant="primary" onClick={() => void save()} loading={saving || trialSaving} disabled={!training}>
             Salva presenze <span className="egw-num opacity-80">{present}/{rows.length}</span>
           </Button>
           <Button variant="secondary" onClick={() => onOpenChange(false)} disabled={saving}>
@@ -257,6 +292,10 @@ export function AttendanceDrawer({
             />
           ))}
         </ul>
+
+        {trials && training ? (
+          <TrialAttendanceSection ref={trialSection} eventId={training.id} options={trials} onDirty={() => setDirty(true)} />
+        ) : null}
 
         <div className="px-6 pb-6 pt-4">
           <InsetBlock className="p-3.5">
@@ -379,28 +418,3 @@ function AthleteRow({
   );
 }
 
-/**
- * Il controllo a tre stati: un anello vuoto (da segnare), verde con la spunta
- * (presente), rosso con la croce (assente). E una casella con un nome —
- * `Presente: {nome}` — perche qui si segnano le presenze di un minore, e chi
- * legge con lo schermo deve sapere di chi e.
- */
-function MarkControl({ mark, name, onCycle }: { mark: Mark; name: string; onCycle: () => void }) {
-  return (
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={mark === "present" ? true : mark === "absent" ? false : "mixed"}
-      aria-label={`Presente: ${name}`}
-      onClick={onCycle}
-      className={cn(
-        "inline-flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-egw-pill border-[1.5px] transition-colors duration-hover focus-visible:outline-none focus-visible:shadow-egw-focus",
-        mark === "present" && "border-egw-green bg-egw-tint-green text-egw-green",
-        mark === "absent" && "border-egw-red bg-egw-tint-red text-egw-red",
-        mark === null && "border-[rgba(11,26,58,.2)] bg-white text-transparent hover:border-[rgba(37,99,235,.32)]",
-      )}
-    >
-      {mark === "present" ? <Check className="h-4 w-4" aria-hidden /> : mark === "absent" ? <X className="h-4 w-4" aria-hidden /> : null}
-    </button>
-  );
-}
