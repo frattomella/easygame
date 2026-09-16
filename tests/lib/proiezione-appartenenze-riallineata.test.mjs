@@ -102,6 +102,25 @@ beforeEach(() => {
       }
     }
 
+    /*
+      ADR-0194: l'insieme delle appartenenze lo scrive il server in una
+      transazione. Il doppio fa cio che il writer fa per differenza: tiene le
+      righe che ci sono, conia le nuove, toglie le assenti, e risponde con le
+      righe come stanno.
+    */
+    if (/\/api\/v1\/athletes\/[^/]+\/memberships$/.test(url) && metodo === "PUT") {
+      const volute = Array.isArray(body?.data?.memberships) ? body.data.memberships : [];
+      const dopo = volute.map((m) => {
+        const corrente = righe.find((r) => r.category_id === m.category_id);
+        if (corrente) return { ...corrente, is_primary: Boolean(m.is_primary), site_id: m.site_id || corrente.site_id || null };
+        coniati += 1;
+        return { id: `44444444-4444-4444-8444-44444444444${coniati}`, organization_id: CLUB, athlete_id: ATLETA, category_id: m.category_id, category_name: m.category_name, is_primary: Boolean(m.is_primary), site_id: m.site_id || null };
+      });
+      const cambiata = JSON.stringify(dopo) !== JSON.stringify(righe);
+      righe = dopo;
+      return risposta({ rows: righe, changed: cambiata });
+    }
+
     if (url.startsWith("/api/v1/simplified_athletes")) {
       if (metodo === "GET") return risposta([atleta]);
       if (metodo === "PATCH") {

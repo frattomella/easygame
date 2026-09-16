@@ -90,7 +90,9 @@ test("(b) l'import atleti segnala la riga ambigua invece di assegnarla, e la rig
   assert.match(pagina, /const riferimento = resolveCategoryReference\(\s*row\.categoryId,\s*row\.categoryLabel,\s*currentCategories,\s*\);\s*if \(riferimento\?\.ambiguous\)/);
   assert.match(pagina, /nomina piu squadre/);
   const moduli = readFileSync("src/lib/server/form-submissions.ts", "utf8");
-  assert.match(moduli, /const risolta = resolveCategoryReference\(\s*answeredCategory,\s*answeredCategory,\s*options\.categories,\s*\);/);
+  /* ADR-0194: prima la squadra (categoria · sede) sull'indice delle collocazioni, poi il nome che ne nomina una sola. */
+  assert.match(moduli, /options\.targets\.fromLabel\(answeredCategory\)/);
+  assert.match(moduli, /resolveCategoryReference\(answeredCategory, answeredCategory, options\.categories\)/);
   assert.doesNotMatch(moduli, /entry\.name\.toLowerCase\(\) === answeredCategory/);
 });
 
@@ -254,13 +256,16 @@ test("revisione · l'etichetta di un allenamento: il nome scritto resta un nome,
 
 test("revisione · il writer non cancella cio che il catalogo non conosce e non riscrive la colonna quando non dichiara le appartenenze", () => {
   const db = readFileSync("src/lib/simplified-db.ts", "utf8");
-  assert.match(db, /const daCancellare = correnti\.filter\(\(riga\) => \{[\s\S]*?configurate\.size === 0 \|\| configurate\.has\(id\)/);
+  /* ADR-0194: le righe le scrive il server, per differenza, nella stessa transazione della proiezione. */
+  const writer = readFileSync("src/lib/server/athlete-category-memberships.ts", "utf8");
+  assert.match(db, /replaceAthleteMembershipsOnServer\(/, "il client manda l'insieme al writer del dominio");
+  assert.match(writer, /if \(configurate\.size && !configurate\.has\(chiave\)\) continue;/, "una riga fuori dal catalogo non si cancella da un salvataggio");
   /*
     L'archivio ammette una primaria sola per atleta (indice parziale): l'ordine
     e discesa → cancellazione → inserimento → salita (revisione ostile N1).
   */
-  assert.match(db, /for \(const modifica of discese\)[\s\S]*?for \(const riga of daCancellare\)[\s\S]*?for \(const membership of daInserire\)[\s\S]*?for \(const modifica of altreModifiche\)[\s\S]*?for \(const modifica of salite\)/, "prima si scende la primaria, poi si cancella, poi si inserisce, per ultimo si sale");
-  assert.match(db, /const discese = daAggiornare\.filter\(\(\{ campi \}\) => campi\.is_primary === false\);/);
+  assert.match(writer, /for \(const riga of discese\)[\s\S]*?for \(const riga of cancellazioni\)[\s\S]*?for \(const voluta of inserimenti\)[\s\S]*?for \(const voluta of salite\)/, "prima si scende la primaria, poi si cancella, poi si inserisce, per ultimo si sale");
+
   const paginaAllenamenti = readFileSync("src/app/training/page.tsx", "utf8");
   assert.match(paginaAllenamenti, /editingTraining\.categoryName \|\|\n\s*"Categoria",/, "in archivio torna il nome salvato, non l'etichetta a schermo (N2)");
   assert.doesNotMatch(paginaAllenamenti, /\.join\(", "\) \|\| editingTraining\.category,/);

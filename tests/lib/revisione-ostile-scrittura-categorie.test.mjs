@@ -73,7 +73,8 @@ test("C3 · un identificativo vero promuove la riga che c'e gia", () => {
     category: U15_SCAURI,
   });
 
-  assert.equal(risultato.length, 2, "nessuna riga nuova");
+  /* ADR-0194 §1.3: la primaria uscente se ne va; la secondaria si promuove, senza doppioni. */
+  assert.equal(risultato.length, 1, "nessuna riga nuova, e la vecchia primaria non resta come secondaria");
   assert.equal(
     risultato.find((membership) => membership.isPrimary).categoryId,
     U15_SCAURI,
@@ -103,11 +104,13 @@ test("C3 · una categoria davvero nuova si crea ancora", () => {
     categoryName: "Pulcini",
   });
 
-  assert.equal(risultato.length, 3);
+  /* ADR-0194 §1.3: la nuova primaria entra, la vecchia esce, la secondaria resta. */
+  assert.equal(risultato.length, 2);
   assert.equal(
     risultato.find((membership) => membership.isPrimary).categoryId,
     PULCINI,
   );
+  assert.ok(risultato.some((membership) => membership.categoryId === U15_SCAURI && !membership.isPrimary), "la secondaria non coinvolta resta");
 });
 
 test("C3 · un cambio per nome inequivocabile continua a funzionare", () => {
@@ -130,7 +133,7 @@ test("C3 · un cambio per nome inequivocabile continua a funzionare", () => {
 
   const risultato = risolvi(atleta, { category: "Under 15" });
 
-  assert.equal(risultato.length, 2, "nessuna riga in piu");
+  assert.equal(risultato.length, 1, "nessuna riga in piu, e la vecchia primaria esce (ADR-0194 §1.3)");
   assert.equal(
     risultato.find((membership) => membership.isPrimary).categoryId,
     U15_FORMIA,
@@ -138,7 +141,7 @@ test("C3 · un cambio per nome inequivocabile continua a funzionare", () => {
   );
 });
 
-test("C3 · la vecchia primaria scende a secondaria, e non resta doppia", () => {
+test("C3 · la vecchia primaria esce (ADR-0194 §1.3: non scende a secondaria da sola), e la nuova non resta doppia", () => {
   const atleta = {
     id: "atleta-1",
     category_memberships: [
@@ -155,8 +158,9 @@ test("C3 · la vecchia primaria scende a secondaria, e non resta doppia", () => 
 
   assert.equal(risultato.filter((m) => m.isPrimary).length, 1);
   assert.equal(
-    risultato.find((m) => m.categoryId === PULCINI).isPrimary,
-    false,
+    risultato.find((m) => m.categoryId === PULCINI),
+    undefined,
+    "la primaria uscente non diventa secondaria: la tiene chi lo chiede con il comando del dominio",
   );
   assert.equal(
     new Set(risultato.map((m) => m.categoryId)).size,

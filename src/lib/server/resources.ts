@@ -88,6 +88,7 @@ import {
   assertAthleteCategoryColumnIsCanonical,
   assertAthleteDataProjectionIsCanonical,
   assertMembershipCategoryIsCanonical,
+  assertMembershipPlacementIsCanonical,
 } from "./category-write-guard";
 import {
   normalizeAccessScopes,
@@ -6824,10 +6825,10 @@ export const createResource = async (
     nessuna voce riconosce, non nasce come riga. Vedi `category-write-guard`.
   */
   if (resource === "athlete_category_memberships") {
-    await assertMembershipCategoryIsCanonical(
-      String(normalized.organization_id ?? scope?.activeOrganizationId ?? ""),
-      normalized,
-    );
+    const club = String(normalized.organization_id ?? scope?.activeOrganizationId ?? "");
+    await assertMembershipCategoryIsCanonical(club, normalized);
+    /* La coppia (categoria, sede) deve essere una squadra del club (ADR-0194 §24). */
+    await assertMembershipPlacementIsCanonical(club, normalized, null);
   }
   if (resource === "athletes" || resource === "simplified_athletes") {
     const club = String(normalized.organization_id ?? scope?.activeOrganizationId ?? "");
@@ -8255,15 +8256,15 @@ export const updateResource = async (
 
   /* Lo stesso vaglio della creazione (D-RD-17): vedi `category-write-guard`. */
   if (resource === "athlete_category_memberships") {
-    await assertMembershipCategoryIsCanonical(
-      String(
-        normalized.organization_id ??
-          existing?.organization_id ??
-          scope?.activeOrganizationId ??
-          "",
-      ),
-      normalized,
+    const club = String(
+      normalized.organization_id ??
+        existing?.organization_id ??
+        scope?.activeOrganizationId ??
+        "",
     );
+    await assertMembershipCategoryIsCanonical(club, normalized);
+    /* La coppia (categoria, sede) deve essere una squadra del club (ADR-0194 §24); la coppia che aveva passa. */
+    await assertMembershipPlacementIsCanonical(club, normalized, existing as any);
   }
   if (resource === "athletes" || resource === "simplified_athletes") {
     const club = String(

@@ -141,6 +141,22 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "athletes.memberships.bulk",
+    method: "POST",
+    path: "/api/v1/athletes/memberships",
+    description:
+      "Il cambio di appartenenza alle categorie in blocco (ADR-0194). {mode: preview, athleteIds, command} calcola per ogni atleta le appartenenze prima e dopo senza scrivere; {mode: apply} le scrive a lotti atomici con le schede bloccate. Il comando e {kind: assign, targetId | categoryId+siteId, role: primary|secondary, previousPrimaryPolicy: remove|keep_as_secondary, otherSecondariesPolicy: keep|remove} oppure {kind: remove, categoryId}. La sede si deriva dalla squadra (gruppo operativo) scelta: una coppia categoria/sede non configurata e rifiutata. Una primaria al massimo, nessun doppione, audit per atleta (prima/dopo/politica) e per blocco (batchId). Nessun evento, presenza o convocazione viene toccato",
+    mobile_ready: false,
+  },
+  {
+    name: "athletes.memberships.item",
+    method: "PUT|POST",
+    path: "/api/v1/athletes/:id/memberships",
+    description:
+      "Le appartenenze di un atleta (ADR-0194). PUT {memberships: [{categoryId, siteId, isPrimary}]} scrive l insieme intero (scheda, creazione, iscrizione approvata) con le stesse guardie del cambio in blocco; POST {command} applica un comando solo con lo stesso piano. Richiede la scrittura di athlete_category_memberships e athletes per il ruolo attivo; il perimetro di sede/categoria dell accesso vale sull atleta e sulla destinazione",
+    mobile_ready: false,
+  },
+  {
     name: "events.trial_attendance",
     method: "GET|POST",
     path: "/api/v1/events/:id/trial-attendance",

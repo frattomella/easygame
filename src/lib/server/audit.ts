@@ -276,6 +276,15 @@ export const AUDIT_ACTIONS = {
   trialAthleteConverted: "trial_athlete.converted",
   trialAttendanceRecorded: "trial_athlete.attendance.recorded",
   /*
+    Le appartenenze di un atleta alle categorie (ADR-0194): ogni cambio —
+    singolo o in blocco — lascia una riga per atleta con le appartenenze
+    **prima** e **dopo** e la politica scelta, e il blocco una riga di
+    riepilogo con il suo identificativo. «Categoria cambiata» non basta a
+    ricostruire cosa e sparito.
+  */
+  athleteMembershipsChanged: "athlete.memberships.changed",
+  athleteMembershipsBulk: "athlete.memberships.bulk",
+  /*
     Il fascicolo unico (Wave 5, lane 5D). Finche il fatto viveva in un array
     JSON dentro l'anagrafica, **accettare o rifiutare il documento di un minore
     non lasciava nessuna traccia**: le due rotte non chiamavano `recordAuditEvent`
@@ -759,6 +768,19 @@ export const AUDIT_VISIBLE_METADATA_KEYS: readonly string[] = [
   */
   "applied",
   "appliedCount",
+  /*
+    Il cambio di appartenenza (ADR-0194): prima, dopo, politica e blocco sono
+    cio che rende ricostruibile una categoria sparita da una scheda.
+  */
+  "after",
+  "batchId",
+  "before",
+  "blocked",
+  "failed",
+  "policy",
+  "target",
+  "unchanged",
+  "updated",
   "base_role",
   "count",
   "method",

@@ -328,6 +328,21 @@ beforeEach(() => {
       };
     }
 
+    /* ADR-0194: l'insieme delle appartenenze lo scrive il server; il doppio risponde con le righe coniate. */
+    if (/\/api\/v1\/athletes\/[^/]+\/memberships$/.test(path) && options.method === "PUT") {
+      const memberships = Array.isArray(body?.data?.memberships) ? body.data.memberships : [];
+      return {
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => "application/json" },
+        json: async () => ({
+          data: { rows: memberships.map((m, i) => ({ id: `m-${richieste.length}-${i}`, ...m })), changed: true },
+          error: null,
+        }),
+      };
+    }
+
     const rows = Array.isArray(body?.data) ? body.data : body?.data ? [body.data] : [];
     return {
       ok: true,

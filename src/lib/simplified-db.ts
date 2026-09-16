@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { apiRequest, readStoredActiveClub } from "./api/client";
+import { replaceAthleteMembershipsOnServer } from "./athletes/memberships-client";
 import type { ListPageMeta } from "./api/client";
 import { normalizeTrainerList } from "./trainer-utils";
 import { listClubFederations } from "@/lib/club-federations";
@@ -638,20 +639,21 @@ const loadCatalogoPerScrittura = async (clubId: string) => {
 };
 
 /**
- * **Le righe si aggiornano per differenza, non si cancellano e riscrivono.**
+ * **Le righe le scrive il server, in una transazione** (ADR-0194).
  *
- * La stesura precedente faceva `DELETE` di tutte le righe e poi un `INSERT`
- * per ciascuna: un rifiuto del server al primo inserimento — il vaglio di
- * `category-write-guard`, un errore di rete — lasciava l'atleta **senza
- * categorie**, e l'errore veniva pure inghiottito (revisione ostile B2).
- * Adesso: prima gli inserimenti delle categorie nuove, poi gli aggiornamenti
- * delle righe che cambiano bandiera, sede o nome, e **per ultime** le
- * cancellazioni. Se qualcosa si rifiuta, in archivio c'e ancora tutto.
+ * La stesura precedente faceva da qui, riga per riga, gli inserimenti, gli
+ * aggiornamenti e le cancellazioni sul registro generico: nessuna
+ * transazione, nessun blocco della scheda, e la coppia (categoria, sede) non
+ * la controllava nessuno. Adesso l'insieme intero va a
+ * `PUT /api/v1/athletes/:id/memberships`, che ha le guardie del dominio —
+ * catalogo, squadra configurata, una primaria, perimetro dell'accesso — e
+ * scrive per differenza nell'ordine che l'indice impone, con la proiezione
+ * sull'anagrafica nella stessa transazione e l'audit prima/dopo.
  *
- * **Non si cancella cio che il catalogo non conosce** (revisione B3): una riga
- * storica che il lettore lascia fuori — il pendente di una bonifica non ancora
- * fatta — non e una scelta dell'utente, e il cassetto non l'ha nemmeno
- * mostrata. La toglie la bonifica, con il suo audit, non un salvataggio.
+ * Il vaglio del catalogo resta anche qui, **prima** della chiamata: un
+ * rifiuto locale costa meno di un viaggio, e dice la stessa cosa che il
+ * server direbbe. Le righe che il catalogo non conosce e che l'elenco tace
+ * le conserva il server (ADR-0186 §8).
  */
 const replaceAthleteMemberships = async (
   clubId: string,
@@ -669,108 +671,30 @@ const replaceAthleteMemberships = async (
     clubId,
     athleteId,
   });
-  const correntePerCategoria = new Map(
-    correnti.map((riga) => [String(riga.category_id ?? "").trim(), riga] as const),
+  const { rows } = await replaceAthleteMembershipsOnServer(
+    athleteId,
+    serializedMemberships.map((riga) => ({
+      category_id: riga.category_id,
+      category_name: riga.category_name,
+      is_primary: riga.is_primary,
+      site_id: riga.site_id,
+    })),
   );
-  const nuovePerCategoria = new Set(
-    serializedMemberships.map((riga) => String(riga.category_id ?? "").trim()),
-  );
-  const configurate = new Set(
-    catalogo
-      .filter((voce) => (voce as any)?.configured !== false)
-      .map((voce) => String(voce.id ?? "").trim()),
-  );
-
-  const daInserire = serializedMemberships.filter(
-    (riga) => !correntePerCategoria.has(String(riga.category_id ?? "").trim()),
-  );
-  const daAggiornare = serializedMemberships.flatMap((riga) => {
-    const corrente = correntePerCategoria.get(String(riga.category_id ?? "").trim());
-    if (!corrente) return [];
-    const campi: Record<string, any> = {};
-    if (Boolean(corrente.is_primary) !== Boolean(riga.is_primary)) campi.is_primary = riga.is_primary;
-    if (String(corrente.site_id ?? "") !== String(riga.site_id ?? "")) campi.site_id = riga.site_id;
-    if (riga.category_name && String(corrente.category_name ?? "") !== String(riga.category_name)) campi.category_name = riga.category_name;
-    return Object.keys(campi).length ? [{ id: String(corrente.id), campi }] : [];
-  });
-  const daCancellare = correnti.filter((riga) => {
-    const id = String(riga.category_id ?? "").trim();
-    if (nuovePerCategoria.has(id)) return false;
-    /* Con il catalogo in mano si cancella solo una categoria che il catalogo conosce: il resto e della bonifica. */
-    return configurate.size === 0 || configurate.has(id);
-  });
 
   /*
-    **L'archivio ammette una sola primaria per atleta** (indice parziale
-    `athlete_category_memberships_single_primary_per_athlete`). L'ordine
-    quindi non e libero (revisione ostile, seconda passata N1): prima si
-    **scende** la primaria che smette di esserlo, poi si cancella, poi si
-    inseriscono le righe nuove — la nuova primaria compresa, che adesso non ha
-    concorrenti — e per ultimo si **sale** la riga che diventa primaria. Un
-    inserimento prima della discesa sarebbe due primarie, e il rifiuto
-    dell'indice.
-  */
-  const inserite = new Map<string, string>();
-  const discese = daAggiornare.filter(({ campi }) => campi.is_primary === false);
-  const salite = daAggiornare.filter(({ campi }) => campi.is_primary === true);
-  const altreModifiche = daAggiornare.filter(({ campi }) => campi.is_primary === undefined);
-  const aggiorna = async ({ id, campi }: { id: string; campi: Record<string, any> }) => {
-    const { error } = await supabase
-      .from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE)
-      .update(campi)
-      .eq("id", id)
-      .eq("organization_id", clubId);
-    if (error) throw error;
-  };
-
-  try {
-    for (const modifica of discese) await aggiorna(modifica);
-    for (const riga of daCancellare) {
-      const { error } = await supabase
-        .from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE)
-        .delete()
-        .eq("id", String(riga.id))
-        .eq("organization_id", clubId)
-        .eq("athlete_id", athleteId);
-      if (error) throw error;
-    }
-    for (const membership of daInserire) {
-      const payload = { ...membership, organization_id: clubId, athlete_id: athleteId } as Record<string, any>;
-      if (!UUID_PATTERN.test(String(payload.id || "").trim())) delete payload.id;
-      const { data: inserita, error } = await supabase
-        .from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE)
-        .insert(payload)
-        .select()
-        .single();
-      if (error) throw error;
-      /* L'identificativo vero lo conia l'archivio: la proiezione lo deve dire. */
-      const idConiato = String(inserita?.id ?? "").trim();
-      if (UUID_PATTERN.test(idConiato)) {
-        inserite.set(String(membership.category_id ?? "").trim(), idConiato);
-      }
-    }
-    for (const modifica of altreModifiche) await aggiorna(modifica);
-    for (const modifica of salite) await aggiorna(modifica);
-  } catch (error) {
-    if (isMissingAthleteMembershipResource(error)) {
-      return serializedMemberships;
-    }
-    throw error;
-  }
-
-  /*
-    Le righe come stanno adesso: quelle rimaste con l'identificativo che
-    avevano, quelle nuove con quello **coniato dall'archivio**. Un
-    identificativo sintetico (`<categoria>:membership`) non e una riga, e
+    Le righe come stanno adesso, con l'identificativo **coniato dall'archivio**:
+    un identificativo sintetico (`<categoria>:membership`) non e una riga, e
     una proiezione che lo porta dice una riga che non esiste (D-RD-16, R3).
   */
-  return serializedMemberships.map((riga) => {
-    const chiave = String(riga.category_id ?? "").trim();
-    const corrente = correntePerCategoria.get(chiave);
-    if (corrente) return { ...riga, id: corrente.id };
-    const coniato = inserite.get(chiave);
-    return coniato ? { ...riga, id: coniato } : riga;
-  });
+  return rows.map((riga) => ({
+    id: riga.id,
+    organization_id: clubId,
+    athlete_id: athleteId,
+    category_id: riga.category_id,
+    category_name: riga.category_name,
+    is_primary: riga.is_primary,
+    site_id: riga.site_id,
+  }));
 };
 
 /**
@@ -913,13 +837,15 @@ const resolveRequestedAthleteMemberships = (
       (membership) => membership.isPrimary,
     );
     /*
-      La sede segue l'appartenenza, non l'anagrafica: cambiando categoria si
-      porta dietro quella dichiarata, a meno che l'aggiornamento non ne indichi
-      un'altra. Perderla qui vorrebbe dire che un cambio di categoria in blocco
-      scollega dalla sede tutti gli atleti che tocca (ADR-0055).
+      La sede e della **squadra**, non dell'atleta (ADR-0194): cambiando
+      categoria non si porta dietro quella della primaria uscente — e cosi
+      che sul pilota quattro ragazzi sono finiti in «Pulcini» con la sede di
+      S. Cosma, dove quella categoria non si svolge. Senza una sede indicata
+      la deriva il server dalla squadra configurata (una sola) o rifiuta
+      (piu di una: «indicare quale»).
     */
-    const requestedSiteId =
-      updates?.siteId ?? updates?.site_id ?? currentPrimary?.siteId ?? "";
+    const requestedSiteId = updates?.siteId ?? updates?.site_id ?? "";
+    void currentPrimary;
 
     /*
       **Una richiesta ambigua non crea una categoria: promuove una che c'e gia,
@@ -999,6 +925,10 @@ const resolveRequestedAthleteMemberships = (
       non riconosce.
     */
     const riferimentoDato = Boolean(String(riferimentoRichiesto ?? "").trim() || String(nomeRichiesto ?? "").trim());
+    /* Nessun riferimento: niente da cambiare, le appartenenze restano com'erano (ADR-0194: togliere la primaria e un comando, non un vuoto). */
+    if (!riferimentoDato) {
+      return currentMemberships;
+    }
     if (riferimentoDato && catalogoConfigurato.length && !risolto?.known) {
       throw new Error(
         `La categoria «${nomeRichiesto || riferimentoRichiesto}» non identifica una categoria del club: scegliere una categoria del catalogo`,
@@ -1036,26 +966,25 @@ const resolveRequestedAthleteMemberships = (
     ], catalogo);
 
     /*
-      **La primaria non si toglie dalle secondarie a mano: la toglie l'identita.**
+      **La primaria che smette di esserlo se ne va** (ADR-0194 §1.3).
 
-      Qui c'era un filtro che confrontava due **stringhe grezze**
-      (`membership.categoryId !== nextPrimaryKey`), e falliva in tutti i modi in
-      cui una stringa non e un'identita: se l'aggiornamento nominava la
-      categoria per **nome** e l'appartenenza la portava per **identificativo**
-      — la forma ordinaria dopo ADR-0038 — la vecchia riga non veniva
-      riconosciuta, restava fra le secondarie, e l'atleta finiva con la stessa
-      categoria **primaria e secondaria insieme**. Era il difetto di Fortitudo
-      visto dal lato che lo **scriveva**: `replaceAthleteMemberships` cancella e
-      reinserisce cio che esce di qui, quindi la riga fantasma diventava
-      permanente al primo salvataggio.
+      Qui si passavano **tutte** le appartenenze correnti come secondarie —
+      la primaria compresa — e si lasciava fondere al normalizzatore: un
+      cambio «Under 15 → Under 17» lasciava l'atleta in Under 17 [primaria] e
+      Under 15 [secondaria]. Misurato sul pilota il 2026-09-16: dodici
+      Aquilotti spostati in Esordienti dal cambio in blocco, dodici righe
+      Aquilotti rimaste come secondarie che nessuno aveva chiesto. Cambiare
+      categoria vuol dire cambiare squadra, non aggiungerne una; chi vuole
+      tenere la vecchia come secondaria lo dice con il comando del dominio
+      (`previousPrimaryPolicy: keep_as_secondary`), non e il comportamento
+      di un `category = X`.
 
-      Adesso si passano tutte le appartenenze correnti come secondarie e si
-      lascia decidere a `normalizeAthleteCategoryMemberships`, che le fonde per
-      **identita canonica** — identificativo, o nome che ne nomina una sola
-      (ADR-0155) — e tiene primaria la prima dell'elenco, che e quella nuova.
-      Un confronto in meno da sbagliare, e la regola in un posto solo.
+      La dedupe per identita resta al normalizzatore: se la destinazione era
+      gia una secondaria, la riga si promuove e non nasce un doppione.
     */
-    const secondaryMemberships = currentMemberships.map((membership) => ({
+    const secondaryMemberships = currentMemberships
+      .filter((membership) => !membership.isPrimary)
+      .map((membership) => ({
       category_id: membership.categoryId,
       category_name: membership.categoryName,
       stored_category_name: membership.storedCategoryName,

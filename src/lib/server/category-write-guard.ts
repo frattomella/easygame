@@ -25,8 +25,10 @@
  * ## Cosa non fa
  *
  * Non tocca `category_name`: e il nome com'era, e resta al writer decidere
- * se conservarlo (ADR-0185 §8). Non conosce le sedi: `site_id` e un altro
- * asse. Non riscrive cio che era gia in archivio: sulla colonna
+ * se conservarlo (ADR-0185 §8). Sulla sede vale ADR-0194: la coppia
+ * (categoria, sede) di una riga **nuova o cambiata** deve essere una squadra
+ * configurata del club (`assertMembershipPlacementIsCanonical`); una coppia
+ * gia in archivio passa com'e. Non riscrive cio che era gia in archivio: sulla colonna
  * `athletes.category_id` un valore **uguale a quello esistente** passa, cosi
  * un club non ancora bonificato continua a salvare le schede (il difetto
  * vecchio non peggiora, e la bonifica e un passo a se).
@@ -35,6 +37,12 @@
 import { prisma } from "./prisma";
 import { buildClubCategoryOptions } from "@/lib/category-utils";
 import { resolveCategoryReference } from "@/lib/categories/identity";
+import { buildCategoryGroups, normalizeClubSites } from "@/lib/club-sites";
+import {
+  buildMembershipTargetIndex,
+  explainUnresolvedPlacement,
+  type MembershipTargetIndex,
+} from "@/lib/categories/placement";
 
 const asText = (value: unknown) => String(value ?? "").trim();
 
@@ -240,5 +248,63 @@ export const assertAthleteDataProjectionIsCanonical = async (
     );
     if (voce.category_id !== undefined) voce.category_id = canonico.categoryId;
     if (voce.categoryId !== undefined) voce.categoryId = canonico.categoryId;
+  }
+};
+
+/**
+ * Le collocazioni scegliibili del club (ADR-0194): catalogo configurato +
+ * sedi + gruppi operativi, letti dalle stesse sorgenti della scheda atleta.
+ */
+export const loadMembershipTargetIndex = async (
+  organizationId: string,
+  client: { club: { findUnique: typeof prisma.club.findUnique } } = prisma,
+): Promise<MembershipTargetIndex> => {
+  const [catalogo, club] = await Promise.all([
+    loadClubCategoryCatalog(organizationId),
+    client.club.findUnique({
+      where: { id: organizationId },
+      select: { club_sites: true, category_groups: true },
+    }),
+  ]);
+  const sites = normalizeClubSites(club?.club_sites);
+  const groups = buildCategoryGroups({ categories: catalogo, sites, groups: club?.category_groups });
+  return buildMembershipTargetIndex({ categories: catalogo, groups: groups.filter((g) => !g.implicit), sites });
+};
+
+/**
+ * **Una coppia (categoria, sede) che il club non ha configurato non si
+ * scrive** (ADR-0194 §24). Vale sul registro generico per ogni riga di
+ * `athlete_category_memberships` nuova o che cambia categoria o sede: la
+ * sede di un'appartenenza e quella della squadra, e «Pulcini · S. Cosma»
+ * con la sede Scauri non e una squadra. Una riga che porta la stessa coppia
+ * che aveva passa: il dato precedente alle sedi si sistema scegliendo, non
+ * salvando un numero di telefono. Una riga **nuova** senza sede su una
+ * categoria con una squadra sola prende quella sede: e la derivazione.
+ */
+export const assertMembershipPlacementIsCanonical = async (
+  organizationId: string,
+  riga: Record<string, any>,
+  esistente?: { category_id?: string | null; site_id?: string | null } | null,
+) => {
+  if (riga.category_id === undefined && riga.site_id === undefined) return;
+  const categoryId = asText(riga.category_id ?? esistente?.category_id);
+  if (!categoryId) return;
+  const siteId = asText(riga.site_id !== undefined ? riga.site_id : esistente?.site_id);
+  if (esistente && asText(esistente.category_id) === categoryId && asText(esistente.site_id) === siteId) return;
+
+  const index = await loadMembershipTargetIndex(organizationId);
+  if (!index.targets.length) return;
+  if (!siteId && !esistente) {
+    const candidate = index.forCategory(categoryId);
+    if (candidate.length === 1 && !candidate[0].implicit) {
+      riga.site_id = candidate[0].siteId;
+      return;
+    }
+  }
+  const collocazione = index.place({ categoryId, siteId });
+  if (collocazione.status === "unresolved") {
+    /* Una categoria che il catalogo non conosce la giudica gia il vaglio della categoria. */
+    if (collocazione.reason === "unknown_category") return;
+    throw new Error(`Appartenenza a una categoria: ${explainUnresolvedPlacement(collocazione)}`);
   }
 };
