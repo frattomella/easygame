@@ -329,6 +329,8 @@ model Club {
   athlete_account_invites      AthleteAccountInvite[]
   custom_roles                 ClubRole[]
   paymentCoverageAllocations   PaymentCoverageAllocation[]
+  trial_athletes               TrialAthlete[]
+  trial_attendances            TrialAttendance[]
 
   @@map("clubs")
 }
@@ -490,6 +492,8 @@ model Athlete {
   paymentCoverageAllocations PaymentCoverageAllocation[]
   /// Le liquidazioni di cui questo atleta e l'**unico** beneficiario (N15).
   funding_settlements        FundingSettlement[]         @relation("FundingSettlementBeneficiary")
+  /// La persona in prova da cui questa scheda e nata, se e nata cosi (ADR-0188).
+  trial_origin               TrialAthlete?
 
   @@index([organization_id])
   @@index([user_id])
@@ -1597,6 +1601,7 @@ model ClubEvent {
   updated_at         DateTime               @updatedAt
   organization       Club                   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   participants       ClubEventParticipant[]
+  trial_attendances  TrialAttendance[]
 
   @@unique([organization_id, kind, legacy_id])
   @@index([organization_id, starts_at])
@@ -3607,4 +3612,88 @@ model Appointment {
   @@index([organization_id, assigned_to_user_id, starts_at])
   @@index([organization_id, site_id, starts_at])
   @@map("appointments")
+}
+
+/// **La persona in prova** (ADR-0188).
+///
+/// Chi viene ad allenarsi prima di iscriversi **non e un atleta**: non conta
+/// fra gli attivi, non entra nelle rose, non genera quote, tessere, obblighi
+/// documentali, certificati richiesti, tutori o accessi. E pero una persona
+/// con un'identita stabile — torna, e va riconosciuta — con uno storico di
+/// presenze e, un giorno, con una scheda atleta a cui e legata. Per questo e
+/// una tabella propria e non uno stato di `athletes`: ogni lettore di
+/// `athletes` resterebbe da rivedere per escluderla, e uno che se ne dimentica
+/// e un ragazzo in prova che compare in un rendiconto di contributi.
+///
+/// L'identita e `id`, mai il nome: due «Mario Rossi» del 2012 e del 2013 sono
+/// due righe, e nessuna ricerca li fonde. La categoria e un identificativo
+/// canonico (ADR-0185/0186), mai un'etichetta; `category_name` e il nome
+/// salvato per leggerla, come sulle appartenenze.
+///
+/// Il ciclo di vita: `in_trial` → `enrolled` (con `athlete_id`) oppure
+/// `declined`. La riga non si cancella alla conversione: lo storico delle
+/// prove — quante, quando, con chi — deve restare leggibile dalla scheda.
+model TrialAthlete {
+  id              String            @id @default(uuid()) @db.Uuid
+  organization_id String            @db.Uuid
+  first_name      String
+  last_name       String
+  /// Obbligatoria: nel settore giovanile e cio che distingue due omonimi e dice la categoria.
+  birth_date      DateTime          @db.Date
+  /// `in_trial` | `enrolled` | `declined`.
+  status          String            @default("in_trial")
+  category_id     String?
+  category_name   String?
+  group_id        String?
+  site_id         String?
+  phone           String?
+  email           String?
+  guardian_name   String?
+  guardian_phone  String?
+  notes           String?
+  /// La scheda atleta creata o collegata alla conversione. Unica per club (indice parziale).
+  athlete_id      String?           @unique @db.Uuid
+  converted_at    DateTime?
+  declined_at     DateTime?
+  created_by      String?           @db.Uuid
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @updatedAt
+  organization    Club              @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  athlete         Athlete?          @relation(fields: [athlete_id], references: [id], onDelete: SetNull)
+  attendances     TrialAttendance[]
+
+  @@index([organization_id, status])
+  @@index([organization_id, last_name, first_name])
+  @@index([organization_id, category_id])
+  @@map("trial_athletes")
+}
+
+/// **Una presenza di prova**: una persona in prova a un evento del club.
+///
+/// Non e una riga di `club_event_participants`: quella tabella e l'appello
+/// degli **atleti** — la leggono le rose, le convocazioni, i rendiconti dei
+/// contributi — e una persona in prova non deve entrarci. Qui vive il fatto
+/// suo, con la sua chiave: (club, evento, persona) una volta sola. Categoria,
+/// gruppo, sede e stagione della prova si **derivano** dall'evento; conteggio,
+/// prima e ultima prova si derivano dalle righe (nessun contatore a mano).
+model TrialAttendance {
+  id               String       @id @default(uuid()) @db.Uuid
+  organization_id  String       @db.Uuid
+  trial_athlete_id String       @db.Uuid
+  event_id         String       @db.Uuid
+  /// `present` | `absent`: la stessa parola dell'appello degli atleti.
+  status           String       @default("present")
+  notes            String?
+  recorded_by      String?      @db.Uuid
+  recorded_at      DateTime     @default(now())
+  created_at       DateTime     @default(now())
+  updated_at       DateTime     @updatedAt
+  organization     Club         @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  trial_athlete    TrialAthlete @relation(fields: [trial_athlete_id], references: [id], onDelete: Cascade)
+  event            ClubEvent    @relation(fields: [event_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, event_id, trial_athlete_id])
+  @@index([organization_id, trial_athlete_id, recorded_at])
+  @@index([organization_id, event_id])
+  @@map("trial_attendances")
 }

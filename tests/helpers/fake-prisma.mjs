@@ -542,6 +542,18 @@ const matchesWhere = (record, where) => {
  * provando esattamente il contrario di cio che deve provare.
  */
 const UNIQUE_CONSTRAINTS = {
+  /*
+    Le persone in prova (ADR-0188): una presenza per (club, evento, persona), e
+    una scheda atleta collegata a una prova sola (`athlete_id` unico, i NULL
+    fuori). Sono i vincoli della migrazione, e un test ci si appoggia.
+  */
+  trialAttendance: [["organization_id", "event_id", "trial_athlete_id"]],
+  trialAthlete: [
+    {
+      fields: ["athlete_id"],
+      quando: (row) => row.athlete_id !== null && row.athlete_id !== undefined,
+    },
+  ],
   paymentWebhookEvent: [["provider", "event_id"]],
   documentNumberSequence: [["organization_id", "kind", "series", "year"]],
   clubPaymentAccount: [["organization_id"]],
@@ -826,6 +838,20 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     non esiste.
   */
   let generatedIds = 0;
+  /*
+    **Un identificativo generato ha la forma di uno UUID.** Le colonne `@db.Uuid`
+    rifiutano tutto il resto, e i domini cercano per `id` solo cio che ha quella
+    forma (`findClubEvent`, le persone in prova): un segnaposto leggibile
+    faceva cadere il ramo piu preciso e i test misuravano il ripiego. Resta
+    deterministico — stesso seme, stesse chiavi — e il nome del delegato sta
+    nel terzo gruppo, cosi una riga si riconosce ancora a occhio.
+  */
+  const generatedId = (name, index = 0) => {
+    generatedIds += 1;
+    const tag = Array.from(String(name)).reduce((acc, ch) => (acc * 31 + ch.charCodeAt(0)) % 0xffff, 7).toString(16).padStart(4, "0");
+    const coda = String(generatedIds * 100 + index).padStart(12, "0");
+    return `f1a4e000-0000-4${tag.slice(0, 3)}-8${tag.slice(3, 4)}00-${coda}`;
+  };
   const semi = { ...seedByDelegate };
   if (!semi.athleteGuardian && Array.isArray(semi.athlete)) {
     semi.athleteGuardian = tutoriDalSeed(semi.athlete);
@@ -1028,7 +1054,19 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       slot: { tipo: "uno", delegato: "appointmentSlot", locale: "slot_id" },
       athlete: { tipo: "uno", delegato: "athlete", locale: "athlete_id" },
     },
+    /* Le persone in prova (ADR-0188). */
+    trialAthlete: {
+      organization: { tipo: "uno", delegato: "club", locale: "organization_id" },
+      athlete: { tipo: "uno", delegato: "athlete", locale: "athlete_id" },
+      attendances: { tipo: "molti", delegato: "trialAttendance", remota: "trial_athlete_id" },
+    },
+    trialAttendance: {
+      event: { tipo: "uno", delegato: "clubEvent", locale: "event_id" },
+      trial_athlete: { tipo: "uno", delegato: "trialAthlete", locale: "trial_athlete_id" },
+    },
   };
+  /* L'inversa uno-a-uno: la prova da cui una scheda atleta e nata. */
+  RELAZIONI.athlete.trial_origin = { tipo: "uno-inversa", delegato: "trialAthlete", remota: "athlete_id" };
 
   /**
    * **`select`, cioe la proiezione — quarto operatore trovato mancante.**
@@ -1103,6 +1141,14 @@ export const createFakePrisma = (seedByDelegate = {}) => {
               (candidata) => String(candidata.id) === String(riferimento),
             )) ||
           null;
+        continue;
+      }
+
+      if (relazione.tipo === "uno-inversa") {
+        const trovata = rowsOf(relazione.delegato).find(
+          (candidata) => String(candidata[relazione.remota]) === String(row.id),
+        );
+        arricchita[chiave] = trovata ? (typeof richiesta === "object" && richiesta.select ? applicaSelect(relazione.delegato, trovata, richiesta.select) : trovata) : null;
         continue;
       }
 
@@ -1196,7 +1242,7 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       calls.push({ delegate: name, method: "create", args });
       assertUnique(name, args.data || {});
       const created = {
-        id: args.data?.id || `${name}-generated-${(generatedIds += 1)}`,
+        id: args.data?.id || generatedId(name),
         ...args.data,
       };
       rowsOf(name).push(created);
@@ -1224,7 +1270,7 @@ export const createFakePrisma = (seedByDelegate = {}) => {
           }
         }
         rowsOf(name).push({
-          id: row?.id || `${name}-generated-${(generatedIds += 1)}-${index}`,
+          id: row?.id || generatedId(name, index),
           ...row,
         });
         count += 1;
@@ -1252,7 +1298,7 @@ export const createFakePrisma = (seedByDelegate = {}) => {
       */
       assertUnique(name, args.create || {});
       const created = {
-        id: args.where?.id || `${name}-generated-${(generatedIds += 1)}`,
+        id: args.where?.id || generatedId(name),
         ...args.create,
       };
       rowsOf(name).push(created);

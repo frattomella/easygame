@@ -628,7 +628,28 @@ export const previewDataSubjectErasure = async (
     organizationId,
   );
 
+  /*
+    **L'ottavo indice: la scheda di prova da cui l'atleta e nato** (ADR-0188).
+
+    `trial_athletes` porta nome, cognome, data di nascita, recapiti e tutore
+    della persona — e, dopo la conversione, `athlete_id` verso la scheda.
+    Azzerare la scheda e lasciare la prova vorrebbe dire lasciare in archivio
+    l'identita intera, con un legame che la riconduce al segnaposto. La riga
+    di prova e le sue presenze si **cancellano**: la storia di una prova non
+    ha un valore che sopravviva alla persona.
+  */
+  const prove = await (prisma as any).trialAthlete.count({
+    where: { organization_id: organizationId, athlete_id: subjectId },
+  });
+
   const slices: DataSubjectSlice[] = [
+    {
+      table: "trial_athletes",
+      label: "Scheda di persona in prova (con le sue presenze di prova)",
+      index: "foreign_key",
+      count: Number(prove || 0),
+      disposal: "delete",
+    },
     {
       table: "athlete_guardians",
       label: "Genitori e tutori dichiarati sulla scheda",
@@ -1276,6 +1297,11 @@ export const eraseDataSubject = async (
     organization_id: organizationId,
     athlete_id: subjectId,
   });
+  /* La prova da cui la scheda e nata (ADR-0188): le presenze seguono per cascata. */
+  await cancella("trial_athletes", "trialAthlete", {
+    organization_id: organizationId,
+    athlete_id: subjectId,
+  });
   await cancella("athlete_category_memberships", "athleteCategoryMembership", {
     athlete_id: subjectId,
     athlete: { organization_id: organizationId },
@@ -1578,7 +1604,7 @@ export const assertPersonalDataDisposed = async (
     il club e noto e l'operazione e rara — ma questa guardia non le vede, e
     dirlo e meglio che far finta di coprirle.
   */
-  const [allegati, consensi, richieste, depositi] = await Promise.all([
+  const [allegati, consensi, richieste, depositi, prove] = await Promise.all([
     (prisma as any).attachment.count({
       where: { ...perClub, owner_type: "athlete", owner_id: subjectId },
     }),
@@ -1591,6 +1617,10 @@ export const assertPersonalDataDisposed = async (
     (prisma as any).documentSubmission.count({
       where: { ...perClub, subject_kind: "athlete", subject_id: subjectId },
     }),
+    /* La scheda di prova (ADR-0188): identita e recapiti che la cancellazione della riga non toglie. */
+    (prisma as any).trialAthlete.count({
+      where: { ...perClub, athlete_id: subjectId },
+    }),
   ]);
 
   const residui = [
@@ -1598,6 +1628,7 @@ export const assertPersonalDataDisposed = async (
     ["consensi registrati", Number(consensi || 0)],
     ["richieste documentali", Number(richieste || 0)],
     ["consegne documentali", Number(depositi || 0)],
+    ["schede di persona in prova", Number(prove || 0)],
   ].filter(([, count]) => Number(count) > 0) as Array<[string, number]>;
 
   if (residui.length === 0) return;

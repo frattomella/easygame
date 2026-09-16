@@ -117,6 +117,38 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: true,
   },
   {
+    name: "trial_athletes.list",
+    method: "GET|POST",
+    path: "/api/v1/trial-athletes",
+    description:
+      "Le persone in prova del club (ADR-0188): chi viene ad allenarsi prima di iscriversi, con identita stabile e storico delle prove. Non sono atleti: non stanno in athletes e non entrano in rose, quote, tesseramenti, documenti. GET elenca (filtri status, q, categoryId; con birthDate cerca le corrispondenze per il riscontro degli omonimi, senza fondere nessuno); POST registra una persona nuova (nome, cognome, data di nascita obbligatori; categoria canonica ADR-0186). Perimetro dell'allenatore e recapiti (trials.contacts_read) applicati dal dominio",
+    mobile_ready: false,
+  },
+  {
+    name: "trial_athletes.item",
+    method: "GET|PATCH",
+    path: "/api/v1/trial-athletes/:id",
+    description:
+      "Una persona in prova con lo storico delle presenze di prova (conteggio, prima e ultima prova derivati dagli eventi). PATCH modifica i dati o, con {status: in_trial|declined}, segna se prosegue o no; enrolled lo scrive solo la conversione",
+    mobile_ready: false,
+  },
+  {
+    name: "trial_athletes.convert",
+    method: "GET|POST",
+    path: "/api/v1/trial-athletes/:id/convert",
+    description:
+      "La conversione in atleta (trials.convert, direzione e segreteria). GET propone le schede esistenti con lo stesso nome (la data di nascita distingue la corrispondenza esatta); POST crea la scheda dal registro generico ({create}) o collega quella scelta ({athleteId}). La riga di prova resta con athlete_id e converted_at: nessuna presenza duplicata, nessun tutore ne accesso creati",
+    mobile_ready: false,
+  },
+  {
+    name: "events.trial_attendance",
+    method: "GET|POST",
+    path: "/api/v1/events/:id/trial-attendance",
+    description:
+      "Le presenze delle persone in prova a un evento (trials.attendance). GET: presenze registrate e persone in prova pertinenti alla categoria dell'evento; POST {entries: [{trialAthleteId, status, notes}]} scrive una riga per persona, mai un nominativo libero. Tabella propria (trial_attendances): l'appello degli atleti resta in club_event_participants",
+    mobile_ready: false,
+  },
+  {
     name: "document_requests.list",
     method: "GET|POST",
     path: "/api/v1/document-requests",

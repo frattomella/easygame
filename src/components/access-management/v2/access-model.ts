@@ -88,6 +88,7 @@ export const ETICHETTE_DOMINIO: Record<PermissionDomain, string> = {
   seasons: "Stagioni sportive",
   sport_work: "Lavoro sportivo",
   training_automation: "Generazione allenamenti",
+  trials: "Persone in prova",
 };
 
 /**

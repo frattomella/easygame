@@ -66,7 +66,8 @@ export type PermissionDomain =
   | "members"
   | "seasons"
   | "sport_work"
-  | "training_automation";
+  | "training_automation"
+  | "trials";
 
 export type PermissionEntry = {
   key: string;
@@ -507,6 +508,47 @@ const ENTRIES: readonly PermissionEntry[] = [
     label:
       "Generare gli allenamenti dal programma settimanale (anche fino a una data scelta) e aggiornare in blocco quelli futuri dopo una modifica",
     roles: DIREZIONE,
+  },
+
+  /* ------------------------------------------------- persone in prova --- */
+  /*
+    ADR-0188. Una persona in prova non e un atleta, e le sue chiavi non sono
+    quelle degli atleti: l'allenatore in palestra deve poter registrare chi
+    e venuto a provare e la sua presenza — restando nel proprio perimetro,
+    che `trial-athletes.ts` applica riga per riga — ma **convertirla** in
+    atleta e un atto della segreteria: crea una scheda, con tutto cio che una
+    scheda comporta. I recapiti (telefono, email, tutore) sono dati personali
+    che in palestra non servono: li legge chi ha `trials.contacts_read`.
+  */
+  {
+    key: "trials.read",
+    domain: "trials",
+    label: "Vedere le persone in prova e il loro storico",
+    roles: [...GESTIONE, "trainer"],
+  },
+  {
+    key: "trials.manage",
+    domain: "trials",
+    label: "Registrare e modificare una persona in prova, e segnare se prosegue o no",
+    roles: [...GESTIONE, "trainer"],
+  },
+  {
+    key: "trials.attendance",
+    domain: "trials",
+    label: "Registrare la presenza di una persona in prova a un allenamento",
+    roles: [...GESTIONE, "trainer"],
+  },
+  {
+    key: "trials.contacts_read",
+    domain: "trials",
+    label: "Leggere i recapiti di una persona in prova e del suo tutore",
+    roles: GESTIONE,
+  },
+  {
+    key: "trials.convert",
+    domain: "trials",
+    label: "Convertire una persona in prova in atleta (crea o collega la scheda)",
+    roles: GESTIONE,
   },
 
   /* ---------------------------------------------------- stagioni sportive --- */

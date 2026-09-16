@@ -256,6 +256,16 @@ export const AUDIT_ACTIONS = {
   eventConvocationsSaved: "event.convocations.saved",
   eventAttendanceRecorded: "event.attendance.recorded",
   /*
+    Le persone in prova (ADR-0188): identita, stato e conversione hanno una
+    riga ciascuno; la presenza di prova segue l'appello degli atleti, che e
+    gia tracciato, con un'azione sua per non confondere i due registri.
+  */
+  trialAthleteCreated: "trial_athlete.created",
+  trialAthleteUpdated: "trial_athlete.updated",
+  trialAthleteStatusChanged: "trial_athlete.status.changed",
+  trialAthleteConverted: "trial_athlete.converted",
+  trialAttendanceRecorded: "trial_athlete.attendance.recorded",
+  /*
     Il fascicolo unico (Wave 5, lane 5D). Finche il fatto viveva in un array
     JSON dentro l'anagrafica, **accettare o rifiutare il documento di un minore
     non lasciava nessuna traccia**: le due rotte non chiamavano `recordAuditEvent`
