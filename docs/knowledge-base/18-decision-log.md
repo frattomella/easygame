@@ -12640,3 +12640,164 @@ conversione.
 
 - Corrispondenza per codice fiscale fra pratica e persona in prova: la prova
   non lo raccoglie (per scelta di ADR-0188); resta nome+cognome+data.
+
+## ADR-0194 — Un cambio di categoria e un'operazione sulle appartenenze, non `category_id = X`; la sede di un atleta si deriva dalla squadra; la storia conserva il contesto dell'evento
+
+**Data:** 2026-09-16 (terzo lotto del redesign)
+
+### Contesto
+
+Il trace in sola lettura (§4 del mandato) e i dati del pilota hanno dato quattro fatti:
+
+1. **Il cambio di categoria in blocco produceva la vecchia primaria come
+   secondaria.** `resolveRequestedAthleteMemberships` passava **tutte** le
+   appartenenze correnti come secondarie e lasciava fondere al normalizzatore.
+   Misurato sul pilota Fortitudo Scauri il 2026-09-16 alle 11:53Z: dodici
+   Aquilotti · Scauri spostati in Esordienti dal cassetto «Cambia categoria»
+   → dodici righe `Esordienti [P] + Aquilotti [S]`, che nessuno aveva chiesto.
+2. **La sede era una scelta indipendente dalla categoria.** Quattro
+   selettori (scheda: `athlete-primary-site`; blocco: `bulk-site-target`;
+   prova: `trial-site` accanto a `trial-group`; modulo pubblico:
+   `athlete.siteId`) e un riporto implicito («la sede non si perde cambiando
+   categoria») componevano coppie che il club non ha. Misurato: quattro
+   ragazzi in `Pulcini (mbawy4c) + S. Cosma`, dove Pulcini si svolge solo a
+   Scauri; nessun vaglio server-side sulla coppia.
+3. **Le righe di `athlete_category_memberships` sono lo stato corrente**, senza
+   date di validita; `athletes.data.siteId`/`site_id` erano copie una tantum
+   scritte da due writer (approvazione dell'iscrizione, spread del cambio in
+   blocco) e lette come ripiego.
+4. **La storia porta il suo contesto sull'evento** (`club_events.category_id`,
+   `category_ids`, `group_ids`, `site_id`), e la riga di partecipazione porta
+   solo `is_extra_category` — scritto dalle convocazioni, mai dall'appello.
+   Cinque lettori ricalcolavano da `athlete_category_memberships` **corrente**:
+   il rapporto «categorie per atleta» (chi cambiava categoria perdeva le
+   presenze di prima), il rapporto presenze (attesi/mancanti sull'elenco di
+   oggi), i conteggi della bacheca dell'allenatore, la pettorina
+   Primaria/Secondaria/Extra sugli appelli passati, la storia delle gare
+   della famiglia.
+
+ADR-0185 e ADR-0186 restano vincolanti: quattro identita, l'etichetta in un
+punto, l'identificativo o niente. Nessun secondo modello di categoria.
+
+### Decisioni
+
+1. **Vocabolario.** *Categoria* (in che fascia gioca), *gruppo operativo*
+   (categoria + sede: la squadra, `clubs.category_groups`), *sede*
+   (`clubs.club_sites`), *appartenenza* (riga di
+   `athlete_category_memberships`: categoria, sede, `is_primary`),
+   *primaria* (al piu una per atleta e club: indice parziale
+   `athlete_category_memberships_single_primary_per_athlete`, gia in
+   archivio), *secondaria* (le altre), *sede corrente derivata* (la sede
+   dell'appartenenza = la sede della squadra), *sede storica dell'evento*
+   (`club_events.site_id`), *contesto storico di categoria* (le colonne
+   dell'evento + la fotografia `is_extra_category` sulla riga).
+2. **Un cambio di categoria e un comando sulle appartenenze**
+   (`src/lib/categories/membership-change.ts`, puro): destinazione (squadra),
+   ruolo `primary | secondary`, `previousPrimaryPolicy = remove |
+   keep_as_secondary` (**default `remove`**: cambiare squadra non e
+   aggiungerne una), `otherSecondariesPolicy = keep | remove` (**default
+   `keep`**). Nessun doppione: la destinazione gia presente si promuove;
+   idempotente; un atleta con due primarie in archivio si segnala e non si
+   tocca; uno senza primaria con secondarie si segnala e riceve la primaria
+   in modo deterministico. Casi A–H del mandato provati
+   (`tests/lib/appartenenze-piano-e-collocazione-adr-0194.test.mjs`).
+3. **Un writer solo** — `src/lib/server/athlete-category-memberships.ts` —
+   per la scheda singola (`replaceAthleteMembershipSet`), il comando singolo
+   e il blocco (`previewMembershipChange` / `applyMembershipChange`): tenant,
+   permesso (`athlete_category_memberships` + `athletes` in scrittura per il
+   ruolo; l'allenatore no), perimetro dell'accesso su atleta **e**
+   destinazione, categoria del catalogo, coppia configurata, una primaria,
+   scrittura per differenza nell'ordine dell'indice (scende → cancella →
+   inserisce → sale), proiezione `athletes.category_id/category_name/data`
+   nella stessa transazione, schede bloccate con `bloccaSchede` (ADR-0138),
+   audit `athlete.memberships.changed` per atleta (prima, dopo, politica,
+   `batchId`) e `athlete.memberships.bulk` per blocco. Il blocco scrive a
+   lotti di 50 atomici; un lotto fallito non lascia meta lotto e il rapporto
+   dice per ogni atleta `updated | unchanged | blocked | failed |
+   not_attempted`. Il client (`simplified-db.replaceAthleteMemberships`)
+   non scrive piu riga per riga: manda l'insieme a
+   `PUT /api/v1/athletes/:id/memberships`. Concorrenza provata sul database
+   vero (`scripts/prova-appartenenze-concorrenti.mjs`: 8 comandi simultanei,
+   1 primaria, audit uguale alle scritture).
+4. **La sede si deriva dalla squadra** (`src/lib/categories/placement.ts`):
+   le collocazioni scegliibili di un club sono i gruppi operativi attivi
+   (`group:<categoria>:<sede>`, etichetta «Pulcini · S. Cosma») piu la
+   categoria nuda dove non ha sedi; `place(appartenenza)` risponde
+   `resolved | no_site_configured | unresolved(motivo)`. Ogni selettore
+   (scheda, creazione, blocco, prova, iscrizione online, import) offre
+   **squadre**; nessuna superficie ha un selettore di sede indipendente. Il
+   registro generico vaglia la coppia su ogni riga nuova o cambiata
+   (`assertMembershipPlacementIsCanonical`): una coppia non configurata non
+   nasce; la coppia che una riga gia aveva passa (il salvataggio non e una
+   bonifica, ADR-0185 §8); una riga **nuova** senza sede su una categoria con
+   una squadra sola prende quella sede. Per assegnare una sede a una
+   categoria si configura la squadra nella pagina Categorie, non si scrive
+   una sede sulla riga.
+5. **Campi legacy della sede.** `athletes.site_id/site_name`: non esistono.
+   `athletes.data.siteId` (iscrizione) e `data.site_id` (blocco):
+   **DEPRECATED** — writer attivi 0 (l'approvazione non lo scrive piu; il
+   writer delle appartenenze toglie le due chiavi quando riscrive la
+   proiezione); il lettore di ripiego in `getAthleteSiteIds` resta, usato
+   solo quando nessuna appartenenza porta una sede. Rimozione dallo schema:
+   un lotto futuro, dopo la prova di zero dipendenze. Il campo pubblico
+   `athlete.siteId` e `writable: false` (resta leggibile nei moduli
+   pubblicati). `athlete_category_memberships.site_id`: **AUTHORITY** della
+   sede corrente. `club_events.site_id`, `category_id`, `category_ids`,
+   `group_ids`: **HISTORICAL SNAPSHOT** dell'evento, immutabile rispetto alle
+   appartenenze. `trial_athletes.site_id/group_id`: sede derivata dal
+   gruppo, il gruppo resta una scelta esplicita (entra nel perimetro dei
+   gruppi dell'allenatore, che in scrittura fallisce chiuso).
+6. **La storia non si riclassifica** (§19). *Rimuovere* una categoria toglie
+   una riga corrente, mai una presenza, una convocazione, un evento, una riga
+   di audit. Il contesto storico si legge dall'**evento**; la riga di
+   partecipazione fotografa, alla **prima** registrazione dell'appello,
+   `is_extra_category` (l'atleta era della categoria dell'evento?), come gia
+   facevano le convocazioni; la fotografia non si riscrive. I lettori: il
+   rapporto «categorie per atleta» include chi ha una riga su un evento della
+   categoria (`formerMember`, «oggi in altra categoria»); il rapporto
+   presenze conta fra gli attesi chi ha una riga; la bacheca conta le righe
+   fuori dall'elenco di oggi; la pettorina di un appello passato con riga
+   «non extra» e `member` («Della categoria»), mai «Extra»; la storia delle
+   gare della famiglia tiene le gare con una riga. Senza date di validita
+   sulle appartenenze i **tassi** del rapporto per categoria restano
+   calcolati su tutti gli eventi della categoria nel periodo, e le ore dei
+   contributi pubblici restano filtrate sui gruppi correnti (regola
+   anti-frode di `funding-multisite`) (D-RD-25).
+7. **Import ed export.** L'import riconosce «Pulcini · S. Cosma» come
+   squadra (categoria + sede) e segnala il nome nudo di una categoria con piu
+   sedi (`REVIEW REQUIRED`: le squadre fra cui scegliere nel messaggio); mai
+   ultimo-vince. L'export dell'elenco e una riga per appartenenza: colonna
+   «Sede» della riga (primaria e secondarie, ognuna con la sua), mai una
+   «sede dell'atleta» inventata.
+8. **Iscrizione online.** Le opzioni del campo categoria sono le etichette
+   delle squadre; l'approvazione risolve l'etichetta in categoria e sede
+   (`options.targets.fromLabel`); un'etichetta che nomina piu squadre non
+   assegna e lo dice; il campo «Sede» non colloca piu nessuno (una sede senza
+   squadra non e una collocazione). Il club corregge dalla scheda con
+   l'editor condiviso.
+9. **UI.** `AthleteCategoryMembershipEditor` (scheda e creazione): primaria
+   come squadra, «Altre categorie» con «Imposta come primaria» e «Rimuovi»,
+   «+ Aggiungi categoria»; quando la primaria cambia, la domanda visibile
+   «Cosa fare di «X», la categoria primaria precedente?» (default
+   «Rimuovila»). `BulkCategoryDrawer`: squadra, «Imposta come», «Cosa fare
+   della categoria primaria attuale?», «Altre categorie secondarie», poi
+   l'**anteprima del server** (conteggi §27 e prima → dopo per atleta) e
+   «Conferma cambio»; il testo dice che presenze e storico non cambiano.
+
+### Migrazioni
+
+Nessuna: l'indice parziale della primaria esiste dal 2026-04-09,
+`is_extra_category` esiste. Nessuna riga esistente riscritta. Il dato del
+pilota creato dall'UAT dell'utente il 2026-09-16 (dodici secondarie Aquilotti
+spurie, quattro coppie Pulcini + S. Cosma) resta com'e: pulizia su
+autorizzazione (D-RD-26).
+
+### Rinviato
+
+- Validita temporale delle appartenenze (date di inizio/fine) e con essa i
+  tassi storici esatti e le ore dei contributi per periodo (D-RD-25).
+- Rimozione dallo schema/`data` delle copie legacy della sede (§25, passo 6).
+- Bonifica delle coppie non configurate e delle secondarie spurie del pilota
+  (D-RD-26, autorizzazione separata).
+- Fotografia primaria/secondaria sulla riga di partecipazione: la colonna e
+  un booleano; distinguere le due sulla storia richiede una colonna nuova.

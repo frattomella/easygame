@@ -1276,3 +1276,11 @@ il perimetro. Due scelte di forma:
   elenco parziale non e uno stato;
 - lo stato `enrolled` non e un valore ammesso dal `PATCH`: lo scrive solo
   `/convert`, che e la sola rotta che sappia con quale `athlete_id`.
+
+## Appartenenze alle categorie (ADR-0194, 2026-09-16)
+
+- `POST /api/v1/athletes/memberships` — `{mode: "preview" | "apply", athleteIds, command, batchId?}`.
+  Il comando: `{kind: "assign", targetId | categoryId + siteId, role: "primary" | "secondary", previousPrimaryPolicy: "remove" | "keep_as_secondary", otherSecondariesPolicy: "keep" | "remove"}` oppure `{kind: "remove", categoryId}`.
+  L'anteprima calcola per ogni atleta prima → dopo senza scrivere; l'applicazione scrive a lotti atomici di 50 con le schede bloccate e risponde con lo stesso rapporto (`updated | unchanged | blocked | failed | not_attempted`).
+- `PUT /api/v1/athletes/:id/memberships` — `{memberships: [{categoryId, siteId?, isPrimary}]}`: l'insieme intero (scheda, creazione, iscrizione approvata). `POST` con `{command}`: un comando solo.
+- Il registro generico (`POST|PATCH /api/v1/athlete_category_memberships`) resta per gli script e i casi legacy, con il vaglio della coppia (categoria, sede).

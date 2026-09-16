@@ -1365,3 +1365,17 @@ Un ruolo personalizzato **restringe** come sempre (sottoinsieme delle chiavi
 della base, ADR-0102). Nessuna chiave concede un accesso o un tutore: la
 conversione non ne crea, e l'accesso EasyGame dell'atleta resta di
 `athlete-accounts.ts` (ADR-0104).
+
+## Appartenenze alle categorie: il comando canonico (ADR-0194, 2026-09-16)
+
+Cambiare le categorie di un atleta — dalla scheda, dalla creazione, dal cambio
+in blocco — passa da `src/lib/server/athlete-category-memberships.ts` e da
+`PUT|POST /api/v1/athletes/:id/memberships`, `POST /api/v1/athletes/memberships`.
+Nessuna chiave nuova: serve la **scrittura** di `athlete_category_memberships`
+**e** di `athletes` per il ruolo attivo (`canAccessClubResource`), quindi
+proprietario, gestore, segreteria e collaboratore si; l'allenatore no (403 con
+la riga `permission.denied`). Il perimetro di sede/categoria di un ruolo
+ristretto (ADR-0103) vale sull'atleta **e** sulla squadra di destinazione: chi
+e ristretto a S. Cosma non sposta nessuno a Scauri. Il gruppo di una persona
+in prova resta una scelta esplicita e entra nel perimetro dei gruppi
+dell'allenatore (`eventWithinTrainerPerimeter`, in scrittura fallisce chiuso).

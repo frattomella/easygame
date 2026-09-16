@@ -4236,3 +4236,18 @@ serve **solo** gli allegati di contenuto di quel modulo. La matrice legale
 `docs/redesign/LEGAL-AUDIT-ISCRIZIONI.md`: EasyGame registra la prova delle
 dichiarazioni (testo mostrato, impronta, versione, ora), non afferma la
 conformita del club.
+
+## Le appartenenze si scrivono da un comando solo (ADR-0194, 2026-09-16)
+
+`src/lib/server/athlete-category-memberships.ts` e il writer delle
+appartenenze: tenant dallo scope, permesso di scrittura su
+`athlete_category_memberships` e `athletes`, perimetro dell'accesso su
+atleta e destinazione, categoria del catalogo, coppia (categoria, sede)
+configurata, una primaria (indice parziale + ordine di scrittura), schede
+bloccate in ordine crescente (ADR-0138), audit prima/dopo con `batchId`.
+Un identificativo di atleta di un altro club **ferma** tutto il comando (403),
+non salta l'atleta. Il registro generico vaglia la stessa coppia su ogni riga
+nuova o cambiata. Nessuna rotta pubblica scrive appartenenze; l'approvazione
+di un'iscrizione le scrive dal registro generico con la sede della squadra
+scelta. Provato sul database vero: 8 comandi concorrenti sullo stesso
+atleta → 1 primaria (`scripts/prova-appartenenze-concorrenti.mjs`).

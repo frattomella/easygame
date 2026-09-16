@@ -2341,3 +2341,15 @@ mandato), il dominio delle pratiche (ADR-0189/0191/0192/0193), il builder a
 blocchi e l'editor ProseMirror (ADR-0190). Aperti e dichiarati: D-RD-23,
 D-RD-24, D-RD-19, D-RD-20. La promozione dello staging ufficiale resta
 un'autorizzazione separata.
+
+
+## Terzo lotto del redesign (2026-09-16): appartenenze, cambio categoria, sede derivata, storia
+
+Chiusi: il difetto del cambio in blocco (la vecchia primaria come secondaria),
+il comando canonico delle appartenenze con anteprima e audit, la sede derivata
+dalla squadra su scheda, creazione, blocco, prova, iscrizione online e import,
+il vaglio della coppia (categoria, sede) sul server, i cinque lettori storici
+che ricalcolavano dall'appartenenza corrente ([ADR-0194](18-decision-log.md)).
+Aperti e dichiarati: D-RD-25 (validita temporale), D-RD-26 (dato UAT del
+pilota, su autorizzazione), la rimozione dallo schema delle copie legacy della
+sede. La promozione dello staging ufficiale resta un'autorizzazione separata.

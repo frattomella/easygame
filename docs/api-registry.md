@@ -1010,6 +1010,31 @@ Un ruolo personalizzato **non si assegna dalla rotta generica**: `POST
 una tessera con lo slug in `role` e senza `custom_role_id` darebbe il ruolo base
 **senza** restringimento.
 
+### Appartenenze alle categorie (ADR-0194, 2026-09-16)
+
+Due rotte, un writer (`src/lib/server/athlete-category-memberships.ts`), la
+stessa semantica per la scheda singola e per il blocco: si sceglie una
+**squadra** (gruppo operativo, «Pulcini · S. Cosma»), la sede e la sua.
+
+- `POST /api/v1/athletes/memberships` — `{mode: "preview" | "apply",
+  athleteIds, command, batchId?}`. Il comando: `{kind: "assign", targetId |
+  categoryId + siteId, role: "primary" | "secondary", previousPrimaryPolicy:
+  "remove" | "keep_as_secondary", otherSecondariesPolicy: "keep" | "remove"}`
+  oppure `{kind: "remove", categoryId}`. L'anteprima calcola per ogni atleta
+  prima → dopo (conteggi: aggiornati, nuove primarie, appartenenze rimosse,
+  promosse, mantenute, gia a posto, da guardare) senza scrivere;
+  l'applicazione scrive a lotti atomici di 50 con le schede bloccate e
+  risponde con lo stesso rapporto per atleta (`updated | unchanged | blocked
+  | failed | not_attempted`). Audit `athlete.memberships.changed` (prima,
+  dopo, politica, batchId) e `athlete.memberships.bulk`.
+- `PUT|POST /api/v1/athletes/:id/memberships` — `PUT {memberships:
+  [{categoryId, siteId?, isPrimary}]}` scrive l'insieme intero (scheda,
+  creazione, iscrizione approvata); `POST {command}` un comando solo.
+  Permesso: scrittura di `athlete_category_memberships` e `athletes` per il
+  ruolo; il perimetro di sede/categoria vale sull'atleta e sulla destinazione.
+  Una coppia (categoria, sede) che il club non ha configurato e rifiutata
+  (`400`), anche sul registro generico.
+
 ### Persone in prova (ADR-0188, 2026-09-16)
 
 Quattro rotte, un writer (`src/lib/server/trial-athletes.ts`), nessuna risorsa
