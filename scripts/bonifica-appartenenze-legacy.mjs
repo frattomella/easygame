@@ -68,20 +68,15 @@ import {
   pianificaBonifica,
   validaStato,
 } from "./lib/bonifica-appartenenze.mjs";
+import {
+  BRANCH_AMMESSI,
+  SQL_TABELLA_AUDIT,
+  TABELLA_AUDIT,
+  motiviDiRifiutoDelBersaglio,
+  senzaSegreti,
+} from "./lib/bonifica-guardie.mjs";
 
 const RADICE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-
-/**
- * L'unico bersaglio ammesso in questa versione. La chiave e il valore di
- * `EASYGAME_DB_ENV`, il valore e l'identificativo dell'endpoint Neon che
- * compare nell'host della connection string. Lo staging Fortitudo e la
- * produzione **non** ci sono: aggiungerli e una decisione, non un parametro.
- */
-const BRANCH_AMMESSI = Object.freeze({
-  "web-redesign-staging": "ep-dry-block-alkxdiiu",
-});
-
-const TABELLA_AUDIT = "bonifica_appartenenze_audit";
 
 /* ---------- argomenti ---------- */
 
@@ -113,31 +108,14 @@ if (ESEGUI && ANNULLA) esci(1, "--esegui e --annulla si escludono.");
 
 /* ---------- connection string e guardia di branch ---------- */
 
-const senzaSegreti = (url) => {
-  try {
-    const u = new URL(url);
-    return `${u.hostname}${u.pathname}`;
-  } catch {
-    return "(connection string non interpretabile)";
-  }
-};
-
 const urlEsplicita = opzione("--url");
 const SCRIVE = ESEGUI || Boolean(ANNULLA);
 const URL_DB = urlEsplicita || (SCRIVE ? "" : String(process.env.DIRECT_URL || process.env.DATABASE_URL || "").trim());
 if (!URL_DB) esci(1, SCRIVE ? "In scrittura la connection string va passata con --url, esplicitamente." : "Nessuna connection string: --url, DIRECT_URL o DATABASE_URL.");
 
-const endpointAmmesso = BRANCH_AMMESSI[AMBIENTE];
-if (!endpointAmmesso) esci(1, `Ambiente «${AMBIENTE}» non previsto: gli ambienti ammessi sono ${Object.keys(BRANCH_AMMESSI).join(", ")}.`);
-let host = "";
-try { host = new URL(URL_DB).hostname; } catch { esci(1, "Connection string non interpretabile."); }
-if (!host.startsWith(`${endpointAmmesso}.`) && !host.startsWith(`${endpointAmmesso}-pooler.`)) {
-  esci(1, `Rifiuto: l'host ${host} non e il branch ${AMBIENTE} (${endpointAmmesso}). Questo script non tocca altri branch.`);
-}
-if (SCRIVE) {
-  if (host.includes("-pooler")) esci(1, "In scrittura serve l'endpoint diretto, non il pooler.");
-  if (String(process.env.EASYGAME_DB_ENV || "") !== AMBIENTE) esci(1, `In scrittura EASYGAME_DB_ENV deve valere «${AMBIENTE}».`);
-}
+/* La guardia di branch (un solo elenco, in `lib/bonifica-guardie.mjs`): ${Object.keys(BRANCH_AMMESSI)}. */
+const rifiuti = motiviDiRifiutoDelBersaglio({ url: URL_DB, ambiente: AMBIENTE, scrive: SCRIVE });
+if (rifiuti.length) esci(1, rifiuti.join("\n"));
 
 /* ---------- lettura ---------- */
 
@@ -394,19 +372,7 @@ const esegui = async () => {
   try {
     await client.query("SET LOCAL statement_timeout = '60s'");
     await client.query("SET LOCAL lock_timeout = '10s'");
-    await client.query(`CREATE TABLE IF NOT EXISTS ${TABELLA_AUDIT} (
-      id uuid primary key default gen_random_uuid(),
-      run_id text not null,
-      organization_id uuid not null,
-      tabella text not null,
-      riga_id uuid not null,
-      operazione text not null,
-      regola text not null,
-      prima jsonb,
-      dopo jsonb,
-      eseguita_at timestamptz not null default now(),
-      unique (run_id, tabella, riga_id, operazione)
-    )`);
+    await client.query(SQL_TABELLA_AUDIT);
 
     /* I blocchi: le schede toccate, in un lotto solo, crescente (ADR-0138). */
     const dati = await leggiClub(CLUB);

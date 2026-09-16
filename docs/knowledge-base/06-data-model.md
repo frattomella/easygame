@@ -267,6 +267,12 @@ della categoria, e la riga gemella si fonde sulla vera anche con il catalogo in
 mano; un riferimento che il catalogo non conosce **non** e un'appartenenza
 secondaria ed esce da `collectDanglingAthleteCategoryReferences`
 ([ADR-0185](18-decision-log.md#adr-0185--categoria-sede-gruppo-e-appartenenza-sono-quattro-identita-letichetta-non-e-nessuna-delle-quattro-e-si-scrive-in-un-punto-solo-per-la-web-corrente-e-per-il-redesign-v2)).
+`athletes.data.{category, categoryName, categoryMemberships, categories}` sono
+la **proiezione** delle righe, scritta a ogni salvataggio con
+`buildAthleteCategoryProjection` (ADR-0186): derivabile 1:1, nessuna
+informazione propria; la fase B di D-RD-16 la ricostruisce con la stessa
+funzione. Il registro generico rifiuta un `category_id` che non identifichi
+una categoria del club (`category-write-guard.ts`).
 `scripts/censimento-appartenenze-legacy.mjs` le conta e le classifica in sola
 lettura; `scripts/bonifica-appartenenze-legacy.mjs` (D-RD-16) le bonifica —
 dry-run per default, scrittura solo con tutte le guardie del piano — e la

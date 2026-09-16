@@ -235,9 +235,13 @@ test("le attese si leggono e si scrivono in una forma sola", () => {
 test("lo script: dry-run per default, scrittura solo con tutte le guardie, un branch solo", () => {
   const sorgente = fs.readFileSync(path.join(process.cwd(), "scripts", "bonifica-appartenenze-legacy.mjs"), "utf8");
   assert.match(sorgente, /const ESEGUI = flag\("--esegui"\);/);
-  assert.match(sorgente, /"web-redesign-staging": "ep-dry-block-alkxdiiu",/);
-  assert.doesNotMatch(sorgente, /ep-(?!dry-block-alkxdiiu)[a-z]+-[a-z]+-[a-z0-9]{8}/, "nessun altro endpoint Neon nel codice");
-  assert.match(sorgente, /if \(SCRIVE\) \{[\s\S]*?-pooler[\s\S]*?EASYGAME_DB_ENV/);
+  /* La guardia di branch vive in un posto solo, condiviso con le fasi B/C. */
+  const guardie = fs.readFileSync(path.join(process.cwd(), "scripts", "lib", "bonifica-guardie.mjs"), "utf8");
+  assert.match(guardie, /"web-redesign-staging": "ep-dry-block-alkxdiiu",/);
+  assert.doesNotMatch(guardie + sorgente, /ep-(?!dry-block-alkxdiiu)[a-z]+-[a-z]+-[a-z0-9]{8}/, "nessun altro endpoint Neon nel codice");
+  assert.match(guardie, /if \(scrive\) \{[\s\S]*?-pooler[\s\S]*?EASYGAME_DB_ENV/);
+  assert.match(sorgente, /motiviDiRifiutoDelBersaglio\(\{ url: URL_DB, ambiente: AMBIENTE, scrive: SCRIVE \}\)/);
+  assert.doesNotMatch(sorgente, /const BRANCH_AMMESSI =/, "nessuna copia locale dell'elenco");
   assert.match(sorgente, /BONIFICA_APPARTENENZE_AUTORIZZATA/);
   assert.match(sorgente, /--conferma-r3/);
   assert.match(sorgente, /--snapshot/);

@@ -1,6 +1,6 @@
 # D-RD-16 — Piano di bonifica delle righe storiche di `athlete_category_memberships`
 
-> **Stato: ESEGUITO sul redesign (`web-redesign-staging`) il 2026-09-16, run `20260916-fortitudo-write-1`, §14. Lo staging Fortitudo NON e stato toccato: per quello serve un'altra autorizzazione e la modifica di `BRANCH_AMMESSI`.**
+> **Stato: fase A ESEGUITA il 2026-09-16 (`20260916-fortitudo-write-1`, §14); fasi C e B ESEGUITE il 2026-09-16 (`20260916-fortitudo-faseC-write-1`, `20260916-fortitudo-faseB-write-1`, §15) sul redesign (`web-redesign-staging`). Lo staging Fortitudo NON e stato toccato: per quello serve un'altra autorizzazione e la modifica di `BRANCH_AMMESSI`.**
 > Redatto il 2026-09-15 sulla copia del pilota nel branch Neon
 > `web-redesign-staging` (`br-hidden-salad-alm93r7e`), in sola lettura.
 > Lo script esiste (`scripts/bonifica-appartenenze-legacy.mjs`), il dry-run
@@ -603,3 +603,44 @@ R3 con primaria `Pulcini · S. Cosma` e nessuna secondaria «Pulcini»; su 213
 atleti 0 secondarie uguali alla primaria, 0 pendenti, 0 id grezzi.
 Organizzazione `ef5317db-…`: invariata (12 righe, 7 storiche). Restano le
 fasi B (proiezioni `athletes.data`) e C (nomi stantii), separate.
+
+## 15. Fasi C e B del 2026-09-16 sul redesign
+
+Strumento: `scripts/bonifica-appartenenze-fasi.mjs` (regole in
+`scripts/lib/bonifica-fasi.mjs`, guardie in `scripts/lib/bonifica-guardie.mjs`,
+le stesse della fase A). Copia di sicurezza **prima** delle due fasi:
+`br-lucky-brook-alvzu5yq` (`pre-drd16-fasi-bc-20260916-web-redesign-staging`,
+figlio di `br-hidden-salad-alm93r7e` a LSN `0/14470DB8`). Revisione ostile
+in tre piu una seconda passata: Critical 0, High 0 alla chiusura (ADR-0186).
+
+**Fase C — nomi stantii** (`20260916-fortitudo-faseC-write-1`, dry-run
+approvato `20260916-fortitudo-faseC-dryrun-2`): 46 righe identificate con
+`category_name` diverso dal nome corrente — «Pulcini - S. Cosma» ×9 →
+«Pulcini», «Under 15 Gold» ×16 → «Under 15 Eccellenza», «Scoiattoli S. Cosma»
+×21 → «Scoiattoli». Solo il nome; nessun `category_id` toccato. Pre-check dei
+referenti (`clubs.trainings`, `matches`, `weekly_schedule`,
+`club_resource_items`, `club_events`): 0 citazioni dei nomi ritirati.
+COMMIT; audit 46 righe.
+
+**Fase B — proiezioni** (`20260916-fortitudo-faseB-write-1`, dry-run
+approvato `20260916-fortitudo-faseB-dryrun-postC`, rigenerato **dopo** la C):
+213 atleti, `athletes.data.{category, categoryName, categoryMemberships,
+categories}` ricostruite dalle sole righe con `buildAthleteCategoryProjection`
+— la funzione del writer. Soggetto = righe (non la colonna ne la vecchia
+proiezione); REVIEW su primarie ≠ 1 o colonna discorde: 0. COMMIT; audit 213
+righe.
+
+**Dopo, letto dal database**: righe 216 · fuori catalogo 0 · primarie 213 ·
+atleti con 0/2 primarie 0 · `athletes.category_id` fuori catalogo 0 ·
+colonna ≠ primaria 0 · nomi stantii **0** · `data.category` ≠ colonna **0** ·
+voci di `data.categoryMemberships` senza riga **0** · righe senza voce **0**
+· audit fuori club 0. Secondo dry-run di A, B e C: 0 mutazioni. Censimento:
+0. UAT di dominio 24/24 (Pulcini e Scoiattoli due opzioni ciascuna, un atleta
+con «Scoiattoli · S. Cosma» primaria e «Scoiattoli · Scauri» secondaria reale).
+Pacchetti di ritorno in `.codex-scratch/drd16/20260916-fortitudo-faseC-write-1/`
+e `…/20260916-fortitudo-faseB-write-1/` (`inverso.json` con `attesoOra` e
+`rimuovi`; `--annulla` controlla lo stato prima di scrivere).
+
+Fuori perimetro, invariata: `ef5317db-…` (12 righe, 7 storiche). Lo staging
+Fortitudo **non** e stato toccato: fasi A, C e B vi restano da autorizzare.
+
