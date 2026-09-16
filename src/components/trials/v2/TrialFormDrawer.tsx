@@ -34,6 +34,9 @@ import {
  * scelta e di chi registra. `quick` e la forma da palestra: tre campi e la
  * categoria gia scelta dall'allenamento.
  */
+/* Radix Select non ammette un valore vuoto: «nessuno» e una parola, e si toglie prima di salvare. */
+const NESSUNO = "__nessuno__";
+
 export function TrialFormDrawer({
   open,
   onOpenChange,
@@ -211,18 +214,18 @@ export function TrialFormDrawer({
                 <Field label="Gruppo" htmlFor="trial-group" optional>
                   <Select
                     id="trial-group"
-                    value={form.groupId}
-                    onValueChange={(value) => set("groupId", value)}
-                    options={[{ value: "", label: "Nessun gruppo" }, ...groupsForCategory.map((group) => ({ value: group.id, label: group.label }))]}
+                    value={form.groupId || NESSUNO}
+                    onValueChange={(value) => set("groupId", value === NESSUNO ? "" : value)}
+                    options={[{ value: NESSUNO, label: "Nessun gruppo" }, ...groupsForCategory.map((group) => ({ value: group.id, label: group.label }))]}
                     placeholder="Nessun gruppo"
                   />
                 </Field>
                 <Field label="Sede" htmlFor="trial-site" optional>
                   <Select
                     id="trial-site"
-                    value={form.siteId}
-                    onValueChange={(value) => set("siteId", value)}
-                    options={[{ value: "", label: "Nessuna sede" }, ...siteOptions.map((site) => ({ value: site.id, label: site.label }))]}
+                    value={form.siteId || NESSUNO}
+                    onValueChange={(value) => set("siteId", value === NESSUNO ? "" : value)}
+                    options={[{ value: NESSUNO, label: "Nessuna sede" }, ...siteOptions.map((site) => ({ value: site.id, label: site.label }))]}
                     placeholder="Nessuna sede"
                   />
                 </Field>
