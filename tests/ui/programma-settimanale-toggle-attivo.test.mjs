@@ -19,6 +19,7 @@ test("WP-14 · il dialog di modifica ha un interruttore per attivare/disattivare
 });
 
 test("WP-14 · una regola disattivata e segnalata visivamente nell'elenco", () => {
-  assert.match(sorgente, /Disattivato/);
+  /* Redesign: la parola la porta la pillola del sistema (PERSON_STATUS.inactive → «DISATTIVATO»). */
+  assert.match(sorgente, /<StatusPill status="inactive" size="sm" \/>/);
   assert.match(sorgente, /item\.active === false/);
 });

@@ -2,6 +2,11 @@
 
 import React from "react";
 import { Button } from "@/components/ui/button";
+import { Button as WebButton, IconButton } from "@/components/web/primitives/Button";
+import { Eyebrow, InsetBlock, Panel, PanelHeader } from "@/components/web/primitives/Surface";
+import { StatusPill } from "@/components/web/primitives/StatusPill";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { EmptyStateCard } from "@/components/web/page/Cards";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -47,6 +52,7 @@ import {
 import { TrainingScheduleAutomationPanel } from "@/components/trainer/TrainingScheduleAutomationPanel";
 import { useConfirm } from "@/components/web/overlays/useConfirm";
 import {
+  CalendarDays,
   Pencil,
   Plus,
   Sparkles,
@@ -1028,69 +1034,78 @@ export function WeeklyTrainingSchedule({
   return (
     <div className="space-y-5">
       {confirmDialog}
+      {/*
+        La barra operativa del programma (guideline 09 §9.2): l'assistente e
+        un secondario, «Aggiungi allenamento» il primario della schermata,
+        lo stato di salvataggio accanto. Densa: e una superficie di lavoro.
+      */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
+          <WebButton
+            variant="secondary"
+            size="sm"
+            icon={<Sparkles />}
+            aria-expanded={showAutomation}
             onClick={() => setShowAutomation((current) => !current)}
           >
-            <Sparkles className="mr-2 h-4 w-4" />
             {showAutomation ? "Nascondi automazione" : "Assistente Automazione"}
-          </Button>
+          </WebButton>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <SaveStatus state={saveState} savedAt={savedAt} />
-          <Button
-            onClick={() => setShowAddDialog(true)}
-            className="bg-blue-600 hover:bg-blue-700"
-          >
-            <Plus className="mr-2 h-4 w-4" />
+          <WebButton variant="primary" size="sm" icon={<Plus />} onClick={() => setShowAddDialog(true)}>
             Aggiungi Allenamento
-          </Button>
+          </WebButton>
         </div>
       </div>
 
       {scheduleImpact ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <p className="font-medium">
-            La modifica interessa{" "}
-            {scheduleImpact.slots.reduce((tot, voce) => tot + voce.matchedCount, 0)}{" "}
-            allenament
-            {scheduleImpact.slots.reduce((tot, voce) => tot + voce.matchedCount, 0) === 1
-              ? "o"
-              : "i"}{" "}
-            futuri gia generati.
-          </p>
-          <p className="mt-1 text-amber-800">
-            {scheduleImpact.slots.reduce((tot, voce) => tot + voce.safeCount, 0)}{" "}
-            si possono aggiornare in sicurezza (nessuno modificato a mano,
-            annullato o con presenze registrate). Puoi anche non fare niente:
-            gli allenamenti gia creati restano come sono, e solo le prossime
-            generazioni useranno la nuova definizione.
-          </p>
-          <div className="mt-3 flex flex-wrap justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setScheduleImpact(null)}
-              disabled={isApplyingImpact}
-            >
-              Applica solo alle nuove generazioni
-            </Button>
-            <Button
-              onClick={applyScheduleImpact}
-              disabled={
-                isApplyingImpact ||
-                scheduleImpact.slots.reduce((tot, voce) => tot + voce.safeCount, 0) === 0
-              }
-              className="bg-amber-600 hover:bg-amber-700"
-            >
-              Aggiorna{" "}
-              {scheduleImpact.slots.reduce((tot, voce) => tot + voce.safeCount, 0)}{" "}
-              allenamenti futuri non modificati
-            </Button>
-          </div>
-        </div>
+        <AlertBlock
+          severity="warning"
+          title={
+            <>
+              La modifica interessa{" "}
+              {scheduleImpact.slots.reduce((tot, voce) => tot + voce.matchedCount, 0)}{" "}
+              allenament
+              {scheduleImpact.slots.reduce((tot, voce) => tot + voce.matchedCount, 0) === 1
+                ? "o"
+                : "i"}{" "}
+              futuri gia generati.
+            </>
+          }
+          actions={
+            <>
+              <WebButton
+                variant="secondary"
+                size="sm"
+                onClick={() => setScheduleImpact(null)}
+                disabled={isApplyingImpact}
+              >
+                Applica solo alle nuove generazioni
+              </WebButton>
+              <WebButton
+                variant="neutral"
+                size="sm"
+                onClick={applyScheduleImpact}
+                loading={isApplyingImpact}
+                disabled={
+                  scheduleImpact.slots.reduce((tot, voce) => tot + voce.safeCount, 0) === 0
+                }
+              >
+                Aggiorna{" "}
+                {scheduleImpact.slots.reduce((tot, voce) => tot + voce.safeCount, 0)}{" "}
+                allenamenti futuri non modificati
+              </WebButton>
+            </>
+          }
+        >
+          {scheduleImpact.slots.reduce((tot, voce) => tot + voce.safeCount, 0)}{" "}
+          si possono aggiornare in sicurezza (nessuno modificato a mano,
+          annullato o con presenze registrate). Puoi anche non fare niente:
+          gli allenamenti gia creati restano come sono, e solo le prossime
+          generazioni useranno la nuova definizione.
+        </AlertBlock>
       ) : null}
 
       {showAutomation && (
@@ -1101,36 +1116,39 @@ export function WeeklyTrainingSchedule({
       )}
 
       {schedule.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center text-sm text-slate-500">
-          Nessun allenamento nel programma settimanale. Aggiungi la prima
-          sessione e poi usa l&apos;automazione per creare gli allenamenti reali.
-        </div>
+        <EmptyStateCard
+          icon={<CalendarDays />}
+          title="Nessun allenamento nel programma settimanale"
+          description="Aggiungi la prima sessione e poi usa l'automazione per creare gli allenamenti reali."
+          primary={
+            <WebButton variant="primary" size="sm" icon={<Plus />} onClick={() => setShowAddDialog(true)}>
+              Aggiungi Allenamento
+            </WebButton>
+          }
+        />
       ) : (
         <div className="space-y-5">
           {groupedLocations.map((structure) => (
-            <div key={structure.structureId} className="rounded-2xl border bg-white p-4 shadow-sm">
-              <div className="mb-4">
-                <h3 className="text-lg font-semibold text-slate-900">
-                  {structure.structureName}
-                </h3>
-                <p className="text-sm text-slate-500">
-                  Ogni campo della struttura ha la propria colonna operativa.
-                </p>
-              </div>
+            <Panel key={structure.structureId} as="section" radius="sm" className="p-5">
+              <PanelHeader
+                eyebrow="Struttura"
+                title={structure.structureName}
+                description="Ogni campo della struttura ha la propria colonna operativa."
+                titleAs="h3"
+                className="mb-3"
+              />
 
-              <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+              <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
                 {structure.fields.map((field) => (
-                  <div
-                    key={field.fieldId}
-                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                  >
-                    <div className="mb-3 rounded-xl bg-white px-3 py-2 shadow-sm">
-                      <p className="text-sm font-semibold text-slate-900">
+                  <InsetBlock key={field.fieldId} className="p-3">
+                    <div className="mb-2.5 flex items-center justify-between gap-2 px-1">
+                      <Eyebrow as="p">Campo</Eyebrow>
+                      <p className="egw-ellipsis text-[13px] font-bold text-egw-ink">
                         {field.fieldName}
                       </p>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-2">
                       {DAYS_OF_WEEK.map((day) => {
                         const dayItems = schedule.filter(
                           (item) =>
@@ -1142,7 +1160,7 @@ export function WeeklyTrainingSchedule({
                         return (
                           <div
                             key={`${field.fieldId}-${day}`}
-                            className="rounded-xl border bg-white p-3"
+                            className="rounded-egw-field border border-egw-hairline bg-white px-3 py-2.5"
                             onDragOver={(event) => {
                               if (!allowDragDrop) {
                                 return;
@@ -1163,21 +1181,21 @@ export function WeeklyTrainingSchedule({
                               setDraggedItemId(null);
                             }}
                           >
-                            <div className="mb-2 flex items-center justify-between">
-                              <p className="text-sm font-medium text-slate-700">
+                            <div className="mb-1.5 flex items-center justify-between">
+                              <p className="text-[12.5px] font-semibold text-egw-ink-72">
                                 {day}
                               </p>
-                              <span className="text-xs text-slate-400">
-                                {dayItems.length} sessioni
+                              <span className="egw-num text-[11px] font-semibold text-egw-ink-42">
+                                {dayItems.length} {dayItems.length === 1 ? "sessione" : "sessioni"}
                               </span>
                             </div>
 
                             {dayItems.length === 0 ? (
-                              <div className="rounded-lg border border-dashed p-3 text-xs text-slate-400">
+                              <div className="rounded-egw-control border border-dashed border-egw-hairline px-3 py-2 text-[11.5px] text-egw-ink-42">
                                 Nessun allenamento
                               </div>
                             ) : (
-                              <div className="space-y-2">
+                              <div className="space-y-1.5">
                                 {dayItems.map((item) => (
                                   <div
                                     key={item.id}
@@ -1186,38 +1204,35 @@ export function WeeklyTrainingSchedule({
                                     onDragEnd={() => setDraggedItemId(null)}
                                     className={
                                       item.active === false
-                                        ? "rounded-xl border border-slate-200 bg-slate-100 p-3 opacity-70"
-                                        : "rounded-xl border border-blue-100 bg-blue-50 p-3"
+                                        ? "relative rounded-egw-control border border-egw-hairline bg-egw-page-100 px-3 py-2 opacity-75"
+                                        : "relative rounded-egw-control border border-egw-tint-blue-bd bg-egw-tint-blue px-3 py-2"
                                     }
                                   >
-                                    <div className="flex items-start justify-between gap-2">
-                                      <div>
-                                        <div className="flex items-center gap-2">
-                                          <p className="text-sm font-semibold text-slate-900">
+                                    {/* La striscia blu dell'allenamento (guideline 05: blue-700 = allenamento). */}
+                                    <div aria-hidden className={item.active === false ? "absolute inset-y-2 left-0 w-[3px] rounded-full bg-[rgba(11,26,58,.18)]" : "absolute inset-y-2 left-0 w-[3px] rounded-full bg-egw-blue-700"} />
+                                    <div className="flex items-start justify-between gap-2 pl-1.5">
+                                      <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                          <p className="egw-num text-[12px] font-bold text-egw-ink">
+                                            {item.startTime}–{item.endTime}
+                                          </p>
+                                          <p className="egw-ellipsis text-[12.5px] font-semibold text-egw-ink">
                                             {getScheduleItemLabel(item)}
                                           </p>
-                                          {item.active === false ? (
-                                            <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600">
-                                              Disattivato
-                                            </span>
-                                          ) : null}
+                                          {item.active === false ? <StatusPill status="inactive" size="sm" /> : null}
                                         </div>
-                                        <p className="text-xs text-slate-500">
-                                          {item.startTime} - {item.endTime}
-                                        </p>
-                                        <p className="mt-1 text-xs text-slate-600">
+                                        <p className="egw-ellipsis mt-0.5 text-[11.5px] text-egw-ink-62">
                                           {getTrainerNames(item.trainerIds) || "Allenatore da assegnare"}
                                         </p>
                                       </div>
 
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
+                                      <IconButton
+                                        aria-label={`Modifica ${getScheduleItemLabel(item)} ${item.startTime}`}
+                                        variant="row"
                                         onClick={() => openEditDialog(item)}
-                                        className="h-8 w-8 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
                                       >
-                                        <Pencil className="h-4 w-4" />
-                                      </Button>
+                                        <Pencil />
+                                      </IconButton>
                                     </div>
                                   </div>
                                 ))}
@@ -1227,10 +1242,10 @@ export function WeeklyTrainingSchedule({
                         );
                       })}
                     </div>
-                  </div>
+                  </InsetBlock>
                 ))}
               </div>
-            </div>
+            </Panel>
           ))}
         </div>
       )}
@@ -1252,7 +1267,7 @@ export function WeeklyTrainingSchedule({
                     day: event.target.value,
                   }))
                 }
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="h-10 w-full rounded-egw-control border border-egw-field-border bg-egw-page-100 px-3 font-brand text-[13.5px] text-egw-ink focus:border-egw-blue focus:bg-white focus:outline-none focus:shadow-egw-focus"
               >
                 {DAYS_OF_WEEK.map((day) => (
                   <option key={day} value={day}>
@@ -1287,7 +1302,7 @@ export function WeeklyTrainingSchedule({
                     };
                   })
                 }
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="h-10 w-full rounded-egw-control border border-egw-field-border bg-egw-page-100 px-3 font-brand text-[13.5px] text-egw-ink focus:border-egw-blue focus:bg-white focus:outline-none focus:shadow-egw-focus"
               >
                 <option value="" disabled>
                   {groupOptions.length > 0
@@ -1352,7 +1367,7 @@ export function WeeklyTrainingSchedule({
                     location: nextField?.name || null,
                   }));
                 }}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="h-10 w-full rounded-egw-control border border-egw-field-border bg-egw-page-100 px-3 font-brand text-[13.5px] text-egw-ink focus:border-egw-blue focus:bg-white focus:outline-none focus:shadow-egw-focus"
               >
                 {structureRecommendationsForNewTraining.map(
                   ({ structure, recommended }) => (
@@ -1382,7 +1397,7 @@ export function WeeklyTrainingSchedule({
                       null,
                   }))
                 }
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="h-10 w-full rounded-egw-control border border-egw-field-border bg-egw-page-100 px-3 font-brand text-[13.5px] text-egw-ink focus:border-egw-blue focus:bg-white focus:outline-none focus:shadow-egw-focus"
               >
                 {getStructureFieldOptions(
                   effectiveLocations,
@@ -1397,7 +1412,7 @@ export function WeeklyTrainingSchedule({
 
             <div className="space-y-2 md:col-span-2">
               <Label>Allenatori</Label>
-              <div className="grid gap-2 rounded-xl border p-3 sm:grid-cols-2">
+              <div className="grid gap-2 rounded-egw-field border p-3 sm:grid-cols-2">
                 {trainers.length > 0 ? (
                   trainers.map((trainer) => (
                     <label key={trainer.id} className="flex items-center gap-2 text-sm">
@@ -1421,7 +1436,7 @@ export function WeeklyTrainingSchedule({
                       {getAutoTrainerIdsForCategory(newTraining.categoryId).includes(
                         trainer.id,
                       ) && (
-                        <span className="ml-auto text-[11px] font-medium text-blue-600">
+                        <span className="ml-auto text-[11px] font-medium text-egw-blue-700">
                           Associato
                         </span>
                       )}
@@ -1444,7 +1459,7 @@ export function WeeklyTrainingSchedule({
             <Button variant="outline" onClick={() => setShowAddDialog(false)}>
               Annulla
             </Button>
-            <Button onClick={addScheduleItem} className="bg-blue-600 hover:bg-blue-700">
+            <Button onClick={addScheduleItem} className="bg-egw-blue hover:bg-egw-blue-700">
               Conferma
             </Button>
           </DialogFooter>
@@ -1481,7 +1496,7 @@ export function WeeklyTrainingSchedule({
                         : current,
                     )
                   }
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="h-10 w-full rounded-egw-control border border-egw-field-border bg-egw-page-100 px-3 font-brand text-[13.5px] text-egw-ink focus:border-egw-blue focus:bg-white focus:outline-none focus:shadow-egw-focus"
                 >
                   {DAYS_OF_WEEK.map((day) => (
                     <option key={day} value={day}>
@@ -1518,7 +1533,7 @@ export function WeeklyTrainingSchedule({
                     };
                   })
                 }
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className="h-10 w-full rounded-egw-control border border-egw-field-border bg-egw-page-100 px-3 font-brand text-[13.5px] text-egw-ink focus:border-egw-blue focus:bg-white focus:outline-none focus:shadow-egw-focus"
               >
                 <option value="" disabled>
                   {groupOptions.length > 0
@@ -1595,7 +1610,7 @@ export function WeeklyTrainingSchedule({
                         : current,
                     );
                   }}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="h-10 w-full rounded-egw-control border border-egw-field-border bg-egw-page-100 px-3 font-brand text-[13.5px] text-egw-ink focus:border-egw-blue focus:bg-white focus:outline-none focus:shadow-egw-focus"
                 >
                   {structureRecommendationsForEditingTraining.map(
                     ({ structure, recommended }) => (
@@ -1629,7 +1644,7 @@ export function WeeklyTrainingSchedule({
                         : current,
                     )
                   }
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className="h-10 w-full rounded-egw-control border border-egw-field-border bg-egw-page-100 px-3 font-brand text-[13.5px] text-egw-ink focus:border-egw-blue focus:bg-white focus:outline-none focus:shadow-egw-focus"
                 >
                   {getStructureFieldOptions(
                     effectiveLocations,
@@ -1644,7 +1659,7 @@ export function WeeklyTrainingSchedule({
 
               <div className="space-y-2 md:col-span-2">
                 <Label>Allenatori</Label>
-                <div className="grid gap-2 rounded-xl border p-3 sm:grid-cols-2">
+                <div className="grid gap-2 rounded-egw-field border p-3 sm:grid-cols-2">
                   {trainers.length > 0 ? (
                     trainers.map((trainer) => (
                       <label key={trainer.id} className="flex items-center gap-2 text-sm">
@@ -1672,7 +1687,7 @@ export function WeeklyTrainingSchedule({
                         {getAutoTrainerIdsForCategory(editingTraining.categoryId).includes(
                           trainer.id,
                         ) && (
-                          <span className="ml-auto text-[11px] font-medium text-blue-600">
+                          <span className="ml-auto text-[11px] font-medium text-egw-blue-700">
                             Associato
                           </span>
                         )}
@@ -1686,12 +1701,12 @@ export function WeeklyTrainingSchedule({
                 </div>
               </div>
 
-              <div className="flex items-center justify-between rounded-xl border bg-slate-50 p-3 md:col-span-2">
+              <div className="flex items-center justify-between rounded-egw-field border bg-egw-page-100 p-3 md:col-span-2">
                 <div>
-                  <p className="text-sm font-medium text-slate-900">
+                  <p className="text-sm font-medium text-egw-ink">
                     Regola attiva
                   </p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-egw-ink-62">
                     Disattivata, questa voce smette di generare nuovi
                     allenamenti. Quelli gia creati restano: disattivare non li
                     tocca.
@@ -1712,7 +1727,7 @@ export function WeeklyTrainingSchedule({
           <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
             <Button
               variant="outline"
-              className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+              className="border-egw-tint-red-bd text-egw-red hover:bg-egw-tint-red hover:text-egw-red"
               onClick={async () => {
                 if (
                   editingTraining &&
@@ -1745,7 +1760,7 @@ export function WeeklyTrainingSchedule({
               </Button>
               <Button
                 onClick={saveEditedTraining}
-                className="bg-blue-600 hover:bg-blue-700"
+                className="bg-egw-blue hover:bg-egw-blue-700"
               >
                 Salva modifiche
               </Button>

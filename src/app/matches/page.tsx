@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CalendarPlus, MoreHorizontal, Settings2 } from "lucide-react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
@@ -11,6 +11,7 @@ import {
 } from "@/components/dashboard/dashboard-page-container";
 import { useToast } from "@/components/ui/toast-notification";
 import { apiRequest } from "@/lib/api/client";
+import { getMatchConvocationDeadlineDays } from "@/lib/trainer-operational-alerts";
 import {
   cancelEvent,
   createEvent,
@@ -29,7 +30,6 @@ import {
   getClubStructures,
   getClubTrainers,
   getClubSettings,
-  saveClubSettings,
 } from "@/lib/simplified-db";
 import { athleteMatchesAnyCategory } from "@/lib/category-utils";
 import { formatLocalDateOnly } from "@/lib/date-only";
@@ -67,7 +67,6 @@ import { useConfirm } from "@/components/web/overlays/useConfirm";
 import { AlertBlock } from "@/components/web/page/Alerts";
 import { CollapsedSection } from "@/components/web/record/Record";
 import { DataGrid } from "@/components/web/datagrid/DataGrid";
-import { Field, FieldSizeProvider, TextInput } from "@/components/web/forms/Field";
 import { formatInteger } from "@/lib/web/format";
 import { SiteContextControl } from "@/components/athletes/v2/athletes-context-controls";
 import { formatDayTitle, weekDaysOf } from "@/components/training/v2/training-page-model";
@@ -203,6 +202,7 @@ const EMPTY_ATHLETES: ConvocationAthlete[] = [];
 
 export default function MatchesPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [date, setDate] = React.useState<Date | undefined>(undefined);
   const [view, setView] = React.useState<MatchView>("day");
   const [matches, setMatches] = React.useState<Match[]>([]);
@@ -217,8 +217,13 @@ export default function MatchesPage() {
   const [loadWarning, setLoadWarning] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [siteFilter, setSiteFilter] = useState("");
-  const [matchConvocationDeadlineDays, setMatchConvocationDeadlineDays] = useState(2);
-  const [savingMatchSettings, setSavingMatchSettings] = useState(false);
+  /*
+    La scadenza delle convocazioni si **legge** qui (per gli avvisi sulle
+    gare) e si **imposta** in Impostazioni → Gare e convocazioni: una regola
+    del club non sta in fondo all'elenco delle gare. Default e chiave sono
+    quelli di `getMatchConvocationDeadlineDays`.
+  */
+  const [matchConvocationDeadlineDays, setMatchConvocationDeadlineDays] = useState(getMatchConvocationDeadlineDays({}));
 
   /* I cassetti */
   const [showAddMatchModal, setShowAddMatchModal] = useState(false);
@@ -247,7 +252,6 @@ export default function MatchesPage() {
     «Salvataggio...» per sempre.
   */
   const [richiediConferma, dialogoConferma] = useConfirm();
-  const settingsSectionRef = React.useRef<HTMLDivElement | null>(null);
 
   const { showToast } = useToast();
   const { activeClub, user } = useAuth();
@@ -358,12 +362,7 @@ export default function MatchesPage() {
       setTrainers(asArray(read(3, "allenatori")));
 
       const clubSettings = read(4, "impostazioni");
-      const deadlineDays = Number(
-        clubSettings?.matchConvocationDeadlineDays ?? clubSettings?.match_convocation_deadline_days ?? 2,
-      );
-      setMatchConvocationDeadlineDays(
-        Number.isFinite(deadlineDays) ? Math.max(0, Math.min(Math.round(deadlineDays), 30)) : 2,
-      );
+      setMatchConvocationDeadlineDays(getMatchConvocationDeadlineDays(clubSettings));
 
       const structuresData = asArray(read(5, "strutture"));
       setHomeLocations(buildTrainingLocationOptions(structuresData));
@@ -815,22 +814,6 @@ export default function MatchesPage() {
     }
   };
 
-  const handleSaveMatchSettings = async () => {
-    if (!activeClub?.id) return;
-    try {
-      setSavingMatchSettings(true);
-      const deadlineDays = Math.max(0, Math.min(Math.round(Number(matchConvocationDeadlineDays) || 2), 30));
-      await saveClubSettings(activeClub.id, { matchConvocationDeadlineDays: deadlineDays });
-      setMatchConvocationDeadlineDays(deadlineDays);
-      showToast("success", "Impostazioni convocazioni salvate");
-    } catch (error) {
-      console.error("Error saving match settings:", error);
-      showToast("error", "Errore nel salvataggio delle impostazioni gare");
-    } finally {
-      setSavingMatchSettings(false);
-    }
-  };
-
   /* ── Contesto, giornata, settimana ─────────────────────────────────────── */
 
   const matchMatchesCategory = React.useCallback(
@@ -1135,11 +1118,7 @@ export default function MatchesPage() {
                         <CalendarPlus />
                         Aggiungi più gare
                       </MenuItem>
-                      <MenuItem
-                        onSelect={() =>
-                          settingsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-                        }
-                      >
+                      <MenuItem onSelect={() => router.push("/settings?tab=gare")}>
                         <Settings2 />
                         Scadenza convocazioni
                       </MenuItem>
@@ -1278,37 +1257,6 @@ export default function MatchesPage() {
               />
             </CollapsedSection>
 
-            <div ref={settingsSectionRef}>
-            <CollapsedSection
-              id="scadenza-convocazioni"
-              recordType={MATCH_GRID_MODULE}
-              title="Scadenza convocazioni"
-              summary="Avvisa gli allenatori quando una gara si avvicina e mancano le convocazioni."
-            >
-              <FieldSizeProvider size="sm">
-                <div className="flex flex-wrap items-end gap-3">
-                  <Field label="Convocare entro" htmlFor="match-convocation-deadline" helper="Giorni prima della gara (0–30)." width="16ch">
-                    <TextInput
-                      id="match-convocation-deadline"
-                      type="number"
-                      numeric
-                      inputMode="numeric"
-                      min={0}
-                      max={30}
-                      value={matchConvocationDeadlineDays}
-                      onChange={(event) =>
-                        setMatchConvocationDeadlineDays(Math.max(0, Math.min(Number(event.target.value) || 0, 30)))
-                      }
-                      trailing={<span className="font-brand text-[11px] text-egw-ink-42">giorni</span>}
-                    />
-                  </Field>
-                  <Button variant="secondary" size="md" onClick={() => void handleSaveMatchSettings()} loading={savingMatchSettings}>
-                    Salva
-                  </Button>
-                </div>
-              </FieldSizeProvider>
-            </CollapsedSection>
-            </div>
           </DashboardPageContainer>
         </main>
       </div>

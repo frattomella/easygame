@@ -7,16 +7,19 @@ import { Panel, PanelHeader, Hairline } from "@/components/web/primitives/Surfac
 import { Button } from "@/components/web/primitives/Button";
 import { Toggle } from "@/components/web/primitives/Controls";
 import { InfoCard } from "@/components/web/page/Cards";
-import { Field, FormGrid, Select } from "@/components/web/forms/Field";
+import { Field, FormGrid, Select, TextInput } from "@/components/web/forms/Field";
 import { formatTime } from "@/lib/web/format";
 import {
   DATE_FORMAT_OPTIONS,
   LANGUAGE_OPTIONS,
   NOTIFICATION_OPTIONS,
   SETTINGS_SECTIONS,
+  clampConvocationDeadlineDays,
+  type MatchSettings,
   type NotificationSettings,
   type SystemSettings,
 } from "@/components/settings/v2/settings-model";
+import { MATCH_CONVOCATION_DEADLINE_RANGE } from "@/lib/trainer-operational-alerts";
 
 /**
  * I pannelli di `/settings` (Web V2, pattern 5: un pannello per sezione, con
@@ -24,7 +27,7 @@ import {
  * secondi, guideline 08 §8.8). Stessi campi e stessa scrittura della V1
  * (`saveClubSettings` sulle chiavi `notifications` e `system`).
  */
-const sectionMeta = (id: "notifiche" | "sistema" | "sicurezza") => SETTINGS_SECTIONS.find((section) => section.id === id);
+const sectionMeta = (id: "notifiche" | "gare" | "sistema" | "sicurezza") => SETTINGS_SECTIONS.find((section) => section.id === id);
 
 /** Una riga «etichetta + spiegazione + interruttore», con lo stato detto a parole. */
 function ToggleRow({ id, label, helper, checked, onCheckedChange }: { id: string; label: string; helper: string; checked: boolean; onCheckedChange: (next: boolean) => void }) {
@@ -118,6 +121,57 @@ export function SystemPanel({
         <div className="divide-y divide-egw-hairline">
           <ToggleRow id="system-backup" label="Backup automatico" helper="Esegui backup automatici dei dati" checked={value.backup} onCheckedChange={(backup) => onChange({ backup })} />
         </div>
+      </div>
+      <PanelSaveRow dirty={dirty} saving={saving} onSave={onSave} label="Salva impostazioni" />
+    </Panel>
+  );
+}
+
+/* ── Gare e convocazioni ─────────────────────────────────────────────────── */
+/**
+ * La scadenza delle convocazioni stava in fondo alla pagina Gare, sotto la
+ * rosa: una regola del club nel posto in cui si lavora sulle gare. Qui e una
+ * preferenza fra le preferenze; la chiave e la lettura sono quelle di sempre
+ * (`getMatchConvocationDeadlineDays`), il default EasyGame e 4 giorni.
+ */
+export function MatchesPanel({
+  value,
+  onChange,
+  dirty,
+  saving,
+  savedAt,
+  onSave,
+}: {
+  value: MatchSettings;
+  onChange: (patch: Partial<MatchSettings>) => void;
+  dirty: boolean;
+  saving: boolean;
+  savedAt: Date | null;
+  onSave: () => void;
+}) {
+  return (
+    <Panel as="section" id="settings-section-gare" aria-labelledby="settings-section-gare-title">
+      <PanelHeader eyebrow="Gare e convocazioni" title={<span id="settings-section-gare-title">Scadenza convocazioni</span>} description={sectionMeta("gare")?.description} actions={<SavedStamp savedAt={savedAt} />} />
+      <div className="flex flex-col gap-5">
+        <Field
+          label="Scadenza convocazioni"
+          htmlFor="matches-convocation-deadline"
+          helper={`Definisci quanti giorni prima della gara devono essere inviate le convocazioni (${MATCH_CONVOCATION_DEADLINE_RANGE.min}–${MATCH_CONVOCATION_DEADLINE_RANGE.max} giorni). Gli allenatori ricevono l'avviso quando una gara si avvicina e le convocazioni mancano.`}
+          width="20ch"
+        >
+          <TextInput
+            id="matches-convocation-deadline"
+            type="number"
+            numeric
+            inputMode="numeric"
+            min={MATCH_CONVOCATION_DEADLINE_RANGE.min}
+            max={MATCH_CONVOCATION_DEADLINE_RANGE.max}
+            step={1}
+            value={value.convocationDeadlineDays}
+            onChange={(event) => onChange({ convocationDeadlineDays: clampConvocationDeadlineDays(event.target.value) })}
+            trailing={<span>giorni</span>}
+          />
+        </Field>
       </div>
       <PanelSaveRow dirty={dirty} saving={saving} onSave={onSave} label="Salva impostazioni" />
     </Panel>

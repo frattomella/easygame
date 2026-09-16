@@ -92,9 +92,16 @@ test("/matches: le capacità dell'audit §1.2 hanno un posto", () => {
   assert.match(rail, /Vai a oggi/);
   assert.match(rail, /monthGridOf/);
 
-  /* La scadenza convocazioni e la rosa convocabile (le due sezioni in fondo). */
-  assert.match(page, /saveClubSettings\(activeClub\.id, \{ matchConvocationDeadlineDays: deadlineDays \}\)/);
-  assert.match(page, /Impostazioni convocazioni salvate/);
+  /*
+    La scadenza convocazioni si imposta in Impostazioni → Gare e convocazioni
+    (redesign): la pagina Gare la legge con la stessa autorita e rimanda li.
+  */
+  assert.match(page, /getMatchConvocationDeadlineDays\(clubSettings\)/);
+  assert.match(page, /router\.push\("\/settings\?tab=gare"\)/);
+  assert.doesNotMatch(page, /saveClubSettings/, "la pagina Gare non scrive piu la regola del club");
+  const settings = readFileSync(path.join(process.cwd(), "src/app/settings/page.tsx"), "utf8");
+  assert.match(settings, /saveClubSettings\(clubId, matchSettingsPayload\(preferences\.matches\)\)/);
+  assert.match(settings, /Impostazioni convocazioni salvate/);
   assert.match(page, /Rosa convocabile per categoria/);
   assert.match(page, /ROSTER_COLUMNS/);
   assert.match(grid, /Solo attivi/);

@@ -13,13 +13,15 @@ import { AlertBlock } from "@/components/web/page/Alerts";
 import { SectionNav } from "@/components/web/record/Record";
 import { SegmentedControl, Skeleton } from "@/components/web/primitives/Controls";
 import { Panel } from "@/components/web/primitives/Surface";
-import { NotificationsPanel, SecurityPanel, SystemPanel } from "@/components/settings/v2/settings-sections";
+import { MatchesPanel, NotificationsPanel, SecurityPanel, SystemPanel } from "@/components/settings/v2/settings-sections";
 import {
   DEFAULT_PREFERENCES,
   SETTINGS_SECTIONS,
+  matchSettingsPayload,
   preferencesFrom,
   resolveSettingsSection,
   type ClubPreferences,
+  type MatchSettings,
   type NotificationSettings,
   type SettingsSectionId,
   type SystemSettings,
@@ -46,8 +48,8 @@ function SettingsPageContent() {
   const [clubId, setClubId] = React.useState<string>("");
   const [preferences, setPreferences] = React.useState<ClubPreferences>(DEFAULT_PREFERENCES);
   const [persisted, setPersisted] = React.useState<ClubPreferences>(DEFAULT_PREFERENCES);
-  const [saving, setSaving] = React.useState<"notifications" | "system" | "">("");
-  const [savedAt, setSavedAt] = React.useState<{ notifications: Date | null; system: Date | null }>({ notifications: null, system: null });
+  const [saving, setSaving] = React.useState<"notifications" | "system" | "matches" | "">("");
+  const [savedAt, setSavedAt] = React.useState<{ notifications: Date | null; system: Date | null; matches: Date | null }>({ notifications: null, system: null, matches: null });
 
   React.useEffect(() => {
     const loadSettings = async () => {
@@ -88,16 +90,43 @@ function SettingsPageContent() {
 
   /* «Salvato · hh:mm» resta quattro secondi (08 §8.8). */
   React.useEffect(() => {
-    if (!savedAt.notifications && !savedAt.system) return;
-    const timer = setTimeout(() => setSavedAt({ notifications: null, system: null }), 4000);
+    if (!savedAt.notifications && !savedAt.system && !savedAt.matches) return;
+    const timer = setTimeout(() => setSavedAt({ notifications: null, system: null, matches: null }), 4000);
     return () => clearTimeout(timer);
   }, [savedAt]);
 
   const notificationsDirty = JSON.stringify(preferences.notifications) !== JSON.stringify(persisted.notifications);
   const systemDirty = JSON.stringify(preferences.system) !== JSON.stringify(persisted.system);
+  const matchesDirty = JSON.stringify(preferences.matches) !== JSON.stringify(persisted.matches);
 
   const updateNotifications = (patch: Partial<NotificationSettings>) => setPreferences((current) => ({ ...current, notifications: { ...current.notifications, ...patch } }));
   const updateSystem = (patch: Partial<SystemSettings>) => setPreferences((current) => ({ ...current, system: { ...current.system, ...patch } }));
+  const updateMatches = (patch: Partial<MatchSettings>) => setPreferences((current) => ({ ...current, matches: { ...current.matches, ...patch } }));
+
+  /*
+    Scrive la chiave storica `matchConvocationDeadlineDays`, la stessa che gli
+    avvisi dell'allenatore leggono: nessuna seconda chiave, nessun secondo
+    sistema di impostazioni. Solo il valore di questo club, solo se cambiato.
+  */
+  const saveMatchSettings = async () => {
+    if (!clubId) {
+      showToast("error", "ID club non disponibile");
+      return;
+    }
+    if (!matchesDirty) return;
+    setSaving("matches");
+    try {
+      await saveClubSettings(clubId, matchSettingsPayload(preferences.matches));
+      setPersisted((current) => ({ ...current, matches: preferences.matches }));
+      setSavedAt((current) => ({ ...current, matches: new Date() }));
+      showToast("success", "Impostazioni convocazioni salvate");
+    } catch (error) {
+      console.error("Error saving match settings:", error);
+      showToast("error", "Errore nel salvataggio delle impostazioni gare");
+    } finally {
+      setSaving("");
+    }
+  };
 
   const saveNotificationSettings = async () => {
     if (!clubId) {
@@ -164,6 +193,9 @@ function SettingsPageContent() {
           ))}
         </Panel>
       );
+    }
+    if (section === "gare") {
+      return <MatchesPanel value={preferences.matches} onChange={updateMatches} dirty={matchesDirty} saving={saving === "matches"} savedAt={savedAt.matches} onSave={() => void saveMatchSettings()} />;
     }
     if (section === "sistema") {
       return <SystemPanel value={preferences.system} onChange={updateSystem} dirty={systemDirty} saving={saving === "system"} savedAt={savedAt.system} onSave={() => void saveSystemSettings()} />;

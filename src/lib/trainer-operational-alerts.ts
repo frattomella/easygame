@@ -31,7 +31,15 @@ export const TRAINER_OPERATIONAL_ALERT_TYPES = [
   "missing_convocations",
 ] as const;
 
-const DEFAULT_MATCH_CONVOCATION_DEADLINE_DAYS = 2;
+/**
+ * **Il default EasyGame della scadenza convocazioni: 4 giorni.** Vale quando
+ * il club non ha mai scelto (chiave assente o non numerica) e per ogni club
+ * nuovo; un valore gia scritto — anche 2, anche 0 — si conserva com'e. Chi
+ * legge il valore passa **solo** da `getMatchConvocationDeadlineDays`: un
+ * secondo default scritto altrove sarebbe due prodotti.
+ */
+export const DEFAULT_MATCH_CONVOCATION_DEADLINE_DAYS = 4;
+export const MATCH_CONVOCATION_DEADLINE_RANGE = Object.freeze({ min: 0, max: 30 });
 
 const normalizeValue = (value: unknown) =>
   String(value || "")
@@ -65,11 +73,11 @@ export const getMatchConvocationDeadlineDays = (settings: any) => {
     settings?.matches?.matchConvocationDeadlineDays;
   const parsedValue = Number(rawValue);
 
-  if (!Number.isFinite(parsedValue) || parsedValue < 0) {
+  if (!Number.isFinite(parsedValue) || parsedValue < MATCH_CONVOCATION_DEADLINE_RANGE.min) {
     return DEFAULT_MATCH_CONVOCATION_DEADLINE_DAYS;
   }
 
-  return Math.min(Math.round(parsedValue), 30);
+  return Math.min(Math.round(parsedValue), MATCH_CONVOCATION_DEADLINE_RANGE.max);
 };
 
 export const getTrainerRecordAthletes = ({
