@@ -8,6 +8,7 @@ import { AUDIT_ACTIONS, recordAuditEvent, recordPermissionDenied } from "./audit
 import { assertClubResourceAccess, canAccessClubResource } from "@/lib/access-roles";
 import { buildAthleteCategoryProjection } from "@/lib/athlete-category-memberships";
 import { normalizeClubSites } from "@/lib/club-sites";
+import { normalizeClubSeasons } from "@/lib/club-seasons";
 import { isWellFormedCodiceFiscale } from "@/lib/italian-registry";
 import { isRealCalendarDate, MIN_PLAUSIBLE_BIRTH_YEAR } from "@/lib/birth-date";
 import { todayLocalDateOnly } from "@/lib/date-only";
@@ -499,8 +500,10 @@ export const applyAthleteImport = async (
   }
   const chiaviCitate = new Set(valide.flatMap((row) => (row.category?.kind === "create" ? [row.category.key] : [])));
 
-  const club = await prisma.club.findUnique({ where: { id: organizationId }, select: { club_sites: true } });
-  const context: CreationContext = { request: options.request, activeSeasonId: options.activeSeasonId, batchId, sites: normalizeClubSites(club?.club_sites) };
+  const club = await prisma.club.findUnique({ where: { id: organizationId }, select: { club_sites: true, settings: true } });
+  /* La stagione: quella dichiarata dalla richiesta, o quella attiva del club — mai nessuna (B1/C-H1). */
+  const activeSeasonId = asText(options.activeSeasonId) || asText(normalizeClubSeasons(club?.settings).activeSeasonId) || null;
+  const context: CreationContext = { request: options.request, activeSeasonId, batchId, sites: normalizeClubSites(club?.club_sites) };
   const perChiave = new Map<string, Target>();
   const esitiCategorie: AthleteImportResult["categories"] = [];
   for (const richiesta of categories) {

@@ -413,3 +413,14 @@ test("21 · collegare una scheda che ha la categoria solo nella colonna non ne a
   assert.equal(esito.rows[0].membership, "kept_existing");
   assert.equal((await appartenenze(ESISTENTE)).length, 0);
 });
+
+test("22 · senza stagione nella richiesta la categoria nuova prende la stagione attiva del club, mai nessuna", async () => {
+  const esito = await dominio.applyAthleteImport(
+    scopeDirezione,
+    richiesta([riga(2, { category: { kind: "create", key: "u15ecc" } })], [{ key: "u15ecc", name: "Under 15 Eccellenza", siteId: "", birthYearFrom: 2012, birthYearTo: 2012 }]),
+    { userId: DIREZIONE },
+  );
+  assert.equal(esito.categories[0].status, "created");
+  const voce = (await fake.client.clubResourceItem.findMany({ where: { organization_id: CLUB, resource_type: "categories" } })).find((c) => (c.payload?.name || c.name) === "Under 15 Eccellenza");
+  assert.equal(voce.payload.seasonId, "s1");
+});
