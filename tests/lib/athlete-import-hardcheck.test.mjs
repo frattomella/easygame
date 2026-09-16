@@ -188,7 +188,7 @@ test("un atleta gia nel club non viene importato due volte", async () => {
   });
 
   const anna = rows.find((row) => row.firstName === "Anna");
-  assert.deepEqual(anna.errors, ["Gia nel club: Bianchi Anna (2010-12-03)"]);
+  assert.deepEqual(anna.errors, ["Già nel club: Bianchi Anna (2010-12-03)"]);
   assert.equal(summary.importable, 4);
 });
 
@@ -352,7 +352,7 @@ const righeDaScrivere = (count) =>
     category: { kind: "target", targetId: "group:cat-u14:scauri" },
   }));
 
-test("l'import va in scaglioni da 200 con lo stesso batchId, non una richiesta per atleta", async () => {
+test("l'import va in scaglioni (IMPORT_CHUNK) con lo stesso batchId, non una richiesta per atleta", async () => {
   const esito = await applyAthleteImportBatch({ batchId: BATCH, categoriesToCreate: [], rows: righeDaScrivere(450) });
   assert.equal(esito.totals.created, 450);
   const inserimenti = richieste.filter((request) => request.method === "POST");
@@ -372,8 +372,8 @@ test("l'avanzamento cresce e arriva al totale", async () => {
 test("uno scaglione che non arriva al server non porta via quelli gia scritti, e le righe restanti si dicono non tentate", async () => {
   fallisciScaglione = 2;
   const esito = await applyAthleteImportBatch({ batchId: BATCH, categoriesToCreate: [], rows: righeDaScrivere(450) });
-  assert.equal(esito.totals.created, 200, "il primo scaglione e scritto");
-  assert.equal(esito.totals.notAttempted, 250, "il secondo e il terzo no, e lo si dice riga per riga");
+  assert.equal(esito.totals.created, IMPORT_CHUNK, "il primo scaglione e scritto");
+  assert.equal(esito.totals.notAttempted, 450 - IMPORT_CHUNK, "gli altri no, e lo si dice riga per riga");
   const nonTentate = esito.rows.filter((row) => row.status === "not_attempted");
   assert.ok(nonTentate.every((row) => /scaglione rifiutato/.test(row.reason)), "con il motivo");
   assert.equal(esito.rows.length, 450, "ogni riga ha un esito");
@@ -406,7 +406,7 @@ test("il riepilogo finale racconta l'import avvenuto, non il club di adesso", ()
     "utf8",
   );
 
-  assert.match(source, /setCommittedPlan\(plan\)/, "il piano si congela quando si preme Importa");
+  assert.match(source, /setCommittedPlan\(piano\)/, "il piano si congela quando si preme Importa");
   assert.match(source, /plan=\{committedPlan \|\| plan\}/, "il riepilogo finale legge il piano congelato");
   const done = source.slice(source.indexOf('{step === "done" && result'), source.indexOf("const footer"));
   assert.doesNotMatch(done, /plan=\{plan\}/, "il riepilogo finale non deve leggere l'anteprima ricalcolata");

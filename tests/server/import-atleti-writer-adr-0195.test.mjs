@@ -66,7 +66,15 @@ const seme = () => ({
     { id: "ou-3", organization_id: CLUB, user_id: SEGRETERIA, role: "staff" },
     { id: "ou-4", organization_id: ALTRO_CLUB, user_id: ALTRA_DIREZIONE, role: "owner" },
   ],
-  clubResourceItem: [categoria("cat-u14", "Under 14 Gold"), categoria("cat-pulcini", "Pulcini"), categoria("cat-u17", "Under 17")],
+  /* Sul database vero le squadre vivono nel registro (club_resource_items) e la colonna del club e la loro proiezione: il seme le porta in entrambi. */
+  clubResourceItem: [
+    categoria("cat-u14", "Under 14 Gold"),
+    categoria("cat-pulcini", "Pulcini"),
+    categoria("cat-u17", "Under 17"),
+    { id: "cri-g-1", organization_id: CLUB, resource_type: "category_groups", name: null, payload: { categoryId: "cat-u14", siteId: "scauri", active: true, seasonId: "s1" } },
+    { id: "cri-g-2", organization_id: CLUB, resource_type: "category_groups", name: null, payload: { categoryId: "cat-pulcini", siteId: "scauri", active: true, seasonId: "s1" } },
+    { id: "cri-g-3", organization_id: CLUB, resource_type: "category_groups", name: null, payload: { categoryId: "cat-pulcini", siteId: "cosma", active: true, seasonId: "s1" } },
+  ],
   athlete: [
     { id: ESISTENTE, organization_id: CLUB, first_name: "Anna", last_name: "Bianchi", birth_date: null, status: "active", category_id: "cat-u14", category_name: "Under 14 Gold", data: { category: "cat-u14", categoryMemberships: [] }, anonymized_at: null },
     { id: INATTIVO, organization_id: CLUB, first_name: "Ugo", last_name: "Neri", birth_date: new Date("2010-05-05T00:00:00.000Z"), status: "inactive", category_id: null, category_name: null, data: {}, anonymized_at: null },
@@ -152,7 +160,7 @@ test("5 · le categorie nascono solo se decise: un'etichetta del file senza deci
   const esito = await dominio.applyAthleteImport(scopeDirezione, richiesta([riga(2, { category: { kind: "create", key: "u15ecc" } })]), { userId: DIREZIONE });
   assert.equal(esito.totals.created, 0);
   assert.equal(esito.rows[0].status, "rejected");
-  assert.match(esito.rows[0].reason, /non e nella richiesta/);
+  assert.match(esito.rows[0].reason, /non è nella richiesta/);
   assert.equal((await fake.client.clubResourceItem.findMany({ where: { organization_id: CLUB, resource_type: "categories" } })).length, prima);
 });
 
@@ -186,14 +194,18 @@ test("7 · la stessa categoria richiesta due volte (secondo scaglione, o riprova
   assert.equal(club.category_groups.filter((g) => g.categoryId === voci[0].payload.id).length, 1, "una squadra sola");
 });
 
-test("8 · creare una categoria omonima di due esistenti si rifiuta: si collega, non si crea la terza", async () => {
+test("8 · creare una categoria omonima di una esistente si rifiuta: si collega, non si crea la seconda (né la terza)", async () => {
+  const prima = (await fake.client.clubResourceItem.findMany({ where: { organization_id: CLUB, resource_type: "categories" } })).length;
   const esito = await dominio.applyAthleteImport(
     scopeDirezione,
     richiesta([riga(2, { category: { kind: "create", key: "pulcini" } })], [{ key: "pulcini", name: "Pulcini", siteId: "", birthYearFrom: 2018, birthYearTo: 2018 }]),
     { userId: DIREZIONE },
   );
-  /* «Pulcini» esiste una volta sola nel catalogo: si riusa. Con due omonime si rifiuterebbe. */
-  assert.equal(esito.categories[0].status, "reused");
+  /* «Pulcini» esiste gia nel club: non si crea per nome e non si riusa alla cieca (revisione ostile B2). */
+  assert.equal(esito.categories[0].status, "rejected");
+  assert.match(esito.categories[0].reason, /esiste già/);
+  assert.equal(esito.rows[0].status, "rejected");
+  assert.equal((await fake.client.clubResourceItem.findMany({ where: { organization_id: CLUB, resource_type: "categories" } })).length, prima, "nessuna categoria nuova");
   await fake.client.clubResourceItem.create({ data: categoria("cat-pulcini-2", "Pulcini") });
   const doppio = await dominio.applyAthleteImport(
     scopeDirezione,
@@ -201,7 +213,7 @@ test("8 · creare una categoria omonima di due esistenti si rifiuta: si collega,
     { userId: DIREZIONE },
   );
   assert.equal(doppio.categories[0].status, "rejected");
-  assert.match(doppio.categories[0].reason, /collegarne una/);
+  assert.match(doppio.categories[0].reason, /esiste già .2 volte./);
   assert.equal(doppio.rows[0].status, "rejected");
 });
 
@@ -265,7 +277,7 @@ test("12 · collegare una scheda di un altro club si rifiuta", async () => {
     { userId: DIREZIONE },
   );
   assert.equal(esito.rows[0].status, "failed");
-  assert.match(esito.rows[0].reason, /non e del club|Accesso negato/);
+  assert.match(esito.rows[0].reason, /non è del club|Accesso negato/);
 });
 
 test("13 · una riga senza categoria si scrive senza appartenenza, senza inventarne una", async () => {
@@ -303,4 +315,101 @@ test("15 · audit: una riga per scheda con lotto e riga del file, una per il lot
   assert.equal(lotto.length, 1);
   assert.equal(lotto[0].resource_id, BATCH);
   assert.equal(lotto[0].metadata.totals.created, 2);
+});
+
+/* ── Chiusure della revisione ostile ────────────────────────────────────── */
+
+test("16 · la categoria nuova porta la stagione attiva e la squadra nasce dal registro delle squadre, non riscrivendo il club (B1/C-H1/C-H2)", async () => {
+  const esito = await dominio.applyAthleteImport(
+    scopeDirezione,
+    richiesta([riga(2, { category: { kind: "create", key: "u15ecc" } })], [{ key: "u15ecc", name: "Under 15 Eccellenza", siteId: "scauri", birthYearFrom: 2012, birthYearTo: 2012 }]),
+    { userId: DIREZIONE },
+    { activeSeasonId: "s1" },
+  );
+  assert.equal(esito.categories[0].status, "created");
+  const voci = await fake.client.clubResourceItem.findMany({ where: { organization_id: CLUB, resource_type: "categories" } });
+  const voce = voci.find((c) => (c.payload?.name || c.name) === "Under 15 Eccellenza");
+  assert.equal(voce.payload.seasonId, "s1", "la stagione attiva e stampata");
+  assert.equal(voce.payload.importBatchId, BATCH, "e il lotto che l'ha creata");
+  const gruppi = await fake.client.clubResourceItem.findMany({ where: { organization_id: CLUB, resource_type: "category_groups" } });
+  const gruppo = gruppi.find((g) => g.payload?.categoryId === voce.payload.id);
+  assert.ok(gruppo, "la squadra e una riga del registro");
+  assert.equal(gruppo.payload.siteId, "scauri");
+  assert.equal(gruppo.payload.seasonId, "s1");
+  const preesistenti = gruppi.filter((g) => g.payload?.categoryId !== voce.payload.id);
+  assert.equal(preesistenti.length, 3, "le squadre che c'erano non si toccano");
+});
+
+test("17 · una categoria decisa ma citata da nessuna riga valida non nasce (B4)", async () => {
+  const prima = (await fake.client.clubResourceItem.findMany({ where: { organization_id: CLUB, resource_type: "categories" } })).length;
+  const esito = await dominio.applyAthleteImport(
+    scopeDirezione,
+    richiesta(
+      [riga(2), riga(3, { category: { kind: "create", key: "vuota" }, athlete: { firstName: "", lastName: "X", birthDate: "", gender: "", fiscalCode: "", email: "", phone: "" } })],
+      [{ key: "vuota", name: "Categoria Orfana", siteId: "", birthYearFrom: 2012, birthYearTo: 2012 }, { key: "mai", name: "Mai Citata", siteId: "", birthYearFrom: 2012, birthYearTo: 2012 }],
+    ),
+    { userId: DIREZIONE },
+  );
+  assert.equal(esito.totals.created, 1);
+  assert.equal(esito.categories.length, 0, "nessuna categoria tentata");
+  assert.equal((await fake.client.clubResourceItem.findMany({ where: { organization_id: CLUB, resource_type: "categories" } })).length, prima);
+});
+
+test("18 · un doppione del club si ferma sul server anche senza anteprima, a meno che il club non abbia scelto «importa come nuovo» (C-H3)", async () => {
+  const stessa = { firstName: "Ugo", lastName: "Neri", birthDate: "2010-05-05", gender: "", fiscalCode: "", email: "", phone: "" };
+  const fermata = await dominio.applyAthleteImport(scopeDirezione, richiesta([riga(2, { athlete: stessa, category: null })]), { userId: DIREZIONE });
+  assert.equal(fermata.rows[0].status, "failed");
+  assert.match(fermata.rows[0].reason, /Possibile duplicato/);
+  assert.equal((await schede()).filter((s) => s.last_name === "Neri").length, 1);
+  const voluta = await dominio.applyAthleteImport(scopeDirezione, richiesta([riga(2, { athlete: stessa, category: null, allowDuplicate: true })]), { userId: DIREZIONE });
+  assert.equal(voluta.rows[0].status, "created");
+  assert.equal((await schede()).filter((s) => s.last_name === "Neri").length, 2);
+});
+
+test("19 · collegare una scheda di un'altra persona si rifiuta, e ricollegare la stessa riga dello stesso lotto e «gia scritta» (C-L2/C-L3)", async () => {
+  const sbagliata = await dominio.applyAthleteImport(
+    scopeDirezione,
+    richiesta([riga(2, { action: "link", athleteId: ESISTENTE, athlete: { firstName: "Ugo", lastName: "Neri", birthDate: "", gender: "", fiscalCode: "", email: "", phone: "" }, category: null })]),
+    { userId: DIREZIONE },
+  );
+  assert.equal(sbagliata.rows[0].status, "failed");
+  assert.match(sbagliata.rows[0].reason, /non di «Neri Ugo»/);
+  const giusta = () =>
+    dominio.applyAthleteImport(
+      scopeDirezione,
+      richiesta([riga(2, { action: "link", athleteId: ESISTENTE, athlete: { firstName: "Anna", lastName: "Bianchi", birthDate: "2012-03-03", gender: "", fiscalCode: "", email: "", phone: "" }, category: null })]),
+      { userId: DIREZIONE },
+    );
+  assert.equal((await giusta()).rows[0].status, "linked");
+  assert.equal((await giusta()).rows[0].status, "already_written");
+  const anna = (await schede()).find((s) => s.id === ESISTENTE);
+  assert.equal(anna.data.importLinks.length, 1, "un collegamento solo");
+});
+
+test("20 · una sede disattivata non fa una squadra; un ruolo con perimetro non importa (B6/C-M5)", async () => {
+  const club = await fake.client.club.findUnique({ where: { id: CLUB } });
+  await fake.client.club.update({ where: { id: CLUB }, data: { club_sites: [...club.club_sites, { id: "vecchia", name: "Vecchia", active: false }] } });
+  const esito = await dominio.applyAthleteImport(
+    scopeDirezione,
+    richiesta([riga(2, { category: { kind: "create", key: "nuova" } })], [{ key: "nuova", name: "Nuova", siteId: "vecchia", birthYearFrom: 2012, birthYearTo: 2012 }]),
+    { userId: DIREZIONE },
+  );
+  assert.equal(esito.categories[0].status, "rejected");
+  assert.match(esito.categories[0].reason, /sede attiva/);
+  assert.equal(dominio.describeImportPermissions({ ...scopeDirezione, accessScopes: [{ kind: "site", value: "scauri" }] }).canImport, false);
+  await assert.rejects(
+    () => dominio.applyAthleteImport({ ...scopeDirezione, accessScopes: [{ kind: "site", value: "scauri" }] }, richiesta([riga(2)]), { userId: DIREZIONE }),
+    /perimetro/,
+  );
+});
+
+test("21 · collegare una scheda che ha la categoria solo nella colonna non ne aggiunge una seconda (B3)", async () => {
+  await fake.client.athleteCategoryMembership.deleteMany({ where: { athlete_id: ESISTENTE } });
+  const esito = await dominio.applyAthleteImport(
+    scopeDirezione,
+    richiesta([riga(2, { action: "link", athleteId: ESISTENTE, athlete: { firstName: "Anna", lastName: "Bianchi", birthDate: "", gender: "", fiscalCode: "", email: "", phone: "" }, category: { kind: "target", targetId: "group:cat-pulcini:cosma" } })]),
+    { userId: DIREZIONE },
+  );
+  assert.equal(esito.rows[0].membership, "kept_existing");
+  assert.equal((await appartenenze(ESISTENTE)).length, 0);
 });

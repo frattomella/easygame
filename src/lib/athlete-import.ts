@@ -57,6 +57,8 @@ export type AthleteImportFileDiagnostics = {
   formulaLikeCells: number;
   /** Righe oltre il tetto, non lette. */
   truncatedRows: number;
+  /** Gli altri fogli del file, non letti: si legge quello con piu righe. */
+  skippedSheets?: string[];
 };
 
 export interface ParsedAthleteImportFile {
@@ -131,7 +133,11 @@ const HEADER_CANDIDATES: Record<AthleteImportField, string[]> = Object.
         "nominativo",
         "nome e cognome",
         "cognome e nome",
+        "cognome nome",
+        "nome cognome",
+        "cognome/nome",
         "nome socio",
+        "atleta",
         "athlete",
         "full name",
       ],
@@ -220,10 +226,13 @@ export const detectCsvDelimiter = (text: string) => {
 };
 
 const splitCsvRecordsKeepingEmpty = (text: string, delimiter: string) => {
-  const records: string[][] = [];
+  const records: { cells: string[]; line: number }[] = [];
   let field = "";
   let record: string[] = [];
   let quoted = false;
+  /* La riga **fisica** in cui comincia il record: un a capo dentro le virgolette non e un record nuovo. */
+  let line = 1;
+  let recordLine = 1;
 
   const pushField = () => {
     record.push(field);
@@ -231,8 +240,9 @@ const splitCsvRecordsKeepingEmpty = (text: string, delimiter: string) => {
   };
   const pushRecord = () => {
     pushField();
-    records.push(record);
+    records.push({ cells: record, line: recordLine });
     record = [];
+    recordLine = line;
   };
 
   for (let index = 0; index < text.length; index += 1) {
@@ -247,6 +257,7 @@ const splitCsvRecordsKeepingEmpty = (text: string, delimiter: string) => {
           quoted = false;
         }
       } else {
+        if (character === "\n") line += 1;
         field += character;
       }
       continue;
@@ -264,6 +275,7 @@ const splitCsvRecordsKeepingEmpty = (text: string, delimiter: string) => {
       continue;
     }
     if (character === "\n") {
+      line += 1;
       pushRecord();
       continue;
     }
@@ -278,7 +290,9 @@ const splitCsvRecordsKeepingEmpty = (text: string, delimiter: string) => {
 };
 
 const splitCsvRecords = (text: string, delimiter: string) =>
-  splitCsvRecordsKeepingEmpty(text, delimiter).filter((row) => row.some((cell) => cell.trim() !== ""));
+  splitCsvRecordsKeepingEmpty(text, delimiter)
+    .map((row) => row.cells)
+    .filter((row) => row.some((cell) => cell.trim() !== ""));
 
 export const parseCsvText = (rawText: string) => {
   const text = rawText.replace(/^\uFEFF/, "");
@@ -309,17 +323,35 @@ export const parseCsvText = (rawText: string) => {
  * Come `parseCsvText`, con il numero di riga **del file** per ogni record
  * (l'intestazione e la riga 1) e le righe vuote contate invece che perse.
  */
+/**
+ * Due colonne con la stessa intestazione restano due colonne («Telefono»,
+ * «Telefono (2)»): con una sola chiave la seconda cancellava la prima.
+ * Le colonne oltre l'intestazione prendono «Colonna N».
+ */
+export const uniqueHeaders = (raw: readonly string[], width = raw.length) => {
+  const seen = new Map<string, number>();
+  const headers: string[] = [];
+  for (let index = 0; index < Math.max(raw.length, width); index += 1) {
+    const base = String(raw[index] ?? "").trim() || `Colonna ${index + 1}`;
+    const count = (seen.get(base) || 0) + 1;
+    seen.set(base, count);
+    headers.push(count === 1 ? base : `${base} (${count})`);
+  }
+  return headers;
+};
+
 export const parseCsvTextWithRows = (rawText: string) => {
   const text = rawText.replace(/^\uFEFF/, "");
   const delimiter = detectCsvDelimiter(text);
-  const lines = text.split("\n");
   const records = splitCsvRecordsKeepingEmpty(text, delimiter);
-  const nonEmpty = records.map((record, index) => ({ record, lineNumber: index + 1 })).filter(({ record }) => record.some((cell) => cell.trim() !== ""));
+  const nonEmpty = records.map((record) => ({ record: record.cells, lineNumber: record.line })).filter(({ record }) => record.some((cell) => cell.trim() !== ""));
+  const physicalRows = text.split(/\r?\n/).length;
   if (!nonEmpty.length) {
-    return { headers: [] as string[], sourceRows: [] as ParsedImportRow[], emptyRows: records.length, headerRow: 0, physicalRows: lines.length };
+    return { headers: [] as string[], sourceRows: [] as ParsedImportRow[], emptyRows: records.length, headerRow: 0, physicalRows };
   }
   const [head, ...body] = nonEmpty;
-  const headers = head.record.map((header, index) => header.trim() || `Colonna ${index + 1}`);
+  const width = Math.max(head.record.length, ...body.map(({ record }) => record.length));
+  const headers = uniqueHeaders(head.record, width);
   const sourceRows = body.map(({ record, lineNumber }) => {
     const values: Record<string, string> = {};
     headers.forEach((header, index) => {
@@ -327,7 +359,7 @@ export const parseCsvTextWithRows = (rawText: string) => {
     });
     return { sourceRowNumber: lineNumber, values };
   });
-  return { headers, sourceRows, emptyRows: records.length - nonEmpty.length, headerRow: head.lineNumber, physicalRows: records.length };
+  return { headers, sourceRows, emptyRows: records.length - nonEmpty.length, headerRow: head.lineNumber, physicalRows };
 };
 
 // --- parser XML -------------------------------------------------------------
@@ -440,11 +472,17 @@ const collectXmlElements = (node: XmlNode, output: XmlNode[] = []) => {
 
 const isLeaf = (node: XmlNode) => node.children.length === 0;
 
-const xmlNodeToRow = (node: XmlNode) => {
-  const row: Record<string, string> = { ...node.attributes };
+/** Le foglie annidate si appiattiscono («residenza.via»): un blocco dentro l'atleta non lo fa sparire. */
+const xmlNodeToRow = (node: XmlNode, prefix = "", row: Record<string, string> = {}) => {
+  Object.entries(node.attributes).forEach(([key, value]) => {
+    row[prefix ? `${prefix}.${key}` : key] = value;
+  });
   node.children.forEach((child) => {
+    const key = prefix ? `${prefix}.${child.tag}` : child.tag;
     if (isLeaf(child)) {
-      row[child.tag] = child.text.trim();
+      row[key] = child.text.trim();
+    } else if (prefix.split(".").length < 3) {
+      xmlNodeToRow(child, key, row);
     }
   });
   return row;
@@ -459,8 +497,7 @@ export const parseXmlText = (rawText: string) => {
   const elements = collectXmlElements(document);
 
   const candidates = elements.filter((element) => {
-    const hasLeafChildren =
-      element.children.length > 0 && element.children.every(isLeaf);
+    const hasLeafChildren = element.children.some(isLeaf);
     const hasOnlyAttributes =
       element.children.length === 0 && Object.keys(element.attributes).length > 0;
     return hasLeafChildren || hasOnlyAttributes;
@@ -481,7 +518,7 @@ export const parseXmlText = (rawText: string) => {
     return { headers: [] as string[], rows: [] as Record<string, string>[] };
   }
 
-  const rows = best.map(xmlNodeToRow);
+  const rows = best.map((node) => xmlNodeToRow(node));
   const headers: string[] = [];
   rows.forEach((row) => {
     Object.keys(row).forEach((key) => {
@@ -499,10 +536,32 @@ const OLE_MAGIC = [0xd0, 0xcf, 0x11, 0xe0];
 
 const startsWithBytes = (bytes: Uint8Array, magic: number[]) => magic.every((value, index) => bytes[index] === value);
 
+const excelSerialToIso = (value: number) => new Date(Date.UTC(1899, 11, 30) + Math.round(value) * 86400000).toISOString().slice(0, 10);
+
+const isDateFormat = (format: unknown) => {
+  const text = String(format ?? "");
+  if (!text || /^general$/i.test(text) || /^[#0,.]+$/.test(text)) return false;
+  return /[dmy]/i.test(text.replace(/\[[^\]]*\]/g, "").replace(/"[^"]*"/g, ""));
+};
+
+/**
+ * Una cella e testo. Un numero con un formato data e una data (il testo che
+ * Excel mostra, `m/d/yy`, e all'americana e sposterebbe giorno e mese); un
+ * numero senza formato data e il suo valore (il testo mostrato di un
+ * telefono e `3.93E+11`); una data gia tale si legge con i suoi accessori
+ * locali.
+ */
 const cellText = (cell: any) => {
   if (!cell) return "";
-  if (cell.t === "d" && cell.v instanceof Date) return cell.v.toISOString().slice(0, 10);
   if (cell.t === "e") return "";
+  if (cell.t === "d" && cell.v instanceof Date) {
+    const value: Date = cell.v;
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  }
+  if (cell.t === "n" && typeof cell.v === "number" && Number.isFinite(cell.v)) {
+    if (isDateFormat(cell.z) && cell.v > 20000) return excelSerialToIso(cell.v);
+    return String(cell.v);
+  }
   const formatted = typeof cell.w === "string" ? cell.w : "";
   const raw = cell.v === null || cell.v === undefined ? "" : String(cell.v);
   return (formatted || raw).trim();
@@ -522,7 +581,7 @@ const parseSpreadsheetFile = async (file: File) => {
   if (!startsWithBytes(bytes, ZIP_MAGIC) && !startsWithBytes(bytes, OLE_MAGIC)) {
     throw new Error("Il file non e un foglio Excel: il contenuto non corrisponde all'estensione");
   }
-  const workbook = read(arrayBuffer, { type: "array", raw: false, cellFormula: true, cellDates: false });
+  const workbook = read(arrayBuffer, { type: "array", raw: false, cellFormula: true, cellDates: false, cellNF: true });
   return readWorkbook(workbook, utils);
 };
 
@@ -532,13 +591,31 @@ export const readWorkbook = (workbook: any, utils: any) => {
     sourceRows: [] as ParsedImportRow[],
     diagnostics: { sheetName: "", physicalRows: 0, headerRow: 0, emptyRows: 0, candidateRows: 0, hiddenRows: [], formulaCells: 0, formulaLikeCells: 0, truncatedRows: 0 } as AthleteImportFileDiagnostics,
   };
-  const sheetName = workbook.SheetNames?.[0];
+  /* Il foglio da leggere e quello con piu celle scritte: un foglio «Info» davanti non nasconde gli atleti. */
+  const names: string[] = Array.isArray(workbook.SheetNames) ? workbook.SheetNames : [];
+  const cellCount = (name: string) => Object.keys(workbook.Sheets?.[name] || {}).filter((key) => !key.startsWith("!")).length;
+  const sheetName = names.length ? [...names].sort((left, right) => cellCount(right) - cellCount(left))[0] : undefined;
   if (!sheetName) return vuoto;
   const worksheet = workbook.Sheets[sheetName];
   if (!worksheet?.["!ref"]) return { ...vuoto, diagnostics: { ...vuoto.diagnostics, sheetName } };
+  const skippedSheets = names.filter((name) => name !== sheetName);
 
   const range = utils.decode_range(worksheet["!ref"]);
-  const lastColumn = Math.min(range.e.c, range.s.c + ATHLETE_IMPORT_LIMITS.maxColumns - 1);
+  /*
+    L'intervallo dichiarato puo essere enorme e vuoto (una dimensione stantia
+    dopo una cancellazione): si legge fino all'ultima cella **scritta**, non
+    fino alla fine dichiarata (revisione ostile A-H1).
+  */
+  let lastWrittenRow = range.s.r;
+  let lastWrittenColumn = range.s.c;
+  for (const key of Object.keys(worksheet)) {
+    if (key.startsWith("!")) continue;
+    const address = utils.decode_cell(key);
+    if (address.r > lastWrittenRow) lastWrittenRow = address.r;
+    if (address.c > lastWrittenColumn) lastWrittenColumn = address.c;
+  }
+  const lastRow = Math.min(range.e.r, lastWrittenRow);
+  const lastColumn = Math.min(range.e.c, lastWrittenColumn, range.s.c + ATHLETE_IMPORT_LIMITS.maxColumns - 1);
   const hiddenRows = ((worksheet["!rows"] || []) as any[])
     .map((row, index) => (row && row.hidden ? index + 1 : 0))
     .filter(Boolean);
@@ -556,7 +633,7 @@ export const readWorkbook = (workbook: any, utils: any) => {
         formulas.push(address);
       }
       const value = cellText(cell);
-      if (/^[=+\-@]/.test(value)) formulaLikeCells += 1;
+      if (/^[=@]|^[+\-](?=[^\d\s(])/.test(value)) formulaLikeCells += 1;
       cells.push(value);
     }
     return { cells, formulas, empty: cells.every((value) => value === "") };
@@ -567,7 +644,7 @@ export const readWorkbook = (workbook: any, utils: any) => {
   const sourceRows: ParsedImportRow[] = [];
   let emptyRows = 0;
   let truncatedRows = 0;
-  for (let r = range.s.r; r <= range.e.r; r += 1) {
+  for (let r = range.s.r; r <= lastRow; r += 1) {
     const row = readRow(r);
     if (!headerRow) {
       if (row.empty) {
@@ -575,7 +652,7 @@ export const readWorkbook = (workbook: any, utils: any) => {
         continue;
       }
       headerRow = r + 1;
-      headers = row.cells.map((value, index) => value || `Colonna ${index + 1}`);
+      headers = uniqueHeaders(row.cells);
       continue;
     }
     if (row.empty) {
@@ -598,7 +675,7 @@ export const readWorkbook = (workbook: any, utils: any) => {
     sourceRows,
     diagnostics: {
       sheetName,
-      physicalRows: range.e.r - range.s.r + 1,
+      physicalRows: lastRow - range.s.r + 1,
       headerRow,
       emptyRows,
       candidateRows: sourceRows.length,
@@ -606,6 +683,7 @@ export const readWorkbook = (workbook: any, utils: any) => {
       formulaCells,
       formulaLikeCells,
       truncatedRows,
+      skippedSheets,
     } as AthleteImportFileDiagnostics,
   };
 };
@@ -619,7 +697,7 @@ const withDiagnostics = (
   const truncated = sourceRows.length > ATHLETE_IMPORT_LIMITS.maxRows ? sourceRows.length - ATHLETE_IMPORT_LIMITS.maxRows : 0;
   const kept = truncated ? sourceRows.slice(0, ATHLETE_IMPORT_LIMITS.maxRows) : sourceRows;
   const formulaLikeCells = kept.reduce(
-    (count, row) => count + Object.values(row.values).filter((value) => /^[=+\-@]/.test(String(value))).length,
+    (count, row) => count + Object.values(row.values).filter((value) => /^[=@]|^[+\-](?=[^\d\s(])/.test(String(value))).length,
     0,
   );
   return {

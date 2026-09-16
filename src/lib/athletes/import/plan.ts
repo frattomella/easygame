@@ -192,6 +192,8 @@ export type ImportRowDiagnostic = {
 export type ImportCategoryLabel = {
   readonly key: string;
   readonly label: string;
+  /** Tutte le grafie con cui il file scrive questa etichetta (la prima e `label`). */
+  readonly spellings: readonly string[];
   readonly rowNumbers: readonly number[];
   readonly count: number;
   readonly suggestion: {
@@ -203,6 +205,12 @@ export type ImportCategoryLabel = {
   readonly decision: CategoryDecision | null;
   /** La decisione e quella proposta da EasyGame, non ancora toccata dal club. */
   readonly suggested: boolean;
+  /**
+   * Vero quando la decisione basta a scrivere: «collega» con una squadra che
+   * esiste, «crea» con un nome, «non importare». Un «collega» senza squadra
+   * scelta e ancora da decidere, e lo si dice (revisione ostile C2/M4).
+   */
+  readonly resolved: boolean;
   readonly birthYearFrom: number | null;
   readonly birthYearTo: number | null;
 };
@@ -221,6 +229,8 @@ export type AthleteImportTotals = {
   readonly categoriesToCreate: number;
   readonly pendingCategories: number;
   readonly pendingDuplicates: number;
+  /** Righe ferme **solo** perche una categoria e da decidere: non un errore dei dati. */
+  readonly awaitingDecision: number;
 };
 
 export type AthleteImportPlan = {
@@ -252,7 +262,7 @@ export const nameKey = (value: unknown) =>
     .toLowerCase()
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
-    .replace(/[''`]/g, "'")
+    .replace(/[\u2018\u2019\u0060]/g, "'")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -316,7 +326,7 @@ export const normalizeGenderValue = (value: unknown) => {
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 /** Un testo che comincia come una formula: in un foglio aperto altrove diventerebbe codice. */
-export const looksLikeFormula = (value: unknown) => /^[=+\-@]/.test(text(value));
+export const looksLikeFormula = (value: unknown) => /^[=@]|^[+\-](?=[^\d\s(])/.test(text(value));
 
 const identityKey = (row: { firstName: string; lastName: string; birthDate: string }) =>
   `${nameKey(row.lastName)}|${nameKey(row.firstName)}|${row.birthDate}`;
@@ -346,7 +356,7 @@ const normalizeRow = (
   const rawBirth = fix("birthDate", cell("birthDate") || cell("birthYear"));
   const birth = parseBirthDate(rawBirth);
   const gender = normalizeGenderValue(fix("gender", cell("gender")));
-  const fiscalCode = fix("fiscalCode", cell("fiscalCode")).toUpperCase();
+  const fiscalCode = fix("fiscalCode", cell("fiscalCode").toUpperCase()).toUpperCase();
   const email = fix("email", cell("email"));
   const phone = fix("phone", cell("phone"));
   const categoryLabel = fix("categoryLabel", cell("category"));
@@ -395,12 +405,13 @@ const collectCategories = (
   rows: readonly { sourceRowNumber: number; normalized: NormalizedImportValues }[],
   input: AthleteImportPlanInput,
 ): ImportCategoryLabel[] => {
-  const byKey = new Map<string, { label: string; rows: number[]; years: number[] }>();
+  const byKey = new Map<string, { label: string; spellings: string[]; rows: number[]; years: number[] }>();
   for (const row of rows) {
     const label = row.normalized.categoryLabel;
     if (!label) continue;
-    const key = categoryLabelKey(label);
-    const entry = byKey.get(key) || { label, rows: [], years: [] };
+    const key = categoryLabelKey(label) || nameKey(label);
+    const entry = byKey.get(key) || { label, spellings: [], rows: [], years: [] };
+    if (!entry.spellings.includes(label)) entry.spellings.push(label);
     entry.rows.push(row.sourceRowNumber);
     const year = Number(row.normalized.birthDate.slice(0, 4));
     if (Number.isFinite(year) && year > 0) entry.years.push(year);
@@ -410,19 +421,31 @@ const collectCategories = (
   return Array.from(byKey.entries()).map(([key, entry]) => {
     const suggestion = suggestTargets(entry.label, input.targets);
     const chosen = decisions[key] || null;
-    /* Una squadra sola, trovata per nome: si propone gia scelta, e il club la vede in anteprima. */
-    const proposed =
-      !chosen && suggestion.exact && !suggestion.ambiguous && suggestion.targets.length === 1
-        ? ({ kind: "map", targetId: suggestion.targets[0].id } as const)
-        : null;
+    /*
+      Una squadra sola, trovata per **nome** (stesso nome a meno di maiuscole e
+      spazi): si propone gia scelta, e il club la vede in anteprima. Una
+      corrispondenza per chiave («U14» ↔ «Under 14») si propone e basta:
+      serve un clic (revisione ostile B11).
+    */
+    const unica = suggestion.exact && !suggestion.ambiguous && suggestion.targets.length === 1 ? suggestion.targets[0] : null;
+    const stessoNome = unica ? nameKey(unica.categoryName) === nameKey(entry.label) || nameKey(unica.label) === nameKey(entry.label) : false;
+    const proposed = !chosen && unica && stessoNome ? ({ kind: "map", targetId: unica.id } as const) : null;
+    const decision = chosen || proposed;
+    const resolved =
+      !!decision &&
+      (decision.kind === "skip" ||
+        (decision.kind === "map" && Boolean(input.targets?.byId(decision.targetId))) ||
+        (decision.kind === "create" && Boolean(text(decision.name)) && input.canCreateCategories !== false));
     return {
       key,
       label: entry.label,
+      spellings: entry.spellings,
       rowNumbers: entry.rows,
       count: entry.rows.length,
       suggestion,
-      decision: chosen || proposed,
+      decision,
       suggested: !chosen && Boolean(proposed),
+      resolved,
       birthYearFrom: entry.years.length ? Math.min(...entry.years) : null,
       birthYearTo: entry.years.length ? Math.max(...entry.years) : null,
     };
@@ -435,16 +458,16 @@ const resolveCategory = (
   targets: MembershipTargetIndex | null | undefined,
 ): CategoryResolution => {
   if (!label) return { kind: "none" };
-  const key = categoryLabelKey(label);
+  const key = categoryLabelKey(label) || nameKey(label);
   const entry = categories.find((category) => category.key === key);
   const decision = entry?.decision || null;
-  if (!decision) return { kind: "pending", label, key };
+  if (!decision || !entry?.resolved) return { kind: "pending", label, key };
   if (decision.kind === "map") {
     const target = targets?.byId(decision.targetId) || null;
     if (!target) return { kind: "pending", label, key };
     return { kind: "target", label, key, target };
   }
-  if (decision.kind === "create") return { kind: "create", label, key, name: decision.name || label, siteId: decision.siteId || "" };
+  if (decision.kind === "create") return { kind: "create", label, key, name: text(decision.name), siteId: decision.siteId || "" };
   return decision.athletes === "exclude" ? { kind: "excluded", label, key } : { kind: "without_category", label, key };
 };
 
@@ -489,6 +512,16 @@ export const buildAthleteImportPlan = (input: AthleteImportPlanInput): AthleteIm
   const seenIdentity = new Map<string, number>();
   const seenPerson = new Map<string, number[]>();
   const seenFiscal = new Map<string, number>();
+  const seenNameYear = new Map<string, number>();
+  const existingByNameYear = new Map<string, typeof existing>();
+  for (const athlete of existing) {
+    if (!athlete.birthDate) continue;
+    const key = `${personKey(athlete)}|${athlete.birthDate.slice(0, 4)}`;
+    existingByNameYear.set(key, [...(existingByNameYear.get(key) || []), athlete]);
+  }
+  /* Una riga esclusa dal club, o decisa «non importare», non fa da ancora ai duplicati (revisione ostile A-M7). */
+  const nonAncora = (row: number) => excluded.has(row) || duplicateDecisions[row]?.kind === "skip";
+  let pendingDuplicateRows = 0;
 
   const rows: ImportRowDiagnostic[] = normalizedRows.map(({ source, normalized, correctedFields, sourceRowNumber }) => {
     const errors: ImportIssue[] = [];
@@ -528,18 +561,22 @@ export const buildAthleteImportPlan = (input: AthleteImportPlanInput): AthleteIm
 
     /* Categoria: la decisione del club, o la sua assenza. */
     const categoryResolution = resolveCategory(normalized.categoryLabel, categories, input.targets);
-    const entry = categories.find((category) => category.label && category.key === categoryLabelKey(normalized.categoryLabel));
+    const entry = categories.find((category) => category.label && category.key === (categoryLabelKey(normalized.categoryLabel) || nameKey(normalized.categoryLabel)));
     switch (categoryResolution.kind) {
       case "pending":
-        if (entry?.suggestion.ambiguous) {
+        if (entry?.decision?.kind === "map") {
+          error("category_pending", `«${categoryResolution.label}»: scegliere la squadra al passo Categorie`);
+        } else if (entry?.decision?.kind === "create") {
+          error("category_pending", input.canCreateCategories === false ? `«${categoryResolution.label}»: il tuo ruolo non crea categorie, collegala o non importarla` : `«${categoryResolution.label}»: dare un nome alla categoria nuova al passo Categorie`);
+        } else if (entry?.suggestion.ambiguous) {
           error(
             "category_ambiguous",
-            `«${categoryResolution.label}» puo indicare piu squadre (${entry.suggestion.targets.map((target) => target.label).join(", ")}): scegliere quale al passo Categorie`,
+            `«${categoryResolution.label}» può indicare più squadre (${entry.suggestion.targets.map((target) => target.label).join(", ")}): scegliere quale al passo Categorie`,
           );
         } else if (entry?.suggestion.targets.length) {
           error("category_pending", `Decidere cosa fare di «${categoryResolution.label}» al passo Categorie`);
         } else {
-          error("category_unknown", `«${categoryResolution.label}» non e una categoria del club: decidere al passo Categorie`);
+          error("category_unknown", `«${categoryResolution.label}» non è una categoria del club: decidere al passo Categorie`);
         }
         break;
       case "create":
@@ -552,7 +589,7 @@ export const buildAthleteImportPlan = (input: AthleteImportPlanInput): AthleteIm
         warn("category_none", "Nessuna categoria nel file: si assegna dopo l'import");
         break;
       case "target":
-        if (!categoryResolution.target.siteId && !categoryResolution.target.implicit) {
+        if (!categoryResolution.target.siteId) {
           /* Squadra senza sede configurata: si scrive la categoria, la sede resta da assegnare. */
           warnings.push({ code: "category_without_site", severity: "info", message: "La squadra non ha una sede: la sede resta da assegnare" });
         }
@@ -570,13 +607,17 @@ export const buildAthleteImportPlan = (input: AthleteImportPlanInput): AthleteIm
       const pKey = personKey(normalized);
       const fiscal = normalized.fiscalCode;
       const strongInFile = new Set<number>();
+      const yearKey = normalized.birthDate ? `${pKey}|${normalized.birthDate.slice(0, 4)}` : "";
       if (normalized.birthDate && seenIdentity.has(idKey)) strongInFile.add(seenIdentity.get(idKey)!);
+      /* Con il solo anno da una delle due parti, stesso nome e stesso anno sono la stessa persona (revisione ostile A-M6). */
+      if (yearKey && normalized.birthDateKind === "year_only" && seenNameYear.has(yearKey)) strongInFile.add(seenNameYear.get(yearKey)!);
       if (fiscal && seenFiscal.has(fiscal)) strongInFile.add(seenFiscal.get(fiscal)!);
       for (const row of strongInFile) inFile.push({ row, strength: "strong" });
       for (const row of seenPerson.get(pKey) || []) if (!strongInFile.has(row)) inFile.push({ row, strength: "weak" });
 
       const strongExisting = new Map<string, (typeof existing)[number]>();
       if (normalized.birthDate) for (const athlete of existingByIdentity.get(idKey) || []) strongExisting.set(athlete.id, athlete);
+      if (yearKey && normalized.birthDateKind === "year_only") for (const athlete of existingByNameYear.get(yearKey) || []) strongExisting.set(athlete.id, athlete);
       if (fiscal) for (const athlete of existingByFiscal.get(fiscal) || []) strongExisting.set(athlete.id, athlete);
       const describe = (athlete: (typeof existing)[number], strength: "strong" | "weak") => ({
         athleteId: athlete.id,
@@ -590,9 +631,12 @@ export const buildAthleteImportPlan = (input: AthleteImportPlanInput): AthleteIm
       for (const athlete of strongExisting.values()) existingMatches.push(describe(athlete, "strong"));
       for (const athlete of existingByPerson.get(pKey) || []) if (!strongExisting.has(athlete.id)) existingMatches.push(describe(athlete, "weak"));
 
-      if (normalized.birthDate && !seenIdentity.has(idKey)) seenIdentity.set(idKey, sourceRowNumber);
-      seenPerson.set(pKey, [...(seenPerson.get(pKey) || []), sourceRowNumber]);
-      if (fiscal && !seenFiscal.has(fiscal)) seenFiscal.set(fiscal, sourceRowNumber);
+      if (!nonAncora(sourceRowNumber)) {
+        if (normalized.birthDate && !seenIdentity.has(idKey)) seenIdentity.set(idKey, sourceRowNumber);
+        if (yearKey && !seenNameYear.has(yearKey)) seenNameYear.set(yearKey, sourceRowNumber);
+        seenPerson.set(pKey, [...(seenPerson.get(pKey) || []), sourceRowNumber]);
+        if (fiscal && !seenFiscal.has(fiscal)) seenFiscal.set(fiscal, sourceRowNumber);
+      }
     }
 
     const decision = duplicateDecisions[sourceRowNumber] || null;
@@ -601,6 +645,8 @@ export const buildAthleteImportPlan = (input: AthleteImportPlanInput): AthleteIm
     const strongExistingMatches = existingMatches.filter((item) => item.strength === "strong");
     const weakExistingMatches = existingMatches.filter((item) => item.strength === "weak");
     const needsDuplicateDecision = (strongInFileRows.length > 0 || strongExistingMatches.length > 0) && !decision;
+    const soloCategoriaDaDecidere = errors.every((issue) => issue.code === "category_pending" || issue.code === "category_ambiguous" || issue.code === "category_unknown");
+    if (needsDuplicateDecision && !excluded.has(sourceRowNumber) && categoryResolution.kind !== "excluded" && soloCategoriaDaDecidere) pendingDuplicateRows += 1;
 
     for (const row of strongInFileRows) {
       warn("duplicate_in_file", `Stessa persona della riga ${row} del file`, { relatedRow: row });
@@ -609,7 +655,7 @@ export const buildAthleteImportPlan = (input: AthleteImportPlanInput): AthleteIm
       warn("possible_homonym_in_file", `Stesso nome della riga ${row} del file (data diversa o mancante)`, { relatedRow: row });
     }
     for (const match of strongExistingMatches) {
-      warn("duplicate_existing", `Gia nel club: ${match.label}${match.birthDate ? ` (${match.birthDate})` : ""}${match.status !== "active" ? " — inattivo" : ""}`, { relatedAthleteId: match.athleteId });
+      warn("duplicate_existing", `Già nel club: ${match.label}${match.birthDate ? ` (${match.birthDate})` : ""}${match.status !== "active" ? " — inattivo" : ""}`, { relatedAthleteId: match.athleteId });
     }
     for (const match of weakExistingMatches) {
       warn("possible_homonym_existing", `Possibile omonimo nel club: ${match.label}${match.birthDate ? ` (${match.birthDate})` : ""}`, { relatedAthleteId: match.athleteId });
@@ -621,12 +667,12 @@ export const buildAthleteImportPlan = (input: AthleteImportPlanInput): AthleteIm
     if (decision?.kind === "link") {
       const linked = existing.find((athlete) => athlete.id === decision.athleteId);
       if (!linked) {
-        error("duplicate_existing", "La scheda da collegare non e piu fra quelle del club");
+        error("duplicate_existing", "La scheda da collegare non è più fra quelle del club");
       } else {
         finalAction = "link";
-        if (linked.status !== "active") warn("existing_inactive", "La scheda collegata e inattiva e resta inattiva: riattivarla e una scelta a parte");
+        if (linked.status !== "active") warn("existing_inactive", "La scheda collegata è inattiva e resta inattiva: riattivarla è una scelta a parte");
         if (linked.hasMemberships && categoryResolution.kind === "target") {
-          warn("link_keeps_membership", `La scheda ha gia una categoria${linked.categoryLabel ? ` (${linked.categoryLabel})` : ""}: si conserva, la categoria del file non si applica`);
+          warn("link_keeps_membership", `La scheda ha già una categoria${linked.categoryLabel ? ` (${linked.categoryLabel})` : ""}: si conserva, la categoria del file non si applica`);
         }
         warnings.push({ code: "link_fills_fields", severity: "info", message: "Si completano solo i campi vuoti della scheda" });
       }
@@ -679,14 +725,17 @@ export const buildAthleteImportPlan = (input: AthleteImportPlanInput): AthleteIm
     toCreate: importable.filter((row) => row.finalAction === "create").length,
     toLink: importable.filter((row) => row.finalAction === "link").length,
     toSkip: rows.length - importable.length,
-    withMembership: importable.filter(
-      (row) => row.finalAction === "create" && (row.categoryResolution.kind === "target" || row.categoryResolution.kind === "create"),
-    ).length,
+    withMembership: importable.filter((row) => row.categoryResolution.kind === "target" || row.categoryResolution.kind === "create").length,
     categoriesToCreate: new Set(
       importable.filter((row) => row.categoryResolution.kind === "create").map((row) => (row.categoryResolution as { key: string }).key),
     ).size,
-    pendingCategories: categories.filter((category) => !category.decision).length,
-    pendingDuplicates: count("duplicate_candidate"),
+    pendingCategories: categories.filter((category) => !category.resolved).length,
+    pendingDuplicates: pendingDuplicateRows,
+    awaitingDecision: rows.filter(
+      (row) =>
+        row.state === "error" &&
+        row.validation.errors.every((issue) => issue.code === "category_pending" || issue.code === "category_ambiguous" || issue.code === "category_unknown"),
+    ).length,
   };
   const totalsConsistent =
     totals.candidates === totals.ready + totals.warning + totals.error + totals.duplicate + totals.excluded;
@@ -700,6 +749,8 @@ export type AthleteImportRequestRow = {
   sourceRowNumber: number;
   action: "create" | "link";
   athleteId?: string;
+  /** Il club ha visto il possibile duplicato e ha scelto «importa come nuovo»: il server non lo ferma. */
+  allowDuplicate?: boolean;
   athlete: {
     firstName: string;
     lastName: string;
@@ -742,6 +793,7 @@ export const buildAthleteImportRequest = (plan: AthleteImportPlan, batchId: stri
         ...(row.finalAction === "link" && row.duplicateCandidates.decision?.kind === "link"
           ? { athleteId: row.duplicateCandidates.decision.athleteId }
           : {}),
+        ...(row.duplicateCandidates.decision?.kind === "new" ? { allowDuplicate: true } : {}),
         athlete: {
           firstName: row.normalized.firstName,
           lastName: row.normalized.lastName,
@@ -780,21 +832,42 @@ export const IMPORT_ROW_STATE_LABELS: Record<ImportRowState, string> = {
   ignored_by_user: "Esclusa",
 };
 
+export const IMPORT_ACTION_LABELS: Record<ImportRowAction, string> = {
+  create: "Crea",
+  link: "Collega",
+  skip: "Non importa",
+};
+
+/** La risoluzione della categoria a parole (rapporto, anteprima). */
+export const describeCategoryResolution = (resolution: CategoryResolution, labelOf: (target: MembershipTarget) => string = (target) => target.label) => {
+  switch (resolution.kind) {
+    case "target":
+      return labelOf(resolution.target);
+    case "create":
+      return `Nuova: ${resolution.name}`;
+    case "without_category":
+      return "Senza categoria (scelta)";
+    case "excluded":
+      return "Categoria esclusa";
+    case "pending":
+      return "Da decidere";
+    default:
+      return "Senza categoria";
+  }
+};
+
 /** Riga per riga, in forma piatta: per il rapporto scaricabile e per i test. */
-export const flattenImportPlan = (plan: AthleteImportPlan) =>
+export const flattenImportPlan = (plan: AthleteImportPlan, labelOf?: (target: MembershipTarget) => string) =>
   plan.rows.map((row) => ({
     row: row.sourceRowNumber,
     lastName: row.normalized.lastName,
     firstName: row.normalized.firstName,
     birthDate: row.normalized.birthDate || row.normalized.rawBirth,
     category: row.normalized.categoryLabel,
-    resolution:
-      row.categoryResolution.kind === "target"
-        ? row.categoryResolution.target.label
-        : row.categoryResolution.kind === "create"
-          ? `Nuova: ${row.categoryResolution.name}`
-          : row.categoryResolution.kind,
+    resolution: describeCategoryResolution(row.categoryResolution, labelOf),
     state: row.state,
+    stateLabel: IMPORT_ROW_STATE_LABELS[row.state],
     action: row.finalAction,
+    actionLabel: IMPORT_ACTION_LABELS[row.finalAction],
     issues: row.issues.map((issue) => issue.message).join(" · "),
   }));

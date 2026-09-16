@@ -35,6 +35,7 @@ export function SegmentedControl<T extends string>({
   id,
   "aria-label": ariaLabel,
   "aria-labelledby": ariaLabelledBy,
+  wrap = false,
 }: {
   value: T;
   onChange: (value: T) => void;
@@ -45,14 +46,24 @@ export function SegmentedControl<T extends string>({
   id?: string;
   "aria-label"?: string;
   "aria-labelledby"?: string;
+  /** Le voci vanno a capo quando non ci stanno (tre scelte lunghe a 375 px), invece di uscire dal cassetto. */
+  wrap?: boolean;
 }) {
   const radio = mode === "radio";
+  /*
+    Un gruppo radio senza voce scelta: il tabindex mobile va sulla prima
+    voce abilitata, altrimenti nessun bottone e raggiungibile con Tab
+    (WAI-ARIA, roving tabindex) — e proprio le categorie «da decidere»
+    diventavano irraggiungibili da tastiera.
+  */
+  const primaAbilitata = options.find((option) => !option.disabled)?.value;
+  const scelta = options.some((option) => option.value === value && !option.disabled) ? value : primaAbilitata;
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (!radio) return;
     const abilitate = options.filter((option) => !option.disabled);
     const indice = abilitate.findIndex((option) => option.value === value);
-    if (indice < 0) return;
-    let prossimo = indice;
+    if (indice < 0 && !abilitate.length) return;
+    let prossimo = Math.max(indice, 0);
     if (event.key === "ArrowRight" || event.key === "ArrowDown") prossimo = (indice + 1) % abilitate.length;
     else if (event.key === "ArrowLeft" || event.key === "ArrowUp") prossimo = (indice - 1 + abilitate.length) % abilitate.length;
     else if (event.key === "Home") prossimo = 0;
@@ -72,6 +83,7 @@ export function SegmentedControl<T extends string>({
       onKeyDown={onKeyDown}
       className={cn(
         "inline-flex shrink-0 items-center rounded-egw-control border border-[rgba(11,26,58,.1)] bg-[#e9eef9] p-[2px]",
+        wrap && "flex-wrap",
         className,
       )}
     >
@@ -85,12 +97,13 @@ export function SegmentedControl<T extends string>({
             role={radio ? "radio" : "tab"}
             aria-selected={radio ? undefined : active}
             aria-checked={radio ? active : undefined}
-            tabIndex={radio ? (active ? 0 : -1) : undefined}
+            tabIndex={radio ? (option.value === scelta ? 0 : -1) : undefined}
             disabled={option.disabled}
             onClick={() => onChange(option.value)}
             className={cn(
-              "inline-flex items-center gap-1.5 whitespace-nowrap rounded-egw-chip px-3 font-brand font-semibold leading-none text-egw-ink-62 transition-colors duration-hover focus-visible:outline-none focus-visible:shadow-egw-focus disabled:opacity-40",
-              size === "md" ? "h-[30px] text-[12.5px]" : "h-6 text-[11px]",
+              "inline-flex items-center gap-1.5 rounded-egw-chip px-3 font-brand font-semibold leading-none text-egw-ink-62 transition-colors duration-hover focus-visible:outline-none focus-visible:shadow-egw-focus disabled:opacity-40",
+              wrap ? "whitespace-normal text-left" : "whitespace-nowrap",
+              size === "md" ? (wrap ? "min-h-[30px] py-1.5 text-[12.5px]" : "h-[30px] text-[12.5px]") : wrap ? "min-h-6 py-1 text-[11px]" : "h-6 text-[11px]",
               active && "bg-white font-bold text-egw-navy-800 shadow-[0_1px_2px_rgba(11,26,58,.16)]",
             )}
           >

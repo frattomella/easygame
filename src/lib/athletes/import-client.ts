@@ -49,7 +49,8 @@ export type ImportPermissions = {
   canAssignSites: boolean;
 };
 
-export const IMPORT_CHUNK = 200;
+/* Cinquanta per richiesta: ogni atleta e una transazione con il suo vaglio, e il minuto della funzione non si supera (C-M1). */
+export const IMPORT_CHUNK = 50;
 
 const unwrap = <T>(response: { data: T | null; error: { message?: string } | null }, fallback: string): T => {
   if (response.error) throw new Error(response.error.message || fallback);

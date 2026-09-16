@@ -84,7 +84,7 @@ test("l'onboarding e saltabile e non salva nulla senza conferma", () => {
 test("l'import atleti mostra un avanzamento reale e un riepilogo finale", () => {
   const source = read(IMPORT_DIALOG);
 
-  assert.match(source, /<ProgressBar value=\{progress\.done\} max=/);
+  assert.match(source, /<ProgressBar value=\{progress\.total <= IMPORT_CHUNK \? null : progress\.done\} max=/, "barra indeterminata sotto uno scaglione, avanzamento reale sopra");
   assert.match(
     source,
     /onProgress: \(done, total\) => setProgress\(\{ done, total \}\)/,
@@ -94,10 +94,10 @@ test("l'import atleti mostra un avanzamento reale e un riepilogo finale", () => 
   // Il riepilogo distingue le quantita richieste (ADR-0195).
   assert.match(source, /label="Creati"/);
   assert.match(source, /label="Collegati"/);
-  assert.match(source, /label="Gia scritti"/);
+  assert.match(source, /label="Già scritti"/);
   assert.match(source, /label="Categorie create"/);
   assert.match(source, /label="Non scritti"/);
-  assert.match(source, /Righe non scritte/);
+  assert.match(source, /non scritte/);
 });
 
 test("l'import non scrive prima di aver mostrato l'anteprima", () => {
@@ -106,7 +106,7 @@ test("l'import non scrive prima di aver mostrato l'anteprima", () => {
   assert.match(source, new RegExp(stepOrder.join('" \\| "')));
   assert.match(
     source,
-    /const request = buildAthleteImportRequest\(plan, id\);/,
+    /const request = buildAthleteImportRequest\(piano, id\);/,
     "si scrive esattamente cio che l'anteprima ha dichiarato importabile",
   );
   assert.match(source, /disabled=\{!canImport \|\| !importable \|\| blockedByDecisions\}/, "con una decisione mancante non si importa");

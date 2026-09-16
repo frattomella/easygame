@@ -12940,6 +12940,44 @@ con le loro sedi.
 - Debito: la riga di audit del `DELETE` sul registro generico per le
   anagrafiche si chiama ancora `anagrafica.updated` (D-RD-27).
 
+### Revisione ostile (§28): quattro revisori in sola lettura, un solo scrittore
+
+Trovati: **Critical 3** (A1 date Excel lette all'americana o come numero seriale;
+D1 nessuna riprova con lo stesso lotto; D2/B5 «collega» senza squadra
+contato come deciso), **High 13**, Medium 26, Low 33. Alla chiusura
+**Critical 0, High 0**, Medium 4 dichiarati, Low 9 dichiarati
+(`docs/redesign/IMPORT-ATLETI-FORENSIC.md` §Revisione). Le chiusure che
+hanno cambiato la decisione: una cella data si legge dal **seriale** e un
+numero dal **valore**, mai dal testo che Excel mostra (A1/A-H2); il foglio si
+legge fino all'ultima cella scritta, non fino alla dimensione dichiarata
+(A-H1); le intestazioni doppie restano due colonne (A-M1/D-M9); l'XML
+annidato non perde l'atleta (A-M2); `+39` non e una formula (A-M3); stesso
+nome e stesso anno con il solo anno da una parte e un duplicato forte
+(A-M6); una riga esclusa non fa da ancora (A-M7); la categoria nuova porta
+la **stagione** e la squadra nasce dal registro `category_groups`, non
+riscrivendo la collezione del club (B1/C-H1/C-H2); un «crea» con un'omonima
+nel club si **ferma** invece di riusarla e di aggiungerle una squadra (B2);
+si riusa solo la categoria nata dallo stesso lotto (`importBatchId`); una
+categoria nasce solo se una riga valida la cita (B4/C-M6); il server ferma
+un doppione (codice fiscale, o nominativo e data) anche senza anteprima, a
+meno di «importa come nuovo» esplicito (C-H3); la riga gia scritta si
+riconosce **dentro** la transazione della riga (C-M2); il collegamento
+blocca la scheda, scrive i soli campi vuoti — non il blob — e la sua
+appartenenza passa dal writer delle appartenenze, che conserva anche una
+categoria presente solo nella colonna (C-M3/C-M4/B3); il cognome della
+scheda collegata deve coincidere (C-L3); ricollegare la stessa riga e «gia
+scritta» (C-L2); una sede disattivata non fa una squadra (B6); un ruolo con
+perimetro non importa (C-M5); scaglioni da 50 e transazioni con tempo
+dichiarato (C-M1); il wizard tiene il `batchId` e ha «Riprova le righe non
+scritte» (D1); «Da decidere» e uno stato a parte, distinto da «Da
+correggere» (D-M11); il modulo «crea» legge dalla decisione (D-H2); il
+gruppo radio senza scelta e raggiungibile da tastiera e le scelte vanno a
+capo a 375 px (D-H1/D-H4, primitiva `SegmentedControl`); il risultato dice
+le righe **non inviate** accanto a quelle non scritte (D-H5); le
+corrispondenze per chiave («U14» ↔ «Under 14») si propongono con «Usa
+questa» e non si applicano da sole (B11); mai un identificativo grezzo a
+schermo (B9); accenti nelle stringhe che raggiungono la persona (D-M12).
+
 ### Migrazioni
 
 Nessuna.

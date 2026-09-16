@@ -106,3 +106,32 @@ lettore ne dava 199, riprodotto nel test), totali coerenti, anno mancante =
 avviso correggibile, duplicati visibili con la riga di riferimento,
 ambiguita senza scelta automatica, nessuna categoria nel carico senza
 decisione.
+
+## Revisione ostile (§28)
+
+Quattro revisori in sola lettura (A parser, B dominio categorie, C sicurezza
+dei dati, D UX), un solo scrittore. **Trovati**: Critical 3, High 13,
+Medium 26, Low 33. **Alla chiusura**: Critical 0, High 0, Medium 4 aperti e
+dichiarati, Low 9 aperti e dichiarati.
+
+Aperti e dichiarati — Medium: le schede del club contro cui il wizard cerca
+i duplicati sono quelle **caricate dalla pagina** (prima pagina, filtri
+correnti): su un club con piu di 200 atleti l'anteprima puo non vedere un
+omonimo, e a fermarlo e il vaglio del server (C-H3), che pero non conosce il
+solo anno di nascita; la categoria creata e la squadra non sono nella stessa
+transazione (una squadra rifiutata dopo la categoria lascia la categoria,
+riusata dalla riprova dello stesso lotto — C-M6 parziale); l'audit della
+riga si scrive dopo la transazione e un suo errore non e nel totale (C-L7);
+`maxDuration` di 60 s con 50 righe per richiesta non e misurato sul database
+vero con il catalogo grande (C-M1: le letture del catalogo si ripetono per
+riga nel registro generico). Low: omocodia del codice fiscale rifiutata come
+errore (A-L9); il nome di una scheda collegata si confronta solo sul cognome
+(C-L3 parziale); il numero di riga di un CSV con a capo dentro le virgolette
+e quello d'inizio record (A-L4 chiuso cosi); `already_written` non dice se
+la prima scrittura aveva l'appartenenza (C-L4); nessun limite di frequenza
+sulla rotta (C-L8, autenticata e con permesso); la prova «una transazione
+per atleta» sul doppio non misura il rollback (C-L9: lo misura l'UAT sul
+database vero); `Field` non lega l'aiuto al `Select` (D-L8, primitiva);
+nessuna scelta del foglio, si legge quello con piu celle e si dicono gli
+altri (A-L3); la correzione non permette di scegliere fra due schede omonime
+nel club con la stessa data (D-M7 parziale).

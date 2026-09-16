@@ -192,9 +192,13 @@ test("5 · le 13 categorie del file sono 13 decisioni: nessuna si crea da sola, 
     assert.equal(per[label].decision?.kind, "map", label);
     assert.equal(per[label].suggested, true);
   }
-  /* «UNDER14 GOLD» ↔ «Under 14 Gold»: la chiave normalizzata la propone. */
-  assert.equal(per["UNDER14 GOLD"].decision?.kind, "map");
-  assert.equal(per["UNDER17 GOLD"].decision?.kind, "map");
+  /* «UNDER14 GOLD» ↔ «Under 14 Gold»: la chiave normalizzata la **propone** («Usa questa»), non la decide (revisione ostile B11). */
+  for (const label of ["UNDER14 GOLD", "UNDER17 GOLD"]) {
+    assert.equal(per[label].decision, null, label);
+    assert.equal(per[label].suggestion.targets.length, 1);
+    assert.equal(per[label].suggestion.exact, true);
+    assert.equal(per[label].suggestion.ambiguous, false);
+  }
   /* Le nove che il club non ha: pending, e le loro righe non sono pronte. */
   const ignote = ["UNDER13 REG.", "UNDER14 REG.", "UNDER15 ECC", "PRIMA SQUADRA", "U19 GOLD", "U19 REG.", "UNDER17 REG"];
   for (const label of ignote) {
@@ -205,7 +209,7 @@ test("5 · le 13 categorie del file sono 13 decisioni: nessuna si crea da sola, 
       assert.ok(row.issues.some((issue) => issue.code === "category_unknown" || issue.code === "category_pending"));
     }
   }
-  assert.equal(plan.totals.pendingCategories, 9);
+  assert.equal(plan.totals.pendingCategories, 11, "9 sconosciute + 2 proposte per chiave da confermare");
   /* Il carico per il server non porta nessuna categoria da creare finche il club non lo decide. */
   const richiesta = buildAthleteImportRequest(plan, "b0b0b0b0-0000-4000-8000-000000000001");
   assert.deepEqual(richiesta.categoriesToCreate, []);
@@ -225,6 +229,8 @@ test("6 · con le decisioni prese: 112 atleti si importano, 1 doppione escluso, 
       u19gold: { kind: "create", name: "Under 19 Gold", siteId: SITE_A },
       u19reg: { kind: "skip", athletes: "import_without_category" },
       u17reg: { kind: "skip", athletes: "exclude" },
+      u14gold: { kind: "map", targetId: `group:cat-u14-gold:${SITE_A}` },
+      u17gold: { kind: "map", targetId: `group:cat-u17-gold:${SITE_A}` },
     },
     duplicates: { 90: { kind: "skip" } },
   };

@@ -107,7 +107,7 @@ test("§17 — l'import riconosce «Pulcini · S. Cosma» e non risolve da solo 
   const piano = senzaCommenti(leggi("src/lib/athletes/import/plan.ts"));
   assert.match(piano, /targets\.fromLabel\(label\)/);
   assert.match(piano, /ambiguous: same\.length > 1 \|\| categoryIds\.size > 1/, "un nome che nomina due squadre e una scelta, non una proposta");
-  assert.match(piano, /puo indicare piu squadre/);
+  assert.match(piano, /può indicare più squadre/);
   assert.match(elenco, /targets=\{membershipTargetIndex\}/, "l'anteprima dell'import ha le squadre");
   const writer = senzaCommenti(leggi("src/lib/server/athlete-import.ts"));
   assert.match(writer, /site_id: target\.siteId \|\| ""/, "e la riga importata porta la sede della squadra");

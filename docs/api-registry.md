@@ -1045,13 +1045,15 @@ wizard: il server **rivaglia** ogni riga prima di scrivere.
   name, siteId, birthYearFrom, birthYearTo}], rows: [{sourceRowNumber, action:
   "create" | "link", athleteId?, athlete: {firstName, lastName, birthDate,
   gender, fiscalCode, email, phone}, category: {kind: "target", targetId} |
-  {kind: "create", key} | null}]}`. Al massimo 200 righe per richiesta: il
-  client spezza il lotto con lo stesso `batchId`. Ogni atleta e una
+  {kind: "create", key} | null}]}`. Al massimo 200 righe per richiesta (il
+  client manda scaglioni da 50 con lo stesso `batchId`). Ogni atleta e una
   transazione (scheda + appartenenza primaria, o niente); riprovare lo stesso
   lotto non crea doppioni (`data.import.batchId`, righe «gia scritte»). Le
-  categorie nascono **solo** se decise dal club, con il permesso di
-  `categories` (e di `clubs` per la squadra con sede); si riusano per nome
-  se ne esiste una sola. Risposta: esito per riga (`created | linked |
+  categorie nascono **solo** se decise dal club e citate da una riga valida,
+  con la stagione attiva e con il permesso di `categories` (e di
+  `category_groups`/`clubs` per la squadra con sede); un nome che esiste gia
+  si rifiuta, si riusa solo la categoria nata dallo stesso lotto. Un doppione
+  del club si ferma a meno di `allowDuplicate`. Risposta: esito per riga (`created | linked |
   already_written | failed | rejected`), esito per categoria, totali. Audit
   `athlete.imported` per scheda e `athlete.import.batch` per lotto.
 

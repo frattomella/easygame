@@ -91,7 +91,7 @@ test("(b) l'import atleti segnala la riga ambigua invece di assegnarla, e la rig
   assert.doesNotMatch(pagina, /from\("categories"\)\.upsert/, "la pagina non crea categorie dal file");
   const piano = readFileSync("src/lib/athletes/import/plan.ts", "utf8");
   assert.match(piano, /"category_ambiguous"/);
-  assert.match(piano, /puo indicare piu squadre/);
+  assert.match(piano, /può indicare più squadre/);
   const moduli = readFileSync("src/lib/server/form-submissions.ts", "utf8");
   /* ADR-0194: prima la squadra (categoria · sede) sull'indice delle collocazioni, poi il nome che ne nomina una sola. */
   assert.match(moduli, /options\.targets\.fromLabel\(answeredCategory\)/);
@@ -301,8 +301,8 @@ test("revisione · l'anteprima dell'import dice la stessa cosa dell'import", () 
   /* ADR-0195: anteprima e import leggono lo stesso piano (`buildAthleteImportPlan`); l'etichetta ambigua resta una decisione del club. */
   const codice = readFileSync("src/lib/athletes/import/plan.ts", "utf8");
   assert.match(codice, /"category_ambiguous"/);
-  assert.match(codice, /puo indicare piu squadre/);
+  assert.match(codice, /può indicare più squadre/);
   const dialogo = readFileSync("src/components/forms/AthleteImportDialog.tsx", "utf8");
-  assert.match(dialogo, /buildAthleteImportRequest\(plan, id\)/, "si importa il piano mostrato, non un secondo calcolo");
+  assert.match(dialogo, /buildAthleteImportRequest\(piano, id\)/, "si importa il piano mostrato, non un secondo calcolo");
   assert.doesNotMatch(readFileSync("src/app/athletes/page.tsx", "utf8"), /categoryIdByKey\./, "la mappa per nome non esiste piu");
 });

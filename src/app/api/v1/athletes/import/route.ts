@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { applyAthleteImport, describeImportPermissions } from "@/lib/server/athlete-import";
+import { reportServerError } from "@/lib/server/observability";
 
 /**
  * **Import di atleti da file** (ADR-0195). `POST {batchId, categoriesToCreate,
@@ -28,6 +29,14 @@ const errorStatus = (error: any) => {
   if (message.includes("Accesso negato")) return 403;
   if (message.includes("non trovat")) return 404;
   return 400;
+};
+
+/* Un errore del driver fuori dal ciclo delle righe non si mostra: si registra e si risponde con una frase (C-L1). */
+const messaggioPubblico = (error: any, fallback: string, request: Request) => {
+  const message = String(error?.message || "");
+  if (message.includes("Accesso negato") || message.includes("non trovat") || /^(Al massimo|Identificativo|Troppe|Categoria|Riga)/.test(message)) return message;
+  reportServerError(error, { route: "/api/v1/athletes/import", method: "POST" });
+  return fallback;
 };
 
 export async function GET(request: Request) {
@@ -56,12 +65,12 @@ export async function POST(request: Request) {
       scope,
       payload,
       { userId: session.db.user_id, email: session.db.user.email },
-      { request },
+      { request, activeSeasonId: request.headers.get("x-active-season-id") },
     );
     return NextResponse.json({ data: result, error: null });
   } catch (error: any) {
     return NextResponse.json(
-      { data: null, error: { message: error?.message || "Errore nell'import degli atleti" } },
+      { data: null, error: { message: messaggioPubblico(error, "Errore nell'import degli atleti: riprovare lo stesso lotto", request) } },
       { status: errorStatus(error) },
     );
   }

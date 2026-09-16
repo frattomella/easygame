@@ -184,7 +184,7 @@ test("i duplicati, nel file e nel club, non vengono importati due volte", () => 
 
   assert.equal(normalized[0].status, "ready");
   assert.deepEqual(normalized[1].errors, ["Stessa persona della riga 1 del file"]);
-  assert.deepEqual(normalized[2].errors, ["Gia nel club: Bianchi Anna (2010-03-14)"]);
+  assert.deepEqual(normalized[2].errors, ["Già nel club: Bianchi Anna (2010-03-14)"]);
   assert.equal(summarizeImportPlan(normalized).importable, 1);
 });
 
@@ -254,7 +254,7 @@ test("l'import passa dal writer del server a scaglioni, non da un ciclo nella pa
   assert.doesNotMatch(page, /addClubAthletesBatch\(/, "la pagina non scrive piu le schede dal client");
   assert.doesNotMatch(page, /from\("categories"\)\.upsert/, "e non crea categorie per conto del file");
   assert.match(dialogo, /applyAthleteImportBatch\(request/);
-  assert.match(dialogo, /buildAthleteImportRequest\(plan, id\)/, "si scrive esattamente il piano mostrato");
+  assert.match(dialogo, /buildAthleteImportRequest\(piano, id\)/, "si scrive esattamente il piano mostrato");
   assert.doesNotMatch(page, /for \(const row of importedRows\)/, "una richiesta per atleta e cio che questo lavoro toglie");
 });
 
@@ -264,7 +264,7 @@ test("uno scaglione che fallisce non porta via le righe buone", () => {
   assert.match(client, /fermato = String\(error\?\.message/, "con il motivo dello scaglione che non e arrivato");
   const server = readSource("src/lib/server/athlete-import.ts");
   assert.match(server, /await prisma\.\$transaction\(async \(tx\) =>/, "sul server ogni atleta e una transazione: scheda e appartenenza insieme");
-  assert.match(server, /giaPerRiga\.has\(row\.sourceRowNumber\)/, "e riprovare non crea doppioni");
+  assert.match(server, /giaScrittaNelLotto\(tx, organizationId, batchId, row\.sourceRowNumber\)/, "e riprovare non crea doppioni: la riga gia scritta si riconosce dentro la transazione");
 });
 
 test("la riga di un atleta si costruisce in un posto solo", () => {

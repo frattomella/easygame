@@ -834,7 +834,8 @@ export default function AthletesPage() {
         birthDate: athlete.birthDate || "",
         fiscalCode: athlete.fiscalCode || "",
         status: athlete.status,
-        hasMemberships: athlete.groupId !== UNCATEGORIZED_CATEGORY_ID || (athlete.allCategoryLabels || []).length > 0,
+        /* Una riga senza categoria ha comunque un'etichetta («Senza categoria»): conta la categoria, non l'etichetta (B3). */
+        hasMemberships: Boolean(athlete.categoryId) || Boolean(athlete.primaryCategoryId),
         categoryLabel: athlete.primaryCategoryLabel || "",
       });
     }
@@ -853,7 +854,8 @@ export default function AthletesPage() {
       const category = categories.find((item: any) => item.id === target.categoryId);
       const seasonId = String(category?.seasonId || "");
       const season = seasonId ? clubSeasons.find((item) => item.id === seasonId) : null;
-      return season ? `${target.label} · stagione ${season.label}` : `${target.label} · ${target.categoryId}`;
+      /* Mai un identificativo grezzo a schermo (ADR-0185): senza stagione si dice che manca. */
+      return season ? `${target.label} · stagione ${season.label}` : `${target.label} · stagione non indicata`;
     },
     [membershipTargetIndex, categories, clubSeasons],
   );
