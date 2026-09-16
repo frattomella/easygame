@@ -343,7 +343,13 @@ export const runAthleteMembershipRollover = async (options: {
   categoryIdMap: Record<string, string>;
   /** Nome delle categorie di destinazione, per la colonna denormalizzata. */
   targetCategoryNameById?: Record<string, string>;
-  /** `null` o assente: tutti i proposti. Un elenco: solo quelli. */
+  /**
+   * I riconfermati: **l'elenco e la sola autorita** (ADR-0196). Un elenco:
+   * solo quelli; `[]`: nessuno. Con `requested: true` un elenco assente si
+   * rifiuta anche qui, non solo un livello sopra: un chiamante interno che
+   * omettesse il campo riotterrebbe il difetto del mandato («nessuna
+   * selezione = tutti»). Con `requested: false` l'elenco non si legge.
+   */
   confirmedAthleteIds?: string[] | null;
   /** `false` quando «Tesserati nelle squadre» non e fra i tipi scelti. */
   requested: boolean;
@@ -369,17 +375,21 @@ export const runAthleteMembershipRollover = async (options: {
   );
   const proposed = proposedAthleteIds.size;
 
+  if (requested && !Array.isArray(confirmedAthleteIds)) {
+    throw new Error(
+      "Indica quali tesserati riportare nella stagione nuova: un elenco, anche vuoto. Senza elenco non se ne riporta nessuno",
+    );
+  }
+
   if (!requested || !proposed) {
     return emptySummary(memberships.length, proposed, requested);
   }
 
-  const confirmed = confirmedAthleteIds
-    ? new Set(
-        confirmedAthleteIds
-          .map((id) => String(id || "").trim())
-          .filter((id) => proposedAthleteIds.has(id)),
-      )
-    : new Set(proposedAthleteIds);
+  const confirmed = new Set(
+    (confirmedAthleteIds as string[])
+      .map((id) => String(id || "").trim())
+      .filter((id) => proposedAthleteIds.has(id)),
+  );
 
   const rows: Array<{
     organization_id: string;

@@ -1289,3 +1289,20 @@ il perimetro. Due scelte di forma:
 
 - `GET /api/v1/athletes/import` — cosa puo fare chi importa: `{canImport, canLink, canCreateCategories, canAssignSites}`. La UI nasconde cio che il server rifiuterebbe.
 - `POST /api/v1/athletes/import` — `{batchId, categoriesToCreate: [{key, name, siteId, birthYearFrom, birthYearTo}], rows: [{sourceRowNumber, action: "create" | "link", athleteId?, athlete: {...}, category: {kind: "target", targetId} | {kind: "create", key} | null}]}`, al massimo 200 righe (il client spezza con lo stesso `batchId`). Il server rivaglia ogni riga, scrive un atleta per transazione (scheda + appartenenza primaria con la sede della squadra) dai registri dei domini, crea le categorie **solo** se decise dal club, citate da una riga valida e con i permessi (stagione attiva da `x-active-season-id`; la squadra dal registro `category_groups`); un nome che esiste gia si rifiuta («collegarla»), si riusa solo la categoria nata dallo stesso `batchId`. Un doppione del club (codice fiscale, o nominativo e data) si ferma a meno di `allowDuplicate`; `link` completa solo i campi vuoti di una scheda con lo stesso cognome e non tocca una categoria che c'e gia. Idempotente: le righe gia scritte con lo stesso `batchId` tornano `already_written`. Risposta: esito per riga (`created | linked | already_written | failed | rejected`), per categoria (`created | reused | rejected`), totali. Audit `athlete.imported` e `athlete.import.batch`.
+
+
+### La stagione di un movimento (ADR-0196)
+
+`POST /api/v1/accounting/entries` (movimento e giroconto) scrive
+`season_id` con la stagione dichiarata nel corpo o, in sua assenza, con
+`x-active-season-id`, solo se e una stagione salvata del club. Una stagione
+dichiarata che il club non ha risponde 400 quando il club ha stagioni
+configurate; una stagione di contesto sconosciuta non marca la riga.
+`POST /api/v1/seasons` e `POST /api/v1/seasons/:id/rollover` rifiutano un
+riporto dei tesserati senza `athleteIds` (anche vuoto).
+
+Un header `x-active-season-id` **vuoto** disattiva il perimetro di stagione
+sul CRUD generico (`resolveRequestSeason` legge la stringa vuota come
+«nessuna stagione»): e il modo con cui una schermata legge il catalogo di
+tutte le stagioni per riconoscere un'appartenenza (ADR-0196 §7), e non e un
+confine di sicurezza — il confine resta `organization_id`.

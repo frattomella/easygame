@@ -800,14 +800,19 @@ test("senza stagioni configurate il filtro non fa sparire il denaro", async () =
   */
   fake.rows("club")[0].settings = {};
 
-  await accounting.createAccountingEntry(
-    movimento({ seasonId: "2026-27" }),
+  /*
+    Le righe con la stagione **gia scritta** — nate quando il club le stagioni
+    le aveva — si seminano: dal lotto ADR-0196 il dominio non marca una riga
+    con una stagione che il club non ha salvato.
+  */
+  const prima = await accounting.createAccountingEntry(movimento(), scope());
+  const seconda = await accounting.createAccountingEntry(
+    movimento({ description: "Altra stagione", clientRequestKey: undefined }),
     scope(),
   );
-  await accounting.createAccountingEntry(
-    movimento({ seasonId: "2025-26", description: "Altra stagione" }),
-    scope(),
-  );
+  assert.equal(prima.season_id, null, "senza stagioni salvate non si marca");
+  fake.rows("accountingEntry").find((riga) => riga.id === prima.id).season_id = "2026-27";
+  fake.rows("accountingEntry").find((riga) => riga.id === seconda.id).season_id = "2025-26";
 
   const esito = await accounting.listAccountingEntries(
     { seasonId: "2026-27" },

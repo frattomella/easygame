@@ -540,11 +540,14 @@ Configurazione di club: solo `owner` e `club_manager`
 - `GET /api/v1/seasons` — stagioni del club attivo, catalogo di cio che si puo
   riportare e conteggio delle voci per stagione
 - `POST /api/v1/seasons` — crea una stagione; `activate` la rende subito
-  attiva, `rollover: { sourceSeasonId, types }` ne popola la configurazione
+  attiva, `rollover: { sourceSeasonId, types, athleteIds }` ne popola la
+  configurazione. Con `athlete_memberships` fra i tipi `athleteIds` e
+  **obbligatorio** (anche `[]` = nessuno): assente → 400 (ADR-0196)
 - `PATCH /api/v1/seasons/:seasonId` — `{ action: "activate" | "archive" }`
 - `POST /api/v1/seasons/:seasonId/rollover` —
-  `{ sourceSeasonId, types, preview }`; con `preview: true` non scrive nulla e
-  restituisce lo stesso conteggio dell'esecuzione
+  `{ sourceSeasonId, types, athleteIds, preview }`; con `preview: true` non
+  scrive nulla e restituisce lo stesso conteggio dell'esecuzione; stessa
+  regola su `athleteIds` della creazione (ADR-0196)
 
 ## Flusso auth applicativo
 

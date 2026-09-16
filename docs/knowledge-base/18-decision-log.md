@@ -12981,3 +12981,166 @@ schermo (B9); accenti nelle stringhe che raggiungono la persona (D-M12).
 ### Migrazioni
 
 Nessuna.
+
+## ADR-0196 — Il riporto di stagione porta solo chi e stato scelto: zero significa zero, la stagione nuova nasce con la sola configurazione chiesta, e un movimento porta la stagione in cui e registrato
+
+**Data:** 2026-09-17 · **Stato:** accettata · **Ambito:** Web (riporto di stagione, prima nota, elenco atleti) · **Branch:** `feat/web-redesign`.
+
+### Contesto
+
+Il club pilota ha creato la stagione «2026/27» il 2026-09-16 dal wizard,
+non ha selezionato nessun atleta al passo «Tesserati», e nella stagione
+nuova ha trovato **due atleti** — i due con pagamenti registrati — con i
+loro incassi in prima nota. Riprodotto e ricostruito sul database del
+redesign (sola lettura, audit `season.rollover` delle 18:11:42Z):
+
+- il wizard proponeva l'elenco di riconferma **tutto spuntato**
+  (`loadRoster` → `setConfirmedIds(tutti)`): «nessuna selezione» valeva
+  «tutti». Il server, per la sua parte, leggeva `athleteIds: null` o
+  assente come «tutti i proposti» (`normalizeConfirmedAthleteIds`). Sul
+  pilota l'audit dice `created 0, skipped 2`: in quel caso il club aveva
+  tolto le spunte, e nessuna appartenenza e nata. Ma il difetto era vero, e
+  riprodotto sul club QA (209 su 209 spuntati senza toccare niente);
+- i due atleti **sembravano** nella stagione nuova perche l'elenco atleti
+  risolveva l'appartenenza alla «Under 14 Gold» della stagione archiviata
+  **per nome** contro il catalogo della sola stagione attiva — che contiene
+  la «Under 14 Gold» copiata dal riporto. `normalizeAthleteCategoryMemberships`
+  chiede «il catalogo del club, tutto, mai un sottoinsieme»; la pagina gli
+  passava il sottoinsieme, e il ripiego sul nome (ammesso quando
+  l'identificativo non si trova) disegnava un riporto che nessuno aveva
+  fatto. Entrambi gli atleti erano inattivi e comparivano sotto «Tutti»,
+  che sull'archivio paginato del pilota era il chip acceso;
+- la prima nota si apriva su **«Tutte le stagioni»**, e i movimenti manuali
+  nascevano senza `season_id` e si attribuivano **per data** — con le due
+  stagioni del pilota sovrapposte (2026/2027 da luglio, 2026/27 da
+  settembre), nei giorni in comune in entrambe.
+
+Nessun incasso, rata o appartenenza e mai stato copiato dal riporto: il
+riporto copia solo le collezioni chieste (`SEASON_NEVER_COPIED_DATA_TYPES`
+resta com'e). Il difetto era di **autorita della selezione** e di
+**perimetro**.
+
+### Decisione
+
+1. **La selezione e l'autorita.** Quando «Tesserati nelle squadre» e fra i
+   tipi, `athleteIds` e obbligatorio, anche vuoto: `[]` riporta zero e lo
+   dichiara; `null` o assente **si rifiuta** prima di scrivere la stagione
+   e le collezioni («Indica quali tesserati riportare…»). Vale per
+   `createClubSeason` e per `runClubSeasonRollover` (rotta diretta). Senza
+   quel tipo l'elenco non si legge. Il wizard propone l'elenco **senza
+   nessuno selezionato**; «Seleziona tutti» e un pulsante; il riepilogo
+   dice «Nessun tesserato riconfermato: le squadre nascono vuote» prima
+   della conferma; la descrizione del passo dice cosa succede a chi non e
+   spuntato.
+2. **Creare una stagione scrive solo `clubs.settings`** e, se chiesto, le
+   collezioni chieste: atleti, appartenenze, incassi, rate, movimenti,
+   documenti ed eventi non si toccano. Provato con il doppio di Prisma
+   (`tests/server/season-rollover-zero-selezione.test.mjs`: l'unica
+   scrittura senza riporto e `club`).
+3. **L'audit del riporto dichiara i tesserati**: proposti, riconfermati,
+   non riconfermati, appartenenze create e persone portate, anche dalla
+   creazione guidata (prima solo dalla rotta diretta), e i conteggi sono
+   fra le chiavi visibili del registro.
+4. **Un movimento porta la stagione in cui viene registrato.** Movimenti
+   manuali e giroconti prendono `season_id` dalla stagione dichiarata o, in
+   sua assenza, dalla stagione attiva della richiesta (`x-active-season-id`),
+   **solo** se e una stagione salvata del club: una stagione dichiarata che
+   il club non ha si rifiuta (se il club ha stagioni configurate, come in
+   lettura), una di contesto sconosciuta o sintetizzata non marca niente e
+   la riga resta attribuibile per data. Le righe proiettate (incassi,
+   compensi) continuano ad attribuirsi per data: la vista SQL non cambia e
+   non c'e migrazione.
+5. **La prima nota si apre sulla stagione attiva** del club, quando ne ha
+   una salvata, e l'elenco non si legge finche il perimetro non e noto.
+   «Tutte le stagioni» resta nel controllo di contesto. Il wizard avvisa
+   (senza bloccare) quando il periodo scelto si sovrappone a una stagione
+   esistente: nei giorni in comune un movimento senza stagione comparirebbe
+   in entrambe.
+6. **L'elenco atleti si apre sempre su «Attivi».** La griglia ha
+   `rememberView` (spento sugli atleti: un «Tutti» scelto una volta non
+   diventa l'apertura di sempre; una vista personale predefinita vale) e
+   `allViewLabel` (sull'archivio paginato il chip senza filtri porta il
+   nome dello stato scelto nella banda, non «Tutti»).
+7. **L'identita di un'appartenenza si risolve sul catalogo di tutte le
+   stagioni**; il perimetro resta la stagione attiva. La pagina Atleti legge
+   il catalogo una seconda volta senza `x-active-season-id` (header vuoto =
+   nessun filtro) e lo passa alla normalizzazione; una riga la cui categoria
+   non e della stagione attiva porta l'etichetta «Nome · stagione X» (o «·
+   altra stagione», «· non piu in catalogo»), non entra in nessun gruppo
+   operativo della stagione corrente e tiene il suo identificativo vero.
+
+### Conseguenze
+
+- Un chiamante API che ometteva `athleteIds` riceve un 400 invece di un
+  riporto integrale: e la rottura voluta.
+- Sul pilota i due atleti inattivi restano dove sono (nessuna scrittura di
+  bonifica: non richiesta); con questo lotto compaiono sotto «Disattivati»
+  con «Under 14 Gold · stagione 2026/2027» e «Aquilotti · stagione
+  2026/2027», e i loro incassi del 26 agosto restano nella prima nota della
+  stagione 2026/2027 (finestra luglio–giugno) e non in quella attiva.
+- Le altre superfici che passano a `normalizeAthleteCategoryMemberships` un
+  catalogo filtrato per stagione (scheda atleta, editor delle appartenenze,
+  allenatore) restano da censire: D-RD-28.
+- Le stagioni con date sovrapposte restano ammesse: un vincolo sulle date
+  sarebbe una regola di prodotto nuova, e qui e un avviso.
+- Un deep link `?category=` sull'elenco atleti apre la vista senza filtro di
+  stato (pre-esistente, voluto): e l'eccezione a «si apre su Attivi».
+- Una stagione dichiarata **archiviata** o **futura** si accetta su un
+  movimento: registrare in ritardo un fatto di una stagione chiusa e
+  legittimo, e il controllo di contesto lo permette.
+
+### Revisione ostile: tre revisori in sola lettura, un solo scrittore
+
+Trovati: Critical 0, **High 5**, Medium 14, Low 17. Alla chiusura:
+**Critical 0, High 0**, Medium 4 dichiarati, Low 9 dichiarati.
+
+Chiusure che hanno cambiato la decisione: il **writer** delle appartenenze
+rifiuta a sua volta un elenco assente con i tesserati fra i tipi (A1: la
+regola non vive solo un livello sopra); la stagione di origine si verifica
+**prima** di scrivere la stagione nuova, e su un club senza stagioni salvate
+un riporto si rifiuta (A2/A3: prima nasceva una stagione vuota, attiva e
+senza audit); il cambio di origine azzera subito elenco e spunte, una
+risposta stantia si scarta, l'anteprima non si calcola con l'elenco in
+carico o fallito, e il cassetto «Riporta dati» mostra il fallimento
+dell'elenco come il wizard (A4/A5/A10); l'audit porta `sourceSeasonId`,
+`targetSeasonId` e `athletesRequested` fra le chiavi visibili (A6); la
+prima nota **dichiara la stagione che mostra** quando registra un movimento
+o un giroconto (B1: senza, chi guarda «2025/26» scriveva nella stagione
+attiva e la riga spariva dall'elenco); lo storno di una riga senza stagione
+prende la stagione nella cui finestra cade la **data dell'originale**, se
+unica (B3: lo storno di giugno fatto a settembre cadeva nella stagione
+nuova); senza stagioni salvate non si marca mai, nemmeno su dichiarazione
+(B4); la scheda atleta riconosce le appartenenze sul catalogo di tutte le
+stagioni (C3: salvare una sezione qualsiasi **scriveva** il riporto
+travestito); una riga fuori stagione ha un gruppo proprio per categoria —
+niente chiavi di riga duplicate, niente «Senza categoria» intitolato con il
+nome della prima riga — e il filtro «Categoria» ha la voce «Categorie di
+altre stagioni» (C1/C2/C4); una vista personale predefinita vince sulla
+predefinita del modulo (C5) e `rememberView` spento non scrive mai la
+preferenza (C10); il chip dell'archivio porta il totale del server (C6); un
+id sconosciuto con un nome che oggi esiste si legge «da verificare», e una
+categoria senza stagione appartiene alla stagione baseline (C7/C9); la
+seconda lettura del catalogo fallita si dice con un avviso (C8); il cambio
+club durante la lettura delle impostazioni non scrive la stagione dell'altro
+club (B9).
+
+Aperti e dichiarati — Medium: il versamento F24 del lavoro sportivo crea un
+movimento senza stagione (B2, D-RD-29); le righe storiche di
+`clubs.transactions` portano `seasonId` che la vista SQL non proietta (B6,
+D-RD-30: migrazione della vista); `proposed` del riporto conta tutto il club
+mentre l'elenco rispetta il perimetro del ruolo (A9); l'impronta
+d'idempotenza di un movimento non comprende la stagione (B7). Low:
+collezioni e appartenenze in due scritture non transazionali (A7, idempotente
+alla riprova); il riepilogo del wizard e un conteggio locale, non
+un'anteprima del server (A8, la destinazione non esiste ancora); l'export
+CSV etichetta con la prima stagione trovata quando due finestre si
+sovrappongono (B8); `getClub` fallito apre la prima nota su «tutte» senza
+avviso (B10); le rate sono fuori dal perimetro di stagione (B11); due
+letture di `club` per scrittura (B12); il suffisso di stagione si tronca a
+375 px con il testo intero nel `title` (C12); `buildAthleteRows` non e
+esportata e si prova per forma (C14); le altre superfici con catalogo
+filtrato (D-RD-28).
+
+### Migrazioni
+
+Nessuna.

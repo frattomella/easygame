@@ -94,6 +94,18 @@ export async function POST(request: Request) {
           created: result.rollover.createdTotal,
           skipped: result.rollover.skippedTotal,
           entries: result.rollover.entries,
+          /*
+            I tesserati, per numero: la riga di audit del riporto
+            di stagione diceva «created 79» e taceva chi era stato proposto e
+            chi riconfermato — cioe la sola cosa che il club voleva sapere
+            quando ha visto due atleti nella stagione nuova (ADR-0196).
+          */
+          athletesRequested: result.rollover.athletes.requested,
+          athletesProposed: result.rollover.athletes.proposed,
+          athletesConfirmed: result.rollover.athletes.confirmed,
+          athletesNotConfirmed: result.rollover.athletes.notConfirmed,
+          athleteMembershipsCreated: result.rollover.athletes.created,
+          athletesCarried: result.rollover.athletes.carried,
         },
       });
     }

@@ -196,4 +196,20 @@ export interface DataGridProps<Row> {
   requestedViewId?: string | null;
   /** Filtri di partenza (da un deep link come `?category=`): vincono sulla vista salvata, una volta sola all'ingresso. */
   initialFilters?: FilterState | null;
+  /**
+   * L'etichetta del chip «Tutti», quando le righe che la griglia riceve sono
+   * gia un sottoinsieme deciso fuori (l'archivio degli atleti paginato dal
+   * server sullo stato «Attivi»): un chip che dice «Tutti» su righe che sono
+   * i soli attivi contraddice la banda che sta sopra (ADR-0196).
+   */
+  allViewLabel?: string;
+  /**
+   * Se la vista scelta si ricorda fra un'apertura e l'altra. Vero per
+   * impostazione; `false` per gli elenchi che devono aprirsi sempre sulla
+   * loro vista predefinita — gli atleti si aprono su «Attivi», sempre: un
+   * «Tutti» scelto una volta non deve diventare il modo in cui la pagina si
+   * apre da allora in poi (ADR-0196). Una vista personale segnata come
+   * predefinita vale comunque: e una scelta dichiarata, non un residuo.
+   */
+  rememberView?: boolean;
 }

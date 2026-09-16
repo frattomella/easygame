@@ -112,6 +112,12 @@ beforeEach(() => {
 const MAPPA = { [CAT_A_VECCHIA]: CAT_A_NUOVA, [CAT_B_VECCHIA]: CAT_B_NUOVA };
 const NOMI = { [CAT_A_NUOVA]: "Under 12", [CAT_B_NUOVA]: "Under 14" };
 
+/*
+  L'elenco dei riconfermati e sempre esplicito (ADR-0196): il caso «tutti» si
+  scrive per nome, non per omissione.
+*/
+const TUTTI = ["atleta-1", "atleta-2", "atleta-3"];
+
 const porta = (options = {}) =>
   memberships.runAthleteMembershipRollover({
     organizationId: CLUB,
@@ -119,6 +125,7 @@ const porta = (options = {}) =>
     categoryIdMap: MAPPA,
     targetCategoryNameById: NOMI,
     requested: true,
+    confirmedAthleteIds: TUTTI,
     ...options,
   });
 
@@ -594,4 +601,13 @@ test("ADR-0194 — il riporto non compone una coppia (categoria, sede) che il cl
   assert.equal(atleta1.site_id, SEDE_NORD, "la coppia configurata resta");
   const atleta3 = appartenenzeDi("atleta-3").find((row) => row.category_id === CAT_B_NUOVA);
   assert.equal(atleta3.site_id, SEDE_NORD, "Under 14 + Nord e configurata: resta");
+});
+
+test("ADR-0196 — il writer rifiuta un riporto dei tesserati senza elenco: «null» non e «tutti»", async () => {
+  await assert.rejects(porta({ confirmedAthleteIds: null }), /tesserati/);
+  await assert.rejects(porta({ confirmedAthleteIds: undefined }), /tesserati/);
+  assert.equal(fake.rows("athleteCategoryMembership").length, 4, "nessuna riga scritta");
+
+  const senzaTesserati = await porta({ requested: false, confirmedAthleteIds: null });
+  assert.equal(senzaTesserati.created, 0, "senza il tipo l'elenco non serve");
 });

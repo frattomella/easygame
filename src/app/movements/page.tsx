@@ -245,6 +245,20 @@ export default function MovementsPage() {
   const [operationTypes, setOperationTypes] = useState<OperationTypeView[]>([]);
   const [sites, setSites] = useState<ClubSite[]>([]);
   const [seasons, setSeasons] = useState<ClubSeason[]>([]);
+  /**
+   * **La prima nota si apre sulla stagione attiva** (ADR-0196).
+   *
+   * Prima si apriva su «Tutte le stagioni»: chi creava una stagione nuova la
+   * vedeva subito piena degli incassi di quella vecchia, e leggeva la cosa
+   * come «i pagamenti sono stati riportati». Non lo erano: era il perimetro a
+   * mancare. Il perimetro e lo stesso di tutta l'applicazione — la stagione
+   * attiva — e si applica **solo** quando il club ha stagioni configurate:
+   * sulla stagione sintetizzata di un club senza stagioni il filtro non
+   * avrebbe una finestra e nasconderebbe denaro vero. Finche non si sa, la
+   * prima nota non si legge: una lettura su «tutte» seguita da una su «una»
+   * sarebbe una pagina che cambia sotto gli occhi.
+   */
+  const [seasonPerimeterReady, setSeasonPerimeterReady] = useState(false);
 
   const [showRecord, setShowRecord] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
@@ -329,7 +343,7 @@ export default function MovementsPage() {
    * La prima nota. **Una chiamata**, con i filtri e la pagina.
    */
   const loadEntries = useCallback(async () => {
-    if (!activeClubId || !canOpen) return;
+    if (!activeClubId || !canOpen || !seasonPerimeterReady) return;
 
     setLoading(true);
     const query = buildEntriesQuery(filters, { limit: PAGE_SIZE, offset });
@@ -358,7 +372,7 @@ export default function MovementsPage() {
     }
 
     setLoading(false);
-  }, [activeClubId, canOpen, filters, offset]);
+  }, [activeClubId, canOpen, filters, offset, seasonPerimeterReady]);
 
   /**
    * I conti: **solo l'anagrafica**, senza saldi.
@@ -390,7 +404,7 @@ export default function MovementsPage() {
    * mai zero per chi non puo vederli.
    */
   const loadReport = useCallback(async () => {
-    if (!activeClubId || !canOpen) return;
+    if (!activeClubId || !canOpen || !seasonPerimeterReady) return;
 
     setReportLoading(true);
     const response = await apiRequest<ReportResponse>(
@@ -399,7 +413,7 @@ export default function MovementsPage() {
 
     setReport(response.error ? null : response.data?.report || null);
     setReportLoading(false);
-  }, [activeClubId, canOpen, filters]);
+  }, [activeClubId, canOpen, filters, seasonPerimeterReady]);
 
   /**
    * Le causali, che sono l'elenco da cui si sceglie e il filtro per causale.
@@ -439,12 +453,32 @@ export default function MovementsPage() {
    * registro delle rate chiede). Se la lettura non riesce il controllo di
    * contesto non si monta e i metodi restano vuoti — nessun totale ne dipende.
    */
+  const clubDelleImpostazioni = useRef<string | null>(null);
   const loadClubSettings = useCallback(async () => {
     if (!activeClubId || !canOpen) return;
+    clubDelleImpostazioni.current = activeClubId;
     const club = await getClub(activeClubId).catch(() => null);
+    /* Cambio club durante la lettura: la risposta e di un altro club e si scarta (revisione B9). */
+    if (clubDelleImpostazioni.current !== activeClubId) return;
     const settings = (club as any)?.settings;
-    setSeasons(club ? normalizeClubSeasons(settings).seasons : []);
+    const seasonState = club ? normalizeClubSeasons(settings) : null;
+    setSeasons(seasonState ? seasonState.seasons : []);
     setClubPaymentMethodChoices(getClubPaymentMethodChoices(settings));
+    /*
+      Il perimetro di partenza: la stagione attiva del club, se e una stagione
+      salvata. Solo all'apertura — un cambio fatto dall'operatore dal controllo
+      di contesto non si sovrascrive.
+    */
+    if (seasonState && !seasonState.isFallback && seasonState.activeSeasonId) {
+      const seasonId = seasonState.activeSeasonId;
+      setFilters((current) => {
+        if (current.seasonId) return current;
+        const merged = { ...current, seasonId };
+        filtersRef.current = merged;
+        return merged;
+      });
+    }
+    setSeasonPerimeterReady(true);
   }, [activeClubId, canOpen]);
 
   /**
@@ -503,6 +537,19 @@ export default function MovementsPage() {
       setLoading(false);
       return;
     }
+    /*
+      Cambiare club azzera il perimetro di stagione: l'id della stagione di
+      un club non e una stagione dell'altro, e il servizio la rifiuterebbe.
+    */
+    setSeasonPerimeterReady(false);
+    setSeasons([]);
+    setOffset(0);
+    setFilters((current) => {
+      if (!current.seasonId) return current;
+      const merged = { ...current, seasonId: "" };
+      filtersRef.current = merged;
+      return merged;
+    });
     void loadAccounts();
     void loadOperationTypes();
     void loadSites();
@@ -565,29 +612,42 @@ export default function MovementsPage() {
     [reloadAfterWrite, showToast],
   );
 
+  /**
+   * La stagione che la pagina mostra e quella in cui il movimento si
+   * registra (ADR-0196, revisione B1): senza dichiararla il server userebbe
+   * la stagione attiva della richiesta, e chi ha scelto «2025/26» dal
+   * controllo di contesto per registrare un fatto di giugno lo vedrebbe
+   * finire nella stagione nuova — e sparire dall'elenco che sta guardando.
+   */
+  const conStagioneVisibile = useCallback(
+    <T extends Record<string, unknown>>(payload: T) =>
+      filtersRef.current.seasonId ? { ...payload, season_id: filtersRef.current.seasonId } : payload,
+    [],
+  );
+
   const handleRecord = useCallback(
     (payload: RecordEntryPayload, { keepOpen }: { keepOpen: boolean }) =>
       submit(
         "/api/v1/accounting/entries",
-        payload,
+        conStagioneVisibile(payload),
         "Movimento registrato",
         () => {
           /* «Salva e aggiungi un altro» tiene il cassetto aperto (guideline 08 §8.8). */
           if (!keepOpen) setShowRecord(false);
         },
       ),
-    [submit],
+    [conStagioneVisibile, submit],
   );
 
   const handleTransfer = useCallback(
     (payload: TransferPayload) =>
       submit(
         "/api/v1/accounting/entries?kind=transfer",
-        payload,
+        conStagioneVisibile(payload),
         "Giroconto registrato",
         () => setShowTransfer(false),
       ),
-    [submit],
+    [conStagioneVisibile, submit],
   );
 
   const handleReverse = useCallback(
@@ -652,6 +712,9 @@ export default function MovementsPage() {
     const handle = window.setTimeout(() => applyFilters({ search: searchDraft.trim() }), 300);
     return () => window.clearTimeout(handle);
   }, [applyFilters, searchDraft]);
+
+  /** Vero quando l'unico filtro attivo e il perimetro di stagione. */
+  const soloStagione = Boolean(filters.seasonId) && !hasActiveFilters({ ...filters, seasonId: "" });
 
   const columns = useMemo(() => buildPrimaNotaColumns(), []);
   const filterDefs = useMemo(
@@ -854,10 +917,20 @@ export default function MovementsPage() {
           }
           empty={{
             icon: <ReceiptText />,
-            title: "Nessun movimento con questi filtri.",
-            description: hasActiveFilters(filters)
-              ? "Allarga il periodo o togli un filtro: i totali qui sopra seguono lo stesso perimetro."
-              : "Gli incassi delle quote compaiono qui da soli; un fatto di cassa che nessun altro evento ha generato si registra con «Registra movimento».",
+            title: soloStagione
+              ? `Nessun movimento nella stagione ${seasons.find((season) => season.id === filters.seasonId)?.label || "attiva"}.`
+              : "Nessun movimento con questi filtri.",
+            /*
+              La prima nota si apre sulla stagione attiva (ADR-0196): un club
+              che ha appena cambiato stagione vede un elenco vuoto, e deve
+              sapere che il denaro non e sparito — sta nella stagione in cui
+              e stato registrato o in cui cade per data.
+            */
+            description: soloStagione
+              ? "I movimenti registrati nelle stagioni precedenti, o datati fuori da questo periodo, restano in quelle stagioni: scegli «Tutte le stagioni» dal controllo in alto per vederli tutti."
+              : hasActiveFilters(filters)
+                ? "Allarga il periodo o togli un filtro: i totali qui sopra seguono lo stesso perimetro."
+                : "Gli incassi delle quote compaiono qui da soli; un fatto di cassa che nessun altro evento ha generato si registra con «Registra movimento».",
           }}
         />
       </div>

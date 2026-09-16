@@ -108,6 +108,7 @@ import {
   getPrimaryAthleteCategoryMembership,
   normalizeAthleteCategoryMemberships,
 } from "@/lib/athlete-category-memberships";
+import { buildClubCategoryOptions } from "@/lib/category-utils";
 import { AthleteCategoryAnalyticsSection } from "@/components/athletes/AthleteCategoryAnalyticsSection";
 import { EnrollmentPaymentBreakdown } from "@/components/payments/EnrollmentPaymentBreakdown";
 import { AthleteEnrollmentTab } from "@/components/athletes/enrollment/AthleteEnrollmentTab";
@@ -280,6 +281,19 @@ export default function AthleteProfilePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [athlete, setAthlete] = useState<any>(null);
   const [clubCategoryOptions, setClubCategoryOptions] = useState<any[]>([]);
+  /**
+   * Il catalogo di **tutte** le stagioni, per l'identita delle appartenenze
+   * (ADR-0196, revisione C3). `clubCategoryOptions` e il catalogo della
+   * stagione attiva — giusto per scegliere, sbagliato per riconoscere: con
+   * quello un'appartenenza alla «Under 14 Gold» archiviata ripiegava sul
+   * nome, si presentava come la «Under 14 Gold» nuova, e al primo salvataggio
+   * della sezione veniva **scritta** cosi: un riporto di stagione che nessuno
+   * aveva deciso, fatto da un cassetto che stava salvando altro.
+   */
+  const [clubCategoryCatalogAllSeasons, setClubCategoryCatalogAllSeasons] = useState<any[]>([]);
+  const categoryCatalogForIdentity = clubCategoryCatalogAllSeasons.length
+    ? clubCategoryCatalogAllSeasons
+    : clubCategoryOptions;
   const [clubSites, setClubSites] = useState<ClubSite[]>([]);
   const [clubCategoryGroupsRaw, setClubCategoryGroupsRaw] = useState<any[]>([]);
   /*
@@ -588,6 +602,7 @@ export default function AthleteProfilePage() {
           clubRecord,
           categoryOptions,
           trainingRecords,
+          catalogoTutteLeStagioni,
           matchRecords,
           athletePaymentRows,
         ] = await Promise.all([
@@ -596,6 +611,14 @@ export default function AthleteProfilePage() {
           clubId ? getClub(clubId).catch(() => null) : Promise.resolve(null),
           clubId ? getClubCategories(clubId).catch(() => []) : Promise.resolve([]),
           clubId ? getClubTrainings(clubId).catch(() => []) : Promise.resolve([]),
+          /* Lo stesso catalogo senza il perimetro di stagione: l'header vuoto dice al registro di non filtrare (ADR-0196). */
+          clubId
+            ? apiRequest<any[]>(`/api/v1/categories?organization_id=${encodeURIComponent(clubId)}`, {
+                headers: { "x-active-season-id": "" },
+              })
+                .then((response) => (response.error ? [] : response.data || []))
+                .catch(() => [])
+            : Promise.resolve([]),
           clubId
             ? getClubData(clubId, "matches").catch(() => [])
             : Promise.resolve([]),
@@ -801,6 +824,11 @@ export default function AthleteProfilePage() {
           contactOnlyIdentities: athletePayload?.contactOnlyIdentities || [],
         });
         setClubCategoryOptions(normalizedCategoryOptions);
+        setClubCategoryCatalogAllSeasons(
+          Array.isArray(catalogoTutteLeStagioni) && catalogoTutteLeStagioni.length
+            ? buildClubCategoryOptions({ clubCategories: catalogoTutteLeStagioni, resourceCategories: [], athletes: [] })
+            : [],
+        );
         setAthleteCategoryAnalytics(categoryAnalytics);
 
         // Draft per dialog numero maglia
@@ -1021,11 +1049,11 @@ export default function AthleteProfilePage() {
 
   const athleteCategoryMemberships = normalizeAthleteCategoryMemberships(
     athlete,
-    clubCategoryOptions,
+    categoryCatalogForIdentity,
   );
   const editCategoryMemberships = normalizeAthleteCategoryMemberships(
     editFormData,
-    clubCategoryOptions,
+    categoryCatalogForIdentity,
   );
   /*
     Le collocazioni scegliibili del club (ADR-0194): una squadra per gruppo

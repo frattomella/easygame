@@ -46,10 +46,12 @@ export async function POST(request: Request, context: Context) {
           created: result.createdTotal,
           skipped: result.skippedTotal,
           entries: result.entries,
+          athletesRequested: result.athletes.requested,
           athletesProposed: result.athletes.proposed,
           athletesConfirmed: result.athletes.confirmed,
           athletesNotConfirmed: result.athletes.notConfirmed,
           athleteMembershipsCreated: result.athletes.created,
+          athletesCarried: result.athletes.carried,
         },
       });
     }

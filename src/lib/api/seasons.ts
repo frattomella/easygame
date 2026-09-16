@@ -88,7 +88,10 @@ export const createSeason = async (input: {
   rollover?: {
     sourceSeasonId?: string;
     types: string[];
-    /** `null` = tutti i proposti. Un elenco = solo i riconfermati. */
+    /**
+     * I riconfermati. Obbligatorio — anche `[]` — quando i tesserati sono fra
+     * i tipi; `null` solo quando non lo sono (ADR-0196).
+     */
     athleteIds?: string[] | null;
   } | null;
 }) =>

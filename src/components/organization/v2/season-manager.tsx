@@ -87,8 +87,12 @@ function StepperHeader({ steps, current }: { steps: WizardStep[]; current: Wizar
 
 /* ── Riconferma dei tesserati ────────────────────────────────────────────── */
 /**
- * L'elenco di riconferma: chi c'era, tutti proposti, si toglie chi non
- * rinnova. Una lista verticale e non una griglia: a 375 px, con duecento
+ * L'elenco di riconferma: chi c'era, e **nessuno e scelto finche il club non
+ * lo sceglie** (ADR-0196). Prima l'elenco arrivava tutto spuntato e chi non
+ * toccava niente riportava l'intera stagione: «nessuna selezione» valeva
+ * «tutti», e il club ha visto due atleti nella stagione nuova senza averli
+ * mai riconfermati. Riportare e un atto: «Seleziona tutti» esiste, ed e un
+ * pulsante. Una lista verticale e non una griglia: a 375 px, con duecento
  * righe, una scelta riga per riga si fa cosi.
  */
 function RosterConfirmation({
@@ -144,20 +148,32 @@ function RosterConfirmation({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="font-brand text-[13px] text-egw-ink">
-          <strong className="egw-num">{formatInteger(confirmedIds.size)}</strong> riconfermati su <span className="egw-num">{formatInteger(athletes.length)}</span>
-          {notConfirmed ? (
-            <span className="text-egw-ink-62">
-              {" "}
-              · <span className="egw-num">{formatInteger(notConfirmed)}</span> restano fuori
-            </span>
-          ) : null}
+        <p className="font-brand text-[13px] text-egw-ink" aria-live="polite">
+          {confirmedIds.size === 0 ? (
+            <>
+              <strong>Nessuno selezionato</strong>
+              <span className="text-egw-ink-62">
+                {" "}
+                · <span className="egw-num">{formatInteger(athletes.length)}</span> proposti: spunta chi rinnova, o «Seleziona tutti»
+              </span>
+            </>
+          ) : (
+            <>
+              <strong className="egw-num">{formatInteger(confirmedIds.size)}</strong> riconfermati su <span className="egw-num">{formatInteger(athletes.length)}</span>
+              {notConfirmed ? (
+                <span className="text-egw-ink-62">
+                  {" "}
+                  · <span className="egw-num">{formatInteger(notConfirmed)}</span> restano fuori
+                </span>
+              ) : null}
+            </>
+          )}
         </p>
         <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={onSelectAll} disabled={disabled}>
-            Tutti
+          <Button variant="secondary" size="sm" onClick={onSelectAll} disabled={disabled || confirmedIds.size === athletes.length}>
+            Seleziona tutti
           </Button>
-          <Button variant="secondary" size="sm" onClick={onSelectNone} disabled={disabled}>
+          <Button variant="secondary" size="sm" onClick={onSelectNone} disabled={disabled || confirmedIds.size === 0}>
             Nessuno
           </Button>
         </div>
@@ -293,23 +309,39 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
 
   const carriesAthletes = selectedTypes.includes(ATHLETE_MEMBERSHIP_ROLLOVER_TYPE);
 
-  /** Carica l'elenco di riconferma e lo propone **tutto selezionato**: il caso normale e che la squadra rinnovi. */
+  /**
+   * Carica l'elenco di riconferma e lo propone **senza nessuno selezionato**
+   * (ADR-0196): la scelta e del club, e «tutti» e un pulsante. Cambiare la
+   * stagione di origine azzera la scelta, perche l'elenco e un altro.
+   */
+  const rosterRichiesto = React.useRef<string>("");
   const loadRoster = React.useCallback(
     async (seasonId: string) => {
       if (!seasonId) return null;
+      /*
+        L'elenco di un'altra stagione non resta sotto l'origine nuova: si
+        azzera subito, e una risposta arrivata in ritardo per un'origine che
+        nel frattempo e cambiata si scarta (revisione ostile ADR-0196 A4).
+      */
+      rosterRichiesto.current = seasonId;
+      setRoster(null);
+      setConfirmedIds(new Set());
+      setRolloverPreview(null);
       setRosterLoading(true);
       setRosterFallito(false);
       try {
         const data = await fetchSeasonRoster(seasonId);
+        if (rosterRichiesto.current !== seasonId) return null;
         setRoster(data);
-        setConfirmedIds(new Set(data.athletes.map((athlete) => athlete.athleteId)));
+        setConfirmedIds(new Set());
         return data;
       } catch (error: any) {
+        if (rosterRichiesto.current !== seasonId) return null;
         showToast("error", error?.message || "Errore nel caricamento dei tesserati");
         setRosterFallito(true);
         return null;
       } finally {
-        setRosterLoading(false);
+        if (rosterRichiesto.current === seasonId) setRosterLoading(false);
       }
     },
     [showToast],
@@ -326,7 +358,12 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
   const confirmAllAthletes = () => setConfirmedIds(new Set((roster?.athletes ?? []).map((athlete) => athlete.athleteId)));
   const confirmNoAthlete = () => setConfirmedIds(new Set());
 
-  /** `null` quando i tesserati non si portano: e diverso da «nessuno riconfermato», e il server lo distingue. */
+  /**
+   * L'elenco che parte: sempre un elenco quando i tesserati si portano —
+   * `[]` significa «nessuno», e il server lo scrive come zero. `null` solo
+   * quando «Tesserati nelle squadre» non e fra i tipi: la, il server rifiuta
+   * un elenco mancante invece di leggerlo come «tutti» (ADR-0196).
+   */
   const confirmedAthleteIds = carriesAthletes ? Array.from(confirmedIds) : null;
 
   /**
@@ -442,6 +479,10 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
       showToast("error", "Scegli la stagione di origine e almeno un tipo di dato");
       return;
     }
+    if (carriesAthletes && (rosterLoading || rosterFallito)) {
+      showToast("error", "Aspetta l'elenco dei tesserati: senza non si puo dire chi entra");
+      return;
+    }
     setBusy(true);
     try {
       const summary = await runSeasonRollover({ targetSeasonId: rolloverTarget.id, sourceSeasonId, types: selectedTypes, athleteIds: confirmedAthleteIds, preview: true });
@@ -471,6 +512,25 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
   };
 
   const sourceCounts = countsFor(sourceSeasonId);
+
+  /**
+   * Le stagioni gia salvate con cui il periodo scelto si sovrappone. Non e
+   * un blocco: e l'avviso che un movimento senza stagione dichiarata — un
+   * incasso, che la stagione non la porta — cadrebbe per data in tutte e due
+   * (ADR-0196). Il club pilota aveva creato «2026/27» da settembre sopra una
+   * «2026/2027» da luglio, e leggeva i pagamenti in entrambe.
+   */
+  const stagioniSovrapposte = React.useMemo(() => {
+    if (!form.startDate || !form.endDate) return [] as ClubSeason[];
+    const inizio = new Date(form.startDate).getTime();
+    const fine = new Date(form.endDate).getTime();
+    if (!Number.isFinite(inizio) || !Number.isFinite(fine) || inizio >= fine) return [] as ClubSeason[];
+    return seasons.filter((season) => {
+      const altroInizio = new Date(season.startDate).getTime();
+      const altraFine = new Date(season.endDate).getTime();
+      return Number.isFinite(altroInizio) && Number.isFinite(altraFine) && inizio <= altraFine && altroInizio <= fine;
+    });
+  }, [form.startDate, form.endDate, seasons]);
   const selectedDescriptors = rolloverTypes.filter((type) => selectedTypes.includes(type.key));
   const activeSeasonId = overview?.activeSeasonId;
 
@@ -610,7 +670,7 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
             : step === "riporto"
               ? "Scegli cosa riportare dalla stagione precedente."
               : step === "tesserati"
-                ? "Chi rinnova? Sono proposti tutti: togli chi non riconfermi."
+                ? "Chi rinnova? Spunta chi entra nelle squadre della stagione nuova: chi non spunti resta fuori."
                 : "Controlla cosa verra creato prima di confermare."
         }
         dirty={wizardDirty}
@@ -694,6 +754,12 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
                 </div>
               </FormGrid>
 
+              {stagioniSovrapposte.length ? (
+                <AlertBlock severity="warning" title={`Il periodo si sovrappone a ${stagioniSovrapposte.map((season) => season.label).join(", ")}`}>
+                  Un incasso o un movimento che non dichiara la stagione si attribuisce per data: nei giorni in comune comparirebbe in entrambe. Se le stagioni si susseguono, fai iniziare la nuova il giorno dopo la fine della precedente.
+                </AlertBlock>
+              ) : null}
+
               <label className="flex items-start gap-3 rounded-egw-field border border-egw-hairline bg-white px-3.5 py-3">
                 <Checkbox
                   checked={form.activate}
@@ -716,7 +782,12 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
                 <Select
                   id="season-source"
                   value={sourceSeasonId}
-                  onValueChange={setSourceSeasonId}
+                  onValueChange={(value) => {
+                    /* Un'altra origine e un altro elenco: le spunte di prima non valgono (A10). */
+                    setSourceSeasonId(value);
+                    setRoster(null);
+                    setConfirmedIds(new Set());
+                  }}
                   options={seasons.map((season) => ({ value: season.id, label: `${season.label} — ${SEASON_STATUS_LABELS[season.status]}` }))}
                   placeholder="Seleziona la stagione da cui copiare"
                 />
@@ -772,7 +843,14 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
                     {selectedDescriptors.map((type) => (
                       <li key={type.key} className="flex items-baseline justify-between gap-4 border-b border-dashed border-egw-hairline py-1.5 last:border-0">
                         <span>{type.label}</span>
-                        <span className="egw-num font-bold">{formatInteger(sourceCounts[type.key] ?? 0)}</span>
+                        {/* I tesserati: quanti ne entrano, non quanti ce ne sono. Il numero della sorgente qui diceva «209» sopra un «nessuno riconfermato» (ADR-0196). */}
+                        {type.key === ATHLETE_MEMBERSHIP_ROLLOVER_TYPE ? (
+                          <span className="egw-num font-bold">
+                            {formatInteger(confirmedIds.size)} <span className="font-medium text-egw-ink-62">su {formatInteger(sourceCounts[type.key] ?? roster?.athletes.length ?? 0)}</span>
+                          </span>
+                        ) : (
+                          <span className="egw-num font-bold">{formatInteger(sourceCounts[type.key] ?? 0)}</span>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -788,7 +866,18 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
                   <Users className="h-4 w-4" aria-hidden />
                   Tesserati
                 </p>
-                {carriesAthletes ? (
+                {carriesAthletes && confirmedIds.size === 0 ? (
+                  <p className="mt-1 text-egw-ink-62">
+                    <strong className="text-egw-ink">Nessun tesserato riconfermato: le squadre della stagione nuova nascono vuote.</strong>{" "}
+                    {roster?.athletes.length ? (
+                      <>
+                        I <span className="egw-num">{formatInteger(roster.athletes.length)}</span> proposti restano nella stagione di origine, con la loro storia intatta. Se non e quello che vuoi, torna a «Tesserati» e spunta chi rinnova.
+                      </>
+                    ) : (
+                      "Nella stagione di origine nessuno risulta in una squadra."
+                    )}
+                  </p>
+                ) : carriesAthletes ? (
                   <p className="mt-1 text-egw-ink-62">
                     <span className="egw-num font-bold text-egw-ink">{formatInteger(confirmedIds.size)}</span> riconfermati entrano nelle squadre della stagione nuova;{" "}
                     <span className="egw-num font-bold text-egw-ink">{formatInteger(Math.max(0, (roster?.athletes.length ?? 0) - confirmedIds.size))}</span> restano fuori, con la loro storia intatta.
@@ -824,7 +913,7 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
             <Button variant="primary" onClick={() => void confirmRollover()} loading={busy} disabled={!rolloverPreview || rolloverPreview.createdTotal === 0}>
               Conferma riporto
             </Button>
-            <Button variant="secondary" onClick={() => void previewRollover()} disabled={busy}>
+            <Button variant="secondary" onClick={() => void previewRollover()} disabled={busy || (carriesAthletes && (rosterLoading || rosterFallito))}>
               Calcola anteprima
             </Button>
           </>
@@ -856,7 +945,21 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
               }}
             />
 
-            {carriesAthletes ? (
+            {carriesAthletes && rosterFallito ? (
+              <AlertBlock
+                severity="warning"
+                title="L'elenco dei tesserati non si e caricato"
+                actions={
+                  <Button variant="secondary" size="sm" onClick={() => void loadRoster(sourceSeasonId)} loading={rosterLoading}>
+                    Riprova
+                  </Button>
+                }
+              >
+                Senza l&apos;elenco non si calcola l&apos;anteprima e non si conferma: riprova, oppure togli «Tesserati nelle squadre».
+              </AlertBlock>
+            ) : null}
+
+            {carriesAthletes && !rosterFallito ? (
               <DrawerSection
                 title={
                   <span className="flex items-center gap-2">

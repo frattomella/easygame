@@ -781,6 +781,21 @@ export const AUDIT_VISIBLE_METADATA_KEYS: readonly string[] = [
     cio che rende ricostruibile una categoria sparita da una scheda.
   */
   "after",
+  /*
+    Il riporto di stagione (ADR-0196): quanti tesserati erano proposti, quanti
+    riconfermati e quante appartenenze sono nate. Sono conteggi, non persone, e
+    sono la risposta a «perche questi atleti stanno nella stagione nuova».
+  */
+  "athletesRequested",
+  "athletesProposed",
+  "athletesConfirmed",
+  "athletesNotConfirmed",
+  "athleteMembershipsCreated",
+  "athletesCarried",
+  "created",
+  "skipped",
+  "sourceSeasonId",
+  "targetSeasonId",
   "batchId",
   "sourceRowNumber",
   "totals",

@@ -106,6 +106,7 @@ export const POST = accountingRoute(
           notes: body.notes,
           siteId: body.site_id ?? body.siteId,
           seasonId: body.season_id ?? body.seasonId,
+          activeSeasonId: request.headers.get("x-active-season-id"),
         },
         scope,
       );
@@ -131,6 +132,13 @@ export const POST = accountingRoute(
         documentId: body.document_id ?? body.documentId,
         siteId: body.site_id ?? body.siteId,
         seasonId: body.season_id ?? body.seasonId,
+        /*
+          La stagione attiva della richiesta, come per le previsioni: e la
+          stessa fonte del registro generico, e senza di essa un movimento
+          registrato nella stagione nuova finiva attribuito per data — anche a
+          quella vecchia, se le date si sovrappongono (ADR-0196).
+        */
+        activeSeasonId: request.headers.get("x-active-season-id"),
         valueDate: body.value_date ?? body.valueDate,
         bankReference: body.bank_reference ?? body.bankReference,
       },

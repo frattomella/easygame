@@ -206,7 +206,8 @@ test("la pagina Atleti raggruppa per gruppo operativo", () => {
   assert.match(source, /const athleteGroups = useMemo\(/);
   assert.match(
     source,
-    /groupId:\s*\n?\s*getMembershipGroupId\(/,
+    /* ADR-0196: il gruppo nasce dalla funzione canonica solo per una riga della stagione attiva. */
+    /groupId: dellaStagione\s*\n?\s*\? getMembershipGroupId\(/,
     "la riga porta il proprio gruppo, ricavato dalla funzione canonica",
   );
   assert.equal(

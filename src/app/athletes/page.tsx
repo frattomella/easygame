@@ -59,7 +59,7 @@ import {
   updateClubAthlete,
   deleteClubAthlete,
 } from "@/lib/simplified-db";
-import type { ListPageMeta } from "@/lib/api/client";
+import { apiRequest, type ListPageMeta } from "@/lib/api/client";
 import {
   eDatiPersonaliDaSmaltire,
   messaggioDatiPersonali,
@@ -110,6 +110,7 @@ import {
   categoryDotColor,
   type Athlete,
   ATHLETE_CATEGORY_FILTER_ID,
+  outOfSeasonGroupId,
 } from "@/components/athletes/v2/athlete-grid-model";
 import { buildAthleteColumns } from "@/components/athletes/v2/athletes-grid-columns";
 import {
@@ -239,6 +240,57 @@ const buildAthleteProfileHref = (athleteId: string, clubId?: string | null) =>
   `/athletes/${athleteId}?clubId=${encodeURIComponent(clubId || "")}`;
 
 /**
+ * Il catalogo **di tutte le stagioni**, accanto a quello della stagione
+ * attiva (ADR-0196).
+ *
+ * `normalizeAthleteCategoryMemberships` vuole «il catalogo del club — tutto,
+ * mai un sottoinsieme»: passandole il solo catalogo della stagione attiva,
+ * un'appartenenza alla «Under 14 Gold» della stagione **archiviata** non
+ * trovava il suo identificativo e ripiegava sul nome, che nella stagione
+ * nuova nomina la «Under 14 Gold» copiata dal riporto. La riga diceva quindi
+ * che l'atleta stava nella squadra nuova: un riporto che nessuno aveva fatto,
+ * disegnato dall'etichetta. Con il catalogo intero l'identita si risolve per
+ * identificativo, e la riga dice la verita: quella squadra e di un'altra
+ * stagione.
+ */
+type CatalogoPerIdentita = {
+  completo: any[];
+  stagioni: { id: string; label: string }[];
+  /** La stagione dei record senza `seasonId`: la piu vecchia del club (WP-32). */
+  legacySeasonId?: string | null;
+};
+
+const NESSUN_CATALOGO: CatalogoPerIdentita = { completo: [], stagioni: [], legacySeasonId: null };
+
+/**
+ * L'etichetta di un'appartenenza a una categoria che **non e** della stagione
+ * attiva: il nome com'e sulla riga, con la stagione di quella categoria
+ * accanto. Mai il nome nudo, che si confonderebbe con la squadra omonima
+ * della stagione corrente.
+ */
+const etichettaFuoriStagione = (
+  membership: { categoryId: string | null; categoryName: string },
+  catalogo: CatalogoPerIdentita,
+) => {
+  const nome = String(membership.categoryName || "").trim() || "Senza categoria";
+  const voce = catalogo.completo.find(
+    (category) => String(category?.id || "") === String(membership.categoryId || ""),
+  );
+  if (!voce) {
+    /*
+      L'identificativo non c'e piu, ma il nome si: e una riga storica con un
+      nome che oggi nomina una o piu categorie (revisione ostile ADR-0196 C7).
+      Non si sceglie per lei: si dice che va verificata.
+    */
+    const omonime = catalogo.completo.filter((category) => String(category?.name || "").trim() === nome);
+    return omonime.length ? `${nome} · da verificare` : `${nome} · non piu in catalogo`;
+  }
+  const seasonId = String(voce?.seasonId || "").trim() || String(catalogo.legacySeasonId || "");
+  const stagione = catalogo.stagioni.find((season) => season.id === seasonId);
+  return stagione ? `${nome} · stagione ${stagione.label}` : `${nome} · altra stagione`;
+};
+
+/**
  * Da righe del database a righe della tabella.
  *
  * Una riga per **appartenenza**, non per atleta: chi si allena con due gruppi
@@ -249,16 +301,30 @@ const buildAthleteRows = (
   rows: any[],
   normalizedCategories: any[],
   siteIndex: ReturnType<typeof buildSiteIndex>,
+  catalogo: CatalogoPerIdentita = NESSUN_CATALOGO,
 ): Athlete[] =>
   rows.flatMap((athlete: any) => {
+    /* L'identita si risolve sul catalogo intero, quando c'e; il perimetro e la stagione attiva. */
+    const catalogoIdentita = catalogo.completo.length ? catalogo.completo : normalizedCategories;
     const memberships = normalizeAthleteCategoryMemberships(
       athlete,
-      normalizedCategories,
+      catalogoIdentita,
     );
     const primaryMembership = getPrimaryAthleteCategoryMembership(
       memberships,
-      normalizedCategories,
+      catalogoIdentita,
     );
+    const inStagione = (membership: { categoryId: string | null }) =>
+      !membership.categoryId ||
+      normalizedCategories.some(
+        (category) => String(category?.id || "") === String(membership.categoryId),
+      );
+    const etichettaDi = (membership: { categoryId: string | null; categoryName: string }) =>
+      !membership.categoryName
+        ? "Senza categoria"
+        : inStagione(membership)
+          ? resolveCategoryLabel(membership.categoryName, normalizedCategories)
+          : etichettaFuoriStagione(membership, catalogo);
     const rowMemberships =
       memberships.length > 0
         ? memberships
@@ -272,12 +338,13 @@ const buildAthleteRows = (
           ];
 
     return rowMemberships.map((membership) => {
+      const dellaStagione = inStagione(membership);
       const categoryId = membership.categoryId
-        ? resolveCategoryId(membership.categoryId, normalizedCategories)
+        ? dellaStagione
+          ? resolveCategoryId(membership.categoryId, normalizedCategories)
+          : String(membership.categoryId)
         : null;
-      const categoryLabel = membership.categoryName
-        ? resolveCategoryLabel(membership.categoryName, normalizedCategories)
-        : "Senza categoria";
+      const categoryLabel = etichettaDi(membership);
 
       const resolvedSiteId = siteIndex.resolveSiteId(membership.siteId);
 
@@ -298,15 +365,17 @@ const buildAthleteRows = (
           atleta si allena. Non e la categoria, ed e l'unita con cui questa
           pagina raggruppa (ADR-0055).
         */
-        groupId:
-          getMembershipGroupId(
-            { categoryId: categoryId || membership.categoryName, siteId: resolvedSiteId },
-            siteIndex,
-          ) || UNCATEGORIZED_CATEGORY_ID,
-        primaryCategoryLabel:
-          primaryMembership?.categoryName || categoryLabel || "Senza categoria",
+        groupId: dellaStagione
+          ? getMembershipGroupId(
+              { categoryId: categoryId || membership.categoryName, siteId: resolvedSiteId },
+              siteIndex,
+            ) || UNCATEGORIZED_CATEGORY_ID
+          : outOfSeasonGroupId(categoryId || membership.categoryName),
+        primaryCategoryLabel: primaryMembership
+          ? etichettaDi(primaryMembership)
+          : categoryLabel || "Senza categoria",
         primaryCategoryId: primaryMembership?.categoryId || categoryId || null,
-        allCategoryLabels: rowMemberships.map((item) => item.categoryName),
+        allCategoryLabels: rowMemberships.map((item) => etichettaDi(item)),
         age: athlete.birth_date
           ? new Date().getFullYear() -
             new Date(athlete.birth_date).getFullYear()
@@ -342,6 +411,9 @@ export default function AthletesPage() {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [athletes, setAthletes] = React.useState<Athlete[]>([]);
   const [categories, setCategories] = React.useState<any[]>([]);
+  /** Il catalogo di tutte le stagioni, per l'identita delle appartenenze (ADR-0196). */
+  const [catalogoCompleto, setCatalogoCompleto] = React.useState<any[]>([]);
+  const [legacySeasonId, setLegacySeasonId] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [showImportAthletesModal, setShowImportAthletesModal] =
@@ -517,7 +589,7 @@ export default function AthletesPage() {
       setLoadError(null);
       setResolvedClubId(clubId);
 
-      const [{ data: categoriesData }, { data: clubData }, athletesPage] =
+      const [{ data: categoriesData }, { data: clubData }, athletesPage, catalogoTutteLeStagioni] =
         await Promise.all([
         supabase
           .from("categories")
@@ -541,6 +613,21 @@ export default function AthletesPage() {
           view: "summary",
           limit: ATHLETE_PAGE_SIZE,
         }),
+        /*
+          Lo stesso catalogo **senza** il perimetro di stagione: un header
+          vuoto dice al registro di non filtrare. Serve all'identita delle
+          appartenenze, non all'elenco delle categorie fra cui scegliere.
+        */
+        apiRequest<any[]>(`/api/v1/categories?organization_id=${encodeURIComponent(clubId)}`, {
+          headers: { "x-active-season-id": "" },
+        }).then((response) => {
+          if (response.error) {
+            /* Senza il catalogo intero l'identita ripiega sui nomi: si dice, non si tace (revisione C8). */
+            showToast("error", "Catalogo delle stagioni passate non letto: le squadre di altre stagioni potrebbero non essere distinte da quelle di oggi");
+            return [];
+          }
+          return response.data || [];
+        }),
       ]);
 
       const athletesData = athletesPage.athletes;
@@ -554,13 +641,20 @@ export default function AthletesPage() {
 
       const normalizedCategories = buildCategoryList(categoriesData || []);
       setCategories(normalizedCategories);
+      const completo = buildCategoryList(
+        Array.isArray(catalogoTutteLeStagioni) && catalogoTutteLeStagioni.length
+          ? catalogoTutteLeStagioni
+          : categoriesData || [],
+      );
+      setCatalogoCompleto(completo);
 
       const normalizedSites = normalizeClubSites(clubData?.club_sites);
       const siteIndex = buildSiteIndex(normalizedSites);
       setSites(normalizedSites);
-      setClubSeasons(
-        normalizeClubSeasons(clubData?.settings).seasons.map((season) => ({ id: season.id, label: season.label })),
-      );
+      const statoStagioni = normalizeClubSeasons(clubData?.settings);
+      const stagioni = statoStagioni.seasons.map((season) => ({ id: season.id, label: season.label }));
+      setClubSeasons(stagioni);
+      setLegacySeasonId(statoStagioni.legacySeasonId);
       setCategoryGroups(
         buildCategoryGroups({
           categories: normalizedCategories,
@@ -573,6 +667,7 @@ export default function AthletesPage() {
         athletesData,
         normalizedCategories,
         siteIndex,
+        { completo, stagioni, legacySeasonId: statoStagioni.legacySeasonId },
       );
 
       transformedAthletes.sort(compareAthletesByLastName);
@@ -650,6 +745,7 @@ export default function AthletesPage() {
           result.athletes,
           categories,
           buildSiteIndex(sites),
+          { completo: catalogoCompleto, stagioni: clubSeasons, legacySeasonId },
         );
         rows.sort(compareAthletesByLastName);
 
@@ -1080,7 +1176,11 @@ export default function AthletesPage() {
       });
 
       collected.push(
-        ...buildAthleteRows(result.athletes, categories, siteIndex),
+        ...buildAthleteRows(result.athletes, categories, siteIndex, {
+          completo: catalogoCompleto,
+          stagioni: clubSeasons,
+          legacySeasonId,
+        }),
       );
 
       if (!result.meta?.hasMore) break;
@@ -1956,10 +2056,21 @@ export default function AthletesPage() {
                       ? { [ATHLETE_CATEGORY_FILTER_ID]: [categoryDeepLink] }
                       : null
                   }
-                  totalCount={totaleAtletiDistinti}
+                  totalCount={paginated ? (listMeta?.total ?? archiveTotal ?? totaleAtletiDistinti) : totaleAtletiDistinti}
                   columns={columns}
                   filters={filters}
                   views={paginated ? ATHLETE_CERTIFICATE_VIEWS : ATHLETE_VIEWS}
+                  /*
+                    L'elenco si apre **sempre** su «Attivi» (ADR-0196). Sotto la
+                    soglia e la vista predefinita e non si ricorda un «Tutti»
+                    scelto in passato; sopra la soglia lo stato lo decide la
+                    banda d'archivio e il chip senza filtri della griglia porta
+                    il nome di quello stato, non «Tutti».
+                  */
+                  rememberView={false}
+                  allViewLabel={
+                    paginated && statusFilter !== "all" ? ATHLETE_STATUS_PLURAL_LABELS[statusFilter] : undefined
+                  }
                   search={search}
                   groupBy={groupBy}
                   defaultGrouped

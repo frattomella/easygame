@@ -81,6 +81,8 @@ export function useGridState<Row>(props: DataGridProps<Row>) {
     onViewChange,
     requestedViewId,
     initialFilters,
+    allViewLabel = "Tutti",
+    rememberView = true,
   } = props;
 
   const load = <K extends keyof Persisted>(key: K, fallback: NonNullable<Persisted[K]>) =>
@@ -117,11 +119,11 @@ export function useGridState<Row>(props: DataGridProps<Row>) {
 
   const allViews = React.useMemo<ViewDef[]>(
     () => [
-      { id: ALL_VIEW_ID, label: "Tutti", filters: {}, builtIn: true },
+      { id: ALL_VIEW_ID, label: allViewLabel, filters: {}, builtIn: true },
       ...views.map((v) => ({ ...v, builtIn: true })),
       ...personalViews,
     ],
-    [personalViews, views],
+    [allViewLabel, personalViews, views],
   );
 
   const applyView = React.useCallback(
@@ -157,14 +159,17 @@ export function useGridState<Row>(props: DataGridProps<Row>) {
     /*
       La vista salvata dall'utente vince; se non ne ha mai scelta una, si
       apre la vista predefinita del modulo (o quella che ha segnato lui).
+      Con `rememberView` spento la vista ricordata non si legge: si apre
+      sempre la predefinita.
     */
-    const v = persist ? readPreference<string | null>(module, "view", null) : null;
+    const v = persist && rememberView ? readPreference<string | null>(module, "view", null) : null;
     const candidates: ViewDef[] = [
-      { id: ALL_VIEW_ID, label: "Tutti", filters: {}, builtIn: true },
+      { id: ALL_VIEW_ID, label: allViewLabel, filters: {}, builtIn: true },
       ...views,
       ...pv,
     ];
-    const defaultView = candidates.find((x) => x.isDefault);
+    /* Una vista personale segnata come predefinita e una scelta dichiarata: vince su quella del modulo (revisione C5). */
+    const defaultView = pv.find((x) => x.isDefault) || candidates.find((x) => x.isDefault);
     const chosen = (v ? candidates.find((x) => x.id === v) : undefined) || defaultView;
     if (initialFilters && activeFilterEntries(initialFilters).length) {
       // Un deep link dice cosa guardare: vale piu della vista ricordata.
@@ -214,7 +219,7 @@ export function useGridState<Row>(props: DataGridProps<Row>) {
 
   const setActiveView = (id: string) => {
     setActiveViewIdState(id);
-    save("view", id);
+    if (rememberView) save("view", id);
     applyView(allViews.find((v) => v.id === id));
     onViewChange?.(id);
   };
@@ -272,7 +277,7 @@ export function useGridState<Row>(props: DataGridProps<Row>) {
     setPersonalViewsState(normalized);
     save("personalViews", normalized);
     setActiveViewIdState(id);
-    save("view", id);
+    if (rememberView) save("view", id);
     return id;
   };
   const updatePersonalView = (id: string, patch: Partial<ViewDef>) => {

@@ -748,6 +748,11 @@ export type CreateAccountingEntryInput = {
   documentId?: unknown;
   siteId?: unknown;
   seasonId?: unknown;
+  /**
+   * La stagione attiva della richiesta (`x-active-season-id`): vale quando
+   * `seasonId` non e dichiarata. Vedi `risolviStagioneDelMovimento`.
+   */
+  activeSeasonId?: unknown;
   valueDate?: unknown;
   bankReference?: unknown;
 };
@@ -949,6 +954,106 @@ const risolviSedeDelMovimento = async (
   return risolta;
 };
 
+/**
+ * **La stagione di un movimento e quella in cui viene registrato** (ADR-0196).
+ *
+ * Un movimento manuale nasceva senza `season_id`: nessuna schermata la
+ * mandava, e la riga finiva attribuita per **data** alla stagione nel cui
+ * periodo cadeva — che con due stagioni dalle date sovrapposte (2026/2027
+ * da luglio e 2026/27 da settembre, il caso del club pilota) e **due**
+ * stagioni. Il club apriva la stagione nuova e ci trovava i movimenti della
+ * vecchia.
+ *
+ * Adesso la riga porta la stagione: quella **dichiarata** dal chiamante, se
+ * c'e, altrimenti quella **attiva nella richiesta** (`x-active-season-id`),
+ * come ogni collezione stagionale del registro generico. Una stagione
+ * dichiarata che il club non ha e un errore (se il club ha stagioni
+ * configurate, come in lettura); una stagione di contesto che non
+ * corrisponde a una stagione salvata — l'id sintetizzato di un club senza
+ * stagioni, un segnalibro vecchio — non marca niente, e la riga resta
+ * attribuibile per data come prima. Non si marca mai con una stagione
+ * sintetizzata: sparirebbe alla prima stagione vera.
+ */
+const risolviStagioneDelMovimento = async (
+  client: any,
+  organizationId: string,
+  dichiarata: unknown,
+  diContesto: unknown,
+) => {
+  const wanted = asText(dichiarata);
+  const contesto = asText(diContesto);
+  if (!wanted && !contesto) return null;
+
+  const club = await client.club.findUnique({
+    where: { id: organizationId },
+    select: { settings: true },
+  });
+  const stato = normalizeClubSeasons(
+    club?.settings && typeof club.settings === "object" ? club.settings : {},
+  );
+  const salvate = stato.isFallback ? [] : stato.seasons;
+  const conosce = (id: string) => salvate.some((stagione) => stagione.id === id);
+
+  /*
+    Senza stagioni salvate non si marca niente, nemmeno su dichiarazione
+    (revisione B4): l'unico id che un client puo conoscere e quello della
+    stagione sintetizzata, che sparisce alla prima stagione vera e lascerebbe
+    la riga fuori da ogni stagione. La riga resta attribuibile per data.
+  */
+  if (!salvate.length) return null;
+
+  if (wanted) {
+    if (!conosce(wanted)) {
+      throw new Error(
+        `La stagione «${wanted}» non e fra quelle configurate dal club: scegline una dall'elenco, oppure configurala`,
+      );
+    }
+    return wanted;
+  }
+
+  return conosce(contesto) ? contesto : null;
+};
+
+/**
+ * **La stagione di uno storno e quella dell'originale** (revisione B3).
+ *
+ * Le righe scritte prima di ADR-0196 non portano la stagione: si attribuiscono
+ * per data. Lo storno nasce con la data di oggi, e con la stagione nuova
+ * attiva cadrebbe per data nella stagione nuova, lasciando l'originale nella
+ * vecchia: un'uscita negativa orfana di qua, un totale che non torna di la.
+ * Se l'originale non dichiara la stagione, lo storno prende quella nella cui
+ * finestra cade la **data dell'originale** — solo se e una sola; con due
+ * stagioni sovrapposte resta senza, come l'originale, e i due si seguono per
+ * data.
+ */
+const stagioneDelloStorno = async (
+  client: any,
+  organizationId: string,
+  originale: { season_id: string | null; entry_date: Date },
+) => {
+  if (originale.season_id) return originale.season_id;
+
+  const club = await client.club.findUnique({
+    where: { id: organizationId },
+    select: { settings: true },
+  });
+  const stato = normalizeClubSeasons(
+    club?.settings && typeof club.settings === "object" ? club.settings : {},
+  );
+  if (stato.isFallback) return null;
+
+  const quando = new Date(originale.entry_date).getTime();
+  const contenenti = stato.seasons.filter((stagione) => {
+    const inizio = toDateOrNull(stagione.startDate);
+    const fine = toDateOrNull(stagione.endDate);
+    if (!inizio || !fine) return false;
+    fine.setUTCHours(23, 59, 59, 999);
+    return quando >= inizio.getTime() && quando <= fine.getTime();
+  });
+
+  return contenenti.length === 1 ? contenenti[0].id : null;
+};
+
 /** Registra un movimento manuale: un fatto di cassa che nessun altro evento genera. */
 export const createAccountingEntry = async (
   input: CreateAccountingEntryInput,
@@ -1112,13 +1217,19 @@ export const createAccountingEntry = async (
       code,
       direction === "OUT" ? "OUT" : "IN",
     );
+    const stagione = await risolviStagioneDelMovimento(
+      client,
+      organizationId,
+      input.seasonId,
+      input.activeSeasonId,
+    );
 
     return client.accountingEntry.create({
       data: {
         organization_id: organizationId,
         entry_date: entryDate as Date,
         fiscal_year: fiscalYearOfEntry(entryDate as Date),
-        season_id: asText(input.seasonId) || null,
+        season_id: stagione,
         direction,
         amount_cents: amountCents,
         financial_account_id: accountId,
@@ -1220,6 +1331,8 @@ export const createInternalTransfer = async (
     operationTypeCode?: unknown;
     siteId?: unknown;
     seasonId?: unknown;
+    /** Come per il movimento manuale: la stagione attiva della richiesta. */
+    activeSeasonId?: unknown;
   },
   scope: AccountingScope,
 ) => {
@@ -1254,7 +1367,12 @@ export const createInternalTransfer = async (
       organization_id: organizationId,
       entry_date: entryDate,
       fiscal_year: fiscalYearOfEntry(entryDate),
-      season_id: asText(input.seasonId) || null,
+      season_id: await risolviStagioneDelMovimento(
+        client,
+        organizationId,
+        input.seasonId,
+        input.activeSeasonId,
+      ),
       amount_cents: amountCents,
       source_domain: "INTERNAL_TRANSFER" as const,
       transfer_group_id: gruppo,
@@ -1619,7 +1737,7 @@ export const reverseAccountingEntry = async (
             organization_id: riga.organization_id,
             entry_date: now,
             fiscal_year: fiscalYearOfEntry(now),
-            season_id: riga.season_id,
+            season_id: await stagioneDelloStorno(client, riga.organization_id, riga),
             direction: oppositeDirection(riga.direction),
             amount_cents: riga.amount_cents,
             currency: riga.currency,

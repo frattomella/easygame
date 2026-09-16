@@ -113,9 +113,13 @@ export type SeasonRolloverRequest = {
   sourceSeasonId?: string | null;
   types?: unknown;
   /**
-   * I tesserati riconfermati. `null` o assente significa «tutti quelli che la
-   * stagione di origine propone»: e la scelta di partenza dell'elenco, non un
-   * automatismo nascosto — chi non rinnova lo si toglie.
+   * I tesserati riconfermati: **l'elenco e la sola autorita** (ADR-0196).
+   *
+   * Quando «Tesserati nelle squadre» e fra i tipi, l'elenco e obbligatorio,
+   * anche vuoto: `[]` porta zero persone. `null` o assente **non** vale
+   * «tutti»: prima lo valeva, e un chiamante che ometteva il campo si vedeva
+   * riportare l'intera stagione senza averlo chiesto. Riportare e un'azione
+   * esplicita: chi non e nell'elenco resta dov'e.
    */
   athleteIds?: unknown;
 };
@@ -136,9 +140,24 @@ export type SeasonRolloverResult = Omit<SeasonRolloverPlan, "idMap"> & {
   athletes: SeasonMembershipRolloverSummary;
 };
 
-const normalizeConfirmedAthleteIds = (value: unknown): string[] | null => {
-  if (value === null || value === undefined) {
+/**
+ * L'elenco dei riconfermati, quando i tesserati sono fra i tipi da portare.
+ *
+ * Restituisce sempre un elenco: assente o `null` si rifiuta, perche l'unica
+ * lettura onesta di «non mi hai detto chi» e «non so chi», non «tutti».
+ * Quando i tesserati non si portano l'elenco non serve e non si legge.
+ */
+const normalizeConfirmedAthleteIds = (
+  value: unknown,
+  requested: boolean,
+): string[] | null => {
+  if (!requested) {
     return null;
+  }
+  if (value === null || value === undefined) {
+    throw new Error(
+      "Indica quali tesserati riportare nella stagione nuova: un elenco, anche vuoto. Senza elenco non se ne riporta nessuno",
+    );
   }
   if (!Array.isArray(value)) {
     throw new Error("L'elenco dei tesserati riconfermati non e valido");
@@ -223,6 +242,15 @@ export const runClubSeasonRollover = async (options: {
     throw new Error("Seleziona almeno un tipo di dato da riportare");
   }
   assertRolloverTypeRequirements(types);
+  /*
+    L'elenco si valida **prima** di scrivere le collezioni: un riporto dei
+    tesserati senza elenco si ferma qui, con le categorie ancora intatte.
+  */
+  const carriesAthletes = types.includes(ATHLETE_MEMBERSHIP_ROLLOVER_TYPE);
+  const confirmedAthleteIds = normalizeConfirmedAthleteIds(
+    options.athleteIds,
+    carriesAthletes,
+  );
 
   const collections: Record<string, any[]> = {};
   for (const type of types.filter(isClubResourceRolloverType)) {
@@ -274,8 +302,8 @@ export const runClubSeasonRollover = async (options: {
     sourceCategoryIds,
     categoryIdMap,
     targetCategoryNameById,
-    confirmedAthleteIds: normalizeConfirmedAthleteIds(options.athleteIds),
-    requested: types.includes(ATHLETE_MEMBERSHIP_ROLLOVER_TYPE),
+    confirmedAthleteIds,
+    requested: carriesAthletes,
     preview,
   });
 
@@ -416,9 +444,32 @@ export const createClubSeason = async (options: {
   if (options.rollover && !requestedTypes.length) {
     throw new Error("Seleziona almeno un tipo di dato da riportare");
   }
+  const sourceSeasonId =
+    String(options.rollover?.sourceSeasonId || "").trim() ||
+    state.activeSeasonId;
+
   if (requestedTypes.length) {
     assertRolloverTypeRequirements(requestedTypes);
-    normalizeConfirmedAthleteIds(options.rollover?.athleteIds);
+    normalizeConfirmedAthleteIds(
+      options.rollover?.athleteIds,
+      requestedTypes.includes(ATHLETE_MEMBERSHIP_ROLLOVER_TYPE),
+    );
+    /*
+      **Anche l'origine si verifica prima di scrivere** (revisione ostile
+      ADR-0196 A2). Prima la stagione nasceva — e veniva attivata — e solo
+      dopo `runClubSeasonRollover` scopriva che l'origine non esisteva: 400
+      con una stagione nuova, vuota, attiva e senza riga di audit. Su un club
+      senza stagioni salvate l'origine sarebbe la stagione **sintetizzata**,
+      che dopo il salvataggio non c'e piu: non c'e niente da cui riportare.
+    */
+    if (state.isFallback) {
+      throw new Error(
+        "Questo club non ha ancora una stagione salvata da cui riportare: crea la prima stagione senza riporto",
+      );
+    }
+    if (!findSeason(state, sourceSeasonId)) {
+      throw new Error("Stagione di origine non trovata");
+    }
   }
 
   const previousSeasons = state.isFallback ? [] : state.seasons;
@@ -441,9 +492,7 @@ export const createClubSeason = async (options: {
   if (requestedTypes.length) {
     rollover = await runClubSeasonRollover({
       organizationId,
-      sourceSeasonId:
-        String(options.rollover?.sourceSeasonId || "").trim() ||
-        state.activeSeasonId,
+      sourceSeasonId,
       targetSeasonId: season.id,
       types: requestedTypes,
       athleteIds: options.rollover?.athleteIds,

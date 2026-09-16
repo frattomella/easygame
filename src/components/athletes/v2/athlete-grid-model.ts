@@ -123,6 +123,20 @@ export const certificateFilterKey = (
 /* ── Viste di sistema ───────────────────────────────────────────────────── */
 export const ATHLETE_STATUS_FILTER_ID = "stato";
 export const ATHLETE_CATEGORY_FILTER_ID = "categoria";
+
+/**
+ * Il gruppo di una riga la cui categoria **non e della stagione attiva**
+ * (ADR-0196): una per categoria, cosi due appartenenze di stagioni passate
+ * dello stesso atleta restano due righe con due chiavi, e l'intestazione del
+ * gruppo e la sua etichetta («Under 14 Gold · stagione 2026/2027»), non
+ * «Senza categoria» con il nome della prima riga che ci cade.
+ */
+export const OUT_OF_SEASON_GROUP_PREFIX = "fuori-stagione:";
+export const outOfSeasonGroupId = (categoryId: string) => `${OUT_OF_SEASON_GROUP_PREFIX}${categoryId}`;
+export const isOutOfSeasonGroupId = (groupId: string | null | undefined) =>
+  String(groupId || "").startsWith(OUT_OF_SEASON_GROUP_PREFIX);
+/** Il valore del filtro «Categoria» che seleziona le righe di altre stagioni. */
+export const OUT_OF_SEASON_CATEGORY_FILTER_VALUE = "__altre_stagioni__";
 export const ATHLETE_CERTIFICATE_FILTER_ID = "certificato";
 export const ATHLETE_ENROLMENT_FILTER_ID = "iscrizione";
 
@@ -204,10 +218,13 @@ export const buildAthleteFilters = ({
     options: [
       ...categoryOptions,
       { value: UNCATEGORIZED_CATEGORY_ID, label: "Senza categoria" },
+      { value: OUT_OF_SEASON_CATEGORY_FILTER_VALUE, label: "Categorie di altre stagioni" },
     ],
     apply: (row, value) => {
       const wanted = asList(value);
       if (!wanted.length) return true;
+      /* Una riga fuori stagione ha l'id vero di una categoria che non e fra le opzioni: la si raggiunge dalla voce dedicata. */
+      if (isOutOfSeasonGroupId(row.groupId)) return wanted.includes(OUT_OF_SEASON_CATEGORY_FILTER_VALUE);
       return wanted.includes(row.categoryId || UNCATEGORIZED_CATEGORY_ID);
     },
   });
