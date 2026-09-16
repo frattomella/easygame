@@ -1327,3 +1327,20 @@ di vedere.
 > `null`, mentre importo, data e stato restano — servono a capire il periodo, e
 > non sono estremi bancari. Chi aggiunge un campo a quella proiezione deve
 > chiedersi in quale perimetro vive.
+
+## Persone in prova: cinque chiavi, e la conversione e della segreteria (ADR-0188, 2026-09-16)
+
+Il catalogo guadagna il dominio `trials` («Persone in prova»).
+
+| Chiave | Ruoli | Perche li |
+|--------|-------|-----------|
+| `trials.read` | gestione + allenatore | Vedere chi e in prova e la sua storia. L'allenatore la vede **nel proprio perimetro** (categoria e sede, ADR-0103): il dominio filtra, non la rotta |
+| `trials.manage` | gestione + allenatore | Registrare una persona nuova (tre campi) e modificarne i dati. E l'atto che si compie in palestra, alla prima prova: chiuderlo alla segreteria avrebbe rimesso il nome a mano sull'appello |
+| `trials.attendance` | gestione + allenatore | Segnare presente/assente a un evento. Per l'allenatore l'evento deve essere nel suo perimetro (`readTrainerEventPerimeter`) |
+| `trials.contacts_read` | gestione | Telefono, email, tutore. Un allenatore non li riceve: la rotta li toglie dalla risposta |
+| `trials.convert` | gestione | «Converti in atleta»: crea o collega una scheda, con le sue appartenenze. Crea anagrafica: e della segreteria, come `athletes.create` |
+
+Un ruolo personalizzato **restringe** come sempre (sottoinsieme delle chiavi
+della base, ADR-0102). Nessuna chiave concede un accesso o un tutore: la
+conversione non ne crea, e l'accesso EasyGame dell'atleta resta di
+`athlete-accounts.ts` (ADR-0104).

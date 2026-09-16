@@ -1481,3 +1481,27 @@ senza un trigger che serializzi ogni scrittura.
 **terzo**: `funding.ts` non importa `payment_transactions` e
 `installment-ledger.ts` non sa cosa sia un contributo (ADR-0037 §5), quindi la
 composizione dei due non puo vivere in nessuno dei due.
+
+## `trial_athletes` e `trial_attendances` — una persona in prova non e un atleta (ADR-0188, 2026-09-16)
+
+Migrazione `20260916120000_adr0188_atleti_in_prova`, **additiva**: due
+tabelle, quattro indici, nessun `UPDATE`/`DELETE` su righe esistenti.
+Applicata al solo branch `web-redesign-staging` (copia di sicurezza
+`br-falling-brook-alv2ag4l`); gli invarianti di D-RD-16 non la vedono.
+
+| Tabella | Colonne che contano | Regola |
+|---|---|---|
+| `trial_athletes` | `organization_id`, `first_name`, `last_name`, `birth_date` **NOT NULL**, `category_id`, `group_id`, `site_id`, `phone`, `email`, `guardian_name`, `guardian_phone`, `notes`, `status` (`in_trial` · `enrolled` · `declined`), `athlete_id` **UNIQUE** (i NULL fuori), `converted_at`, `declined_at` | l'identita stabile della persona in prova, tenant-scoped. `CHECK`: `status = enrolled OR athlete_id IS NULL` (una riga non iscritta non porta mai una scheda; una iscritta la porta, o l'ha persa perche la scheda e stata cancellata — la chiave esterna e `ON DELETE SET NULL`; seconda migrazione `20260916150000_adr0188_prova_senza_scheda_dopo_cancellazione`). Categoria, gruppo e sede sono **identificativi** del catalogo del club (ADR-0186), mai etichette. Contatti e tutore sono testo: **nessuna** riga in `users`, `athlete_guardians` o `athletes` |
+| `trial_attendances` | `organization_id`, `event_id` → `club_events`, `trial_athlete_id`, `status` (`present` · `absent`), `notes`, `recorded_at`, `recorded_by` | **una** per `(organization_id, event_id, trial_athlete_id)`. La presenza esiste solo dentro un evento: niente testo libero, niente data a mano |
+
+**Cosa si deriva e non si scrive.** Conteggio delle prove, prima e ultima,
+categorie/gruppi/sedi toccati: dalle presenze unite agli eventi. Nessuna
+colonna riassuntiva su `trial_athletes`.
+
+**La conversione.** `athletes.trial_origin` e l'inversa uno-a-uno di
+`trial_athletes.athlete_id`: la scheda atleta creata (dal registro generico,
+con le sue `athlete_category_memberships`) o collegata porta con se la storia
+della prova. La riga di prova **non si cancella**: diventa `enrolled`.
+
+**Un solo scrittore**: `src/lib/server/trial-athletes.ts`. Le due risorse non
+sono nel registro generico.

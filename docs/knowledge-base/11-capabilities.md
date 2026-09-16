@@ -571,3 +571,21 @@ dire «non ci riesco» che leggere la pagina sbagliata.
 | Guard di area su `/appuntamenti` e `/documenti` | **PARTIAL** | Le due schermate hanno il guscio e il prefisso nel middleware, ma `getPathAccessArea` non le riconosce come gestionali: risponde `public`, e per `public` il guard consente sempre. Un genitore con una sessione valida ne vede la **struttura**; i dati no, perche le API rifiutano. Vedi [08](08-roles-and-permissions.md) |
 | Export e cancellazione oltre l'atleta | PARZIALE, per scelta | Gli altri soggetti dei consensi — `person`, `member`, `guardian` — restano fuori dalla V1 |
 | Provider di error tracking | ASSENTE, **per decisione** | `src/lib/server/observability.ts` costruisce il punto d'innesto e non sceglie il provider: dove finiscono i dati, per quanto e sotto quale responsabile e una decisione di prodotto e di contratto, e [ADR-0007](18-decision-log.md) vieta di legarsi a un servizio proprietario senza prenderla |
+
+## Persone in prova — `COMPLETE` (ADR-0188, 2026-09-16)
+
+Percorso dal clic alla riga: allenatore o segreteria → Allenamenti → registro
+presenze → «+ Atleta in prova» → cerca (omonimi mostrati) → scegli o crea in
+tre campi → presente/assente → **Salva** → `trial_attendances` (una riga per
+evento e persona) e `trial_athletes` (se creata), con audit. Segreteria →
+Atleti → «Atleti in prova» → scheda → storia derivata → «Converti in atleta»
+(candidati esistenti proposti; crea o collega) → `athletes` +
+`athlete_category_memberships` + `trial_athletes.athlete_id`. Stati IN
+PROVA / ISCRITTO / NON PROSEGUE. Nessun account e nessun tutore creati.
+Tenant isolato e provato. Sul redesign le tabelle partono vuote.
+
+## Redesign delle aree famiglia, allenatore, atleta e dell'ambiente 3 — `COMPLETE` (ADR-0187, 2026-09-16)
+
+Rotte utente sulla V1: 0; miste: 0 (`docs/redesign/COMPLETION-PASS.md`).
+Scadenza convocazioni in Impostazioni → Gare e convocazioni (default 4, valori
+espliciti conservati). Marchio CediSoft con guardia di regressione.

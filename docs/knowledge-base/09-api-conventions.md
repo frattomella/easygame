@@ -1261,3 +1261,18 @@ dal `POST` con un corpo nudo, riscrive dal `PATCH` con un corpo nudo e rilegge
 dalla `GET`. Le risorse che il dominio rifiuta di creare dalla rotta generica —
 27 su 49, ognuna con la sua rotta propria — vengono **stampate con il motivo**,
 non saltate in silenzio.
+
+## Le persone in prova hanno rotte proprie, non risorse generiche (ADR-0188, 2026-09-16)
+
+`/api/v1/trial-athletes`, `/api/v1/trial-athletes/:id`,
+`/api/v1/trial-athletes/:id/convert`, `/api/v1/events/:id/trial-attendance`
+(`docs/api-registry.md` § Persone in prova). Il preambolo comune legge la
+sessione e risolve lo scope; il permesso lo verifica il **dominio**
+(`src/lib/server/trial-athletes.ts`) sul catalogo, e per l'allenatore applica
+il perimetro. Due scelte di forma:
+
+- la presenza di un evento si scrive **per sostituzione** (`PUT` con l'elenco
+  intero), come la convocazione: la riga e una per persona ed evento, e un
+  elenco parziale non e uno stato;
+- lo stato `enrolled` non e un valore ammesso dal `PATCH`: lo scrive solo
+  `/convert`, che e la sola rotta che sappia con quale `athlete_id`.

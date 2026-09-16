@@ -113,6 +113,12 @@ easygame/
 | `scripts/db-guard.mjs` | Blocca le scritture locali verso database condivisi. |
 | `scripts/censimento-appartenenze-legacy.mjs` | Censimento in sola lettura delle righe di `athlete_category_memberships` con l'etichetta al posto dell'identificativo (ADR-0185, D-RD-16). |
 | `src/lib/server/category-write-guard.ts` | Il vaglio del server su cio che si scrive come categoria (ADR-0186): il registro generico risolve il riferimento sul catalogo e scrive l'identificativo, o rifiuta. |
+| `src/lib/server/trial-athletes.ts` | **L'unico scrittore** di `trial_athletes` e `trial_attendances` (ADR-0188): ricerca degli omonimi, registrazione, presenze per evento, storia derivata, conversione in atleta che crea o collega senza duplicare. Perimetro dell'allenatore e recapiti applicati qui. |
+| `src/lib/trials/client.ts` | Il trasporto client delle quattro rotte delle persone in prova (passa da `api/client.ts`). |
+| `src/components/trials/v2/` | Elenco, scheda, cassetto di registrazione e cassetto di conversione delle persone in prova (`TrialAthletesPanel`, `TrialProfile`, `TrialFormDrawer`, `TrialConvertDrawer`, `use-trial-catalog`). |
+| `src/components/training/v2/TrialAttendanceSection.tsx` | La sezione «Atleta in prova» del registro presenze: cerca → scegli o crea → segna; salva prima del registro degli atleti. |
+| `src/components/web/shell/AreaShell.tsx`, `area-navigation.ts` | Il guscio unico delle aree famiglia, allenatore e atleta sulla `Sidebar`/`Topbar` del club; le voci di ogni area in un file solo (ADR-0187). |
+| `src/components/web/shell/OutsideShell.tsx` | Il guscio dell'ambiente 3 («fuori dal club»): accesso, recupero, conferma, invito, onboarding, moduli pubblici, pagamento con link; il solo «powered by CediSoft» (ADR-0187). |
 | `scripts/bonifica-appartenenze-fasi.mjs` + `scripts/lib/bonifica-fasi.mjs` + `scripts/lib/bonifica-guardie.mjs` | Le fasi B (proiezioni `athletes.data`) e C (nomi stantii) di D-RD-16, con le guardie comuni a tutte le bonifiche (un solo elenco di branch ammessi). |
 | `scripts/bonifica-appartenenze-legacy.mjs` + `scripts/lib/bonifica-appartenenze.mjs` | La bonifica D-RD-16: dry-run per default, scrittura solo con tutte le guardie del piano (`docs/redesign/D-RD-16-piano-bonifica-appartenenze.md`) e su un branch solo; le regole R1/R2/R3/R0 sono pure e provate su fixture (`tests/scripts/`). |
 | `EasyGame - Avvio Locale.bat`, `avvia-easygame.cmd`, `start-local.sh`, `scripts/start-local.*` | Launcher locali multi-piattaforma. |

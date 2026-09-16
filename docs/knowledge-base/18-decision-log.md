@@ -11899,3 +11899,335 @@ adeguati. Resta fuori, e documentato: `athlete-participation-utils.ts` tiene
 un risolutore locale per nome dentro `buildAthleteParticipationAnalytics`, che
 **nessuna** schermata chiama (codice irraggiungibile: D-RD-18).
 
+
+## ADR-0187 — Il redesign completa la Web: un guscio solo, le primitive `ui/*` come pelle del sistema, il contrasto sul cielo deciso nel sistema, il marchio CediSoft, la scadenza delle convocazioni in Impostazioni
+
+**Data:** 2026-09-16 · **Stato:** accettata · **Branch:** `feat/web-redesign`
+(ambiente `easygame-redesign-staging`, Neon `web-redesign-staging`). Estende
+ADR-0184 e chiude il lotto «Area allenatore, famiglia, atleta» di WP-RD.
+
+**Contesto.** Dopo le Wave A–E il gestionale era sul Web V2, ma tre aree
+intere — famiglia (`/parent-view`), allenatore (`/trainer-dashboard`), atleta
+(`/athlete-dashboard`) — e tutto l'ambiente «fuori dal club» (accesso,
+registrazione, recupero, OTP, conferma, invito, onboarding, pagina pubblica dei
+moduli, pagamento con link, stato iscrizione) erano ancora sulla V1: tre barre
+laterali proprie, tre menu mobile copiati a mano, un `AuthShell` con la sua
+tavolozza, la home dell'account con **testo scuro sul cielo** (contrasto sotto
+AA), il marchio «Francesco srl» nel piede. In piu ~90 componenti condivisi
+(moduli anagrafici, editor, dialoghi) montavano `src/components/ui/*` (shadcn)
+con le sue variabili HSL: riscriverli uno a uno avrebbe prodotto la seconda
+libreria di primitive che ADR-0184 vieta.
+
+**Decisione.**
+
+1. **Un guscio solo.** `AreaShell` (`src/components/web/shell/AreaShell.tsx`)
+   monta la stessa `Sidebar` e la stessa `Topbar` del club: la barra accetta
+   `groups` e `identity` (per la famiglia, il figlio con «Cambia figlio»; per
+   tutti, «Torna al mio account»), la topbar risolve il breadcrumb sui gruppi
+   dell'area (`ShellProvider.areaNav`, `useShellArea`) e in area **non**
+   disegna ricerca e azioni rapide del gestionale. Le voci di ogni area vivono
+   **una volta** in `area-navigation.ts` (`parentAreaNavGroups`,
+   `trainerAreaNavGroups(permissions)`, `ATHLETE_AREA_NAV_GROUPS`); la barra
+   sotto i 1024 px (`MobileTopBar`, riscritta sui token) deriva le proprie da
+   `visibleNavGroups` o da `toMobileNavSections(groups)`: lo stesso filtro per
+   ruolo della barra larga, nessun secondo elenco. Rimossi `ParentSidebar`,
+   `TrainerSidebar`, `athlete-sidebar`, `sidebar-item-tooltip`,
+   `AppBackButton`, `profile-modal`, `ClubCreationForm`, `AttendanceSheet`,
+   `src/lib/auth.ts` (zero riferimenti).
+2. **L'ambiente 3 ha un guscio suo**, `OutsideShell` (`OutsideHeading`,
+   `OutsideStatus`): quattro larghezze (form 440, stepper 560, wide 720,
+   full 960), modo `bare`, il **solo** «powered by CediSoft» del prodotto.
+   `AuthShell`, `PasswordResetShell`, `/auth/complete`, `/onboarding`,
+   l'invito dell'atleta, la scelta del figlio, la pagina pubblica dei moduli,
+   `/pay/[token]`, `/iscrizione/[reference]` vi si appoggiano; la **logica**
+   di autenticazione (OTP, OAuth, sessioni, rinvii, policy in `src/lib/auth/`)
+   non e cambiata di una riga — la migrazione e di sola resa.
+3. **Le primitive `ui/*` sono pelli del sistema, non una seconda libreria.**
+   Le variabili shadcn in `globals.css` sono **alias** dei token `--egw-*`
+   (un sistema, due grafie); button, card, badge, input, select, dialog, tabs,
+   checkbox, switch, table, tooltip, popover, sheet vestono raggi, ombre e
+   font del Web V2; le varianti del bottone si mappano sulla gerarchia EGDS
+   (`default` → navy neutro, `destructive` → contorno rosso mai un
+   riempimento, `outline` → secondario, `blue` → gradiente d'azione). I
+   consumatori condivisi convergono **senza riscrittura**; il vocabolario
+   Tailwind legacy nelle aree e nei componenti condivisi e stato riscritto
+   per **mappa semantica** (colore per colore, raggio per raggio) e i colori
+   che sono **dati** del club (`categories.color` porta la classe) restano
+   com'erano: una categoria salvata ieri si legge oggi con lo stesso colore.
+4. **Il contrasto sul cielo si decide nel sistema.** `SkyProvider`/`useOnSky`
+   (`Surface.tsx`): chi disegna dentro la banda cielo lo sa, `Panel` lo
+   azzera per i propri figli, `AlertBlock` sul cielo e bianco opaco. Nessuna
+   pagina porta una correzione locale; la regola «TESTO SCURO SU SCURO/CIELO
+   = 0» e una prova statica (`tests/ui/contrasto-sul-cielo.test.mjs`).
+5. **Gli stati sono parole in una pillola.** `src/lib/web/status.ts` porta
+   anche `DOSSIER_STATUS`, `APPOINTMENT_STATUS` (otto stati, i due annullati
+   distinti), `ENROLMENT_REQUEST_STATUS`, `CONSENT_STATUS`, `READ_STATUS`,
+   `TRIAL_STATUS`; le tre aree usano `StatusPill`/`DataChip`/`KpiCard`/
+   `EmptyStateCard`/`MembershipRoleBadge`; `getFamilyDocumentStateClassName`
+   e i `Badge` con classi proprie sono rimossi. Il ruolo dell'appartenenza
+   resta in un elemento suo (ADR-0185 §5).
+6. **Il marchio e CediSoft.** «Francesco srl» e «powered by Francesco srl»
+   non esistono piu nel prodotto; il piede dell'ambiente 3 dice «powered by
+   CediSoft»; `tests/ui/branding-cedisoft.test.mjs` e la guardia di
+   regressione. Autore git, metadati del pacchetto e dati storici non si
+   toccano.
+7. **Il programma settimanale cambia pelle, non motore.** Contenitore, card
+   di struttura e sessione, barra dei comandi, banner d'impatto e stato vuoto
+   sono sui pezzi del sistema; ricorrenza, generazione, orizzonte di 21 giorni,
+   scheduler, idempotenza, identita delle occorrenze, `club_events`, conflitti,
+   annullamento e override manuale (ADR-0098, mandato Weekly Program) **non
+   sono stati toccati**.
+8. **La scadenza delle convocazioni vive in Impostazioni → Gare e
+   convocazioni**, non nel programma settimanale. Un'autorita sola:
+   `getMatchConvocationDeadlineDays` (`src/lib/trainer-operational-alerts.ts`),
+   chiave `clubs.settings.matchConvocationDeadlineDays`, **default 4**,
+   intervallo 0–30 (`DEFAULT_MATCH_CONVOCATION_DEADLINE_DAYS`,
+   `MATCH_CONVOCATION_DEADLINE_RANGE`). Un valore esplicito si conserva; un
+   club senza valore legge 4; nessuna riscrittura di massa. La pagina Gare
+   **legge** e rimanda a `/settings?tab=gare`, non scrive piu
+   (`tests/lib/scadenza-convocazioni-impostazioni.test.mjs`: manca → 4,
+   scritto 4 → 4, personalizzato → personalizzato, esistente → conservato).
+9. **La proiezione delle appartenenze dice le righe come stanno.** Il writer
+   client salvava `athletes.data.categoryMemberships` **prima** delle righe,
+   con gli identificativi sintetici che il client compone
+   (`<categoria>:membership`); l'archivio coniava poi il proprio UUID e la
+   proiezione restava a dire una riga inesistente — il censimento D-RD-16 lo
+   misura come `data_cm_entries_not_backed_by_row` e `rows_not_projected`,
+   ed e cosi che una modifica dell'utente sul club pilota (2026-09-16 02:05Z,
+   atleta R3) l'ha portato da 0 a 1 **prima** di questo lotto.
+   `replaceAthleteMemberships` ora rilegge l'identificativo coniato e
+   `riallineaProiezioneAppartenenze` riscrive la proiezione **solo se** dice
+   qualcosa di diverso (`tests/lib/proiezione-appartenenze-riallineata.test.mjs`).
+   Le righe esistenti non si toccano (nessuna bonifica: CLAUDE.md §8).
+
+**Perimetro e prove.** Rotte utente sulla V1: **0**; miste: **0**
+(censimento in `docs/redesign/COMPLETION-PASS.md`). Restano fuori, e
+dichiarati: `/private/*` (amministrazione di piattaforma e anteprime email,
+non raggiungibili da un ruolo di club), i pannelli dei pagamenti e dei voucher
+a fondo scuro (`src/components/payments/*`, `funding/*`: la famiglia «editor
+V1 avvolti» gia aperta in WP-RD, testo chiaro su scuro, non scuro su scuro) e
+`ui/chat.tsx`/`ui/timer-badge.tsx` (nessun consumatore). Responsive verificato
+a 375/768/1280/1440. File del mobile modificati: **0**.
+
+**Revisione ostile** (tre revisori in sola lettura: completamento del
+design e accessibilita; dominio delle prove e sicurezza; dati e integrazione).
+Alla chiusura: Critical 0, High 0. Cio che ha trovato e come e stato chiuso:
+
+- *Critical* — l'area famiglia passava a `StatusPill` le parole grezze
+  dell'API (`upcoming`, `confirmed` delle prenotazioni) e ogni evento
+  futuro si leggeva «NON REGISTRATO»: `upcoming` e ora un alias di
+  `ACTIVITY_STATUS.scheduled` e le prenotazioni hanno `BOOKING_STATUS`.
+- *High* — sotto i 1024 px l'identita dell'area (il figlio, «Cambia figlio»,
+  «Torna al mio account») non arrivava al menu: `MobileTopBar` riceve
+  `identity` da `Topbar`/`AreaShell` e la disegna in cima; l'intestazione
+  dice chi si guarda. — Il testo sotto l'ultimo pannello dello stato
+  iscrizione e la `ProgressBar` dell'onboarding poggiavano scuri sul cielo:
+  `ProgressBar` legge `useOnSky()`. — Un'area senza `identity` ricadeva sul
+  blocco del club con «Stagioni del club» (azione di gestione, rimbalzata a
+  un allenatore): `AreaShell` ha sempre un'identita d'area con la sola
+  uscita verso l'account. — Il salvataggio delle presenze di prova falliva
+  in silenzio e fermava l'appello: l'errore si dice e ferma tutto. — La
+  conversione scriveva una proiezione con `id: ""` e non era atomica: la
+  riga di prova si **prende** prima (`converted_at`, `updateMany`
+  condizionato), la proiezione dice le righe coniate, un fallimento rilascia.
+- *Medium* — `saveClubSettings` rileggeva e riscriveva `settings` intero
+  (una scheda vecchia riportava indietro la scadenza salvata altrove): ora
+  manda solo le proprie chiavi in `settings_patch`, fuse dal server sotto
+  lock. — L'import scriveva identificativi sintetici nella proiezione: le
+  righe si inseriscono con `.select()` e la proiezione si riallinea. — La
+  prima scrittura della scheda porta gia gli identificativi delle righe
+  esistenti (`conIdentificativiDelleRighe`), cosi la seconda scrittura
+  serve solo alle righe nuove. — Una presenza di prova segnata per sbaglio
+  non si poteva togliere: `status: null` cancella la riga. — La dashboard
+  dell'allenatore partiva da 2 giorni: parte da
+  `getMatchConvocationDeadlineDays({})`. — La card del figlio aveva un
+  `aria-label` che nascondeva stato e categorie; i caricamenti sono
+  `role="status"` con testo; il club si dice sempre sulla card. —
+  `MarkControl` (la casella a tre stati) e uno solo, in `MarkControl.tsx`,
+  per atleti e persone in prova; le pagine pubbliche usano `StatusPill`,
+  `AlertBlock` e il bottone del sistema; la scelta «Utente/Club» e un
+  `radiogroup` con le frecce (`SegmentedControl mode="radio"`); i 29
+  `Badge` con classi proprie dell'area allenatore sono `StatusPill`/
+  `DataChip`/`MembershipRoleBadge` (`TRAINER_DOCUMENT_STATUS_SPEC` al posto
+  delle classi).
+- *Low* — `ui/button` non forza piu `shrink-0`/`whitespace-nowrap` (a 375
+  px i bottoni in riga traboccavano); `mobile-layout-wrapper` e
+  `ui/mobile-header` (legacy, non montati) tolti; `layout.tsx` sui token; un
+  campo scadenza svuotato torna al default e non a 0; niente freccia
+  «indietro» in «Atleti in prova»; `isMissingAthleteMembershipResource` non
+  ingoia piu un errore di colonna.
+
+Restano dichiarati e non chiusi (Low): i pannelli a fondo scuro dei
+pagamenti (D-RD-19) e `/private/*` (D-RD-20).
+
+**Revisione ostile** (tre revisori in sola lettura: completamento del
+design e accessibilita; dominio delle prove e sicurezza; dati e integrazione).
+Alla chiusura: Critical 0, High 0. Cio che ha trovato e come e stato chiuso:
+
+- *Critical* — l'area famiglia passava a `StatusPill` le parole grezze
+  dell'API (`upcoming`, `confirmed` delle prenotazioni) e ogni evento
+  futuro si leggeva «NON REGISTRATO»: `upcoming` e ora un alias di
+  `ACTIVITY_STATUS.scheduled` e le prenotazioni hanno `BOOKING_STATUS`.
+- *High* — sotto i 1024 px l'identita dell'area (il figlio, «Cambia figlio»,
+  «Torna al mio account») non arrivava al menu: `MobileTopBar` riceve
+  `identity` da `Topbar`/`AreaShell` e la disegna in cima; l'intestazione
+  dice chi si guarda. — Il testo sotto l'ultimo pannello dello stato
+  iscrizione e la `ProgressBar` dell'onboarding poggiavano scuri sul cielo:
+  `ProgressBar` legge `useOnSky()`. — Un'area senza `identity` ricadeva sul
+  blocco del club con «Stagioni del club» (azione di gestione, rimbalzata a
+  un allenatore): `AreaShell` ha sempre un'identita d'area con la sola
+  uscita verso l'account. — Il salvataggio delle presenze di prova falliva
+  in silenzio e fermava l'appello: l'errore si dice e ferma tutto. — La
+  conversione scriveva una proiezione con `id: ""` e non era atomica: la
+  riga di prova si **prende** prima (`converted_at`, `updateMany`
+  condizionato), la proiezione dice le righe coniate, un fallimento rilascia.
+- *Medium* — `saveClubSettings` rileggeva e riscriveva `settings` intero
+  (una scheda vecchia riportava indietro la scadenza salvata altrove): ora
+  manda solo le proprie chiavi in `settings_patch`, fuse dal server sotto
+  lock. — L'import scriveva identificativi sintetici nella proiezione: le
+  righe si inseriscono con `.select()` e la proiezione si riallinea. — La
+  prima scrittura della scheda porta gia gli identificativi delle righe
+  esistenti (`conIdentificativiDelleRighe`), cosi la seconda scrittura
+  serve solo alle righe nuove. — Una presenza di prova segnata per sbaglio
+  non si poteva togliere: `status: null` cancella la riga. — La dashboard
+  dell'allenatore partiva da 2 giorni: parte da
+  `getMatchConvocationDeadlineDays({})`. — La card del figlio aveva un
+  `aria-label` che nascondeva stato e categorie; i caricamenti sono
+  `role="status"` con testo; il club si dice sempre sulla card. —
+  `MarkControl` (la casella a tre stati) e uno solo, in `MarkControl.tsx`,
+  per atleti e persone in prova; le pagine pubbliche usano `StatusPill`,
+  `AlertBlock` e il bottone del sistema; la scelta «Utente/Club» e un
+  `radiogroup` con le frecce (`SegmentedControl mode="radio"`); i 29
+  `Badge` con classi proprie dell'area allenatore sono `StatusPill`/
+  `DataChip`/`MembershipRoleBadge` (`TRAINER_DOCUMENT_STATUS_SPEC` al posto
+  delle classi).
+- *Low* — `ui/button` non forza piu `shrink-0`/`whitespace-nowrap` (a 375
+  px i bottoni in riga traboccavano); `mobile-layout-wrapper` e
+  `ui/mobile-header` (legacy, non montati) tolti; `layout.tsx` sui token; un
+  campo scadenza svuotato torna al default e non a 0; niente freccia
+  «indietro» in «Atleti in prova»; `isMissingAthleteMembershipResource` non
+  ingoia piu un errore di colonna.
+
+Restano dichiarati e non chiusi (Low): i pannelli a fondo scuro dei
+pagamenti (D-RD-19) e `/private/*` (D-RD-20).
+
+## ADR-0188 — Una persona in prova non e un atleta: un'entita sua, con un'identita stabile, presenze che non sono testo libero e una conversione che non duplica
+
+**Data:** 2026-09-16 · **Stato:** accettata · **Migrazione:**
+`20260916120000_adr0188_atleti_in_prova` + `20260916150000_adr0188_prova_senza_scheda_dopo_cancellazione` (additive; applicate solo a
+`web-redesign-staging`, copia di sicurezza `br-falling-brook-alv2ag4l`).
+
+**Contesto.** Chi viene ad allenarsi prima di iscriversi non aveva un posto:
+finiva come nome scritto a mano nell'appello, come atleta «finto» in una
+categoria di comodo, o da nessuna parte. Tre forme dello stesso difetto: la
+storia delle presenze si perdeva, l'anagrafica si contaminava (una categoria
+«Prova» e un'identita falsa: ADR-0185), e alla conversione si creava un
+doppione. Serviva un dominio, non un flag.
+
+**Decisione.**
+
+1. **Due tabelle, nessuna riga finta in `athletes`.** `trial_athletes`
+   (identita stabile, tenant-scoped: nome, cognome, **data di nascita
+   obbligatoria**, categoria/gruppo/sede canonici per identificativo,
+   contatti e tutore **facoltativi come testo** — nessun account, nessun
+   tutore in `athlete_guardians`; `status` in `in_trial | enrolled | declined`;
+   `athlete_id` **unico**, con un `CHECK` per cui una riga non iscritta non porta mai una scheda — `status = enrolled OR athlete_id IS NULL`, tollerante al `SET NULL` della cancellazione) e
+   `trial_attendances` (**una** per `(club, evento, persona)`, `status` in
+   `present | absent`, note). Un atleta iscritto porta `trial_origin` (l'inversa
+   uno-a-uno): la storia della prova sopravvive alla conversione.
+2. **Un solo scrittore**: `src/lib/server/trial-athletes.ts`. Il registro
+   generico non conosce le due risorse. La categoria passa da
+   `loadClubCategoryCatalog`/`canonicalizeCategoryReferenceForWrite`
+   (ADR-0186): un nome non si scrive mai come identificativo; sede e gruppo
+   si accettano solo se esistono nel catalogo del club letto con gli stessi
+   normalizzatori della scheda atleta (`normalizeClubSites`,
+   `buildCategoryGroups`), e un gruppo implicito non e una scelta.
+3. **La presenza si registra dal registro presenze dell'allenamento**
+   («+ Atleta in prova»: cerca → scegli o crea in tre campi → segna), con
+   l'evento come chiave: mai testo libero, mai fuori da un evento. Prima di
+   creare si **cerca** (`searchTrialAthletes`: nome, cognome, data) e gli
+   omonimi si mostrano; **nessuna fusione automatica**.
+4. **La storia si deriva**, non si scrive: conteggio, prima e ultima presenza,
+   elenco, categorie/gruppi/sedi toccati vengono da `trial_attendances` unite
+   agli eventi. Nessuna colonna riassuntiva.
+5. **Ciclo di vita**: IN PROVA → ISCRITTO (solo per conversione) oppure NON
+   PROSEGUE (reversibile in IN PROVA). `TRIAL_STATUS` in `status.ts`; lo stato
+   e una parola in una pillola.
+6. **«Converti in atleta» non duplica.** Prima si cercano i candidati
+   esistenti (`findAthleteCandidates`: stesso cognome+nome, stessa data di
+   nascita) e la persona sceglie: **collegare** un atleta esistente o crearne
+   uno nuovo con `createResource("simplified_athletes")` +
+   `athlete_category_memberships` (il writer canonico, non un `INSERT`
+   proprio). In entrambi i casi la prova diventa `enrolled`, `athlete_id` la
+   punta, presenze e audit restano; nessun account e nessun tutore vengono
+   creati.
+7. **Cinque chiavi nel catalogo** (dominio `trials`, «Persone in prova»):
+   `trials.read`, `trials.manage`, `trials.attendance` a GESTIONE e
+   allenatore; `trials.contacts_read` e `trials.convert` a GESTIONE soltanto.
+   L'allenatore vede e registra **nel proprio perimetro** (evento dentro
+   `readTrainerEventPerimeter`, categoria dentro `accessScopeAllows`); la
+   conversione e della segreteria. Un ruolo personalizzato restringe come
+   sempre (ADR-0102).
+8. **Tenant**: ogni lettura e scrittura porta `organization_id` dallo scope
+   risolto, mai dal client; una prova di un altro club non si legge, non si
+   segna, non si converte (provato).
+9. **Audit**: `trial_athlete.created/updated/status_changed/converted`,
+   `trial_attendance.recorded`.
+10. **Stagione**: una prova non appartiene a una stagione; le presenze
+    portano la data dell'evento e si filtrano per stagione dove serve. Chi
+    non prosegue e torna l'anno dopo e la **stessa** persona (stessa riga,
+    stessa storia).
+
+**Rotte** (`src/lib/api/registry.ts`): `GET/POST /api/v1/trial-athletes`,
+`GET/PATCH /api/v1/trial-athletes/:id`, `POST /api/v1/trial-athletes/:id/convert`,
+`GET/PUT /api/v1/events/:id/trial-attendance`. **Schermate**: «Atleti in
+prova» (`/athletes/in-prova`, `/athletes/in-prova/[id]`) dentro l'area Atleti
+— una vista, non una categoria; sezione «Persone in prova» nella bacheca
+dell'allenatore; `TrialAttendanceSection` dentro `AttendanceDrawer`.
+const fs = require("fs");
+const rep = (p, a, b) => { let s = fs.readFileSync(p, "utf8"); if (!s.includes(a)) { if (s.includes(b)) return; console.error("MISSING in " + p + ": " + a.slice(0, 200)); process.exit(1); } fs.writeFileSync(p, s.replace(a, b)); console.log("rep", p); };
+const dl = "docs/knowledge-base/18-decision-log.md";
+
+rep(dl, `Responsive verificato
+a 375/768/1280/1440. File del mobile modificati: **0**.`,
+`Responsive verificato
+a 375/768/1280/1440. File del mobile modificati: **0**.
+
+**Revisione ostile** (tre revisori in sola lettura: completamento del
+design e accessibilita; dominio delle prove e sicurezza; dati e integrazione).
+Alla chiusura: Critical 0, High 0. Cio che ha trovato e come e stato chiuso:
+
+- *Critical* — l'area famiglia passava a \`StatusPill\` le parole grezze
+  dell'API (\`upcoming\`, \`confirmed\` delle prenotazioni) e ogni evento
+  futuro si leggeva «NON REGISTRATO»: \`upcoming\` e ora un alias di
+  \`ACTIVITY_STATUS.scheduled\` e le prenotazioni hanno \`BOOKING_STATUS\`.
+- *High* — sotto i 1024 px l'identita dell'area (il figlio, «Cambia figlio»,
+  «Torna al mio account») non arrivava al menu: \`MobileTopBar\` riceve
+  \`identity\` da \`Topbar\`/\`AreaShell\` e la disegna in cima; l'intestazione
+  dice chi si guarda. — Il testo sotto l'ultimo pannello dello stato
+  iscrizione e la \`ProgressBar\` dell'onboarding poggiavano scuri sul cielo:
+  \`ProgressBar\` legge \`useOnSky()\`. — Un'area senza \`identity\` ricadeva sul
+  blocco del club con «Stagioni del club» (azione di gestione, rimbalzata a
+  un allenatore): \`AreaShell\` ha sempre un'identita d'area con la sola
+  uscita verso l'account. — Il salvataggio delle presenze di prova falliva
+  in silenzio e fermava l'appello: l'errore si dice e ferma tutto. — La
+  conversione scriveva una proiezione con \`id: ""\` e non era atomica: la
+  riga di prova si **prende** prima (\`converted_at\`, \`updateMany\`
+  condizionato), la proiezione dice le righe coniate, un fallimento rilascia.
+- *Medium* — \`saveClubSettings\` rileggeva e riscriveva \`settings\` intero
+  (una scheda vecchia riportava indietro la scadenza salvata altrove): ora
+  manda solo le proprie chiavi in \`settings_patch\`, fuse dal server sotto
+  lock. — L'import scriveva identificativi sintetici nella proiezione: le
+  righe si inseriscono con \`.select()\` e la proiezione si riallinea. — La
+  prima scrittura della scheda porta gia gli identificativi delle righe
+  esistenti (\`conIdentificativiDelleRighe\`), cosi la seconda scrittura
+  serve solo alle righe nuove. — Una presenza di prova segnata per sbaglio
+  non si poteva togliere: \`status: null\` cancella la riga. — La dashboard
+  dell'allenatore partiva da 2 giorni: parte da
+  \`getMatchConvocationDeadlineDays({})\`. — La card del figlio aveva un
+  \`aria-label\` che nascondeva stato e categorie; i caricamenti sono
+  \`role="status"\` con testo; il club si dice sempre sulla card. —
+  \`MarkControl\` (la casella a tre stati) e uno solo, in \`MarkControl.tsx\`,
+  per atleti e persone in prova; le pagine pubbliche usano \`StatusPill\`,
+  \`AlertBlock\` e il bottone del sistema; la scelta «Utente/Club» e un
+  \`radiogroup\` con le frecce (\`SegmentedControl mode="radio"\

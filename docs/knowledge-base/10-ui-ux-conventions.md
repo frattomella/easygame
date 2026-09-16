@@ -1324,3 +1324,24 @@ sa accendere non e una funzione.
 
 La scadenza senza la richiesta di conferma non viene scritta: sarebbe uno stato
 in cui nessuno sa cosa succede al passaggio della data.
+
+## Un guscio solo, e il contrasto si decide nel sistema (2026-09-16, ADR-0187)
+
+- Le aree famiglia, allenatore e atleta montano `AreaShell`: la stessa
+  `Sidebar`/`Topbar` del club con `groups` e `identity` propri. Le voci
+  stanno **una volta** in `area-navigation.ts`; il menu sotto i 1024 px le
+  deriva da li. Non si scrive una seconda barra.
+- L'ambiente 3 monta `OutsideShell` (form 440 / stepper 560 / wide 720 /
+  full 960, `bare`). Il credito «powered by CediSoft» sta **solo** li.
+- Dentro la banda cielo si disegna con `useOnSky()`: `Panel` azzera il
+  contesto per i figli, `AlertBlock` sul cielo e bianco opaco. Testo scuro
+  direttamente sul cielo o su un fondo scuro: **zero**, provato da
+  `tests/ui/contrasto-sul-cielo.test.mjs`.
+- Le primitive `ui/*` sono pelli del sistema (variabili shadcn = alias dei
+  token). Un componente condiviso non ha bisogno di essere riscritto per
+  vestire il Web V2; non si aggiunge un colore Tailwind della tavolozza legacy
+  (`slate-*`, `blue-500`, …) a un file utente. I colori che sono **dati**
+  (`categories.color`) restano com'erano.
+- Lo stato di una persona in prova e `TRIAL_STATUS` (IN PROVA contorno ambra,
+  ISCRITTO pieno verde, NON PROSEGUE neutro quieto): una parola in una
+  pillola, mai un colore da solo.
