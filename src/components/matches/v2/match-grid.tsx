@@ -175,10 +175,13 @@ export const buildMatchColumns = ({
   siteNameOf,
   warningOf,
   rsvpOf,
+  categoryLabel = (row) => row.category,
 }: {
   siteNameOf: (row: MatchRecord) => string;
   warningOf: (row: MatchRecord) => MatchCertificateWarningResult;
   rsvpOf?: (row: MatchRecord) => RsvpCounts;
+  /** Come si scrive la categoria (ADR-0185): lo dice la pagina con il suo indice; la riga porta solo il nome salvato. */
+  categoryLabel?: (row: MatchRecord) => string;
 }): ColumnDef<MatchRecord>[] => [
   {
     id: "data",
@@ -248,11 +251,12 @@ export const buildMatchColumns = ({
     kind: "chips",
     minWidth: 130,
     cell: (row) => (
-      <DataChip tone="blue" size="sm" title={row.category}>
-        {row.category || "Categoria"}
+      <DataChip tone="blue" size="sm" title={categoryLabel(row)}>
+        {categoryLabel(row) || "Categoria"}
       </DataChip>
     ),
-    sortValue: (row) => row.category,
+    sortValue: (row) => categoryLabel(row),
+    exportValue: (row) => categoryLabel(row),
   },
   {
     id: "luogo",

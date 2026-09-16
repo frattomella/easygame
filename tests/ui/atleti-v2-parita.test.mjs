@@ -109,7 +109,8 @@ test("§2.1 · le colonne della V1 ci sono tutte, con le stesse etichette di esp
   assert.match(colonne, /<IdentityCell/);
   assert.match(
     colonne,
-    /Categoria primaria: \$\{row\.primaryCategoryLabel \|\| "Non definita"\}/,
+    /* ADR-0186: la primaria si scrive con l\x27indice della pagina (sede accanto dove serve), a partire dall\x27identificativo. */
+    /Categoria primaria: \$\{\s*row\.primaryCategoryId\s*\?\s*categoryLabel\(\{/,
   );
   assert.ok(
     colonne.includes("Secondaria"),

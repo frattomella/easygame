@@ -50,6 +50,7 @@ import {
   getAthleteDisplayName,
 } from "@/lib/athlete-name-utils";
 import { calculateCategoryAthleteStats } from "@/lib/category-athlete-stats";
+import { membershipRoleLabel } from "@/lib/categories/display";
 import { normalizeAthleteCategoryMemberships } from "@/lib/athlete-category-memberships";
 
 type TrainerAthleteRow = {
@@ -381,9 +382,7 @@ export default function TrainerAthletesDashboardPage() {
                               : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50"
                           }
                         >
-                          {athlete.membershipType === "secondary"
-                            ? "Secondaria"
-                            : "Primaria"}
+                          {membershipRoleLabel(athlete.membershipType !== "secondary")}
                         </Badge>
                       </div>
                     </div>

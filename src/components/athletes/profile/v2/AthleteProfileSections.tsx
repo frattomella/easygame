@@ -8,7 +8,8 @@ import { InsetBlock, Eyebrow, Hairline } from "@/components/web/primitives/Surfa
 import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
 import { ProgressBar } from "@/components/web/primitives/Controls";
 import { formatDateShort, formatDateTime, joinMeta, MISSING } from "@/lib/web/format";
-import { CategoryLabel } from "@/components/categories/category-label";
+import { CategoryLabel, MembershipRoleBadge } from "@/components/categories/category-label";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import type { CategoryGroupLike } from "@/lib/categories/display";
 import {
   formatParentAccessToken,
@@ -46,6 +47,11 @@ export function AthleteAnagraficaCard({
   categoryGroups: readonly CategoryGroupLike[];
   onEdit: () => void;
 }) {
+  /* Un indice per la card, non uno per chip (D-RD-17 d). */
+  const categoryDisplay = React.useMemo(
+    () => buildCategoryDisplayIndex({ categories: categoryCatalog, groups: categoryGroups }),
+    [categoryCatalog, categoryGroups],
+  );
   return (
     <DetailCard
       className="scroll-mt-24"
@@ -69,10 +75,9 @@ export function AthleteAnagraficaCard({
                 <DataChip key={`athlete-general-category-${membership.categoryId}`} tone={membership.isPrimary ? "blue" : "neutral"} size="sm">
                   <CategoryLabel
                     category={{ categoryId: membership.categoryId, categoryName: membership.categoryName }}
-                    categories={categoryCatalog}
-                    groups={categoryGroups}
+                    index={categoryDisplay}
                   />
-                  {membership.isPrimary ? " · Primaria" : " · Secondaria"}
+                  <MembershipRoleBadge isPrimary={membership.isPrimary} />
                 </DataChip>
               ))}
             </span>

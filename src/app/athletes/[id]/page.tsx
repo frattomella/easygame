@@ -65,6 +65,7 @@ import {
   normalizeClubSites,
   type ClubSite,
 } from "@/lib/club-sites";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import { AthleteRegistrationsPanel } from "@/components/athletes/profile/athlete-registrations-panel";
 import { AthleteRegistrationDialog } from "@/components/athletes/profile/athlete-registration-dialog";
 import {
@@ -296,6 +297,16 @@ export default function AthleteProfilePage() {
         groups: clubCategoryGroupsRaw,
       }),
     [clubCategoryOptions, clubSites, clubCategoryGroupsRaw],
+  );
+  /* Come si scrive una categoria in questa scheda (ADR-0185): un indice, per ogni sezione che lo chiede. */
+  const categoryDisplay = React.useMemo(
+    () =>
+      buildCategoryDisplayIndex({
+        categories: clubCategoryOptions,
+        groups: clubCategoryGroups,
+        sites: clubSites,
+      }),
+    [clubCategoryOptions, clubCategoryGroups, clubSites],
   );
   const [athleteCategoryAnalytics, setAthleteCategoryAnalytics] =
     useState<AthleteCategoryAnalyticsResult>(EMPTY_ATHLETE_CATEGORY_ANALYTICS);
@@ -1322,8 +1333,27 @@ export default function AthleteProfilePage() {
     }
 
     const { updateClubAthlete } = await import("@/lib/simplified-db");
+    /*
+      **Un certificato non e un cambio di categoria** (ADR-0185 §8, revisione
+      ostile A6/C-R2). `...athlete` porterebbe le appartenenze, e il writer
+      le rileggerebbe come dichiarate: su una scheda con una riga storica
+      non ancora bonificata il salvataggio di un documento fallirebbe, o
+      riscriverebbe righe che nessuno ha toccato. Le categorie partono solo
+      dal cassetto che le modifica.
+    */
+    const {
+      categoryMemberships: _cm,
+      category_memberships: _cms,
+      memberships: _m,
+      categories: _c,
+      category: _cat,
+      category_id: _cid,
+      categoryName: _cn,
+      category_name: _cns,
+      ...atletaSenzaCategorie
+    } = athlete as Record<string, any>;
     const nextAthlete = {
-      ...athlete,
+      ...atletaSenzaCategorie,
       ...athleteOverrides,
       guardians: guardiansOverride,
       registrations: registrationsOverride,
@@ -3898,7 +3928,10 @@ export default function AthleteProfilePage() {
                 */}
                 <section id={ATHLETE_RECORD_SECTIONS.analitiche} className="scroll-mt-24">
                   <Eyebrow className="mb-3">Presenze e convocazioni</Eyebrow>
-                  <AthleteCategoryAnalyticsSection analytics={athleteCategoryAnalytics} />
+                  <AthleteCategoryAnalyticsSection
+                    analytics={athleteCategoryAnalytics}
+                    categoryLabel={(reference) => categoryDisplay.label(reference)}
+                  />
                 </section>
 
                 <AthleteClothingPanel

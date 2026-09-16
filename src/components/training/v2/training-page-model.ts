@@ -25,6 +25,8 @@ export interface TrainingSession {
   time: string;
   endTime?: string | null;
   category: string;
+  /** Il nome com'e in archivio: cio che si riscrive, mentre `category` e l'etichetta a schermo (ADR-0186). */
+  categoryName?: string | null;
   categoryId?: string | null;
   categoryReferences?: string[];
   /**

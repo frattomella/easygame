@@ -242,6 +242,9 @@ const buildAthleteCategoryClearPayload = (athlete: any, category: any) => {
     .map((membership, index, memberships) => ({
       category_id: membership.categoryId,
       category_name: membership.categoryName,
+      /* La sede e il nome com'era sulla riga restano (ADR-0185 §8, revisione ostile C-R5): togliere una categoria non scollega le altre dalla loro sede. */
+      stored_category_name: membership.storedCategoryName,
+      site_id: membership.siteId,
       is_primary:
         membership.isPrimary ||
         !memberships.some((candidate) => candidate.isPrimary) && index === 0,

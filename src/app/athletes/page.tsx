@@ -70,6 +70,7 @@ import { describeSelection } from "@/lib/list-selection";
 import { printPeoplePdf } from "@/lib/people-pdf-export";
 import { csvFileName, downloadCsv, toCsv } from "@/lib/csv";
 import { buildCategoryDisplayIndex } from "@/lib/categories/display";
+import { resolveCategoryReference } from "@/lib/categories/identity";
 import {
   buildCategoryGroups,
   labelCategoryGroupOptions,
@@ -329,6 +330,7 @@ const buildAthleteRows = (
           ) || UNCATEGORIZED_CATEGORY_ID,
         primaryCategoryLabel:
           primaryMembership?.categoryName || categoryLabel || "Senza categoria",
+        primaryCategoryId: primaryMembership?.categoryId || categoryId || null,
         allCategoryLabels: rowMemberships.map((item) => item.categoryName),
         age: athlete.birth_date
           ? new Date().getFullYear() -
@@ -829,16 +831,14 @@ export default function AthletesPage() {
     }
 
     let currentCategories = [...categories];
-    const categoryIdByKey = new Map<string, string>();
-
-    currentCategories.forEach((category) => {
-      const normalizedKey = normalizeCategoryKey(
-        category.name || category.id || "",
+    const failed: AthleteImportOutcome["failed"] = [];
+    /* Esiste una categoria con questo nome? Domanda di esistenza, non di identita: la risoluzione e piu sotto. */
+    const esisteConNome = (etichetta: string) => {
+      const chiave = normalizeCategoryKey(etichetta);
+      return Boolean(chiave) && currentCategories.some(
+        (category) => normalizeCategoryKey(category.name || category.id || "") === chiave,
       );
-      if (normalizedKey) {
-        categoryIdByKey.set(normalizedKey, category.id);
-      }
-    });
+    };
 
     const categoriesToCreate = new Map<
       string,
@@ -858,7 +858,7 @@ export default function AthletesPage() {
             currentCategories.some(
               (category) => category.id === row.categoryId,
             ),
-        ) || categoryIdByKey.has(normalizedLabel);
+        ) || esisteConNome(row.categoryLabel || "");
 
       if (!normalizedLabel || hasExistingCategory) {
         return;
@@ -916,7 +916,6 @@ export default function AthletesPage() {
         }
 
         createdCategoryIds.add(category.id);
-        categoryIdByKey.set(normalizeCategoryKey(category.name), category.id);
       }
 
       const { data: categoriesData, error: categoriesError } = await supabase
@@ -931,17 +930,8 @@ export default function AthletesPage() {
 
       currentCategories = buildCategoryList(categoriesData || []);
       setCategories(currentCategories);
-      currentCategories.forEach((category) => {
-        const normalizedKey = normalizeCategoryKey(
-          category.name || category.id || "",
-        );
-        if (normalizedKey) {
-          categoryIdByKey.set(normalizedKey, category.id);
-        }
-      });
     }
 
-    const failed: AthleteImportOutcome["failed"] = [];
     const usedCategoryIds = new Set<string>();
 
     /*
@@ -953,13 +943,51 @@ export default function AthletesPage() {
       squadra durava minuti. Le categorie si risolvono qui, prima di partire,
       perche dipendono dalle categorie appena create e non dal database.
     */
-    const payloads = importedRows.map((row) => {
-      const importedCategoryId =
-        row.categoryId &&
-        currentCategories.some((category) => category.id === row.categoryId)
-          ? row.categoryId
-          : categoryIdByKey.get(normalizeCategoryKey(row.categoryLabel || "")) ||
-            null;
+    /*
+      **Un nome che ne nomina due non ne nomina nessuna** (D-RD-17 b, ADR-0155).
+
+      Qui c'era `categoryIdByKey`, una mappa per nome a ultimo-vince: con due
+      «Pulcini» — una per sede — ogni riga importata «Pulcini» finiva sull'ultima
+      in silenzio, e la data di nascita, che le due condividono, non aiutava.
+      Adesso l'etichetta passa da `resolveCategoryReference`: una sola → quella;
+      due → la riga **si segnala e non si importa**, perche l'unica risposta
+      onesta e chiedere la sede. Meglio una riga da rifare di un bambino nella
+      squadra sbagliata.
+    */
+    const righeDaImportare: { row: (typeof importedRows)[number]; index: number }[] = [];
+    importedRows.forEach((row, index) => {
+      const riferimento = resolveCategoryReference(
+        row.categoryId,
+        row.categoryLabel,
+        currentCategories,
+      );
+      if (riferimento?.ambiguous) {
+        const omonime = currentCategories
+          .filter(
+            (category) =>
+              normalizeCategoryKey(category.name || "") ===
+              normalizeCategoryKey(row.categoryLabel || ""),
+          )
+          .map((category) => categoryDisplay.label(category.id));
+        failed.push({
+          rowNumber: row.rowNumber ?? index + 1,
+          label:
+            `${row.lastName || ""} ${row.firstName || ""}`.trim() ||
+            "riga senza nominativo",
+          reason: `La categoria «${row.categoryLabel}» nomina piu squadre (${omonime.join(", ")}): indicare quale`,
+        });
+        return;
+      }
+      righeDaImportare.push({ row, index });
+    });
+
+    const payloads = righeDaImportare.map(({ row }) => {
+      const riferimento = resolveCategoryReference(
+        row.categoryId,
+        row.categoryLabel,
+        currentCategories,
+      );
+      const importedCategoryId = riferimento?.known ? riferimento.id : null;
 
       const linkedCategory =
         currentCategories.find(
@@ -986,20 +1014,21 @@ export default function AthletesPage() {
       };
     });
 
-    const { created, failedIndexes } = await addClubAthletesBatch(
+    const { created, failedIndexes, failedReasons } = await addClubAthletesBatch(
       clubId,
       payloads,
       { onProgress },
     );
 
     for (const index of failedIndexes) {
-      const row = importedRows[index];
+      const row = righeDaImportare[index]?.row;
       failed.push({
         rowNumber: row?.rowNumber ?? index + 1,
         label:
           `${row?.lastName || ""} ${row?.firstName || ""}`.trim() ||
           "riga senza nominativo",
-        reason: "Scrittura non riuscita",
+        /* Il motivo del writer, quando c'e (revisione ostile C-R4): «Scrittura non riuscita» nascondeva il vaglio. */
+        reason: failedReasons?.[index] || "Scrittura non riuscita",
       });
     }
 

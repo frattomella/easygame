@@ -249,11 +249,25 @@ const normalizeScheduleItem = ({
       "Categoria",
     categories,
   );
-  /* L'etichetta canonica (ADR-0185): la sede accanto dove il nome ne nomina due. */
-  const categoryName =
-    categoryLabel && categoryId
-      ? categoryLabel({ categoryId, categoryName: nomeRisolto })
-      : nomeRisolto;
+  /*
+    L'etichetta canonica (ADR-0185): la sede accanto dove il nome ne nomina
+    due, e un riferimento sconosciuto che non esce com'e (D-RD-17 a). Senza
+    indice — la pagina che non lo passa — resta il nome risolto.
+  */
+  const identificativoNoto = Boolean(
+    categoryId && categories.some((category) => category.id === categoryId),
+  );
+  const categoryName = categoryLabel
+    ? categoryLabel({
+        categoryId:
+          categoryId ||
+          String(item?.categoryId || item?.category_id || "").trim(),
+        /* Il nome dato solo se e un nome: `resolveCategoryLabel` ripiega sul riferimento com'e (revisione A3). */
+        categoryName: identificativoNoto
+          ? nomeRisolto
+          : String(item?.categoryName || item?.category_name || "").trim(),
+      })
+    : nomeRisolto;
   const structureName = firstNonEmptyString(
     matchedLocation?.structureName,
     item?.structureName,

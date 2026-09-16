@@ -9,6 +9,7 @@ import { IdentityTile } from "@/components/web/primitives/Identity";
 import { InsetBlock, Eyebrow } from "@/components/web/primitives/Surface";
 import { Field, FormGrid, Select } from "@/components/web/forms/Field";
 import { CategoryLabel } from "@/components/categories/category-label";
+import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import type { CategoryGroupLike } from "@/lib/categories/display";
 import { isMultiSiteClub, type ClubSite } from "@/lib/club-sites";
 import {
@@ -57,11 +58,15 @@ export function AthleteCategoriesCard({
   const siteName = primary?.siteId
     ? sites.find((site) => String(site.id) === String(primary.siteId))?.name || null
     : null;
+  /* Un indice per la card, non uno per chip (D-RD-17 d): le due sorgenti sono le stesse per ogni riga. */
+  const categoryDisplay = React.useMemo(
+    () => buildCategoryDisplayIndex({ categories: categoryCatalog, groups: categoryGroups, sites }),
+    [categoryCatalog, categoryGroups, sites],
+  );
   const label = (membership: MembershipLike) => (
     <CategoryLabel
       category={{ categoryId: membership.categoryId, categoryName: membership.categoryName }}
-      categories={categoryCatalog}
-      groups={categoryGroups}
+      index={categoryDisplay}
     />
   );
 

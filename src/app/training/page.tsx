@@ -32,7 +32,10 @@ import {
   athleteMatchesAnyCategory,
   selectableCategoryOptions,
 } from "@/lib/category-utils";
-import { buildCategoryDisplayIndex } from "@/lib/categories/display";
+import {
+  buildCategoryDisplayIndex,
+  type CategoryDisplayIndex,
+} from "@/lib/categories/display";
 import {
   compareAthletesByLastName,
   getAthleteDisplayName,
@@ -222,6 +225,7 @@ const formatTrainingSession = ({
   athletes,
   locations,
   siteIndex,
+  categoryDisplay,
 }: {
   training: any;
   categories: any[];
@@ -229,6 +233,8 @@ const formatTrainingSession = ({
   athletes: any[];
   locations: any[];
   siteIndex: ReturnType<typeof buildSiteIndex>;
+  /** L'indice canonico della pagina (ADR-0185): la riga dice «Pulcini · Scauri» come il filtro. */
+  categoryDisplay?: CategoryDisplayIndex;
 }): TrainingSession | null => {
   const trainingDate = getTrainingDate(training);
   if (!trainingDate) {
@@ -295,7 +301,10 @@ const formatTrainingSession = ({
     date: trainingDate,
     time: getTrainingStartTime(training) || getTrainingTimeLabel(training),
     endTime: getTrainingEndTime(training),
-    category: getTrainingCategoryLabel(training, categories),
+    category: getTrainingCategoryLabel(training, categories, categoryDisplay),
+    /* Il nome salvato, separato dall'etichetta: un'etichetta derivata non torna mai in archivio come nome. */
+    categoryName:
+      String(training?.category_name || training?.categoryName || (typeof training?.category === "string" ? training.category : "") || "").trim() || null,
     categoryId:
       String(
         training?.categoryId ||
@@ -738,13 +747,18 @@ const versioneSalvata = (risposta: any): number | null => {
         categoria. Le presenze che ne discendono riguardano una squadra sola
         (ADR-0055).
       */
-      setCategoryGroups(
-        buildCategoryGroups({
-          categories: normalizedCategories,
-          sites: normalizedSites,
-          groups: clubCategoryGroups,
-        }),
-      );
+      const gruppiCostruiti = buildCategoryGroups({
+        categories: normalizedCategories,
+        sites: normalizedSites,
+        groups: clubCategoryGroups,
+      });
+      setCategoryGroups(gruppiCostruiti);
+      /* Lo stesso indice del filtro, per le righe: un solo modo di scrivere una categoria (ADR-0185). */
+      const indiceCategorie = buildCategoryDisplayIndex({
+        categories: normalizedCategories,
+        groups: gruppiCostruiti,
+        sites: normalizedSites,
+      });
       // Un allenamento non porta una sede propria: si allena in una struttura,
       // e la struttura appartiene a una sede (ADR-0038). Un secondo campo si
       // disallineerebbe al primo allenamento in trasferta.
@@ -771,6 +785,7 @@ const versioneSalvata = (risposta: any): number | null => {
           formatTrainingSession({
             training,
             categories: normalizedCategories,
+            categoryDisplay: indiceCategorie,
             trainers: normalizedTrainers,
             athletes: normalizedAthletes,
             locations: normalizedLocations,
@@ -1474,7 +1489,9 @@ const versioneSalvata = (risposta: any): number | null => {
                       updatedTraining.categories.includes(category.id),
                     )
                     .map((category) => category.name)
-                    .join(", ") || editingTraining.category,
+                    .join(", ") ||
+                  editingTraining.categoryName ||
+                  "Categoria",
                 locationId: resolvedLocationId,
                 /* Il campo deve arrivare al server: vedi PP-01 §C in creazione. */
                 fieldId: resolvedLocationId,

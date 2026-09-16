@@ -244,7 +244,8 @@ test("§4.11 · documenti condivisi, documento d'identita, allegati e altri docu
 
 /* ── §4.12 · §4.13 componenti condivisi ────────────────────────────────── */
 test("§4.12 · §4.13 · analitiche e compensi restano i componenti condivisi", () => {
-  assert.match(page, /<AthleteCategoryAnalyticsSection analytics=\{athleteCategoryAnalytics\} \/>/);
+  /* ADR-0186: l\x27analitica scrive la categoria con l\x27indice della scheda. */
+  assert.match(page, /<AthleteCategoryAnalyticsSection\s+analytics=\{athleteCategoryAnalytics\}\s+categoryLabel=\{\(reference\) => categoryDisplay\.label\(reference\)\}\s*\/>/);
   assert.match(page, /<PersonCompensationTab\s+originType="athlete"/);
 });
 

@@ -50,6 +50,8 @@ export interface Athlete {
    */
   groupId: string;
   primaryCategoryLabel?: string;
+  /** L'identificativo della primaria: la colonna scrive l'etichetta con l'indice della pagina (ADR-0185). */
+  primaryCategoryId?: string | null;
   allCategoryLabels: string[];
   age: number;
   status: AthleteStatus;

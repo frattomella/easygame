@@ -38,6 +38,7 @@ import { downloadClientFileUrl, openClientFileUrl } from "@/lib/client-files";
 import { getRecordDisplayCategory } from "@/lib/trainer-dashboard-helpers";
 import { EntityIcon } from "@/components/ui/entity-icon";
 import { calculateAthleteCategoryAnalytics } from "@/lib/athlete-category-analytics";
+import { membershipRoleLabel } from "@/lib/categories/display";
 import {
   getPrimaryAthleteCategoryMembership,
   normalizeAthleteCategoryMemberships,
@@ -446,7 +447,7 @@ export default function TrainerAthleteProfilePage() {
                   }
                 >
                   {etichetta(membership)}{" "}
-                  {membership.isPrimary ? "Primaria" : "Secondaria"}
+                  {membershipRoleLabel(membership.isPrimary)}
                 </Badge>
               ))}
               {medicalCertExpiry && canSeeClinicalStatus ? (
@@ -1025,7 +1026,7 @@ export default function TrainerAthleteProfilePage() {
         {permissions.actions.viewAthleteTechnicalSheet ||
         permissions.actions.viewAthleteDetails ? (
           <TabsContent value="analitiche" className="mt-4 space-y-6">
-            <AthleteCategoryAnalyticsSection analytics={athleteCategoryAnalytics} />
+            <AthleteCategoryAnalyticsSection analytics={athleteCategoryAnalytics} categoryLabel={etichetta} />
           </TabsContent>
         ) : null}
       </Tabs>

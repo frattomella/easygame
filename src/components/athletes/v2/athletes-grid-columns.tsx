@@ -88,7 +88,15 @@ export const buildAthleteColumns = ({
               ? joinMeta(
                   birthYearOf(row),
                   row.siteName,
-                  `Categoria primaria: ${row.primaryCategoryLabel || "Non definita"}`,
+                  `Categoria primaria: ${
+                    row.primaryCategoryId
+                      ? categoryLabel({
+                          ...row,
+                          categoryId: row.primaryCategoryId,
+                          categoryLabel: row.primaryCategoryLabel || "",
+                        })
+                      : row.primaryCategoryLabel || "Non definita"
+                  }`,
                 )
               : joinMeta(birthYearOf(row), row.siteName)
           }

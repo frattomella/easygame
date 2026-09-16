@@ -78,6 +78,7 @@ import {
   compareCategoryGroups,
   normalizeClubSites,
   type CategoryGroup,
+  labelCategoryGroupOptions,
 } from "@/lib/club-sites";
 import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import { todayLocalDateOnly } from "@/lib/date-only";
@@ -411,18 +412,16 @@ export default function TrainerDetailsPage() {
       .sort(compareCategoryGroups);
   }, [categoryGroups]);
 
-  const groupNameById = React.useMemo(
-    () => new Map(categoryGroups.map((group) => [String(group.id), group.name])),
-    [categoryGroups],
-  );
-
-  const followedGroupLabels: string[] = React.useMemo(
-    () =>
-      (Array.isArray(trainer?.groupIds) ? trainer.groupIds : [])
-        .map((groupId: string) => groupNameById.get(groupId))
-        .filter((name: string | undefined): name is string => Boolean(name)),
-    [groupNameById, trainer?.groupIds],
-  );
+  /* I gruppi seguiti con la regola condivisa (ADR-0185): la sede quando il nome ne nomina due, come nell'elenco atleti. */
+  const followedGroupLabels: string[] = React.useMemo(() => {
+    const etichetta = labelCategoryGroupOptions(categoryGroups);
+    return (Array.isArray(trainer?.groupIds) ? trainer.groupIds : [])
+      .map((groupId: string): CategoryGroup | undefined =>
+        categoryGroups.find((group) => String(group.id) === String(groupId)),
+      )
+      .filter((group: CategoryGroup | undefined): group is CategoryGroup => Boolean(group))
+      .map((group: CategoryGroup) => etichetta(group));
+  }, [categoryGroups, trainer?.groupIds]);
 
   const handleEditSection = (section: TrainerSection) => {
     setEditInitialValues({
@@ -783,7 +782,9 @@ export default function TrainerDetailsPage() {
 
   const headerChipLabels: string[] = followedGroupLabels.length
     ? followedGroupLabels
-    : (trainer?.categories || []).map((category: { name: string }) => category.name);
+    : (trainer?.categories || []).map((category: { id?: string; name: string }) =>
+        categoryDisplay.label({ categoryId: String(category.id || ""), categoryName: category.name }),
+      );
 
   const shell = (title: string, children: React.ReactNode) => (
     <div className="flex h-[100dvh] bg-egw-page">

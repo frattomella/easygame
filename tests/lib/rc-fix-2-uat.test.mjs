@@ -277,9 +277,14 @@ test("l'elenco Allenatori mostra i gruppi assegnati, non solo le categorie", () 
     /trainerAssignmentLabels/,
     "la colonna deve risolvere i gruppi prima delle categorie",
   );
+  /*
+    ADR-0185/0186: l'etichetta del gruppo la scrive `labelCategoryGroupOptions`
+    (la sede quando il nome ne nomina due), la stessa dell'elenco atleti: non
+    piu una mappa locale id → `group.name`.
+  */
   assert.match(
     source,
-    /groupNameById/,
-    "un id di gruppo non e un'etichetta: va tradotto in nome",
+    /labelCategoryGroupOptions\(categoryGroups\)/,
+    "un id di gruppo non e un'etichetta: va tradotto con la regola condivisa",
   );
 });

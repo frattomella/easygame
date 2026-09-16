@@ -50,6 +50,7 @@ import {
   buildCategoryGroups,
   compareCategoryGroups,
   getActiveCategoryGroups,
+  labelCategoryGroupOptions,
   normalizeClubSites,
   type CategoryGroup,
   type ClubSite,
@@ -268,12 +269,6 @@ export default function TrainersPage() {
     [categories, categoryGroups],
   );
 
-  const groupNameById = React.useMemo(
-    () =>
-      new Map(categoryGroups.map((group) => [String(group.id), group.name])),
-    [categoryGroups],
-  );
-
   /**
    * Le squadre che un allenatore segue, come si leggono in tabella e nel PDF.
    *
@@ -281,17 +276,29 @@ export default function TrainersPage() {
    * precisa: dire «Pulcini» a chi segue solo Roma direbbe una cosa in piu di
    * quella vera (RC Fix 2, punto 9).
    */
+  /*
+    Gruppi e categorie si scrivono con le regole condivise (ADR-0185):
+    `labelCategoryGroupOptions` per i gruppi — la sede quando il nome ne
+    nomina due — e l'indice per le categorie, come nell'elenco atleti.
+  */
+  const etichettaGruppo = React.useMemo(
+    () => labelCategoryGroupOptions(categoryGroups),
+    [categoryGroups],
+  );
   const trainerAssignmentLabels = React.useCallback(
     (trainer: Trainer): string[] => {
       const groupLabels = getTrainerGroupIds(trainer as any)
-        .map((groupId) => groupNameById.get(groupId))
-        .filter((name): name is string => Boolean(name));
+        .map((groupId) => categoryGroups.find((group) => String(group.id) === String(groupId)))
+        .filter((group): group is CategoryGroup => Boolean(group))
+        .map((group) => etichettaGruppo(group));
       if (groupLabels.length) return groupLabels;
       return (Array.isArray(trainer.categories) ? trainer.categories : [])
-        .map((category) => category?.name)
-        .filter((name): name is string => Boolean(name));
+        .filter((category) => category?.id || category?.name)
+        .map((category) =>
+          categoryDisplay.label({ categoryId: String(category?.id || ""), categoryName: String(category?.name || "") }),
+        );
     },
-    [groupNameById],
+    [categoryDisplay, categoryGroups, etichettaGruppo],
   );
 
   const rows = React.useMemo<TrainerRow[]>(() => {

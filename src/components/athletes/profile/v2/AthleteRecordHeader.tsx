@@ -17,7 +17,7 @@ import {
   buildCategoryDisplayIndex,
   type CategoryGroupLike,
 } from "@/lib/categories/display";
-import { CategoryLabel } from "@/components/categories/category-label";
+import { CategoryLabel, MembershipRoleBadge } from "@/components/categories/category-label";
 import {
   ATHLETE_RECORD_AREAS,
   type AthleteRecordAreaValue,
@@ -186,7 +186,7 @@ export function AthleteRecordHeader({
                   category={{ categoryId: primary.categoryId, categoryName: primary.categoryName }}
                   index={display}
                 />
-                {" · Primaria"}
+                <MembershipRoleBadge isPrimary />
               </DataChip>
             ) : null}
             {secondary.map((membership) => (
@@ -195,7 +195,7 @@ export function AthleteRecordHeader({
                   category={{ categoryId: membership.categoryId, categoryName: membership.categoryName }}
                   index={display}
                 />
-                {" · Secondaria"}
+                <MembershipRoleBadge isPrimary={false} />
               </DataChip>
             ))}
             {siteLabel ? <DataChip tone="navy">{siteLabel}</DataChip> : null}

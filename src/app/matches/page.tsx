@@ -139,9 +139,12 @@ type MatchView = "day" | "list";
 const buildMatchAthleteOption = ({
   athlete,
   match,
+  categoryLabel = (reference) => reference.categoryName,
 }: {
   athlete: any;
   match: Match;
+  /** Come si scrive una categoria (ADR-0185): l'indice della pagina. */
+  categoryLabel?: (reference: { categoryId: string; categoryName: string }) => string;
 }): ConvocationAthlete => {
   const existingEntry = normalizeMatchConvocationEntries(match).find(
     (entry) => entry.athleteId === athlete.id,
@@ -173,7 +176,9 @@ const buildMatchAthleteOption = ({
       context === "primary" ? null : getParticipationCategoryBadgeLabel(context),
     isExtraCategory: context === "extra" || Boolean(existingEntry?.isExtraCategory),
     isManualExtra: context === "extra" || Boolean(existingEntry?.isManualExtra),
-    primaryCategoryName: primaryCategory?.categoryName || null,
+    primaryCategoryName: primaryCategory
+      ? categoryLabel({ categoryId: primaryCategory.categoryId, categoryName: primaryCategory.categoryName })
+      : null,
   };
 };
 
@@ -939,8 +944,15 @@ export default function MatchesPage() {
   );
 
   const gridColumns = React.useMemo(
-    () => buildMatchColumns({ siteNameOf: siteNameOfMatch, warningOf, rsvpOf }),
-    [rsvpOf, siteNameOfMatch, warningOf],
+    () =>
+      buildMatchColumns({
+        siteNameOf: siteNameOfMatch,
+        warningOf,
+        rsvpOf,
+        categoryLabel: (row) =>
+          categoryDisplay.label({ categoryId: row.categoryId, categoryName: row.category }),
+      }),
+    [rsvpOf, siteNameOfMatch, warningOf, categoryDisplay],
   );
   const gridFilters = React.useMemo(
     () =>
@@ -1025,12 +1037,12 @@ export default function MatchesPage() {
         collection.push(athlete);
         return collection;
       }, [])
-      .map((athlete: any) => buildMatchAthleteOption({ athlete, match: selectedMatch }));
-  }, [athletes, categories, selectedMatch, siteIndex]);
+      .map((athlete: any) => buildMatchAthleteOption({ athlete, match: selectedMatch, categoryLabel: categoryDisplay.label }));
+  }, [athletes, categories, categoryDisplay, selectedMatch, siteIndex]);
 
   const convocationClubAthletes = React.useMemo<ConvocationAthlete[]>(
-    () => (selectedMatch ? athletes.map((athlete: any) => buildMatchAthleteOption({ athlete, match: selectedMatch })) : EMPTY_ATHLETES),
-    [athletes, selectedMatch],
+    () => (selectedMatch ? athletes.map((athlete: any) => buildMatchAthleteOption({ athlete, match: selectedMatch, categoryLabel: categoryDisplay.label })) : EMPTY_ATHLETES),
+    [athletes, categoryDisplay, selectedMatch],
   );
 
   const savedConvocations = React.useMemo(

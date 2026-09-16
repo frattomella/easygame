@@ -19,10 +19,7 @@ import {
   getClubWeeklySchedule,
   updateClubData,
 } from "@/lib/simplified-db";
-import {
-  resolveCategoryId,
-  resolveCategoryLabel,
-} from "@/lib/category-utils";
+import { resolveCategoryId } from "@/lib/category-utils";
 import {
   findTrainingLocationOption,
   getFallbackTrainingLocationOptions,
@@ -30,6 +27,10 @@ import {
   type TrainingLocationOption,
 } from "@/lib/training-location-options";
 import { getAssociatedTrainerIds } from "@/lib/trainer-utils";
+import {
+  buildCategoryDisplayIndex,
+  UNKNOWN_SITE_LABEL,
+} from "@/lib/categories/display";
 import {
   labelCategoryGroupOptions,
   isCrossSiteEvent,
@@ -41,7 +42,6 @@ import { SaveStatus, type SaveState } from "@/components/ui/save-status";
 import {
   findScheduleConflicts,
   isValidTimeRange,
-  resolveCategoryLabelForTraining,
   resolveTrainingWeekday,
 } from "@/lib/training-utils";
 import { TrainingScheduleAutomationPanel } from "@/components/trainer/TrainingScheduleAutomationPanel";
@@ -331,11 +331,17 @@ export function WeeklyTrainingSchedule({
             item?.category,
           categories,
         ) || String(item?.categoryId || item?.category_id || "").trim();
+      /*
+        Il nome che finisce nello stato (e poi in `weekly_schedule`) e quello
+        del catalogo se l'identificativo si risolve, altrimenti quello che la
+        riga portava: **mai** un'etichetta derivata — un ripiego come «Categoria
+        non disponibile» scritto qui diventerebbe un nome in archivio (D-RD-17).
+      */
       const resolvedCategoryName =
         (resolvedCategoryId
           ? categories.find((category) => category.id === resolvedCategoryId)?.name
           : null) ||
-        resolveCategoryLabelForTraining(item, categories) ||
+        String(item?.categoryName || item?.category_name || "").trim() ||
         null;
 
       return {
@@ -854,14 +860,13 @@ export function WeeklyTrainingSchedule({
 
   const getCategoryName = (item: Partial<WeeklyTrainingItem> | string) => {
     if (typeof item === "string") {
-      return resolveCategoryLabel(item, categories);
+      return categoryDisplay.label(item);
     }
 
-    return (
-      categories.find((category) => category.id === item.categoryId)?.name ||
-      item.categoryName ||
-      resolveCategoryLabel(item.categoryId || "", categories)
-    );
+    return categoryDisplay.label({
+      categoryId: item.categoryId || "",
+      categoryName: item.categoryName || "",
+    });
   };
 
   /**
@@ -905,6 +910,17 @@ export function WeeklyTrainingSchedule({
   const getGroupLabel = React.useMemo(
     () => labelCategoryGroupOptions(groupOptions),
     [groupOptions],
+  );
+
+  /*
+    Come si scrive una categoria in questo pannello (ADR-0185, D-RD-17 a): un
+    indice solo, con i gruppi che il pannello ha gia. Un riferimento che il
+    catalogo non conosce non esce com'e — `category-1757…` — ma come
+    «Categoria non disponibile».
+  */
+  const categoryDisplay = React.useMemo(
+    () => buildCategoryDisplayIndex({ categories, groups: groupOptions }),
+    [categories, groupOptions],
   );
 
   /** Il gruppo di una riga: dichiarato, o dedotto dalla sua categoria. */
@@ -969,7 +985,7 @@ export function WeeklyTrainingSchedule({
         return null;
       }
 
-      const groupSiteName = siteNameById.get(groupSiteId) || groupSiteId;
+      const groupSiteName = siteNameById.get(groupSiteId) || UNKNOWN_SITE_LABEL;
       const structureSiteName =
         siteNameById.get(structureSiteId) || structureSiteId;
 

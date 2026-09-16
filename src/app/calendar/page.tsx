@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { CalendarDays, MapPin, Trophy, Users } from "lucide-react";
@@ -99,6 +99,11 @@ export default function CalendarPage() {
   const categoryDisplay = useMemo(
     () => buildCategoryDisplayIndex({ categories: categorie, groups: gruppi }),
     [categorie, gruppi],
+  );
+  const etichettaCategoria = useCallback(
+    (evento: EventoCalendario) =>
+      categoryDisplay.label({ categoryId: evento.categoryId || "", categoryName: evento.category || "" }),
+    [categoryDisplay],
   );
 
   const [vista, setVista] = useState<VistaCalendario>("month");
@@ -304,6 +309,7 @@ export default function CalendarPage() {
                     giorno={giornoScelto}
                     eventi={eventiDelGiornoScelto}
                     nomeSede={nomeSede}
+                    etichettaCategoria={etichettaCategoria}
                   />
                 ) : !caricamento && perGiorno.length === 0 ? (
                   <EmptyCalendar filtrati={filtriAttivi} />
@@ -334,7 +340,7 @@ export default function CalendarPage() {
                       {formattaGiorno(giorno)}
                     </Eyebrow>
                     {righe.map((evento) => (
-                      <EventRow key={evento.eventId || evento.id} evento={evento} nomeSede={nomeSede} />
+                      <EventRow key={evento.eventId || evento.id} evento={evento} nomeSede={nomeSede} etichettaCategoria={etichettaCategoria} />
                     ))}
                   </Panel>
                 ))}
@@ -347,14 +353,19 @@ export default function CalendarPage() {
   );
 }
 
+type EtichettaCategoria = (evento: EventoCalendario) => string;
+
 function DayPanel({
   giorno,
   eventi,
   nomeSede,
+  etichettaCategoria,
 }: {
   giorno: Date;
   eventi: EventoCalendario[];
   nomeSede: (siteId?: string | null) => string;
+  /** Come si scrive la categoria (ADR-0185): l'indice della pagina, come nel filtro. */
+  etichettaCategoria: EtichettaCategoria;
 }) {
   return (
     <Panel as="section" className="px-5 py-3 sm:px-6" aria-label={`Eventi di ${formatDayTitle(giorno)}`} data-test="calendar-day-panel">
@@ -364,13 +375,23 @@ function DayPanel({
       {eventi.length === 0 ? (
         <p className="py-3 font-brand text-[12.5px] text-egw-ink-62">Nessun evento in questo giorno con questi filtri.</p>
       ) : (
-        eventi.map((evento) => <EventRow key={evento.eventId || evento.id} evento={evento} nomeSede={nomeSede} />)
+        eventi.map((evento) => (
+          <EventRow key={evento.eventId || evento.id} evento={evento} nomeSede={nomeSede} etichettaCategoria={etichettaCategoria} />
+        ))
       )}
     </Panel>
   );
 }
 
-function EventRow({ evento, nomeSede }: { evento: EventoCalendario; nomeSede: (siteId?: string | null) => string }) {
+function EventRow({
+  evento,
+  nomeSede,
+  etichettaCategoria,
+}: {
+  evento: EventoCalendario;
+  nomeSede: (siteId?: string | null) => string;
+  etichettaCategoria: EtichettaCategoria;
+}) {
   const gara = isGara(evento);
   const annullato = isAnnullato(evento);
   const sede = nomeSede(evento.siteId);
@@ -386,9 +407,9 @@ function EventRow({ evento, nomeSede }: { evento: EventoCalendario; nomeSede: (s
           <DataChip tone={gara ? "orange" : "blue"} size="sm">
             {gara ? "Gara" : "Allenamento"}
           </DataChip>
-          {evento.category ? (
-            <DataChip tone="blue" size="sm" title={evento.category}>
-              {evento.category}
+          {evento.category || evento.categoryId ? (
+            <DataChip tone="blue" size="sm" title={etichettaCategoria(evento)}>
+              {etichettaCategoria(evento)}
             </DataChip>
           ) : null}
         </span>

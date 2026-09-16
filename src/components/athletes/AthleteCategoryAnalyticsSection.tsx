@@ -3,6 +3,7 @@
 import { CalendarDays, ListChecks, Trophy } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { membershipRoleLabel } from "@/lib/categories/display";
 import type {
   AthleteCategoryAnalytics,
   AthleteCategoryAnalyticsResult,
@@ -162,8 +163,11 @@ function UnclassifiedEvents({
 
 export function AthleteCategoryAnalyticsSection({
   analytics,
+  categoryLabel,
 }: {
   analytics: AthleteCategoryAnalyticsResult;
+  /** Come si scrive una categoria (ADR-0185): lo dice la pagina con il suo indice; senza, il nome che l'analisi porta. */
+  categoryLabel?: (reference: { categoryId: string; categoryName: string }) => string;
 }) {
   return (
     <div className="space-y-4">
@@ -190,7 +194,9 @@ export function AthleteCategoryAnalyticsSection({
                   <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h3 className="text-lg font-semibold text-slate-950">
-                        {category.categoryName}
+                        {categoryLabel
+                          ? categoryLabel({ categoryId: category.categoryId, categoryName: category.categoryName })
+                          : category.categoryName}
                       </h3>
                       <p className="text-sm text-slate-500">
                         {category.isPrimary
@@ -199,7 +205,7 @@ export function AthleteCategoryAnalyticsSection({
                       </p>
                     </div>
                     <Badge className="w-fit border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
-                      {category.isPrimary ? "Primaria" : "Secondaria"}
+                      {membershipRoleLabel(Boolean(category.isPrimary))}
                     </Badge>
                   </div>
 
