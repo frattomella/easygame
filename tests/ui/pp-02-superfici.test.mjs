@@ -125,9 +125,14 @@ test("§C · la barra superiore preferisce l'identita dichiarata alla copia loca
     header.includes("clubIdentity?.name || activeClub?.name"),
     "il nome dichiarato deve vincere",
   );
+  /*
+    La stagione non sta piu nella barra (UAT del redesign, secondo lotto): la
+    dice la Sidebar nel blocco identita, con la stessa regola del nome.
+  */
+  const sidebar = senzaCommenti(leggi("components/web/shell/Sidebar.tsx"));
   assert.ok(
-    header.includes("clubIdentity ? clubIdentity.seasonLabel : activeClub?.activeSeasonLabel"),
-    "e con lui la stagione: prenderne una da una fonte e una dall'altra e il modo di mostrarle discordi",
+    sidebar.includes(["Stagione $", "{seasonLabel}"].join("")),
+    "la Sidebar dice la stagione dell'identita del club",
   );
 });
 

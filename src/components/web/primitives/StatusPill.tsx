@@ -82,6 +82,13 @@ export interface DataChipProps extends React.HTMLAttributes<HTMLSpanElement> {
   tone?: "neutral" | "blue" | "green" | "amber" | "red" | "orange" | "navy";
   /** Un puntino colorato in testa (il colore della categoria). */
   dot?: string | null;
+  /**
+   * Un glifo in testa (la corona del proprietario, le persone di un accesso).
+   * Va qui e non fra i figli: dentro lo span con l'ellissi un `<svg>` e un
+   * blocco e finisce su una riga propria sopra la parola — era il badge
+   * «Proprietà» spezzato in due della Home account.
+   */
+  icon?: React.ReactNode;
   size?: "md" | "sm";
   onRemove?: () => void;
   removeLabel?: string;
@@ -100,6 +107,7 @@ const chipTones = {
 export function DataChip({
   tone = "neutral",
   dot,
+  icon,
   size = "md",
   onRemove,
   removeLabel = "Rimuovi",
@@ -124,7 +132,15 @@ export function DataChip({
           style={{ background: dot }}
         />
       ) : null}
-      <span className="egw-ellipsis">{children}</span>
+      {icon ? (
+        <span aria-hidden className="inline-flex shrink-0 items-center [&>svg]:h-3 [&>svg]:w-3">
+          {icon}
+        </span>
+      ) : null}
+      {/* Un glifo passato fra i figli resta comunque in riga: inline, non blocco. */}
+      <span className="egw-ellipsis [&>svg]:mr-1 [&>svg]:inline-block [&>svg]:h-3 [&>svg]:w-3 [&>svg]:align-[-2px]">
+        {children}
+      </span>
       {onRemove ? (
         <button
           type="button"

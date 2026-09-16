@@ -15,6 +15,7 @@ import { useRouteClubId, withClubId } from "@/components/web/hooks/use-route-clu
 import { roleHasPermission } from "@/lib/permissions/catalog";
 import { formatInteger } from "@/lib/web/format";
 import { TrialAthletesPanel } from "@/components/trials/v2/TrialAthletesPanel";
+import { AthletesViewSwitch } from "@/components/athletes/v2/AthletesViewSwitch";
 
 /**
  * `/athletes/in-prova` — le persone in prova del club (ADR-0188). E una
@@ -56,18 +57,15 @@ function TrialAthletesPageContent() {
                   description="Chi viene ad allenarsi prima di iscriversi: identità stabile, storico delle prove, conversione in atleta."
                   stats={<HeaderStat value={formatInteger(count)} label="in prova" tone="amber" />}
                   actions={
-                    <>
-                      <Button variant="secondary" onClick={() => router.push(withClubId("/athletes", clubId))}>
-                        Tutti gli atleti
+                    canManage ? (
+                      <Button variant="primary" icon={<Plus />} onClick={openCreate}>
+                        Registra persona in prova
                       </Button>
-                      {canManage ? (
-                        <Button variant="primary" icon={<Plus />} onClick={openCreate}>
-                          Registra persona in prova
-                        </Button>
-                      ) : null}
-                    </>
+                    ) : null
                   }
-                />
+                >
+                  <AthletesViewSwitch value="trials" clubId={clubId} role={role} trialsCount={count} />
+                </PageHeader>
               )}
             />
           </DashboardPageContainer>

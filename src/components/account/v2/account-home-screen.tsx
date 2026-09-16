@@ -206,8 +206,11 @@ function ClubRow({
           </span>
 
           <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <DataChip size="sm" tone={ownerMode ? "amber" : "blue"}>
-              {ownerMode ? <Crown className="h-3 w-3" aria-hidden /> : <Users className="h-3 w-3" aria-hidden />}
+            <DataChip
+              size="sm"
+              tone={ownerMode ? "amber" : "blue"}
+              icon={ownerMode ? <Crown aria-hidden /> : <Users aria-hidden />}
+            >
               {ownerMode ? "Proprietà" : club.roleLabel}
             </DataChip>
             {place ? <span className="egw-ellipsis font-brand text-[11.5px] text-egw-ink-62">{place}</span> : null}

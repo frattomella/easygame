@@ -135,9 +135,10 @@ test("il registro presenze porta la sezione «Atleta in prova» e la salva prima
 test("la vista «Atleti in prova» sta nell'area Atleti, con scheda, stati e conversione che mostra i candidati", () => {
   assert.ok(existsSync("src/app/athletes/in-prova/page.tsx"), "la pagina esiste");
   assert.ok(existsSync("src/app/athletes/in-prova/[id]/page.tsx"), "la scheda esiste");
-  const menu = leggi("src/app/athletes/page.tsx");
-  assert.match(menu, /Atleti in prova/, "il menu dell'area Atleti la apre");
-  assert.match(menu, /withClubId\("\/athletes\/in-prova"/, "e porta il club");
+  const atleti = leggi("src/app/athletes/page.tsx");
+  assert.match(atleti, /<AthletesViewSwitch/, "l'area Atleti la apre con il selettore di vista");
+  const selettore = leggi("src/components/athletes/v2/AthletesViewSwitch.tsx");
+  assert.match(selettore, /withClubId\(next === "trials" \? "\/athletes\/in-prova" : "\/athletes", clubId\)/, "e porta il club");
   const pannello = leggi("src/components/trials/v2/TrialAthletesPanel.tsx");
   assert.match(pannello, /TRIAL_STATUS|StatusPill/, "lo stato e una pillola");
   const conversione = leggi("src/components/trials/v2/TrialConvertDrawer.tsx");

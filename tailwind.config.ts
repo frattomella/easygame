@@ -35,6 +35,31 @@ const config = {
         laptop: "1152px",
         wide: "1600px",
       },
+      /*
+        Le opacita del cielo (EGDS: testo al 72 %, controlli al 14 %, bordi al
+        26 %...). Tailwind emette `text-white/NN` solo se NN sta nella scala:
+        un valore fuori scala viene **scartato in silenzio** e l'elemento
+        eredita l'inchiostro scuro della pagina — cosi le briciole e l'eyebrow
+        della dashboard erano illeggibili sul cielo. La prova
+        `tests/ui/opacita-sul-cielo.test.mjs` vieta ogni `/NN` fuori da qui.
+      */
+      opacity: {
+        12: "0.12",
+        14: "0.14",
+        16: "0.16",
+        18: "0.18",
+        22: "0.22",
+        24: "0.24",
+        26: "0.26",
+        28: "0.28",
+        42: "0.42",
+        58: "0.58",
+        62: "0.62",
+        68: "0.68",
+        72: "0.72",
+        78: "0.78",
+        82: "0.82",
+      },
       colors: {
         egw: {
           page: "var(--egw-page)",

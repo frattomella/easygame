@@ -31,6 +31,7 @@ export type HeaderClubIdentity = {
   name: string;
   seasonLabel: string | null;
   logoUrl?: string | null;
+  /** Dove portano le «Stagioni» dell'identita: lo usa la Sidebar, non la barra. */
   seasonHref?: string | null;
 };
 
@@ -92,8 +93,6 @@ export function Topbar({
   const accountAvatar: string = user?.user_metadata?.avatar_url || user?.user_metadata?.picture || userAvatar || "";
 
   const clubName: string = clubIdentity?.name || activeClub?.name || "EasyGame";
-  const seasonLabel: string | null = clubIdentity ? clubIdentity.seasonLabel : activeClub?.activeSeasonLabel || null;
-  const seasonHref = clubIdentity ? clubIdentity.seasonHref ?? null : "/organization?tab=stagioni";
 
   const crumbs = React.useMemo(
     () => buildBreadcrumb(pathname, { clubName, currentLabel: breadcrumbLabel || (title !== "Dashboard" ? title : null), groups: areaNav }),
@@ -262,26 +261,12 @@ export function Topbar({
             ) : null}
 
             {/* Cluster destro */}
+            {/*
+              La stagione non sta qui: e il contesto del club, e il club lo
+              dice la Sidebar (blocco identita, «Stagioni del club»). Un
+              secondo controllo in barra era la stessa cosa detta due volte.
+            */}
             <div className="flex shrink-0 items-center gap-2.5">
-              {seasonLabel ? (
-                <button
-                  type="button"
-                  onClick={seasonHref ? () => router.push(seasonHref) : undefined}
-                  disabled={!seasonHref}
-                  aria-label={`Stagione ${seasonLabel}`}
-                  className={cn(
-                    "hidden h-[38px] items-center gap-2 rounded-egw-chip border px-3 text-left transition-colors duration-hover focus-visible:outline-none 2xl:flex",
-                    onSky ? controlOnSky : controlLight,
-                    !seasonHref && "cursor-default",
-                  )}
-                >
-                  <span className={cn("text-[9.5px] font-bold uppercase tracking-[var(--egw-track-eyebrow)]", onSky ? "text-white/70" : "text-egw-ink-42")}>
-                    Stagione
-                  </span>
-                  <span className="egw-num text-[12.5px] font-bold">{seasonLabel}</span>
-                </button>
-              ) : null}
-
               {quickActions.length > 0 ? (
                 <button
                   type="button"
