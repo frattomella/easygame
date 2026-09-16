@@ -16,6 +16,9 @@ import { DirtyGuardDialog } from "@/components/web/overlays/Modal";
 import { useToast } from "@/components/ui/toast-notification";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { AthleteCreateForm } from "@/components/forms/AthleteCreateForm";
+import { TrialMatchNotice } from "@/components/trials/v2/TrialMatchNotice";
+import { convertTrialAthlete, type TrialAthlete } from "@/lib/trials/client";
+import { roleHasPermission } from "@/lib/permissions/catalog";
 import {
   findCategoryForBirthDate,
   selectableCategoryOptions,
@@ -24,6 +27,7 @@ import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import { buildCategoryGroups, normalizeClubSites } from "@/lib/club-sites";
 import {
   addClubAthlete,
+  updateClubAthlete,
   getClubCategories,
   getClubData,
   getClubFederationOptions,
@@ -160,6 +164,16 @@ function NewAthletePageContent() {
     goBack();
   };
 
+  /*
+    La persona in prova che questa iscrizione riconosce come se stessa
+    (ADR-0188 §5): se c'e, la scheda non nasce dal registro generico ma
+    dalla **conversione** della prova — l'unica autorita che la crea e la
+    collega — e poi si completa con cio che il modulo ha raccolto.
+  */
+  const [trialToUse, setTrialToUse] = React.useState<TrialAthlete | null>(null);
+  const canReadTrials = roleHasPermission(activeClub?.role || null, "trials.read");
+  const canConvertTrials = roleHasPermission(activeClub?.role || null, "trials.convert");
+
   const handleSubmit = async (draft: any) => {
     if (!clubId || !user) {
       showToast("error", "Club o utente non trovato");
@@ -202,21 +216,56 @@ function NewAthletePageContent() {
           }),
       ];
 
-      const saved = await addClubAthlete(clubId, {
-        firstName: draft.firstName,
-        lastName: draft.lastName,
-        birthDate: draft.birthDate,
-        category: linkedCategory?.id || null,
-        categoryName: linkedCategory?.name || null,
-        medicalCertExpiry: draft.medicalCertExpiry || null,
-        status: "active",
-        data: draft.data || {},
-        ...(categoryMemberships.length ? { categoryMemberships } : {}),
-      });
+      let saved: { id?: string } | null = null;
+      if (trialToUse) {
+        /*
+          Prima la conversione — canonica, transazionale, una sola — poi il
+          resto del modulo sulla scheda appena nata. Se il completamento
+          fallisce la scheda esiste gia e la prova e collegata: si va sulla
+          scheda e lo si dice, invece di lasciare credere che non ci sia.
+        */
+        const esito = await convertTrialAthlete(trialToUse.id, {
+          create: {
+            status: "active",
+            categoryId: linkedCategory?.id || null,
+            siteId: trialToUse.siteId || null,
+          },
+        });
+        saved = { id: esito.athleteId };
+        try {
+          await updateClubAthlete(clubId, esito.athleteId, {
+            firstName: draft.firstName,
+            lastName: draft.lastName,
+            birthDate: draft.birthDate,
+            medicalCertExpiry: draft.medicalCertExpiry || null,
+            data: draft.data || {},
+            ...(categoryMemberships.length ? { categoryMemberships } : {}),
+          });
+        } catch (error) {
+          console.error("Error completing converted athlete:", error);
+          showToast("error", "La persona in prova e diventata atleta, ma il resto del modulo non e stato salvato: completa la scheda.");
+          router.push(`/athletes/${esito.athleteId}`);
+          return true;
+        }
+      } else {
+        saved = await addClubAthlete(clubId, {
+          firstName: draft.firstName,
+          lastName: draft.lastName,
+          birthDate: draft.birthDate,
+          category: linkedCategory?.id || null,
+          categoryName: linkedCategory?.name || null,
+          medicalCertExpiry: draft.medicalCertExpiry || null,
+          status: "active",
+          data: draft.data || {},
+          ...(categoryMemberships.length ? { categoryMemberships } : {}),
+        });
+      }
 
       showToast(
         "success",
-        `Atleta ${draft.firstName} ${draft.lastName} iscritto con successo`,
+        trialToUse
+          ? `${draft.firstName} ${draft.lastName} e ora un atleta: le ${trialToUse.trialsCount} prove restano nello storico`
+          : `Atleta ${draft.firstName} ${draft.lastName} iscritto con successo`,
       );
 
       /*
@@ -278,6 +327,22 @@ function NewAthletePageContent() {
               onSubmit={handleSubmit}
               onCancel={goBack}
               onDirtyChange={setDirty}
+              identityNotice={
+                canReadTrials
+                  ? (identity) => (
+                      <TrialMatchNotice
+                        firstName={identity.firstName}
+                        lastName={identity.lastName}
+                        birthDate={identity.birthDate}
+                        enabled={canConvertTrials}
+                        selectedTrialId={trialToUse?.id || null}
+                        onUse={(trial) => setTrialToUse(trial)}
+                        onDismiss={() => setTrialToUse(null)}
+                        onClear={() => setTrialToUse(null)}
+                      />
+                    )
+                  : undefined
+              }
             />
           </DashboardPageContainer>
         </main>

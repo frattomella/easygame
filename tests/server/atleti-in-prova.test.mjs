@@ -596,3 +596,56 @@ test("42 · la modifica lascia nel registro da dove a dove: categoria e sede", a
   assert.deepEqual(voce.metadata?.categoryId, { da: "u15", a: "u13" });
   assert.deepEqual(voce.metadata?.siteId, { da: "sede-a", a: "sede-b" });
 });
+
+/* ── D-RD-22 chiuso: la conversione e una transazione sola ─────────────── */
+
+test("43 · la conversione scrive scheda, appartenenze e collegamento nella stessa transazione, e la proiezione nasce con le righe vere", async () => {
+  const sorgente = readFileSync(path.join(process.cwd(), "src/lib/server/trial-athletes.ts"), "utf8");
+  const codice = sorgente.replace(/\/\*[\s\S]*?\*\//g, "");
+  const conversione = codice.slice(codice.indexOf("export const convertTrialAthlete"));
+  assert.match(conversione, /prisma\.\$transaction\(\s*async \(tx\) =>/, "una transazione sola");
+  assert.match(conversione, /tx\.trialAthlete\.updateMany\(/, "la presa e dentro la transazione");
+  assert.match(conversione, /tx\.trialAthlete\.update\(/, "e il collegamento pure");
+  assert.equal((conversione.match(/\{ client: tx \}/g) || []).length, 2, "scheda e appartenenze passano dal registro generico con la transazione di chi chiama");
+  assert.doesNotMatch(conversione, /updateResource\(/, "niente seconda scrittura per riallineare la proiezione");
+  assert.doesNotMatch(conversione, /rilascia/, "niente rilascio a mano: il rollback e della transazione");
+  assert.match(conversione, /id: randomUUID\(\)/, "gli identificativi delle appartenenze si coniano prima");
+
+  /* Il registro generico accetta il client (ADR-0188): solo in creazione. */
+  const registro = readFileSync(path.join(process.cwd(), "src/lib/server/resources.ts"), "utf8");
+  assert.match(registro, /client\?: unknown;/, "ResourceRequestOptions.client");
+  assert.match(registro, /options\?\.client\s*\?\s*clientDelegate\(options\.client, resource\)\s*:\s*getDelegate\(resource\)/, "createResource scrive dal client di chi chiama");
+
+  /* Sul fake: la proiezione cita esattamente le righe coniate, senza seconda scrittura. */
+  const trial = await dominio.createTrialAthlete(scopeDirezione, mario({ categoryId: "u15" }));
+  const esito = await dominio.convertTrialAthlete(scopeDirezione, trial.id, { create: {} }, { userId: DIREZIONE });
+  const scheda = await fake.client.athlete.findFirst({ where: { id: esito.athleteId } });
+  const righe = await fake.client.athleteCategoryMembership.findMany({ where: { athlete_id: esito.athleteId } });
+  assert.equal(righe.length, 1);
+  assert.deepEqual(scheda.data.categoryMemberships.map((m) => m.id), righe.map((m) => m.id));
+  assert.match(righe[0].id, /^[0-9a-f-]{36}$/, "un identificativo vero, non vuoto");
+  const prova = await fake.client.trialAthlete.findFirst({ where: { id: trial.id } });
+  assert.equal(prova.athlete_id, esito.athleteId);
+  assert.equal(prova.status, "enrolled");
+});
+
+test("44 · se una scrittura della conversione fallisce, non resta ne la scheda ne la presa (rollback)", async () => {
+  const trial = await dominio.createTrialAthlete(scopeDirezione, mario({ categoryId: "u15" }));
+  /* Il fake esegue la transazione sullo stesso client: si simula il rollback verificando che l'errore risalga
+     dalla transazione e che, con un client transazionale vero, nessuna scrittura precedente sopravviva. Qui si
+     prova la parte osservabile: l'errore di una scrittura interna fa fallire l'intera conversione. */
+  const originale = fake.client.athleteCategoryMembership.create;
+  fake.client.athleteCategoryMembership.create = async () => { throw new Error("guasto simulato"); };
+  try {
+    await assert.rejects(
+      () => dominio.convertTrialAthlete(scopeDirezione, trial.id, { create: {} }, { userId: DIREZIONE }),
+      /guasto simulato/,
+    );
+  } finally {
+    fake.client.athleteCategoryMembership.create = originale;
+  }
+  const prova = await fake.client.trialAthlete.findFirst({ where: { id: trial.id } });
+  assert.ok(prova.athlete_id == null, "nessun collegamento");
+  assert.equal(prova.status, "in_trial");
+  /* Con il database vero il rollback toglie anche la presa e la scheda: lo prova scripts/prova-conversione-concorrente.mjs. */
+});

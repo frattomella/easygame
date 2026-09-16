@@ -4808,6 +4808,18 @@ const getModelInclude = (resource: string) => {
 export type ResourceRequestOptions = {
   activeSeasonId?: string | null;
   /**
+   * **La transazione di chi chiama** (ADR-0188, D-RD-22).
+   *
+   * Un dominio che deve scrivere piu righe insieme — la conversione di una
+   * persona in prova: scheda, appartenenza, riga di prova — apre una
+   * transazione Prisma e la passa qui: la **scrittura** della riga passa da
+   * questo client e riesce o fallisce con le altre. Le guardie continuano a
+   * leggere dal client globale: leggono il catalogo, non la riga nascente.
+   * Vale solo per `createResource`; l'aggiornamento di una scheda atleta apre
+   * gia una transazione propria e non ne accetta un'altra.
+   */
+  client?: unknown;
+  /**
    * Chi sta scrivendo amministra la piattaforma.
    *
    * Si ricava **sempre dalla sessione** nel route handler, mai dal corpo
@@ -6568,7 +6580,9 @@ export const createResource = async (
   scope?: ResourceAccessScope,
   options?: ResourceRequestOptions,
 ) => {
-  const delegate = getDelegate(resource);
+  const delegate = options?.client
+    ? clientDelegate(options.client, resource)
+    : getDelegate(resource);
   const config = RESOURCE_CONFIG[resource];
 
   assertResourceIsOpen(resource);
@@ -7188,7 +7202,7 @@ export const createResource = async (
     `upsert`: una riga tutore nomina un atleta, e prima l'atleta non c'era.
   */
   if (tutoriDaScrivere) {
-    await saveGuardianRegistry(prisma, {
+    await saveGuardianRegistry((options?.client as any) || prisma, {
       organizationId: String(record.organization_id || ""),
       athleteId: String(record.id),
       rows: tutoriDaScrivere,

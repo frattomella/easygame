@@ -36,8 +36,9 @@
  *    (`createResource`), cioe dagli stessi vagli di ogni altra scheda.
  */
 
+import { randomUUID } from "node:crypto";
 import { prisma } from "./prisma";
-import { createResource, updateResource } from "./resources";
+import { createResource } from "./resources";
 import {
   eventWithinTrainerPerimeter,
   findClubEvent,
@@ -1459,175 +1460,155 @@ export const convertTrialAthlete = async (
   if (trial.status === "enrolled" && trial.athlete_id)
     throw new Error("La persona e gia iscritta");
 
-  let athleteId = asText(input.athleteId);
-  let creata = false;
+  const richiestaScheda = asText(input.athleteId);
+  if (richiestaScheda && !UUID.test(richiestaScheda))
+    throw new Error("Identificativo della scheda non valido");
 
   /*
-    **Prima si prende la riga, poi si crea la scheda** (revisione ostile, M5/H2).
-    Le scritture sono tre e passano dal registro generico, che non e dentro
-    una transazione: due «Converti» concorrenti creerebbero due schede della
-    stessa persona. La presa e un `updateMany` condizionato su
-    `converted_at IS NULL`: chi arriva secondo trova `count = 0` e si ferma
-    prima di scrivere. Se la creazione fallisce la presa si rilascia; se il
-    rilascio stesso fallisse, la riga resta «in conversione» e lo dice.
-  */
-  const presa = await prisma.trialAthlete.updateMany({
-    where: {
-      id: trial.id,
-      organization_id: organizationId,
-      converted_at: null,
-      athlete_id: null,
-    },
-    data: { converted_at: new Date() },
-  });
-  if (presa.count !== 1)
-    throw new Error(
-      "La conversione di questa persona e gia in corso o completata",
-    );
-  const rilascia = async () => {
-    await prisma.trialAthlete.updateMany({
-      where: {
-        id: trial.id,
-        organization_id: organizationId,
-        athlete_id: null,
-      },
-      data: { converted_at: null },
-    });
-  };
+    **Una transazione sola** (D-RD-22, chiuso).
 
-  try {
-    if (athleteId) {
-      if (!UUID.test(athleteId))
-        throw new Error("Identificativo della scheda non valido");
-      const esistente = await prisma.athlete.findFirst({
+    Le scritture sono quattro — la presa della riga di prova, la scheda,
+    le sue appartenenze, il collegamento finale — e prima passavano dal
+    registro generico una alla volta: due «Converti» concorrenti erano fermati
+    dalla presa condizionata, ma un errore fra la seconda e la terza scrittura
+    lasciava una scheda creata e una prova «in conversione». Ora il registro
+    generico accetta la transazione di chi chiama (`options.client`): la
+    scheda e le appartenenze si scrivono dentro **questa** transazione, e la
+    riga di prova si prende e si collega nella stessa. O tutto o niente.
+
+    La presa resta un `updateMany` condizionato su `converted_at IS NULL`:
+    dentro una transazione e anche un blocco di riga, quindi il secondo
+    «Converti» aspetta il primo e poi trova `count = 0`. L'unicita di
+    `athlete_id` sulla riga di prova chiude l'ultima porta: due prove non
+    si collegano alla stessa scheda.
+
+    Gli identificativi delle appartenenze si coniano **prima** di scrivere,
+    cosi la proiezione della scheda nasce gia con le righe vere (ADR-0187
+    §9) e non serve una seconda scrittura per riallinearla.
+  */
+  const esito = await prisma.$transaction(
+    async (tx) => {
+      const presa = await tx.trialAthlete.updateMany({
         where: {
-          id: athleteId,
+          id: trial.id,
           organization_id: organizationId,
-          anonymized_at: null,
+          converted_at: null,
+          athlete_id: null,
         },
-        select: { id: true, trial_origin: { select: { id: true } } },
+        data: { converted_at: new Date() },
       });
-      if (!esistente)
-        throw new Error("La scheda atleta indicata non esiste in questo club");
-      if (esistente.trial_origin && esistente.trial_origin.id !== trial.id) {
+      if (presa.count !== 1)
         throw new Error(
-          "La scheda atleta e gia collegata a un'altra persona in prova",
+          "La conversione di questa persona e gia in corso o completata",
         );
-      }
-    } else {
-      const create =
-        input.create && typeof input.create === "object" ? input.create : {};
-      const categoria = await resolveCategoryForWrite(organizationId, {
-        categoryId: create.categoryId ?? trial.category_id ?? "",
-        categoryName: create.categoryName ?? trial.category_name ?? "",
-      });
-      const siteId = asText(create.siteId ?? trial.site_id ?? "") || null;
-      const memberships = categoria.category_id
-        ? [
-            {
-              id: "",
-              categoryId: categoria.category_id,
-              categoryName: categoria.category_name || categoria.category_id,
-              isPrimary: true,
-              siteId,
-            },
-          ]
-        : [];
-      const status = asText(create.status) || "active";
-      const birthDate = `${toDateOnly(trial.birth_date)}T00:00:00.000Z`;
-      const scheda = await createResource(
-        "simplified_athletes",
-        {
-          club_id: organizationId,
-          organization_id: organizationId,
-          first_name: trial.first_name,
-          last_name: trial.last_name,
-          birth_date: birthDate,
-          status,
-          category_id: categoria.category_id,
-          category_name: categoria.category_name,
-          data: {
-            ...buildAthleteCategoryProjection(memberships as never, {
-              clubId: organizationId,
-            }),
-            category: categoria.category_id,
-            categoryName: categoria.category_name,
-            birthDate,
-            /* Recapiti della prova: dati della persona, non un tutore ne un accesso. */
-            ...(trial.phone ? { phone: trial.phone } : {}),
-            ...(trial.email ? { email: trial.email } : {}),
-            /* Da dove viene: leggibile dalla scheda, senza dover cercare la prova. */
-            trialOriginId: trial.id,
-          },
-        },
-        "create",
-        scope as never,
-      );
-      athleteId = asText((scheda as { id?: string })?.id);
-      if (!athleteId) throw new Error("La scheda atleta non e stata creata");
-      creata = true;
-      const righeConiate: Record<string, unknown>[] = [];
-      for (const membership of memberships) {
-        const riga = await createResource(
-          "athlete_category_memberships",
-          {
+
+      let athleteId = richiestaScheda;
+      let creata = false;
+
+      if (athleteId) {
+        const esistente = await tx.athlete.findFirst({
+          where: {
+            id: athleteId,
             organization_id: organizationId,
-            athlete_id: athleteId,
-            category_id: membership.categoryId,
-            category_name: membership.categoryName,
-            is_primary: true,
-            site_id: membership.siteId,
+            anonymized_at: null,
+          },
+          select: { id: true, trial_origin: { select: { id: true } } },
+        });
+        if (!esistente)
+          throw new Error(
+            "La scheda atleta indicata non esiste in questo club",
+          );
+        if (esistente.trial_origin && esistente.trial_origin.id !== trial.id) {
+          throw new Error(
+            "La scheda atleta e gia collegata a un'altra persona in prova",
+          );
+        }
+      } else {
+        const create =
+          input.create && typeof input.create === "object" ? input.create : {};
+        const categoria = await resolveCategoryForWrite(organizationId, {
+          categoryId: create.categoryId ?? trial.category_id ?? "",
+          categoryName: create.categoryName ?? trial.category_name ?? "",
+        });
+        const siteId = asText(create.siteId ?? trial.site_id ?? "") || null;
+        const memberships = categoria.category_id
+          ? [
+              {
+                id: randomUUID(),
+                categoryId: categoria.category_id,
+                categoryName: categoria.category_name || categoria.category_id,
+                isPrimary: true,
+                siteId,
+              },
+            ]
+          : [];
+        const status = asText(create.status) || "active";
+        const birthDate = `${toDateOnly(trial.birth_date)}T00:00:00.000Z`;
+        const scheda = await createResource(
+          "simplified_athletes",
+          {
+            club_id: organizationId,
+            organization_id: organizationId,
+            first_name: trial.first_name,
+            last_name: trial.last_name,
+            birth_date: birthDate,
+            status,
+            category_id: categoria.category_id,
+            category_name: categoria.category_name,
+            data: {
+              ...buildAthleteCategoryProjection(memberships as never, {
+                clubId: organizationId,
+              }),
+              category: categoria.category_id,
+              categoryName: categoria.category_name,
+              birthDate,
+              /* Recapiti della prova: dati della persona, non un tutore ne un accesso. */
+              ...(trial.phone ? { phone: trial.phone } : {}),
+              ...(trial.email ? { email: trial.email } : {}),
+              /* Da dove viene: leggibile dalla scheda, senza dover cercare la prova. */
+              trialOriginId: trial.id,
+            },
           },
           "create",
           scope as never,
+          { client: tx },
         );
-        if (riga && typeof riga === "object")
-          righeConiate.push(riga as Record<string, unknown>);
-      }
-      /*
-      La proiezione della scheda dice le righe **coniate**, non l'identificativo
-      vuoto con cui e stata creata (ADR-0187 §9: una voce della proiezione e
-      una riga, e la sua identita e quella della riga).
-    */
-      if (righeConiate.length) {
-        const datiScheda = (scheda as { data?: unknown })?.data;
-        await updateResource(
-          "simplified_athletes",
-          athleteId,
-          {
-            data: {
-              ...(datiScheda && typeof datiScheda === "object"
-                ? (datiScheda as Record<string, unknown>)
-                : {}),
-              categoryMemberships: righeConiate.map((riga) => ({
-                id: riga.id,
-                organization_id: organizationId,
-                athlete_id: athleteId,
-                category_id: riga.category_id,
-                category_name: riga.category_name,
-                is_primary: Boolean(riga.is_primary),
-                site_id: riga.site_id ?? null,
-              })),
+        athleteId = asText((scheda as { id?: string })?.id);
+        if (!athleteId) throw new Error("La scheda atleta non e stata creata");
+        creata = true;
+        for (const membership of memberships) {
+          await createResource(
+            "athlete_category_memberships",
+            {
+              id: membership.id,
+              organization_id: organizationId,
+              athlete_id: athleteId,
+              category_id: membership.categoryId,
+              category_name: membership.categoryName,
+              is_primary: true,
+              site_id: membership.siteId,
             },
-          },
-          scope as never,
-        );
+            "create",
+            scope as never,
+            { client: tx },
+          );
+        }
       }
-    }
-  } catch (errore) {
-    await rilascia().catch(() => undefined);
-    throw errore;
-  }
 
-  const riga = await prisma.trialAthlete.update({
-    where: { id: trial.id },
-    data: {
-      athlete_id: athleteId,
-      status: "enrolled",
-      converted_at: new Date(),
-      declined_at: null,
+      const riga = await tx.trialAthlete.update({
+        where: { id: trial.id },
+        data: {
+          athlete_id: athleteId,
+          status: "enrolled",
+          converted_at: new Date(),
+          declined_at: null,
+        },
+      });
+      return { riga, athleteId, creata };
     },
-  });
+    { timeout: 20_000 },
+  );
+  const { riga, athleteId, creata } = esito;
 
   await recordAuditEvent({
     action: AUDIT_ACTIONS.trialAthleteConverted,

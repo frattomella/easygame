@@ -90,6 +90,12 @@ interface AthleteCreateFormProps {
   showFooterActions?: boolean;
   /** Avvisa la pagina quando ci sono modifiche non salvate (guardia sul ritorno). */
   onDirtyChange?: (dirty: boolean) => void;
+  /**
+   * Un blocco sotto l'identita, disegnato dalla pagina con nome, cognome e
+   * data di nascita correnti: e «Possibile anagrafica gia presente»
+   * (ADR-0188), che cerca fra le persone in prova mentre si scrive.
+   */
+  identityNotice?: (identity: { firstName: string; lastName: string; birthDate: string }) => React.ReactNode;
   categories: {
     id: string;
     name: string;
@@ -272,6 +278,7 @@ export function AthleteCreateForm({
   onCancel,
   showFooterActions = true,
   onDirtyChange,
+  identityNotice,
   categories = [],
   categoryLabel,
   federations = [],
@@ -535,6 +542,13 @@ export function AthleteCreateForm({
           required={{ firstName: true, lastName: true, birthDate: true }}
           onChange={(patch) => set(patch as Partial<AthleteDraft>)}
         />
+        {identityNotice
+          ? identityNotice({
+              firstName: formData.firstName,
+              lastName: formData.lastName,
+              birthDate: formData.birthDate,
+            })
+          : null}
 
         <FormGrid className="mt-5">
           <Field
