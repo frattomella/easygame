@@ -5,11 +5,16 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Users } from "lucide-react";
 
 import { AccessAreaGuard } from "@/components/auth/access-area-guard";
-import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/web/primitives/Button";
+import { Avatar } from "@/components/web/primitives/Identity";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { Skeleton } from "@/components/web/primitives/Controls";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { EmptyStateCard } from "@/components/web/page/Cards";
+import { OutsideHeading, OutsideShell } from "@/components/web/shell/OutsideShell";
+import { MembershipRoleBadge } from "@/components/categories/category-label";
 import { apiRequest } from "@/lib/api/client";
+import { cn } from "@/lib/utils";
 
 /**
  * **Di quale figlio parliamo.**
@@ -33,6 +38,9 @@ import { apiRequest } from "@/lib/api/client";
  * Con un figlio solo questa schermata non compare mai: `getAccessRedirectPath`
  * porta dritto alla sua area, e chiedere una scelta fra un'alternativa sola
  * sarebbe un clic in piu tutti i giorni.
+ *
+ * E una pagina a livello di account, prima di entrare nel club: ambiente 3
+ * (guideline 05 §5.1), lo stesso guscio dell'accesso e della home account.
  */
 
 type Appartenenza = {
@@ -58,41 +66,32 @@ type Figlio = {
   avatarUrl: string | null;
 };
 
-const iniziali = (nome: string) =>
-  nome
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((parte) => parte[0]?.toUpperCase() || "")
-    .join("") || "?";
-
-/**
- * **Le squadre del figlio, come si leggono su una riga sola.**
- *
- * PP-02 §B. Una categoria per riga, con l'etichetta che il server ha gia
- * scritto con l'indice canonico (ADR-0185): la sede accanto solo quando c'e o
- * serve a distinguere, mai composta qui. La primaria non viene marcata: qui si
- * sceglie un figlio, non si amministra una squadra.
- */
-const squadre = (figlio: Figlio) => {
-  const righe = (figlio.categories || [])
-    .map((categoria) => categoria.label || categoria.name)
-    .filter(Boolean);
-
-  if (righe.length) return righe.join(" · ");
-  return figlio.categoryName || "";
-};
-
 /*
   Un figlio non piu attivo si dichiara **prima** di entrare. La sua area resta
   aperta — pagamenti e documenti di un'annata chiusa sono suoi, e toglierli
   vorrebbe dire cancellare la storia — ma una schermata che elenca due nomi
   identici, uno iscritto e uno no, senza dirlo, promette due iscrizioni vive.
+  Lo stato e una pillola del sistema (`PERSON_STATUS`), non una parola inventata.
 */
-const ETICHETTE_STATO: Record<string, string> = {
-  suspended: "Sospeso",
-  loan: "In prestito",
-  inactive: "Non piu iscritto",
+const STATI_DA_DIRE = new Set(["suspended", "loan", "on_loan", "inactive", "archived"]);
+const statoCanonico = (status: string | null | undefined) => (status === "loan" ? "on_loan" : status || "");
+
+/**
+ * **Le squadre del figlio, una per chip.**
+ *
+ * PP-02 §B / ADR-0185: l'etichetta e quella che il server ha gia scritto con
+ * l'indice canonico — la sede accanto solo quando c'e o serve a distinguere,
+ * mai composta qui, mai un identificativo. La primaria porta la pillola di
+ * ruolo del sistema (ADR-0186), perche fra due squadre la famiglia deve
+ * sapere quale e la casa.
+ */
+const squadre = (figlio: Figlio): Appartenenza[] => {
+  const righe = (figlio.categories || []).filter((categoria) => categoria.label || categoria.name);
+  if (righe.length) return righe;
+  if (figlio.categoryName) {
+    return [{ id: "", name: figlio.categoryName, siteId: null, siteName: null, label: figlio.categoryName, isPrimary: true }];
+  }
+  return [];
 };
 
 function ScegliFiglio() {
@@ -141,99 +140,118 @@ function ScegliFiglio() {
     }
   }, [figli, router]);
 
-  if (figli === null) {
-    return <AppLoadingScreen subtitle="Cerco i tuoi figli collegati" />;
-  }
+  const soloUnClub = figli ? new Set(figli.map((figlio) => figlio.clubId)).size <= 1 : true;
 
   return (
-    // `100dvh` e non `100vh`: su mobile la barra del browser mangia l'altezza.
-    <main className="mx-auto min-h-[100dvh] w-full max-w-3xl px-4 py-10 sm:px-6 sm:py-16">
-      <div className="mb-8 space-y-2">
-        <p className="text-sm font-semibold uppercase tracking-wide text-blue-600">
-          Area famiglia
-        </p>
-        <h1 className="text-2xl font-semibold text-slate-950 sm:text-3xl">
-          Di quale figlio vuoi occuparti?
-        </h1>
-        <p className="text-slate-600">
-          Calendario, pagamenti, documenti e certificati sono sempre quelli del
-          figlio che scegli qui. Per cambiare, torna a questa schermata.
-        </p>
-      </div>
+    <OutsideShell
+      width="stepper"
+      below={
+        <button type="button" onClick={() => router.push("/account")} className="rounded-egw-micro font-semibold text-white underline-offset-4 hover:underline focus-visible:outline-none focus-visible:shadow-egw-focus-dark">
+          Torna al mio account
+        </button>
+      }
+    >
+      <OutsideHeading
+        title="Di quale figlio vuoi occuparti?"
+        description="Calendario, pagamenti, documenti e certificati sono sempre quelli del figlio che scegli qui. Per cambiare, torna a questa schermata."
+      />
+      <p className="sr-only">Area famiglia</p>
+
+      {figli === null ? (
+        <div className="flex flex-col gap-3" aria-busy aria-label="Cerco i tuoi figli collegati">
+          {[0, 1].map((index) => (
+            <div key={index} className="flex items-center gap-4 rounded-egw-field border border-egw-hairline bg-egw-page-100 p-4">
+              <Skeleton className="h-12 w-12 rounded-egw-pill" />
+              <div className="flex-1">
+                <Skeleton className="mb-2 h-4 w-40" />
+                <Skeleton className="h-3 w-56" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {errore ? (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardContent className="flex flex-col gap-3 p-6 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-amber-900">{errore}</p>
-            <Button variant="outline" onClick={() => void carica()}>
+        <AlertBlock
+          severity="warning"
+          title={errore}
+          actions={
+            <Button variant="secondary" size="sm" onClick={() => void carica()}>
               Riprova
             </Button>
-          </CardContent>
-        </Card>
+          }
+        />
       ) : null}
 
-      {!errore && figli.length === 0 ? (
-        <Card className="border-slate-200">
-          <CardContent className="space-y-3 p-6">
-            <div className="flex items-center gap-3 text-slate-700">
-              <Users className="h-5 w-5" />
-              <p className="font-semibold">Nessun figlio collegato</p>
-            </div>
-            <p className="text-sm text-slate-600">
-              Il collegamento lo crea la societa: chiedi alla segreteria di
-              associare il tuo account alla scheda di tuo figlio.
-            </p>
-            <Button variant="outline" onClick={() => router.push("/account")}>
+      {figli && !errore && figli.length === 0 ? (
+        <EmptyStateCard
+          flat
+          icon={<Users />}
+          iconTone="neutral"
+          title="Nessun figlio collegato"
+          description="Il collegamento lo crea la societa: chiedi alla segreteria di associare il tuo account alla scheda di tuo figlio."
+          primary={
+            <Button variant="secondary" onClick={() => router.push("/account")}>
               Torna al mio account
             </Button>
-          </CardContent>
-        </Card>
+          }
+        />
       ) : null}
 
-      <div className="grid gap-3">
-        {figli.map((figlio) => (
-          <button
-            key={figlio.id}
-            type="button"
-            onClick={() => router.push(`/parent-view/${figlio.id}`)}
-            className="flex w-full items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-          >
-            <Avatar className="h-12 w-12 shrink-0">
-              {figlio.avatarUrl ? (
-                <AvatarImage src={figlio.avatarUrl} alt="" />
-              ) : null}
-              <AvatarFallback>{iniziali(figlio.name)}</AvatarFallback>
-            </Avatar>
-            {/*
-              Tre righe e non una: nome, chi e (anno e stato), dove gioca. A
-              375 px il testo va a capo invece di essere troncato — su una
-              schermata di scelta l'informazione tagliata e il motivo per cui
-              si sceglie male.
-            */}
-            <div className="min-w-0 flex-1 space-y-0.5">
-              <p className="font-semibold text-slate-950">{figlio.name}</p>
-              <p className="text-sm text-slate-600">
-                {[
-                  figlio.birthYear ? `Classe ${figlio.birthYear}` : "",
-                  figlio.clubName,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </p>
-              <p className="text-sm text-slate-500">
-                {squadre(figlio) || "Categoria da assegnare"}
-              </p>
-              {figlio.status && ETICHETTE_STATO[figlio.status] ? (
-                <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
-                  {ETICHETTE_STATO[figlio.status]}
-                </span>
-              ) : null}
-            </div>
-            <ArrowRight className="h-5 w-5 shrink-0 text-slate-400" />
-          </button>
-        ))}
-      </div>
-    </main>
+      {figli && figli.length > 0 ? (
+        <ul className="flex flex-col gap-3" aria-label="Figli collegati">
+          {figli.map((figlio) => {
+            const stato = statoCanonico(figlio.status);
+            const appartenenze = squadre(figlio);
+            return (
+              <li key={figlio.id}>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/parent-view/${figlio.id}`)}
+                  aria-label={`Apri l'area di ${figlio.name}`}
+                  className={cn(
+                    "group flex w-full items-start gap-4 rounded-egw-field border border-egw-field-border bg-egw-page-100 p-4 text-left transition-[border-color,background-color,box-shadow] duration-hover",
+                    "hover:border-[rgba(37,99,235,.32)] hover:bg-white focus-visible:border-egw-blue focus-visible:bg-white focus-visible:outline-none focus-visible:shadow-egw-focus",
+                  )}
+                >
+                  <Avatar src={figlio.avatarUrl} name={figlio.name} size={48} />
+                  {/*
+                    Tre righe e non una: nome, chi e (anno, club, stato), dove
+                    gioca. A 375 px il testo va a capo invece di essere
+                    troncato — su una schermata di scelta l'informazione
+                    tagliata e il motivo per cui si sceglie male.
+                  */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                      <p className="text-[15px] font-bold leading-5 text-egw-ink">{figlio.name}</p>
+                      {stato && STATI_DA_DIRE.has(stato) ? <StatusPill status={stato} size="sm" /> : null}
+                    </div>
+                    <p className="egw-num mt-0.5 text-[12.5px] leading-[1.5] text-egw-ink-62">
+                      {[figlio.birthYear ? `Classe ${figlio.birthYear}` : "", !soloUnClub || !figlio.clubLogoUrl ? figlio.clubName : ""]
+                        .filter(Boolean)
+                        .join(" · ") || figlio.clubName}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {appartenenze.length ? (
+                        appartenenze.map((categoria) => (
+                          <span key={`${categoria.id}-${categoria.siteId || ""}`} className="inline-flex items-center gap-1">
+                            <DataChip>{categoria.label || categoria.name}</DataChip>
+                            {appartenenze.length > 1 && categoria.isPrimary ? <MembershipRoleBadge isPrimary /> : null}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-[12px] font-medium text-egw-ink-42">Categoria da assegnare</span>
+                      )}
+                    </div>
+                  </div>
+                  <ArrowRight className="mt-3 h-[17px] w-[17px] shrink-0 text-egw-ink-42 transition-colors duration-hover group-hover:text-egw-blue-700" aria-hidden />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </OutsideShell>
   );
 }
 

@@ -85,7 +85,7 @@ test("il titolo della card segue la scheda aperta", () => {
 test("l'errore della schermata di accesso viene annunciato", () => {
   assert.match(
     authShell(),
-    /role="alert"\s*\n\s*className="rounded-xl border border-red-200/,
+    /<AlertBlock severity="danger" role="alert" title=\{error\} \/>/,
     "il riquadro d'errore deve essere un alert",
   );
 });

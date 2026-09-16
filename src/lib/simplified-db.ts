@@ -2175,8 +2175,7 @@ export async function updateClubLogoAndName(
       // Also update user-specific storage
       const userId = data?.creator_id;
       if (userId) {
-        const userClubsKey = `userClubs_${userId}`;
-        const userClubs = localStorage.getItem(userClubsKey);
+        const userClubs = localStorage.getItem(`userClubs_${userId}`);
         if (userClubs) {
           try {
             const parsedClubs = JSON.parse(userClubs);
@@ -2186,7 +2185,7 @@ export async function updateClubLogoAndName(
               }
               return club;
             });
-            localStorage.setItem(userClubsKey, JSON.stringify(updatedClubs));
+            localStorage.setItem(`userClubs_${userId}`, JSON.stringify(updatedClubs));
           } catch (e) {
             console.error("Error updating user clubs in localStorage:", e);
           }

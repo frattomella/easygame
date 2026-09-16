@@ -201,12 +201,6 @@ const CHIAVI_DICHIARATE = new Map([
   ["organization-name", "il nome del club, per dipingere subito l'intestazione"],
   ["organization-logo", "il logo del club, per la stessa ragione"],
   ["sidebar-collapsed", "barra laterale aperta o chiusa"],
-  ["athlete-sidebar-collapsed", "barra laterale aperta o chiusa"],
-  ["parent-sidebar-collapsed", "barra laterale aperta o chiusa"],
-  ["trainer-sidebar-collapsed", "barra laterale aperta o chiusa"],
-  ["profileImage_${}", "immagine del profilo, durante la verifica"],
-  ["userName_${}", "nome mostrato, durante la verifica"],
-  ["userProfile_${}", "nome e immagine, per dipingere subito l'intestazione"],
   /*
     **La cache della sessione, ed e la sola chiave che ne contiene una.**
 

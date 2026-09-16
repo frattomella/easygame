@@ -258,7 +258,9 @@ test("la schermata di scelta del figlio usa il trasporto di prodotto", () => {
 });
 
 test("la schermata di scelta del figlio resta alta quanto lo schermo vero", () => {
-  const sorgente = leggi(SCELTA_FIGLIO);
+  /* La schermata monta il guscio fuori dal club: l'altezza la decide lui. */
+  assert.ok(leggi(SCELTA_FIGLIO).includes("<OutsideShell"));
+  const sorgente = leggi("components/web/shell/OutsideShell.tsx");
 
   assert.equal(
     /min-h-screen/.test(sorgente),

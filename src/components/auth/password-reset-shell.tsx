@@ -5,14 +5,19 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import { apiRequest } from "@/lib/api/client";
 import { PASSWORD_POLICY, validatePassword } from "@/lib/auth/password-policy";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
-import { EasyGameWordmark } from "@/components/brand/easygame-logo";
+import { Button } from "@/components/web/primitives/Button";
+import { Field, FieldSizeProvider, TextInput } from "@/components/web/forms/Field";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { OutsideHeading, OutsideShell } from "@/components/web/shell/OutsideShell";
 
 type Status = "idle" | "loading" | "done" | "error";
 
+/**
+ * Le due schermate del recupero password, sullo stesso guscio dell'accesso
+ * (ambiente 3, `OutsideShell`): stesso cielo, stesso pannello di 440px,
+ * stesso ritorno all'accesso sotto il pannello. Le chiamate — `forgot`,
+ * `reset` — e la regola della password sono quelle di prima.
+ */
 const Shell = ({
   title,
   description,
@@ -22,29 +27,24 @@ const Shell = ({
   description: string;
   children: React.ReactNode;
 }) => (
-  <div className="eg-auth flex min-h-screen items-center justify-center bg-[var(--eg-paper)] px-4 py-8">
-    <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 sm:p-8">
-      <EasyGameWordmark className="mb-6" />
-      <h1 className="font-display text-2xl font-semibold tracking-tight text-slate-900">
-        {title}
-      </h1>
-      <p className="mt-2 text-sm text-slate-600">{description}</p>
-      <div className="mt-6">{children}</div>
-      <p className="mt-6 text-center text-sm text-slate-500">
-        <Link
-          href="/login"
-          className="font-medium text-[var(--eg-blue)] hover:underline"
-        >
-          Torna all&apos;accesso
-        </Link>
-      </p>
-    </div>
-  </div>
+  <OutsideShell
+    width="form"
+    below={
+      <Link href="/login" className="rounded-egw-micro focus-visible:outline-none focus-visible:shadow-egw-focus-dark">
+        Torna all&apos;accesso
+      </Link>
+    }
+  >
+    <FieldSizeProvider size="sm">
+      <OutsideHeading title={title} description={description} />
+      {children}
+    </FieldSizeProvider>
+  </OutsideShell>
 );
 
 /**
  * Esito di un'operazione. Stessa forma in tutte le schermate di accesso:
- * un riquadro, un'icona, una frase che dice cosa e successo.
+ * un blocco di avviso del sistema, che dice cosa e successo.
  */
 const Feedback = ({
   tone,
@@ -53,22 +53,7 @@ const Feedback = ({
   tone: "ok" | "ko";
   children: React.ReactNode;
 }) => (
-  <p
-    role="status"
-    aria-live="polite"
-    className={
-      tone === "ok"
-        ? "flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
-        : "flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900"
-    }
-  >
-    {tone === "ok" ? (
-      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-    ) : (
-      <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-    )}
-    <span className="min-w-0">{children}</span>
-  </p>
+  <AlertBlock severity={tone === "ok" ? "success" : "danger"} role={tone === "ok" ? "status" : "alert"} title={children} />
 );
 
 /** Richiesta del link di reset. */
@@ -108,10 +93,9 @@ export function ForgotPasswordScreen() {
       {status === "done" ? (
         <Feedback tone="ok">{message}</Feedback>
       ) : (
-        <form onSubmit={submit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="reset-email">Email</Label>
-            <Input
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <Field label="Email" htmlFor="reset-email" required>
+            <TextInput
               id="reset-email"
               type="email"
               autoComplete="email"
@@ -120,12 +104,11 @@ export function ForgotPasswordScreen() {
               onChange={(event) => setEmail(event.target.value)}
               placeholder="nome@esempio.it"
             />
-          </div>
+          </Field>
 
           {status === "error" && <Feedback tone="ko">{message}</Feedback>}
 
-          <Button type="submit" className="w-full" disabled={status === "loading"}>
-            {status === "loading" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button type="submit" variant="primary" className="w-full" loading={status === "loading"}>
             Invia il link
           </Button>
         </form>
@@ -191,7 +174,7 @@ export function ResetPasswordScreen() {
       >
         <Feedback tone="ko">
           Richiedi un nuovo link dalla pagina{" "}
-          <Link href="/auth/forgot-password" className="font-medium underline">
+          <Link href="/auth/forgot-password" className="font-semibold underline">
             password dimenticata
           </Link>
           .
@@ -219,9 +202,9 @@ export function ResetPasswordScreen() {
       description={`Almeno ${PASSWORD_POLICY.minLength} caratteri. Il link è valido una sola volta.`}
     >
       {status !== "done" ? (
-        <p className="mb-4 text-sm text-slate-500">
+        <p className="mb-4 text-[12.5px] leading-[1.5] text-egw-ink-62">
           Hai l&apos;app EasyGame?{" "}
-          <a href={mobileAppUrl} className="font-medium text-[var(--eg-blue)] hover:underline">
+          <a href={mobileAppUrl} className="font-semibold text-egw-blue-700 underline-offset-4 hover:underline">
             Aprila qui
           </a>{" "}
           per completare piu comodamente.
@@ -230,10 +213,9 @@ export function ResetPasswordScreen() {
       {status === "done" ? (
         <Feedback tone="ok">{message}</Feedback>
       ) : (
-        <form onSubmit={submit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="new-password">Nuova password</Label>
-            <Input
+        <form onSubmit={submit} className="flex flex-col gap-4">
+          <Field label="Nuova password" htmlFor="new-password" required>
+            <TextInput
               id="new-password"
               type="password"
               autoComplete="new-password"
@@ -241,11 +223,10 @@ export function ResetPasswordScreen() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <Label htmlFor="confirm-password">Conferma password</Label>
-            <Input
+          <Field label="Conferma password" htmlFor="confirm-password" required>
+            <TextInput
               id="confirm-password"
               type="password"
               autoComplete="new-password"
@@ -253,10 +234,10 @@ export function ResetPasswordScreen() {
               value={confirmation}
               onChange={(event) => setConfirmation(event.target.value)}
             />
-          </div>
+          </Field>
 
           {password && !policy.valid && (
-            <ul className="space-y-1 text-xs text-slate-500">
+            <ul className="flex flex-col gap-1 text-[11.5px] font-medium text-egw-ink-62" aria-label="Requisiti della password">
               {policy.errors.map((requisito) => (
                 <li key={requisito}>• {requisito}</li>
               ))}
@@ -265,8 +246,7 @@ export function ResetPasswordScreen() {
 
           {status === "error" && <Feedback tone="ko">{message}</Feedback>}
 
-          <Button type="submit" className="w-full" disabled={status === "loading"}>
-            {status === "loading" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          <Button type="submit" variant="primary" className="w-full" loading={status === "loading"}>
             Imposta la nuova password
           </Button>
         </form>

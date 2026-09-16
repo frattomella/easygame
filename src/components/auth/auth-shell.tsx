@@ -5,11 +5,14 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { apiRequest } from "@/lib/api/client";
 import { supabase } from "@/lib/supabase";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast-notification";
+import { Button } from "@/components/web/primitives/Button";
+import { SegmentedControl } from "@/components/web/primitives/Controls";
+import { InsetBlock } from "@/components/web/primitives/Surface";
+import { IconChip } from "@/components/web/primitives/StatusPill";
+import { Field, FieldSizeProvider, TextInput } from "@/components/web/forms/Field";
+import { AlertBlock } from "@/components/web/page/Alerts";
+import { OutsideHeading, OutsideShell } from "@/components/web/shell/OutsideShell";
 import {
   ArrowRight,
   Briefcase,
@@ -22,9 +25,6 @@ import {
   Smartphone,
   UserRound,
 } from "lucide-react";
-import Image from "next/image";
-import logoWhite from "@/../public/images/brand/logotipo-w.png";
-import iconWhite from "@/../public/images/brand/icon-w.png";
 
 type AuthMode = "login" | "register";
 
@@ -431,26 +431,22 @@ export function AuthShell({
   const providerButtons = hasProviderChoice ? (
     <div className="grid gap-2">
       {loadingProviders ? (
-        <div className="flex items-center justify-center py-3 text-sm text-slate-500">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Caricamento provider...
+        <div className="flex items-center justify-center py-3 text-[12.5px] text-egw-ink-62" role="status">
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+          Caricamento provider…
         </div>
       ) : (
         capabilities.providers.map((provider) => (
           <Button
             key={provider.id}
             type="button"
-            variant="outline"
-            className="justify-start border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+            variant="secondary"
+            className="w-full justify-start"
+            icon={provider.id === "google" ? <Chrome /> : <Briefcase />}
             onClick={() => {
               window.location.href = `/api/v1/auth/oauth/${provider.id}/start`;
             }}
           >
-            {provider.id === "google" ? (
-              <Chrome className="mr-2 h-4 w-4" />
-            ) : (
-              <Briefcase className="mr-2 h-4 w-4" />
-            )}
             Continua con {provider.label}
           </Button>
         ))
@@ -458,459 +454,406 @@ export function AuthShell({
     </div>
   ) : null;
 
+  /*
+    **Un codice, un campo, due azioni.** La verifica di un recapito e la stessa
+    per email e telefono: cambia il canale, non la forma. Il pulsante che
+    conferma e il primario del pannello — l'unico gradiente — perche in questo
+    stato e l'unica cosa da fare.
+  */
+  const verificationStep = ({
+    channel,
+    icon,
+    title,
+    hint,
+    code,
+    onCode,
+    onSubmit,
+    onResend,
+    submitLabel,
+    resendLabel,
+    previewCode,
+    previewLabel,
+    unavailable,
+    note,
+    submitDisabled,
+    resendDisabled,
+  }: {
+    channel: "email" | "phone";
+    icon: React.ReactNode;
+    title: string;
+    hint: React.ReactNode;
+    code: string;
+    onCode: (value: string) => void;
+    onSubmit: () => void;
+    onResend: () => void;
+    submitLabel: string;
+    resendLabel: string;
+    previewCode?: string | null;
+    previewLabel: string;
+    unavailable?: React.ReactNode;
+    note?: React.ReactNode;
+    submitDisabled?: boolean;
+    resendDisabled?: boolean;
+  }) => (
+    <InsetBlock className="flex flex-col gap-4">
+      <div className="flex items-start gap-3">
+        <IconChip tone="blue" size={34}>
+          {icon}
+        </IconChip>
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-egw-ink">{title}</p>
+          <p className="mt-0.5 text-[12.5px] leading-[1.5] text-egw-ink-62">{hint}</p>
+        </div>
+      </div>
+      <Field
+        label={channel === "email" ? "Codice ricevuto via email" : "Codice ricevuto via SMS"}
+        htmlFor={`verify-${channel}`}
+        helper={
+          previewCode ? (
+            <span className="text-egw-amber-ink">
+              {previewLabel} <span className="egw-num font-bold">{previewCode}</span>
+            </span>
+          ) : (
+            note
+          )
+        }
+        error={unavailable}
+      >
+        <TextInput
+          id={`verify-${channel}`}
+          value={code}
+          onChange={(event) => onCode(event.target.value)}
+          placeholder={channel === "email" ? "Inserisci il codice email" : "Inserisci il codice SMS"}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          className="egw-num tracking-[0.18em]"
+        />
+      </Field>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button type="button" variant="primary" className="sm:flex-1" icon={<ShieldCheck />} loading={verificationLoading} disabled={submitDisabled} onClick={onSubmit}>
+          {submitLabel}
+        </Button>
+        <Button type="button" variant="secondary" disabled={resendDisabled} onClick={onResend}>
+          {resendLabel}
+        </Button>
+      </div>
+    </InsetBlock>
+  );
+
   return (
     /*
       Ambiente 3 — «fuori dal club» (EGDS v3.1.0, guideline 05 §5.1): cielo
       pieno senza orizzonte, filigrana del marchio al 5%, un solo pannello
-      bianco centrato di 440px. Il credito «powered by» vive qui e solo qui
-      (deprecated.md: niente footer dentro l'app).
+      bianco centrato di 440px. Il guscio e `OutsideShell`, lo stesso di
+      recupero password, verifica e conferma: una pagina di accesso e una
+      di conferma sono la stessa EasyGame.
     */
-    <div className="egw-sky-full relative min-h-screen overflow-hidden px-4 py-8 font-brand sm:py-12">
-      <Image
-        src={iconWhite}
-        alt=""
-        aria-hidden
-        className="pointer-events-none absolute -right-24 top-1/2 h-[520px] w-[520px] -translate-y-1/2 select-none object-contain opacity-[0.05]"
-      />
-      <div className="relative mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[440px] flex-col items-center justify-center gap-6">
-        <Link href="/" aria-label="EasyGame" className="rounded-egw-chip focus-visible:outline-none focus-visible:shadow-egw-focus-dark">
-          <Image src={logoWhite} alt="EasyGame" width={168} height={40} className="h-auto w-[168px] object-contain" priority />
-        </Link>
+    <OutsideShell width="form">
+      <FieldSizeProvider size="sm">
+        {/*
+          Il titolo segue la scheda aperta: `/register` monta questo stesso
+          guscio con la scheda «Registrazione» gia scelta, e intitolarlo
+          «Accedi» diceva a chi arriva da un invito che ha sbagliato pagina.
+        */}
+        <OutsideHeading
+          title={mode === "register" ? "Crea il tuo account" : "Accedi"}
+          description={
+            mode === "register"
+              ? "Bastano nome, email e password: il club lo configuri dopo."
+              : "Entra nella gestione della tua società sportiva."
+          }
+        />
 
-        <div className="w-full rounded-egw-panel border border-white/60 bg-white p-6 shadow-egw-plane-2 sm:p-8">
-          <div className="space-y-2 pb-5">
-            {/*
-              Il titolo segue la scheda aperta: `/register` monta questo
-              stesso guscio con la scheda «Registrazione» gia scelta, e
-              intitolarlo «Accedi» diceva a chi arriva da un invito che ha
-              sbagliato pagina.
-            */}
-            <h1 className="text-[24px] font-extrabold leading-[1.1] tracking-[var(--egw-track-display)] text-egw-ink">
-              {mode === "register" ? "Crea il tuo account" : "Accedi"}
-            </h1>
-            <p className="text-[13px] leading-[1.5] text-egw-ink-62">
-              {mode === "register"
-                ? "Bastano nome, email e password: il club lo configuri dopo."
-                : "Entra nella gestione della tua società sportiva."}
-            </p>
-          </div>
-          <div className="space-y-6">
+        <div className="flex flex-col gap-5">
+          {pendingVerification ? (
+            <div className="flex flex-col gap-4">
+              <div>
+                <h2 className="text-[15px] font-bold text-egw-ink">Verifica account</h2>
+                <p className="mt-0.5 text-[12.5px] leading-[1.5] text-egw-ink-62">Completa i passaggi richiesti per attivare l’accesso.</p>
+              </div>
+
+              {pendingVerification.emailRequired
+                ? verificationStep({
+                    channel: "email",
+                    icon: <Mail />,
+                    title: "Verifica email",
+                    hint: capabilities.emailProviderConfigured
+                      ? `Abbiamo inviato un codice a ${pendingVerification.email}.`
+                      : "Il tuo account è stato creato, ma l’invio del codice non è ancora disponibile. Riprova il login quando il servizio email sarà configurato.",
+                    code: emailCode,
+                    onCode: setEmailCode,
+                    onSubmit: submitEmailVerification,
+                    onResend: () => resendVerification("email"),
+                    submitLabel: "Conferma email",
+                    resendLabel: "Reinvia codice",
+                    previewCode: pendingVerification.emailPreviewCode,
+                    previewLabel: "Codice test email:",
+                    unavailable:
+                      !capabilities.emailProviderConfigured && !capabilities.testCodesEnabled
+                        ? "Servizio email non configurato. Contatta l’assistenza."
+                        : undefined,
+                    submitDisabled: !capabilities.emailProviderConfigured,
+                    resendDisabled: !capabilities.emailProviderConfigured,
+                  })
+                : null}
+
+              {pendingVerification.phoneRequired
+                ? verificationStep({
+                    channel: "phone",
+                    icon: <Smartphone />,
+                    title: "Verifica telefono",
+                    hint: `Inserisci il codice inviato a ${pendingVerification.phone}.`,
+                    code: phoneCode,
+                    onCode: setPhoneCode,
+                    onSubmit: submitPhoneVerification,
+                    onResend: () => resendVerification("phone"),
+                    submitLabel: "Conferma telefono",
+                    resendLabel: "Reinvia SMS",
+                    previewCode: pendingVerification.phonePreviewCode,
+                    previewLabel: "Codice test SMS:",
+                    note:
+                      !capabilities.phoneProviderConfigured && capabilities.testCodesEnabled
+                        ? "Nessun provider SMS configurato: in testing il codice viene mostrato qui."
+                        : undefined,
+                    unavailable:
+                      !capabilities.phoneProviderConfigured && !capabilities.testCodesEnabled
+                        ? "Servizio SMS non configurato. Contatta l’assistenza."
+                        : undefined,
+                  })
+                : null}
+            </div>
+          ) : (
+            <>
+              {/*
+                Accesso e registrazione sono due schede dello stesso pannello,
+                come prima: cambia il controllo — quello segmentato del sistema
+                — non la strada.
+              */}
+              <SegmentedControl
+                aria-label="Accedi o registrati"
+                value={mode}
+                onChange={(value) => setMode(value)}
+                options={[
+                  { value: "login", label: "Accedi" },
+                  { value: "register", label: "Registrazione" },
+                ]}
+                className="w-full [&>button]:flex-1 [&>button]:justify-center"
+              />
+
               {providerButtons}
 
               {hasProviderChoice ? (
-                <div className="relative text-center text-xs uppercase tracking-[0.24em] text-slate-400">
-                  <span className="bg-white px-3">oppure</span>
-                  <div className="absolute left-0 top-1/2 -z-10 h-px w-full -translate-y-1/2 bg-slate-200" />
+                <div className="relative text-center text-[10px] font-bold uppercase tracking-[var(--egw-track-eyebrow)] text-egw-ink-42">
+                  <span className="relative z-10 bg-white px-3">oppure</span>
+                  <div aria-hidden className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-egw-hairline" />
                 </div>
               ) : null}
 
-              {pendingVerification ? (
-                <div className="space-y-5 rounded-2xl border border-blue-100 bg-blue-50/70 p-5">
-                  <div className="space-y-2">
-                    <h3 className="text-lg font-semibold text-slate-900">
-                      Verifica account
-                    </h3>
-                    <p className="text-sm text-slate-600">
-                      Completa i passaggi richiesti per attivare l’accesso.
-                    </p>
+              {mode === "login" ? (
+                <form onSubmit={handleLogin} className="flex flex-col gap-4" aria-label="Accedi">
+                  <Field label="Email" htmlFor="login-email" required>
+                    <TextInput
+                      id="login-email"
+                      type="email"
+                      autoComplete="email"
+                      leading={<Mail />}
+                      value={loginEmail}
+                      onChange={(event) => setLoginEmail(event.target.value)}
+                      placeholder="nome@esempio.com"
+                      required
+                    />
+                  </Field>
+                  <Field label="Password" htmlFor="login-password" required>
+                    <TextInput
+                      id="login-password"
+                      type="password"
+                      autoComplete="current-password"
+                      leading={<LockKeyhole />}
+                      value={loginPassword}
+                      onChange={(event) => setLoginPassword(event.target.value)}
+                      placeholder="Password"
+                      required
+                    />
+                  </Field>
+                  <div className="-mt-1 flex justify-end">
+                    <Link
+                      href="/auth/forgot-password"
+                      className="rounded-egw-micro text-[12.5px] font-semibold text-egw-blue-700 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:shadow-egw-focus"
+                    >
+                      Password dimenticata?
+                    </Link>
+                  </div>
+                  <Button type="submit" variant="primary" className="w-full" loading={loginLoading} trailingIcon={<ArrowRight />}>
+                    Entra nell&apos;app
+                  </Button>
+                </form>
+              ) : (
+                <form onSubmit={handleRegister} className="flex flex-col gap-4" aria-label="Crea il tuo account">
+                  {/*
+                    Utente o club: la stessa scelta di prima, come controllo
+                    segmentato invece di due pulsanti che si scambiavano il
+                    riempimento.
+                  */}
+                  <Field label="Ti registri come" htmlFor="register-role">
+                    <SegmentedControl
+                      aria-label="Ti registri come"
+                      value={registerRole}
+                      onChange={(value) => setRegisterRole(value)}
+                      options={[
+                        {
+                          value: "user",
+                          label: (
+                            <span className="inline-flex items-center gap-1.5">
+                              <UserRound className="h-3.5 w-3.5" aria-hidden />
+                              Utente
+                            </span>
+                          ),
+                        },
+                        {
+                          value: "club_creator",
+                          label: (
+                            <span className="inline-flex items-center gap-1.5">
+                              <Building2 className="h-3.5 w-3.5" aria-hidden />
+                              Club
+                            </span>
+                          ),
+                        },
+                      ]}
+                      className="w-full [&>button]:flex-1 [&>button]:justify-center"
+                    />
+                  </Field>
+
+                  {registerRole === "club_creator" && (
+                    <Field label="Nome club" htmlFor="organizationName" required>
+                      <TextInput
+                        id="organizationName"
+                        leading={<Building2 />}
+                        value={registerData.organizationName}
+                        onChange={(event) => handleRegisterChange("organizationName", event.target.value)}
+                        placeholder="Es. EasyGame FC"
+                        autoComplete="organization"
+                        required
+                      />
+                    </Field>
+                  )}
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Nome" htmlFor="firstName" required>
+                      <TextInput
+                        id="firstName"
+                        autoComplete="given-name"
+                        value={registerData.firstName}
+                        onChange={(event) => handleRegisterChange("firstName", event.target.value)}
+                        required
+                      />
+                    </Field>
+                    <Field label="Cognome" htmlFor="lastName" required>
+                      <TextInput
+                        id="lastName"
+                        autoComplete="family-name"
+                        value={registerData.lastName}
+                        onChange={(event) => handleRegisterChange("lastName", event.target.value)}
+                        required
+                      />
+                    </Field>
                   </div>
 
-                  {pendingVerification.emailRequired && (
-                    <div className="space-y-3 rounded-xl border border-white bg-white p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
-                        <Mail className="h-4 w-4 text-blue-600" />
-                        Verifica email
-                      </div>
-                      <p className="text-sm text-slate-500">
-                        {capabilities.emailProviderConfigured
-                          ? `Abbiamo inviato un codice a ${pendingVerification.email}.`
-                          : "Il tuo account è stato creato, ma l’invio del codice non è ancora disponibile. Riprova il login quando il servizio email sarà configurato."}
-                      </p>
-                      <Input
-                        value={emailCode}
-                        onChange={(event) => setEmailCode(event.target.value)}
-                        placeholder="Inserisci il codice email"
+                  <Field label="Email" htmlFor="register-email" required>
+                    <TextInput
+                      id="register-email"
+                      type="email"
+                      autoComplete="email"
+                      leading={<Mail />}
+                      value={registerData.email}
+                      onChange={(event) => handleRegisterChange("email", event.target.value)}
+                      required
+                    />
+                  </Field>
+
+                  {/*
+                    **Il campo c'e sempre (ADR-0132).** Prima era dentro un
+                    `capabilities.phoneVerification &&`, cioe compariva solo
+                    dove un fornitore SMS era configurato: su ogni
+                    installazione reale il numero non veniva chiesto, la
+                    colonna restava vuota e tutto il flusso di verifica —
+                    rotte, challenge, contatori — era codice che nessuno
+                    poteva raggiungere. Il numero e obbligatorio per regola
+                    di prodotto, quindi si chiede sempre; cio che dipende
+                    dall'installazione e solo se la verifica **blocchi**
+                    l'accesso, e lo dice la nota qui sotto.
+                  */}
+                  <Field
+                    label="Cellulare"
+                    htmlFor="phone"
+                    required
+                    helper={
+                      capabilities.phoneVerificationRequired
+                        ? "Ti invieremo un codice via SMS per verificarlo: senza verifica l'account non è attivo."
+                        : "Serve per contattarti. Su questa installazione la verifica via SMS non è attiva."
+                    }
+                  >
+                    <TextInput
+                      id="phone"
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      leading={<Smartphone />}
+                      value={registerData.phone}
+                      onChange={(event) => handleRegisterChange("phone", event.target.value)}
+                      placeholder="+39 3xx xxx xxxx"
+                      required
+                    />
+                  </Field>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Password" htmlFor="register-password" required helper="Almeno 12 caratteri.">
+                      <TextInput
+                        id="register-password"
+                        type="password"
+                        autoComplete="new-password"
+                        minLength={12}
+                        value={registerData.password}
+                        onChange={(event) => handleRegisterChange("password", event.target.value)}
+                        required
                       />
-                      {pendingVerification.emailPreviewCode && (
-                        <p className="text-xs text-amber-700">
-                          Codice test email:{" "}
-                          {pendingVerification.emailPreviewCode}
-                        </p>
-                      )}
-                      {!capabilities.emailProviderConfigured &&
-                        !capabilities.testCodesEnabled && (
-                          <p className="text-xs text-red-600">
-                            Servizio email non configurato. Contatta
-                            l’assistenza.
-                          </p>
-                        )}
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          onClick={submitEmailVerification}
-                          disabled={
-                            verificationLoading ||
-                            !capabilities.emailProviderConfigured
-                          }
-                        >
-                          {verificationLoading ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <ShieldCheck className="mr-2 h-4 w-4" />
-                          )}
-                          Conferma email
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => resendVerification("email")}
-                          disabled={!capabilities.emailProviderConfigured}
-                        >
-                          Reinvia codice
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {pendingVerification.phoneRequired && (
-                    <div className="space-y-3 rounded-xl border border-white bg-white p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium text-slate-900">
-                        <Smartphone className="h-4 w-4 text-blue-600" />
-                        Verifica telefono
-                      </div>
-                      <p className="text-sm text-slate-500">
-                        Inserisci il codice inviato a `
-                        {pendingVerification.phone}`.
-                      </p>
-                      <Input
-                        value={phoneCode}
-                        onChange={(event) => setPhoneCode(event.target.value)}
-                        placeholder="Inserisci il codice SMS"
+                    </Field>
+                    <Field label="Conferma password" htmlFor="confirmPassword" required>
+                      <TextInput
+                        id="confirmPassword"
+                        type="password"
+                        autoComplete="new-password"
+                        minLength={12}
+                        value={registerData.confirmPassword}
+                        onChange={(event) => handleRegisterChange("confirmPassword", event.target.value)}
+                        required
                       />
-                      {pendingVerification.phonePreviewCode && (
-                        <p className="text-xs text-amber-700">
-                          Codice test SMS:{" "}
-                          {pendingVerification.phonePreviewCode}
-                        </p>
-                      )}
-                      {!capabilities.phoneProviderConfigured &&
-                        capabilities.testCodesEnabled && (
-                          <p className="text-xs text-slate-500">
-                            Nessun provider SMS configurato: in testing il
-                            codice viene mostrato qui.
-                          </p>
-                        )}
-                      {!capabilities.phoneProviderConfigured &&
-                        !capabilities.testCodesEnabled && (
-                          <p className="text-xs text-red-600">
-                            Servizio SMS non configurato. Contatta l’assistenza.
-                          </p>
-                        )}
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          onClick={submitPhoneVerification}
-                          disabled={verificationLoading}
-                        >
-                          {verificationLoading ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <ShieldCheck className="mr-2 h-4 w-4" />
-                          )}
-                          Conferma telefono
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => resendVerification("phone")}
-                        >
-                          Reinvia SMS
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <Tabs
-                  value={mode}
-                  onValueChange={(value) => setMode(value as AuthMode)}
-                  className="space-y-5"
-                >
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="login">Login</TabsTrigger>
-                    <TabsTrigger value="register">Registrazione</TabsTrigger>
-                  </TabsList>
+                    </Field>
+                  </div>
 
-                  <TabsContent value="login" className="space-y-4">
-                    <form onSubmit={handleLogin} className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="login-email">Email</Label>
-                        <div className="relative">
-                          <Mail className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
-                          <Input
-                            id="login-email"
-                            type="email"
-                            className="pl-10"
-                            value={loginEmail}
-                            onChange={(event) =>
-                              setLoginEmail(event.target.value)
-                            }
-                            placeholder="nome@esempio.com"
-                            required
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="login-password">Password</Label>
-                        <div className="relative">
-                          <LockKeyhole className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
-                          <Input
-                            id="login-password"
-                            type="password"
-                            className="pl-10"
-                            value={loginPassword}
-                            onChange={(event) =>
-                              setLoginPassword(event.target.value)
-                            }
-                            placeholder="Password"
-                            required
-                          />
-                        </div>
-                        <div className="flex justify-end">
-                          <Link
-                            href="/auth/forgot-password"
-                            className="text-sm font-medium text-blue-600 hover:underline"
-                          >
-                            Password dimenticata?
-                          </Link>
-                        </div>
-                      </div>
-                      <Button
-                        type="submit"
-                        className="w-full"
-                        disabled={loginLoading}
-                      >
-                        {loginLoading ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <ArrowRight className="mr-2 h-4 w-4" />
-                        )}
-                        Entra nell&apos;app
-                      </Button>
-                    </form>
-                  </TabsContent>
-
-                  <TabsContent value="register" className="space-y-4">
-                    <form onSubmit={handleRegister} className="space-y-4">
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <Button
-                          type="button"
-                          variant={
-                            registerRole === "user" ? "default" : "outline"
-                          }
-                          className="justify-start"
-                          onClick={() => setRegisterRole("user")}
-                        >
-                          <UserRound className="mr-2 h-4 w-4" />
-                          Utente
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={
-                            registerRole === "club_creator"
-                              ? "default"
-                              : "outline"
-                          }
-                          className="justify-start"
-                          onClick={() => setRegisterRole("club_creator")}
-                        >
-                          <Building2 className="mr-2 h-4 w-4" />
-                          Club
-                        </Button>
-                      </div>
-
-                      {registerRole === "club_creator" && (
-                        <div className="space-y-2">
-                          <Label htmlFor="organizationName">Nome club</Label>
-                          <div className="relative">
-                            <Building2 className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
-                            <Input
-                              id="organizationName"
-                              className="pl-10"
-                              value={registerData.organizationName}
-                              onChange={(event) =>
-                                handleRegisterChange(
-                                  "organizationName",
-                                  event.target.value,
-                                )
-                              }
-                              placeholder="Es. EasyGame FC"
-                              required
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="firstName">Nome</Label>
-                          <Input
-                            id="firstName"
-                            value={registerData.firstName}
-                            onChange={(event) =>
-                              handleRegisterChange(
-                                "firstName",
-                                event.target.value,
-                              )
-                            }
-                            required
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="lastName">Cognome</Label>
-                          <Input
-                            id="lastName"
-                            value={registerData.lastName}
-                            onChange={(event) =>
-                              handleRegisterChange(
-                                "lastName",
-                                event.target.value,
-                              )
-                            }
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="register-email">Email</Label>
-                        <div className="relative">
-                          <Mail className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
-                          <Input
-                            id="register-email"
-                            type="email"
-                            className="pl-10"
-                            value={registerData.email}
-                            onChange={(event) =>
-                              handleRegisterChange("email", event.target.value)
-                            }
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      {/*
-                        **Il campo c'e sempre (ADR-0132).** Prima era dentro un
-                        `capabilities.phoneVerification &&`, cioe compariva solo
-                        dove un fornitore SMS era configurato: su ogni
-                        installazione reale il numero non veniva chiesto, la
-                        colonna restava vuota e tutto il flusso di verifica —
-                        rotte, challenge, contatori — era codice che nessuno
-                        poteva raggiungere. Il numero e obbligatorio per regola
-                        di prodotto, quindi si chiede sempre; cio che dipende
-                        dall'installazione e solo se la verifica **blocchi**
-                        l'accesso, e lo dice la nota qui sotto.
-                      */}
-                      <div className="space-y-2">
-                        <Label htmlFor="phone">Cellulare</Label>
-                        <div className="relative">
-                          <Smartphone className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
-                          <Input
-                            id="phone"
-                            type="tel"
-                            inputMode="tel"
-                            autoComplete="tel"
-                            className="pl-10"
-                            value={registerData.phone}
-                            onChange={(event) =>
-                              handleRegisterChange("phone", event.target.value)
-                            }
-                            placeholder="+39 3xx xxx xxxx"
-                            required
-                            aria-describedby="phone-hint"
-                          />
-                        </div>
-                        <p id="phone-hint" className="text-xs text-slate-500">
-                          {capabilities.phoneVerificationRequired
-                            ? "Ti invieremo un codice via SMS per verificarlo: senza verifica l'account non è attivo."
-                            : "Serve per contattarti. Su questa installazione la verifica via SMS non è attiva."}
-                        </p>
-                      </div>
-
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="register-password">Password</Label>
-                          <Input
-                            id="register-password"
-                            type="password"
-                            minLength={12}
-                            value={registerData.password}
-                            onChange={(event) =>
-                              handleRegisterChange(
-                                "password",
-                                event.target.value,
-                              )
-                            }
-                            required
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="confirmPassword">
-                            Conferma password
-                          </Label>
-                          <Input
-                            id="confirmPassword"
-                            type="password"
-                            minLength={12}
-                            value={registerData.confirmPassword}
-                            onChange={(event) =>
-                              handleRegisterChange(
-                                "confirmPassword",
-                                event.target.value,
-                              )
-                            }
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <Button
-                        type="submit"
-                        className="w-full"
-                        disabled={registerLoading}
-                      >
-                        {registerLoading ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : registerRole === "club_creator" ? (
-                          <Building2 className="mr-2 h-4 w-4" />
-                        ) : (
-                          <UserRound className="mr-2 h-4 w-4" />
-                        )}
-                        Crea account
-                      </Button>
-                    </form>
-                  </TabsContent>
-                </Tabs>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    className="w-full"
+                    loading={registerLoading}
+                    icon={registerRole === "club_creator" ? <Building2 /> : <UserRound />}
+                  >
+                    Crea account
+                  </Button>
+                </form>
               )}
+            </>
+          )}
 
-              {/*
-                `role="alert"` perche l'errore compare dopo l'invio, lontano
-                dal fuoco che e rimasto sul pulsante: senza, chi usa un lettore
-                di schermo preme «Entra» e non sente niente.
-              */}
-              {error && (
-                <div
-                  role="alert"
-                  className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-                >
-                  {error}
-                </div>
-              )}
-          </div>
+          {/*
+            `role="alert"` perche l'errore compare dopo l'invio, lontano dal
+            fuoco che e rimasto sul pulsante: senza, chi usa un lettore di
+            schermo preme «Entra» e non sente niente.
+          */}
+          {error && (
+            <AlertBlock severity="danger" role="alert" title={error} />
+          )}
         </div>
-
-        <p className="text-center text-[11px] text-white/60">powered by Francesco srl</p>
-      </div>
-    </div>
+      </FieldSizeProvider>
+    </OutsideShell>
   );
 }
