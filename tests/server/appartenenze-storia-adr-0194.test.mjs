@@ -209,3 +209,23 @@ test("l'appello fotografa chi e della categoria dell'evento alla prima registraz
   assert.equal(riga.status, "absent");
   assert.equal(riga.is_extra_category, false, "la fotografia resta quella della prima registrazione");
 });
+
+test("C1 — riaprire la rosa di una gara passata non riscrive la fotografia di chi era della categoria", async () => {
+  await eventi.saveEventConvocations(scope, G1, [{ athleteId: MARIO, status: "convocated", isExtraCategory: false }]);
+  await appartenenze.applyMembershipChange(scope, { athleteIds: [MARIO], command: { kind: "assign", categoryId: "u17", role: "primary" } });
+  /* Il client, oggi, ricalcola «extra» dall'appartenenza corrente e lo rimanda. */
+  await eventi.saveEventConvocations(scope, G1, [{ athleteId: MARIO, status: "convocated", isExtraCategory: true }]);
+  const riga = fake.rows("clubEventParticipant").find((r) => r.event_id === G1);
+  assert.equal(riga.is_extra_category, false, "la fotografia di settembre resta: era della categoria");
+  assert.equal(riga.convocation_status, "convocated");
+});
+
+test("C2 — un ospite extra su un allenamento della categoria non diventa «ex membro» del rapporto", async () => {
+  await fake.client.athlete.create({ data: { id: "a1a1a1a1-1934-4000-8000-000000000002", organization_id: CLUB, first_name: "Luca", last_name: "Ospite", status: "active", category_id: "u19", category_name: "Under 19", data: {}, anonymized_at: null } });
+  await fake.client.athleteCategoryMembership.create({ data: { id: "m-9", organization_id: CLUB, athlete_id: "a1a1a1a1-1934-4000-8000-000000000002", category_id: "u19", category_name: "Under 19", is_primary: true, site_id: null } });
+  await eventi.saveEventAttendance(scope, T1, [{ athleteId: "a1a1a1a1-1934-4000-8000-000000000002", status: "present" }]);
+  const riga = fake.rows("clubEventParticipant").find((r) => r.athlete_id === "a1a1a1a1-1934-4000-8000-000000000002");
+  assert.equal(riga.is_extra_category, true, "l'appello fotografa l'extra");
+  const rapporto = rapportoSettembre();
+  assert.equal(rapporto.u15.some((r) => r.athleteId === "a1a1a1a1-1934-4000-8000-000000000002"), false, "l'ospite non entra fra i membri Under 15");
+});

@@ -48,6 +48,21 @@ const ensureResource = (resource: string) => {
   }
 };
 
+/**
+ * **Le appartenenze si scrivono dal loro writer** (ADR-0194): dal registro
+ * generico si leggono, non si scrivono. Una riga scritta da qui non passa
+ * dal piano, dal blocco della scheda, dalla proiezione ne dall'audit
+ * prima/dopo (revisione ostile D3). Le strade: `PUT|POST
+ * /api/v1/athletes/:id/memberships` e `POST /api/v1/athletes/memberships`.
+ */
+const assertMembershipsWrittenByTheirWriter = (resource: string) => {
+  if (String(resource || "").trim().toLowerCase() === "athlete_category_memberships") {
+    throw new Error(
+      "Accesso negato: le appartenenze alle categorie si scrivono da /api/v1/athletes/:id/memberships, non dal registro generico",
+    );
+  }
+};
+
 export async function GET(request: Request, context: Context) {
   try {
     const { resource } = context.params;
@@ -121,6 +136,7 @@ export async function POST(request: Request, context: Context) {
   try {
     const { resource } = context.params;
     ensureResource(resource);
+    assertMembershipsWrittenByTheirWriter(resource);
     const session = await requireAuthenticatedUser(request);
     if (!session) {
       return NextResponse.json(

@@ -7006,6 +7006,18 @@ export const createResource = async (
             si smette di riscriverla: il ramo che aggiorna **e** la modifica, e
             passa da li.
           */
+          /*
+            Un'appartenenza esistente rimandata con `mode: "upsert"` e una
+            modifica: la coppia (categoria, sede) si vaglia con la riga che
+            c'era, come fa `updateResource` (revisione ostile B2).
+          */
+          if (resource === "athlete_category_memberships") {
+            await assertMembershipPlacementIsCanonical(
+              String(input.organization_id ?? esistente.organization_id ?? scope?.activeOrganizationId ?? ""),
+              input,
+              esistente as any,
+            );
+          }
           if (RISORSE_CHE_SI_MODIFICANO_DA_UN_POSTO_SOLO.has(resource)) {
             return (await updateResource(
               resource,

@@ -17,6 +17,8 @@ import {
  * stesso piano: cio che l'anteprima dice e cio che l'applicazione fa.
  */
 export const runtime = "nodejs";
+/* Quattro lotti atomici di 50 con i round-trip di Neon: un minuto, non i dieci secondi di default (revisione ostile D1). */
+export const maxDuration = 60;
 
 const scopeFrom = async (request: Request, userId: string) =>
   resolveOrganizationScopeForUser(
@@ -40,6 +42,7 @@ export async function POST(request: Request) {
     const input: MembershipChangeInput = {
       athleteIds: Array.isArray(payload?.athleteIds) ? payload.athleteIds.map(String) : [],
       command: payload?.command || {},
+      expected: payload?.expected && typeof payload.expected === "object" ? payload.expected : null,
     };
     const report =
       payload?.mode === "apply"

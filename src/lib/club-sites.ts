@@ -502,9 +502,17 @@ export const getAthleteSiteIds = (
   };
 
   memberships.forEach((membership) => push(membership.siteId));
-  push(readSiteReference(raw));
-  if (isRecord(raw.data)) {
-    push(readSiteReference(raw.data));
+  /*
+    Le copie legacy (`siteId` sul record, `data.siteId`) sono un ripiego per
+    il dato precedente alle appartenenze con sede, non un'unione: con una
+    sede sulle appartenenze una copia stantia farebbe comparire l'atleta
+    nella sede da cui e stato spostato (revisione ostile B3, ADR-0194 §25).
+  */
+  if (references.size === 0) {
+    push(readSiteReference(raw));
+    if (isRecord(raw.data)) {
+      push(readSiteReference(raw.data));
+    }
   }
 
   return Array.from(references);

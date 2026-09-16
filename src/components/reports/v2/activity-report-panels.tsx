@@ -75,6 +75,7 @@ export const buildCategoryReportColumns = (): ColumnDef<CategoryReportRow>[] => 
       sparire dal rapporto insieme alle sue presenze.
     */
     cell: (row) => (row.formerMember ? `${row.categoryName} (oggi in altra categoria)` : row.categoryName),
+    exportValue: (row) => (row.formerMember ? `${row.categoryName} (oggi in altra categoria)` : row.categoryName),
     sortValue: (row) => row.categoryName,
     title: (row) => (row.formerMember ? `${row.categoryName} — oggi in altra categoria` : row.categoryName),
   },

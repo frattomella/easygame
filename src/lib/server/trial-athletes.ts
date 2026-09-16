@@ -1601,13 +1601,26 @@ export const convertTrialAthlete = async (
           converte puo indicarne un'altra, e il registro generico vaglia la
           coppia (categoria, sede) come per ogni appartenenza.
         */
-        const gruppoDellaProva = trial.group_id
-          ? (await loadDisplay(organizationId)).gruppi.find((g) => g.id === trial.group_id) || null
-          : null;
+        const indiceSquadre = categoria.category_id ? await loadMembershipTargetIndex(organizationId) : null;
+        const squadre = indiceSquadre && categoria.category_id ? indiceSquadre.forCategory(categoria.category_id) : [];
+        const stessaCategoriaDellaProva = Boolean(categoria.category_id) && categoria.category_id === trial.category_id;
+        const gruppoDellaProva =
+          trial.group_id && stessaCategoriaDellaProva
+            ? (await loadDisplay(organizationId)).gruppi.find((g) => g.id === trial.group_id) || null
+            : null;
+        /*
+          Chi converte e l'autorita sulla sede quando la manda (`null` = nessuna
+          sede: la categoria non ha squadre, o si deriva). La sede della prova
+          si eredita **solo** sulla stessa categoria; su una categoria diversa
+          la sede e quella della squadra unica, se c'e (revisione ostile B8/A8).
+        */
         const siteId =
-          asText(create.siteId ?? (gruppoDellaProva?.categoryId === categoria.category_id ? gruppoDellaProva.siteId : "") ?? "") ||
-          asText(trial.site_id ?? "") ||
-          null;
+          create.siteId !== undefined
+            ? asText(create.siteId) || (squadre.length === 1 && !squadre[0].implicit ? squadre[0].siteId : null)
+            : asText(gruppoDellaProva?.siteId) ||
+              (stessaCategoriaDellaProva ? asText(trial.site_id) : "") ||
+              (squadre.length === 1 && !squadre[0].implicit ? squadre[0].siteId : null) ||
+              null;
         const memberships = categoria.category_id
           ? [
               {

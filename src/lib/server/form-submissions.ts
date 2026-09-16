@@ -23,7 +23,10 @@ import {
   type FormsAccessScope,
   type PublicFormMatch,
 } from "./forms";
-import { resolveCategoryReference } from "@/lib/categories/identity";
+import { normalizeCategoryToken, resolveCategoryReference } from "@/lib/categories/identity";
+import { applyMembershipChange } from "./athlete-category-memberships";
+import { MEMBERSHIP_WARNING_LABELS } from "@/lib/categories/membership-change";
+import { buildSiteIndex } from "@/lib/club-sites";
 import {
   listConsentDefinitions,
   listConsentRecords,
@@ -1756,9 +1759,27 @@ const resolveEnrollmentPlacement = (
   options: ClubFormOptions,
 ) => {
   const answeredCategory = asText(values["athlete.categoryName"]);
-  const { target, ambiguous } = answeredCategory
+  let { target, ambiguous } = answeredCategory
     ? options.targets.fromLabel(answeredCategory)
     : { target: null, ambiguous: false };
+  /*
+    Un modulo pubblicato prima delle squadre chiedeva il nome nudo e la
+    sede a parte: se il nome nomina piu squadre, la sede risposta le
+    distingue quando ne lascia **una** (revisione ostile A7). Due categorie
+    omonime nella stessa sede restano ambigue.
+  */
+  const answeredSite = asText(values["athlete.siteId"]);
+  if (ambiguous && answeredSite) {
+    const siteIndex = buildSiteIndex(options.sites);
+    const siteId = siteIndex.resolveSiteId(answeredSite);
+    const candidate = options.targets.targets.filter(
+      (t) => normalizeCategoryToken(t.categoryName) === normalizeCategoryToken(answeredCategory) && t.siteId === siteId,
+    );
+    if (siteId && candidate.length === 1) {
+      target = candidate[0];
+      ambiguous = false;
+    }
+  }
 
   /* Ripiego per un modulo pubblicato con i soli nomi (prima delle squadre): il nome che ne nomina una sola. */
   const risolta = !target && !ambiguous && answeredCategory
@@ -1779,13 +1800,13 @@ const resolveEnrollmentPlacement = (
 };
 
 /**
- * Allinea l'appartenenza categoria-sede dopo un'approvazione.
- *
- * **Cosa scrive e cosa no.** Con una squadra scelta crea l'appartenenza a
- * quella categoria con la sede della squadra, o — se l'atleta ha gia quella
- * categoria — ne allinea la sede. Senza categoria non scrive niente: una
- * sede da sola non e una collocazione (ADR-0194). Le righe passano dal
- * registro generico, che vaglia la coppia (categoria, sede).
+ * Allinea l'appartenenza categoria-sede dopo un'approvazione, **dal writer
+ * del dominio** (ADR-0194 §3, revisione ostile A6/B11): il comando canonico
+ * con la squadra scelta, il ruolo che l'atleta gia ha su quella categoria
+ * (primaria resta primaria), o primaria se non ne ha nessuna, secondaria se
+ * ne ha altre. Le altre appartenenze restano: un modulo non toglie una
+ * squadra. Proiezione e audit prima/dopo li scrive il writer; la colonna
+ * `athletes.category_id` la dice la primaria, non la risposta del modulo.
  */
 const syncEnrollmentMembership = async (
   scope: FormsAccessScope,
@@ -1796,51 +1817,40 @@ const syncEnrollmentMembership = async (
     category: { id: string; name: string } | null;
   },
 ): Promise<string[]> => {
-  const applied: string[] = [];
+  if (!input.category) return [];
 
   const existing = await (prisma as any).athleteCategoryMembership.findMany({
-    where: {
-      organization_id: input.organizationId,
-      athlete_id: input.athleteId,
-    },
+    where: { organization_id: input.organizationId, athlete_id: input.athleteId },
+    select: { category_id: true, is_primary: true },
   });
+  const match = existing.find((row: any) => asText(row.category_id) === input.category!.id);
+  const role: "primary" | "secondary" = match ? (match.is_primary ? "primary" : "secondary") : existing.length === 0 ? "primary" : "secondary";
 
-  if (input.category) {
-    const match = existing.find(
-      (row: any) => asText(row.category_id) === input.category!.id,
-    );
-
-    if (match) {
-      if (input.siteId && asText(match.site_id) !== input.siteId) {
-        await updateResource(
-          "athlete_category_memberships",
-          match.id,
-          { site_id: input.siteId, category_name: input.category.name },
-          scope,
-        );
-        applied.push(`Sede dell'iscrizione aggiornata: ${input.category.name}`);
-      }
-    } else {
-      await createResource(
-        "athlete_category_memberships",
-        {
-          organization_id: input.organizationId,
-          athlete_id: input.athleteId,
-          category_id: input.category.id,
-          category_name: input.category.name,
-          site_id: input.siteId || null,
-          is_primary: existing.length === 0,
-        },
-        "create",
-        scope,
-      );
-      applied.push(`Atleta iscritto alla categoria ${input.category.name}`);
-    }
-
-    return applied;
+  const esito = await applyMembershipChange(
+    scope as never,
+    {
+      athleteIds: [input.athleteId],
+      command: {
+        kind: "assign",
+        categoryId: input.category.id,
+        siteId: input.siteId || undefined,
+        role,
+        previousPrimaryPolicy: "remove",
+        otherSecondariesPolicy: "keep",
+      },
+    },
+    { userId: scope.userId || null },
+  );
+  const rapporto = esito.athletes[0];
+  if (!rapporto) return [];
+  if (rapporto.status === "failed") {
+    throw new Error(rapporto.error || "Appartenenza non scritta");
   }
-
-  return applied;
+  if (rapporto.status === "blocked") {
+    return [`Categoria non assegnata: ${rapporto.warnings.map((w) => MEMBERSHIP_WARNING_LABELS[w] || w).join("; ")}`];
+  }
+  if (rapporto.status === "unchanged") return [];
+  return [match ? `Sede dell'iscrizione aggiornata: ${input.category.name}` : `Atleta iscritto alla categoria ${input.category.name}${role === "secondary" ? " (secondaria)" : ""}`];
 };
 
 const buildGuardianPatch = (
@@ -2595,13 +2605,13 @@ const eseguiDecisione = async (
     */
     delete patch.data.siteId;
 
-    if (placement.category) {
-      patch.columns.category_id = placement.category.id;
-      patch.columns.category_name = placement.category.name;
-    } else {
-      delete patch.columns.category_id;
-      delete patch.columns.category_name;
-    }
+    /*
+      La colonna `category_id` la scrive il writer delle appartenenze con la
+      primaria (ADR-0194): dalla risposta del modulo non si scrive una
+      categoria che le righe non hanno (revisione ostile A6).
+    */
+    delete patch.columns.category_id;
+    delete patch.columns.category_name;
 
     if (!roleHasPermission(scope.activeRole, "forms.submissions.convert")) {
       throw denied("creare o aggiornare una scheda atleta da una pratica e di chi gestisce le pratiche");
@@ -2707,6 +2717,10 @@ const eseguiDecisione = async (
         category: placement.category,
       })),
     );
+  }
+  if (athleteId && athleteChange && asText(applyValues(athleteChange)["athlete.siteId"])) {
+    /* La risposta «Sede» non colloca piu nessuno: chi approva lo legge (revisione ostile B14). */
+    applied.push("Risposta «Sede» non usata: la sede e quella della squadra scelta");
   }
 
   const guardianChange = review.changeSet.subjects.find(

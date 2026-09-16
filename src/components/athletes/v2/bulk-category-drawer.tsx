@@ -96,7 +96,8 @@ export function BulkCategoryDrawer({
     setBusy(true);
     setErrore(null);
     try {
-      const report = await applyMembershipChange(athleteIds, command, preview.batchId);
+      const expected = Object.fromEntries(preview.athletes.map((a) => [a.athleteId, a.signature]));
+      const report = await applyMembershipChange(athleteIds, command, preview.batchId, expected);
       onApplied(report);
       onOpenChange(false);
     } catch (error: any) {
@@ -132,7 +133,7 @@ export function BulkCategoryDrawer({
               id="bulk-category-confirm"
               onClick={() => void conferma()}
               loading={busy}
-              disabled={!totali || (totali.updated === 0 && totali.blocked === 0)}
+              disabled={!totali || totali.updated === 0}
             >
               Conferma cambio
             </Button>

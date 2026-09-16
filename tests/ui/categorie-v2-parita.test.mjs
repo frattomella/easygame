@@ -160,8 +160,10 @@ test("il cambio di sede: impatto live, riallineamento esplicito, gruppi archivia
   assert.match(drawer, /"__senza_sede__"/);
   assert.match(drawer, /riallineamento:\s*\n?\s*atletiDisallineati > 0 && sedeDiRiallineamento/);
   assert.match(page, /buildCategoryGroupsForSites\(\{/);
-  assert.match(page, /`\/api\/v1\/athlete_category_memberships\/\$\{String\(membership\.id\)\}`/);
-  assert.match(page, /body: \{ site_id: riallineamento\.siteId \}/);
+  /* ADR-0194: il riallineamento passa dal comando canonico delle appartenenze, non dal registro generico. */
+  assert.match(page, /applyAthleteMembershipCommand\(athleteId, \{/);
+  assert.match(page, /siteId: String\(riallineamento\.siteId\)/);
+  assert.doesNotMatch(page, /\/api\/v1\/athlete_category_memberships\//);
   assert.match(page, /updateClubData\(activeClub\.id, "category_groups", next\)/);
   assert.match(page, /Gruppi operativi aggiornati/);
   assert.match(page, /Salvataggio dei gruppi operativi fallito/);

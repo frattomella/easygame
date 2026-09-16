@@ -17,6 +17,8 @@ export type NormalizedAttendanceEntry = {
 
 export type NormalizedConvocationEntry = {
   athleteId: string;
+  /** Lo stato di convocazione sulla riga, se la voce nasce da una riga (ADR-0194 §20). */
+  convocationStatus?: string | null;
   isExtraCategory: boolean;
   isManualExtra: boolean;
   categoryMembershipType?: string | null;
@@ -270,6 +272,7 @@ export const normalizeMatchConvocationEntries = (
 
       return {
         athleteId,
+        convocationStatus: firstNonEmptyString(entry.convocationStatus, entry.convocation_status) || null,
         isExtraCategory: Boolean(
           entry.isExtraCategory ?? entry.is_extra_category ?? false,
         ),

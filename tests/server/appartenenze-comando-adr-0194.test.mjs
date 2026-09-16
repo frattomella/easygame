@@ -374,3 +374,76 @@ test("il vaglio delle coppie: senza gruppi configurati una categoria non ha sedi
     /non esiste nel club/,
   );
 });
+
+/* ── Revisione ostile (seconda passata) ─────────────────────────────────── */
+
+test("A1 — una vecchia primaria fuori dal catalogo scende invece di restare doppia; il piano non la dice «rimossa»", async () => {
+  await fake.client.athleteCategoryMembership.update({ where: { id: "m-a1" }, data: { is_primary: false } });
+  await fake.client.athleteCategoryMembership.create({
+    data: { id: "m-a-vecchia", organization_id: CLUB, athlete_id: A, category_id: "cancellata", category_name: "Cancellata", is_primary: true, site_id: null },
+  });
+  const anteprima = await dominio.previewMembershipChange(scopeDirezione, { athleteIds: [A], command: u17() });
+  assert.equal(anteprima.athletes[0].summary.removed, 0, "la riga fuori catalogo non si dice rimossa");
+  assert.ok(anteprima.athletes[0].warnings.includes("legacy_rows_kept"));
+  const esito = await dominio.applyMembershipChange(scopeDirezione, { athleteIds: [A], command: u17() });
+  assert.equal(esito.athletes[0].status, "updated");
+  assert.deepEqual(await righeDi(A), ["cancellata:S:-", "u15:S:scauri", "u17:P:scauri"], "una primaria sola; la riga storica scende e resta");
+});
+
+test("A2/D6 — una riga fuori dal perimetro blocca l'atleta, non il lotto; le righe che non cambiano non si vagliano", async () => {
+  const perimetrato = { ...scopeDirezione, activeRole: "custom:club_manager:segreteria-scauri", accessScopes: [{ kind: "site", value: "scauri" }] };
+  /* B ha una secondaria senza sede: non cambia, quindi non ferma il salvataggio. */
+  await fake.client.athleteCategoryMembership.update({ where: { id: "m-b2" }, data: { site_id: null } });
+  const esito = await dominio.applyMembershipChange(perimetrato, { athleteIds: [A, B], command: { kind: "assign", categoryId: "u19", role: "primary" } });
+  assert.deepEqual(esito.athletes.map((a) => a.status), ["updated", "updated"]);
+  /* Una destinazione fuori dal perimetro: 403, prima di tutto. */
+  await assert.rejects(
+    () => dominio.previewMembershipChange(perimetrato, { athleteIds: [A], command: { kind: "assign", categoryId: "pulcini", role: "primary" } }),
+    /Accesso negato/,
+  );
+});
+
+test("D7 — le firme dell'anteprima: un archivio cambiato nel frattempo blocca l'atleta con «changed_since_preview»", async () => {
+  const anteprima = await dominio.previewMembershipChange(scopeDirezione, { athleteIds: [A, B], command: u17() });
+  const expected = Object.fromEntries(anteprima.athletes.map((a) => [a.athleteId, a.signature]));
+  await dominio.applyMembershipChange(scopeDirezione, { athleteIds: [B], command: { kind: "assign", categoryId: "u19", role: "secondary" } });
+  const esito = await dominio.applyMembershipChange(scopeDirezione, { athleteIds: [A, B], command: u17(), expected }, {}, { batchId: anteprima.batchId });
+  assert.equal(esito.athletes[0].status, "updated");
+  assert.equal(esito.athletes[1].status, "blocked");
+  assert.ok(esito.athletes[1].warnings.includes("changed_since_preview"));
+  assert.deepEqual(await righeDi(B), ["u15:P:scauri", "u17:S:scauri", "u19:S:scauri"], "B non e stato toccato");
+});
+
+test("D4 — un ruolo o una politica fuori vocabolario e un errore, non il default piu distruttivo", async () => {
+  await assert.rejects(() => dominio.applyMembershipChange(scopeDirezione, { athleteIds: [A], command: { kind: "assign", categoryId: "u17", role: "Secondary" } }), /ruolo/);
+  await assert.rejects(() => dominio.applyMembershipChange(scopeDirezione, { athleteIds: [A], command: { kind: "assign", categoryId: "u17", role: "primary", previousPrimaryPolicy: "keep" } }), /politica sulla primaria/);
+  assert.deepEqual(await righeDi(A), ["u15:P:scauri"]);
+});
+
+test("D12 — due righe per la stessa categoria in grafie diverse fermano l'atleta", async () => {
+  await fake.client.athleteCategoryMembership.create({
+    data: { id: "m-a-doppia", organization_id: CLUB, athlete_id: A, category_id: "U15", category_name: "Under 15", is_primary: false, site_id: null },
+  });
+  const esito = await dominio.applyMembershipChange(scopeDirezione, { athleteIds: [A], command: u17() });
+  assert.equal(esito.athletes[0].status, "blocked");
+  assert.ok(esito.athletes[0].warnings.includes("duplicate_rows"));
+});
+
+test("D2 — l'insieme intero con le righe attese: un archivio cambiato nel frattempo non si sovrascrive", async () => {
+  await assert.rejects(
+    () => dominio.replaceAthleteMembershipSet(scopeDirezione, A, [{ categoryId: "u17", isPrimary: true }], {}, { expectedRowIds: ["m-qualcun-altro"] }),
+    /cambiate nel frattempo/,
+  );
+  assert.deepEqual(await righeDi(A), ["u15:P:scauri"]);
+  const esito = await dominio.replaceAthleteMembershipSet(scopeDirezione, A, [{ categoryId: "u17", isPrimary: true }], {}, { expectedRowIds: ["m-a1"] });
+  assert.equal(esito.athlete.category_id, "u17", "la proiezione torna con le righe");
+  assert.deepEqual(esito.athlete.data.categories, ["Under 17"]);
+});
+
+test("D3 — dal registro generico le appartenenze non si scrivono: la rotta lo dice", async () => {
+  const { readFileSync } = await import("node:fs");
+  for (const file of ["src/app/api/v1/[resource]/route.ts", "src/app/api/v1/[resource]/[id]/route.ts"]) {
+    const codice = readFileSync(file, "utf8");
+    assert.match(codice, /assertMembershipsWrittenByTheirWriter\(resource\)/, file);
+  }
+});

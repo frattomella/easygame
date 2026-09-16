@@ -173,7 +173,9 @@ test("writer · la proiezione in athletes.data si deriva 1:1 dalle appartenenze,
   assert.equal(proiezione.categoryMemberships[0].category_name, "Pulcini - S. Cosma", "il nome com'era sulla riga");
   assert.equal(proiezione.categoryMemberships[1].site_id, "site-x");
   const db = readFileSync("src/lib/simplified-db.ts", "utf8");
-  assert.equal((db.match(/\.\.\.buildAthleteCategoryProjection\(normalizedMemberships/g) || []).length, 2, "creazione e modifica scrivono la stessa proiezione");
+  /* ADR-0194: la creazione scrive la proiezione con la funzione del dominio; la modifica la riporta dal writer del server (stessa funzione, stessa transazione). */
+  assert.equal((db.match(/\.\.\.buildAthleteCategoryProjection\(normalizedMemberships/g) || []).length, 1, "la creazione scrive la proiezione con la funzione del dominio");
+  assert.match(db, /proiezioneServer\s*\?\s*proiezioneServer\.data\s*:\s*buildAthleteCategoryProjection\(normalizedMemberships/, "la modifica prende la proiezione dal writer");
 });
 
 /* ---------- il writer client con il catalogo in mano ---------- */
@@ -259,7 +261,7 @@ test("revisione · il writer non cancella cio che il catalogo non conosce e non 
   /* ADR-0194: le righe le scrive il server, per differenza, nella stessa transazione della proiezione. */
   const writer = readFileSync("src/lib/server/athlete-category-memberships.ts", "utf8");
   assert.match(db, /replaceAthleteMembershipsOnServer\(/, "il client manda l'insieme al writer del dominio");
-  assert.match(writer, /if \(configurate\.size && !configurate\.has\(chiave\)\) continue;/, "una riga fuori dal catalogo non si cancella da un salvataggio");
+  assert.match(writer, /if \(configurate\.size && !configurate\.has\(chiave\)\) \{[\s\S]*?continue;\s*\}/, "una riga fuori dal catalogo non si cancella da un salvataggio");
   /*
     L'archivio ammette una primaria sola per atleta (indice parziale): l'ordine
     e discesa → cancellazione → inserimento → salita (revisione ostile N1).

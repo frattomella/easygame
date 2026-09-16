@@ -105,7 +105,12 @@ export function TrialFormDrawer({
     if (form.groupId) return targetOptions.find((t) => t.groupId === form.groupId)?.id || "";
     if (!form.categoryId) return "";
     const squadre = targetOptions.filter((t) => t.categoryId === form.categoryId);
-    return squadre.find((t) => !t.groupId)?.id || (squadre.length === 1 ? squadre[0].id : "");
+    /* Una prova precedente alle squadre porta categoria e sede senza gruppo: la sede la riconosce (revisione ostile B15). */
+    return (
+      squadre.find((t) => !t.groupId)?.id ||
+      (squadre.length === 1 ? squadre[0].id : "") ||
+      (form.siteId ? squadre.find((t) => t.siteId === form.siteId)?.id || "" : "")
+    );
   }, [form.categoryId, form.groupId, targetOptions]);
   const scegliSquadra = (id: string | null) => {
     setTouched(true);

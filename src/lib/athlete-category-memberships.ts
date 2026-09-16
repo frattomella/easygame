@@ -714,7 +714,12 @@ const normalizza = (
         athlete.category ??
         data.category,
       is_primary: true,
-      site_id: athlete.site_id ?? athlete.siteId ?? data.site_id ?? data.siteId,
+      /*
+        La copia legacy della sede (`data.siteId`) vale solo per il club mai
+        migrato: con le righe presenti la sede e della riga, e una copia
+        stantia non si riversa su una riga senza sede (revisione ostile B4).
+      */
+      site_id: athlete.site_id ?? athlete.siteId ?? (memberships.length ? "" : (data.site_id ?? data.siteId)),
       athlete_id: athlete.id,
       organization_id: athlete.organization_id || athlete.club_id,
     },
@@ -964,7 +969,10 @@ export const getParticipationCategoryContext = ({
     corrente come prima.
   */
   const fotografato = entry?.is_extra_category ?? entry?.isExtraCategory;
-  if (fotografato === false && (entry?.status || entry?.convocation_status || entry?.convocationStatus)) {
+  const fattoRegistrato =
+    ["present", "absent"].includes(String(entry?.status || "").toLowerCase()) ||
+    Boolean(entry?.convocation_status || entry?.convocationStatus);
+  if (fotografato === false && fattoRegistrato) {
     return "member";
   }
 

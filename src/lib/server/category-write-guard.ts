@@ -204,6 +204,9 @@ export const assertAthleteDataProjectionIsCanonical = async (
 ) => {
   const data = riga.data;
   if (!data || typeof data !== "object" || Array.isArray(data)) return;
+  /* La sede non e un campo dell'atleta: la copia in `data` non si scrive piu (ADR-0194 §25, revisione ostile B7). */
+  delete (data as any).siteId;
+  delete (data as any).site_id;
   const prima = esistente?.data && typeof esistente.data === "object" && !Array.isArray(esistente.data)
     ? (esistente.data as Record<string, any>)
     : {};

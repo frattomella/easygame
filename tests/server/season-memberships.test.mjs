@@ -555,3 +555,43 @@ test("il riepilogo conta le appartenenze di origine, non solo le persone", async
     "e il numero confrontabile con l'available degli altri tipi riportabili",
   );
 });
+
+/* ── ADR-0194 §4: la sede della riga nuova e quella della squadra ─────── */
+
+test("ADR-0194 — il riporto non compone una coppia (categoria, sede) che il club non ha: prende la squadra unica o lascia la sede vuota", async () => {
+  fake = createFakePrisma({
+    ...seed(),
+    club: [
+      {
+        id: CLUB,
+        slug: "club",
+        name: "Club",
+        categories: [
+          { id: CAT_A_VECCHIA, name: "Under 12 (2026)" },
+          { id: CAT_A_NUOVA, name: "Under 12" },
+          { id: CAT_B_VECCHIA, name: "Under 14 (2026)" },
+          { id: CAT_B_NUOVA, name: "Under 14" },
+        ],
+        club_sites: [
+          { id: SEDE_NORD, name: "Nord", active: true },
+          { id: SEDE_SUD, name: "Sud", active: true },
+        ],
+        /* La nuova Under 12 si svolge solo a Nord; la nuova Under 14 in tutte e due. */
+        category_groups: [
+          { categoryId: CAT_A_NUOVA, siteId: SEDE_NORD, active: true },
+          { categoryId: CAT_B_NUOVA, siteId: SEDE_NORD, active: true },
+          { categoryId: CAT_B_NUOVA, siteId: SEDE_SUD, active: true },
+        ],
+      },
+    ],
+    clubResourceItem: [],
+  });
+  setPrismaClientForTests(fake.client);
+  await porta();
+  const atleta2 = appartenenzeDi("atleta-2").find((row) => row.category_id === CAT_A_NUOVA);
+  assert.equal(atleta2.site_id, SEDE_NORD, "Under 12 + Sud non e una squadra: la squadra unica e Nord");
+  const atleta1 = appartenenzeDi("atleta-1").find((row) => row.category_id === CAT_A_NUOVA);
+  assert.equal(atleta1.site_id, SEDE_NORD, "la coppia configurata resta");
+  const atleta3 = appartenenzeDi("atleta-3").find((row) => row.category_id === CAT_B_NUOVA);
+  assert.equal(atleta3.site_id, SEDE_NORD, "Under 14 + Nord e configurata: resta");
+});

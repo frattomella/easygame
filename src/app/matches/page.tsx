@@ -752,6 +752,21 @@ export default function MatchesPage() {
           .map((riga: any) => String(riga?.athlete_id || "").trim())
           .filter(Boolean),
       );
+      /*
+        Le righe portano la fotografia del contesto (`is_extra_category`,
+        ADR-0194 §20): passano alla rosa come voci, cosi chi oggi e altrove
+        ma allora era della categoria si legge «Della categoria», non «Extra»
+        (revisione ostile C4).
+      */
+      match = {
+        ...match,
+        convocationEntries: (Array.isArray(righe) ? righe : []).map((riga: any) => ({
+          athleteId: String(riga?.athlete_id || "").trim(),
+          convocationStatus: riga?.convocation_status ?? null,
+          status: riga?.status ?? null,
+          isExtraCategory: riga?.is_extra_category === true,
+        })),
+      } as Match;
     } catch (error) {
       console.error("Errore lettura convocazioni:", error);
       showToast("error", "Errore nel caricamento delle convocazioni");

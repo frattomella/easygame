@@ -2307,11 +2307,24 @@ export default function AthletesPage() {
         resolvingTargets={bulkCategoryResolving}
         onApplied={(report) => {
           const { updated, unchanged, blocked, failed, notAttempted } = report.totals;
+          const nomi = (stato: string) =>
+            report.athletes
+              .filter((a) => a.status === stato && a.name)
+              .slice(0, 5)
+              .map((a) => a.name)
+              .join(", ");
           if (failed || notAttempted) {
             const motivo = report.athletes.find((a) => a.error)?.error || "operazione non riuscita";
             showToast(
               "error",
-              `Cambio di categoria interrotto: ${formatInteger(updated)} aggiornati, ${formatInteger(failed + notAttempted)} non aggiornati (${motivo})`,
+              `Cambio di categoria interrotto: ${formatInteger(updated)} aggiornati, ${formatInteger(failed + notAttempted)} non aggiornati (${motivo})` +
+                (nomi("failed") ? ` — ${nomi("failed")}` : ""),
+            );
+          } else if (blocked) {
+            showToast(
+              "warning",
+              `${formatInteger(updated)} ${updated === 1 ? "atleta aggiornato" : "atleti aggiornati"}; ${formatInteger(blocked)} ${blocked === 1 ? "non toccato" : "non toccati"}: ${nomi("blocked")}` +
+                (unchanged ? `; ${formatInteger(unchanged)} già a posto` : ""),
             );
           } else {
             showToast(

@@ -70,7 +70,17 @@ export type MembershipChangeWarning =
   | "removing_primary"
   | "already_primary"
   | "already_secondary"
-  | "not_a_member";
+  | "not_a_member"
+  /** Righe del club che il catalogo non conosce piu: restano com'erano (ADR-0186 §8), il piano non le tocca. */
+  | "legacy_rows_kept"
+  /** Due righe per la stessa categoria in grafie diverse: non si sceglie, si segnala. */
+  | "duplicate_rows"
+  /** Una riga del piano cadrebbe su una coppia (categoria, sede) che il club non ha. */
+  | "placement_invalid"
+  /** Una riga del piano e fuori dal perimetro di sede/categoria di chi opera. */
+  | "out_of_scope"
+  /** Le righe sono cambiate fra l'anteprima e la conferma. */
+  | "changed_since_preview";
 
 export type MembershipChangePlan = {
   /** Le appartenenze dopo il comando (vuoto se `blocked`). */
@@ -301,4 +311,9 @@ export const MEMBERSHIP_WARNING_LABELS: Record<MembershipChangeWarning, string> 
   already_primary: "Gia nella categoria scelta come primaria",
   already_secondary: "Gia nella categoria scelta come secondaria",
   not_a_member: "Non appartiene alla categoria da rimuovere",
+  legacy_rows_kept: "Ha una categoria non piu in catalogo: resta com'e, la toglie una bonifica",
+  duplicate_rows: "Due righe per la stessa categoria in archivio: non viene modificato",
+  placement_invalid: "La squadra risultante non e configurata dal club: non viene modificato",
+  out_of_scope: "Fuori dal tuo perimetro di sede o categoria: non viene modificato",
+  changed_since_preview: "Le sue categorie sono cambiate dopo l'anteprima: non viene modificato, ricalcola",
 };

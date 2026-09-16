@@ -192,8 +192,8 @@ test("salvare un campo qualunque non tocca le appartenenze di categoria", async 
   );
   assert.match(
     sorgente,
-    /const savedMemberships = membershipsDeclared\s*\n\s*\? await replaceAthleteMemberships/,
-    "replaceAthleteMemberships cancella e riscrive: deve girare solo se glielo si e chiesto",
+    /const salvate = membershipsDeclared\s*\n\s*\? await replaceAthleteMemberships/,
+    "replaceAthleteMemberships scrive l'insieme sul server: deve girare solo se glielo si e chiesto (ADR-0194: prima delle colonne)",
   );
   assert.match(
     sorgente,

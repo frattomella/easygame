@@ -279,7 +279,7 @@ test("§2.3c · il cassetto «Cambia categoria»: squadra, ruolo, politiche e an
     assert.ok(cassetto.includes(testo), `manca «${testo}»`);
   }
   assert.match(cassetto, /previewMembershipChange\(athleteIds, command\)/, "l'anteprima la calcola il server");
-  assert.match(cassetto, /applyMembershipChange\(athleteIds, command, preview\.batchId\)/, "e si applica lo stesso comando con lo stesso batchId");
+  assert.match(cassetto, /applyMembershipChange\(athleteIds, command, preview\.batchId, expected\)/, "e si applica lo stesso comando con lo stesso batchId e le firme dell'anteprima");
   assert.ok(cassetto.includes("Conferma cambio"));
   assert.match(cassetto, /Continua/);
   assert.match(cassetto, /Annulla/);

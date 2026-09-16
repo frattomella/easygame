@@ -118,7 +118,15 @@ beforeEach(() => {
       });
       const cambiata = JSON.stringify(dopo) !== JSON.stringify(righe);
       righe = dopo;
-      return risposta({ rows: righe, changed: cambiata });
+      /* Il writer scrive anche la proiezione, e la risponde: il client la riporta sulla scheda. */
+      const primaria = righe.find((r) => r.is_primary) || null;
+      atleta = {
+        ...atleta,
+        category_id: primaria?.category_id ?? null,
+        category_name: primaria?.category_name ?? null,
+        data: { ...atleta.data, category: primaria?.category_id ?? null, categoryName: primaria?.category_name ?? null, categoryMemberships: righe, categories: righe.map((r) => r.category_name) },
+      };
+      return risposta({ rows: righe, changed: cambiata, athlete: { category_id: atleta.category_id, category_name: atleta.category_name, data: atleta.data } });
     }
 
     if (url.startsWith("/api/v1/simplified_athletes")) {
@@ -151,7 +159,7 @@ test("una categoria nuova entra nella proiezione con l'identificativo coniato da
   const proiezione = atleta.data.categoryMemberships.map((e) => e.id).sort();
   assert.deepEqual(proiezione, righeInArchivio, "ogni voce della proiezione e una riga, e ogni riga e in proiezione");
   assert.ok(proiezione.every((id) => UUID.test(id)), "nessun identificativo sintetico nella proiezione");
-  assert.equal(patchScheda().length, 2, "la scheda si riallinea con una seconda scrittura");
+  assert.equal(patchScheda().length, 1, "una scrittura sola: la proiezione arriva dal writer (ADR-0194), niente riallineamento");
 
   const ritornate = esito.category_memberships.map((m) => m.id).sort();
   assert.deepEqual(ritornate, righeInArchivio, "e al chiamante tornano le righe vere");

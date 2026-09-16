@@ -1,5 +1,6 @@
 import { bloccaSchede } from "./athlete-lock-order";
 import { prisma } from "./prisma";
+import { loadMembershipTargetIndex } from "./category-write-guard";
 import { buildMembershipAccessScopeConditions } from "./access-scope-query";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 
@@ -398,6 +399,24 @@ export const runAthleteMembershipRollover = async (options: {
   const fallbackCategoryByAthlete = new Map<string, string>();
   const carriedAthletes = new Set<string>();
   let unmappable = 0;
+  /*
+    La sede della riga nuova e quella della **squadra** (ADR-0194 §4): la
+    categoria di destinazione con la sede di quella di partenza e una coppia
+    solo se il club l'ha configurata. Altrimenti: la squadra unica della
+    destinazione, se c'e; se no la riga nasce senza sede e si conta fra
+    quelle da collocare (revisione ostile B1/A9), mai una coppia inventata.
+  */
+  const indiceSquadre = await loadMembershipTargetIndex(organizationId);
+  const sedeDiDestinazione = (targetCategoryId: string, siteId: string | null) => {
+    if (!indiceSquadre.targets.length) return siteId;
+    const collocazione = indiceSquadre.place({ categoryId: targetCategoryId, siteId: siteId || "" });
+    if (collocazione.status === "resolved") return collocazione.target.siteId;
+    if (collocazione.status === "no_site_configured") return null;
+    if (collocazione.reason === "unknown_category") return siteId;
+    const squadre = indiceSquadre.forCategory(targetCategoryId);
+    if (squadre.length === 1 && !squadre[0].implicit) return squadre[0].siteId;
+    return null;
+  };
 
   for (const membership of memberships) {
     if (!confirmed.has(membership.athlete_id)) {
@@ -416,7 +435,7 @@ export const runAthleteMembershipRollover = async (options: {
       category_id: targetCategoryId,
       category_name:
         targetCategoryNameById[targetCategoryId] || membership.category_name,
-      site_id: membership.site_id,
+      site_id: sedeDiDestinazione(targetCategoryId, membership.site_id),
       is_primary: Boolean(membership.is_primary),
     });
     carriedAthletes.add(membership.athlete_id);

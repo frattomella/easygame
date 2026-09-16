@@ -2309,6 +2309,26 @@ export const saveEventConvocations = async (
       data: { convocation_status: null, convocated_at: null, convocated_by: null },
     });
 
+    /*
+      **La fotografia del contesto si scrive una volta** (ADR-0194 §20). Una
+      riga che porta gia una convocazione o un appello registrato ha la sua
+      `is_extra_category` di allora; riscriverla con il valore che il client
+      ricalcola dall'appartenenza di oggi riclassificherebbe la storia
+      (revisione ostile C1: riaprire una rosa di settembre a ottobre). Si
+      scrive sulla riga nuova e sulla riga che non aveva ancora un fatto
+      (la sola risposta della famiglia).
+    */
+    const conFatto = new Set(
+      (
+        await tx.clubEventParticipant.findMany({
+          where: { organization_id: organizationId, event_id: event.id, athlete_id: { in: normalizzate.map((entry) => entry.athleteId) } },
+          select: { athlete_id: true, convocation_status: true, status: true },
+        })
+      )
+        .filter((riga: any) => riga.convocation_status || ["present", "absent"].includes(String(riga.status || "").toLowerCase()))
+        .map((riga: any) => riga.athlete_id),
+    );
+
     for (const entry of normalizzate) {
       await tx.clubEventParticipant.upsert({
         where: {
@@ -2322,7 +2342,7 @@ export const saveEventConvocations = async (
           convocation_status: entry.status,
           convocated_at: now,
           convocated_by: attore.userId || null,
-          is_extra_category: entry.isExtraCategory,
+          ...(conFatto.has(entry.athleteId) ? {} : { is_extra_category: entry.isExtraCategory }),
         },
         create: {
           organization_id: organizationId,
@@ -2450,21 +2470,33 @@ export const saveEventAttendance = async (
   const categorieEvento = Array.from(
     new Set([asText((event as any).category_id), ...((Array.isArray((event as any).category_ids) ? (event as any).category_ids : []) as unknown[]).map(asText)].filter(Boolean)),
   );
-  const righeAppartenenza = normalizzate.length && categorieEvento.length
-    ? await (prisma as any).athleteCategoryMembership.findMany({
-        where: { organization_id: organizationId, athlete_id: { in: normalizzate.map((entry) => entry.athleteId) } },
-        select: { athlete_id: true, category_id: true, category_name: true, is_primary: true, site_id: true },
-      })
-    : [];
+  const idsAppello = normalizzate.map((entry) => entry.athleteId);
+  const [righeAppartenenza, schedeAppello] = normalizzate.length && categorieEvento.length
+    ? await Promise.all([
+        (prisma as any).athleteCategoryMembership.findMany({
+          where: { organization_id: organizationId, athlete_id: { in: idsAppello } },
+          select: { athlete_id: true, category_id: true, category_name: true, is_primary: true, site_id: true },
+        }),
+        /* Il club mai migrato ha la sola colonna: il normalizzatore la legge, e va passata (revisione ostile C3). */
+        (prisma as any).athlete.findMany({
+          where: { organization_id: organizationId, id: { in: idsAppello } },
+          select: { id: true, category_id: true, category_name: true, data: true },
+        }),
+      ])
+    : [[], []];
   const appartenenzePerAtleta = new Map<string, any[]>();
   for (const riga of righeAppartenenza as any[]) {
     const bucket = appartenenzePerAtleta.get(riga.athlete_id) || [];
     bucket.push(riga);
     appartenenzePerAtleta.set(riga.athlete_id, bucket);
   }
+  const schedaPerAtleta = new Map<string, any>((schedeAppello as any[]).map((scheda) => [scheda.id, scheda]));
   const eraDellaCategoria = (athleteId: string) =>
     !categorieEvento.length ||
-    getAthleteCategoryRelationship({ category_memberships: appartenenzePerAtleta.get(athleteId) || [] }, categorieEvento) !== "none";
+    getAthleteCategoryRelationship(
+      { ...(schedaPerAtleta.get(athleteId) || {}), category_memberships: appartenenzePerAtleta.get(athleteId) || [] },
+      categorieEvento,
+    ) !== "none";
 
   await prisma.$transaction(async (tx) => {
     await assertEventoApertoNellaTransazione(

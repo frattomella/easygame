@@ -20,6 +20,7 @@ type Context = { params: { id: string } };
  * nasce.
  */
 export const runtime = "nodejs";
+export const maxDuration = 30;
 
 const scopeFrom = async (request: Request, userId: string) =>
   resolveOrganizationScopeForUser(
@@ -32,6 +33,7 @@ const errorStatus = (error: any) => {
   const message = String(error?.message || "");
   if (message.includes("Accesso negato")) return 403;
   if (message.includes("non trovat")) return 404;
+  if (message.includes("cambiate nel frattempo")) return 409;
   return 400;
 };
 
@@ -50,7 +52,7 @@ export async function PUT(request: Request, context: Context) {
       context.params.id,
       rows,
       { userId: session.db.user_id, email: session.db.user.email },
-      { request },
+      { request, expectedRowIds: Array.isArray(payload?.expectedRowIds) ? payload.expectedRowIds : null },
     );
     return NextResponse.json({ data: esito, error: null });
   } catch (error: any) {

@@ -67,7 +67,7 @@ test("§7–§8 — il cambio in blocco: squadra, ruolo, due politiche visibili,
   assert.match(elenco, /<BulkCategoryDrawer[\s\S]*?index=\{membershipTargetIndex\}/);
   assert.doesNotMatch(elenco, /targetSiteId|"changeCategory"/, "il vecchio ciclo updateClubAthlete(category, site_id) non esiste piu");
   assert.match(blocco, /previewMembershipChange\(athleteIds, command\)/);
-  assert.match(blocco, /applyMembershipChange\(athleteIds, command, preview\.batchId\)/);
+  assert.match(blocco, /applyMembershipChange\(athleteIds, command, preview\.batchId, expected\)/, "stesso batchId e le firme viste in anteprima");
   for (const testo of ["atleti verranno aggiornati", "nuove categorie primarie", "vecchie appartenenze rimosse", "verranno promosse a primarie", "altre categorie secondarie verranno mantenute", "ATTENZIONE"]) {
     assert.ok(blocco.includes(testo), `l'anteprima dice «${testo}»`);
   }
@@ -87,7 +87,8 @@ test("§16 — la persona in prova sceglie una squadra; sede e gruppo non sono d
   assert.match(provaConverti, /targetOptions\.find\(\(t\) => t\.id === targetId\)/);
   assert.match(provaServer, /la sede indicata non e quella del gruppo scelto/);
   assert.match(provaServer, /squadre\.length === 1 && !squadre\[0\]\.implicit/, "una squadra sola: la sede e la sua");
-  assert.match(provaServer, /gruppoDellaProva\?\.categoryId === categoria\.category_id \? gruppoDellaProva\.siteId/, "la conversione deriva la sede dal gruppo della prova");
+  assert.match(provaServer, /create\.siteId !== undefined\s*\?/, "chi converte e l'autorita sulla sede quando la manda");
+  assert.match(provaServer, /asText\(gruppoDellaProva\?\.siteId\)/, "altrimenti la sede del gruppo della prova, sulla stessa categoria");
 });
 
 test("§15 — iscrizione online: le opzioni sono le squadre, il campo «Sede» non scrive piu, nessuna copia in data.siteId", () => {
@@ -121,14 +122,14 @@ test("§10/§24 — un writer solo, il vaglio delle coppie sul registro generico
   assert.match(client, /replaceAthleteMembershipsOnServer\(/);
   assert.doesNotMatch(client, /\.from\(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE\)\s*\.insert\(payload\)/, "il client non inserisce piu riga per riga");
   assert.doesNotMatch(client, /currentPrimary\?\.siteId \?\? ""/, "la sede della primaria uscente non si porta dietro");
-  assert.match(client, /\.filter\(\(membership\) => !membership\.isPrimary\)/, "la primaria uscente non scende a secondaria da sola (§6)");
+  assert.match(client, /\.filter\(\(membership\) => !primarieDichiarate\.has\(/, "la primaria uscente non scende a secondaria da sola (§6)");
 });
 
 test("§25 — nessun writer attivo di athletes.data.siteId / site_id; la lettura legacy resta e basta", () => {
   for (const [file, codice] of [["src/lib/server/form-submissions.ts", pratiche], ["src/lib/simplified-db.ts", client], ["src/lib/server/athlete-category-memberships.ts", writer]]) {
     assert.doesNotMatch(codice, /data\.siteId\s*=|data\.site_id\s*=/, `${file} scrive una copia della sede in data`);
   }
-  assert.match(writer, /site_id: _legacySiteId, siteId: _legacySiteIdCamel, \.\.\.senzaSedeLegacy/, "il writer toglie la copia legacy quando riscrive la proiezione");
+  assert.match(writer, /site_id: _legacySiteId,\s*siteId: _legacySiteIdCamel,/, "il writer toglie la copia legacy quando riscrive la proiezione");
   const sedi = senzaCommenti(leggi("src/lib/club-sites.ts"));
   assert.match(sedi, /push\(readSiteReference\(raw\.data\)\)/, "la lettura del dato precedente resta (deprecata, non cancellata)");
 });

@@ -452,7 +452,18 @@ export async function addClubAthletesBatch(
     try {
       const inserted = await insertAthleteChunk(clubId, chunk, catalogo);
       created.push(...inserted);
-    } catch {
+    } catch (errore) {
+      if (errore instanceof AthleteImportMembershipError) {
+        /* Le schede ci sono: si tengono; le appartenenze rifiutate tornano riga per riga, senza ricreare nessuno. */
+        created.push(...errore.inserted);
+        for (const [indice, motivo] of errore.rifiuti) {
+          failedIndexes.push(start + indice);
+          failedReasons[start + indice] = motivo;
+        }
+        completed += chunk.length;
+        handlers.onProgress?.(Math.min(completed, rows.length));
+        continue;
+      }
       /*
         Lo scaglione non e passato: si riprova riga per riga, cosi una sola
         anagrafica sbagliata non porta via le altre quarantanove e chi ha
@@ -476,7 +487,22 @@ export async function addClubAthletesBatch(
   return { created, failedIndexes, failedReasons };
 }
 
-/** Un solo `POST` con l'elenco, piu un solo `POST` per le appartenenze. */
+/**
+ * Le schede sono nate, alcune appartenenze no: chi importa deve saperlo
+ * riga per riga, e le schede non vanno ricreate.
+ */
+class AthleteImportMembershipError extends Error {
+  readonly inserted: any[];
+  /** Posizione nello scaglione e motivo, per ogni appartenenza rifiutata. */
+  readonly rifiuti: Array<[number, string]>;
+  constructor(inserted: any[], rifiuti: Array<[number, string]>) {
+    super(`Atleti importati, appartenenze non salvate: ${rifiuti.map(([, motivo]) => motivo).join(" / ")}`);
+    this.inserted = inserted;
+    this.rifiuti = rifiuti;
+  }
+}
+
+/** Un solo `POST` con l'elenco, poi un `PUT` di appartenenze per scheda. */
 const insertAthleteChunk = async (
   clubId: string,
   rows: any[],
@@ -506,57 +532,37 @@ const insertAthleteChunk = async (
     throw new Error("Import parziale: si riprova riga per riga");
   }
 
-  const membershipRows = prepared.flatMap(({ memberships }, index) =>
-    serializeAthleteMemberships(memberships, {
-      clubId,
-      athleteId: inserted[index].id,
-    }).map((membership) => {
-      const payload = {
-        ...membership,
-        organization_id: clubId,
-        athlete_id: inserted[index].id,
-      } as Record<string, any>;
-      if (!UUID_PATTERN.test(String(payload.id || "").trim())) {
-        delete payload.id;
-      }
-      return payload;
-    }),
-  );
-
-  if (membershipRows.length) {
-    const { data: coniate, error: membershipError } = await supabase
-      .from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE)
-      .insert(membershipRows)
-      .select();
-
-    /*
-      Un'appartenenza mancata non annulla l'atleta: la scheda resta, la
-      categoria si riassegna. Perdere l'anagrafica per una riga di
-      collegamento sarebbe il danno piu grande dei due. Ma non resta muta:
-      l'import la riporta come riga fallita, e la scheda non dice righe che
-      non esistono (revisione ostile ADR-0187, M3).
-    */
-    if (membershipError) {
-      if (!isMissingAthleteMembershipResource(membershipError)) {
-        console.warn("Error importing athlete memberships:", membershipError);
-        throw new Error(
-          "Atleti importati, appartenenze non salvate: " +
-            String((membershipError as any)?.message || membershipError),
-        );
-      }
-    } else {
-      /* La proiezione di ogni scheda dice le righe coniate dall'archivio. */
-      const perAtleta = new Map<string, Record<string, any>[]>();
-      for (const riga of Array.isArray(coniate) ? coniate : []) {
-        const chiave = String(riga?.athlete_id ?? "");
-        perAtleta.set(chiave, [...(perAtleta.get(chiave) || []), riga]);
-      }
-      for (let index = 0; index < inserted.length; index += 1) {
-        const righe = perAtleta.get(String(inserted[index].id)) || [];
-        if (!righe.length) continue;
-        inserted[index] = await riallineaProiezioneAppartenenze(clubId, inserted[index], righe);
-      }
+  /*
+    Le appartenenze le scrive il writer del server, **una scheda per volta**
+    (`PUT /api/v1/athletes/:id/memberships`): vaglio della coppia (categoria,
+    sede), sede derivata, proiezione nella stessa transazione. Un rifiuto su
+    una scheda non annulla le altre e **non fa ripartire la creazione delle
+    schede** (revisione ostile B10: lo scaglione che fallisce dopo l'inserimento
+    creava cinquanta doppioni): la scheda resta, senza categoria, e la riga
+    torna all'import come fallita con il motivo.
+  */
+  const rifiuti: Array<[number, string]> = [];
+  for (let index = 0; index < inserted.length; index += 1) {
+    const { memberships } = prepared[index];
+    if (!memberships.length) continue;
+    const righe = serializeAthleteMemberships(memberships, { clubId, athleteId: inserted[index].id }).map((riga) => ({
+      category_id: riga.category_id,
+      category_name: riga.category_name,
+      is_primary: riga.is_primary,
+      site_id: riga.site_id,
+    }));
+    try {
+      const esito = await replaceAthleteMembershipsOnServer(inserted[index].id, righe);
+      inserted[index] = hydrateAthleteWithMemberships(
+        conProiezioneDelServer(inserted[index], esito.athlete),
+        esito.rows.map((riga) => ({ ...riga, organization_id: clubId, athlete_id: inserted[index].id })),
+      );
+    } catch (errore) {
+      rifiuti.push([index, String((errore as any)?.message || errore)]);
     }
+  }
+  if (rifiuti.length) {
+    throw new AthleteImportMembershipError(inserted, rifiuti);
   }
 
   return inserted;
@@ -671,7 +677,15 @@ const replaceAthleteMemberships = async (
     clubId,
     athleteId,
   });
-  const { rows } = await replaceAthleteMembershipsOnServer(
+  /*
+    Le righe lette prima della modifica viaggiano con l'insieme: se un altro
+    le ha cambiate nel frattempo il server risponde 409 e non sovrascrive
+    (revisione ostile D2).
+  */
+  const attese = correnti
+    .map((riga) => String(riga?.id ?? "").trim())
+    .filter((id) => UUID_PATTERN.test(id));
+  const esito = await replaceAthleteMembershipsOnServer(
     athleteId,
     serializedMemberships.map((riga) => ({
       category_id: riga.category_id,
@@ -679,22 +693,27 @@ const replaceAthleteMemberships = async (
       is_primary: riga.is_primary,
       site_id: riga.site_id,
     })),
+    righeCorrenti.length ? attese : null,
   );
 
   /*
     Le righe come stanno adesso, con l'identificativo **coniato dall'archivio**:
     un identificativo sintetico (`<categoria>:membership`) non e una riga, e
     una proiezione che lo porta dice una riga che non esiste (D-RD-16, R3).
+    E la proiezione come l'ha scritta il writer, nella stessa transazione.
   */
-  return rows.map((riga) => ({
-    id: riga.id,
-    organization_id: clubId,
-    athlete_id: athleteId,
-    category_id: riga.category_id,
-    category_name: riga.category_name,
-    is_primary: riga.is_primary,
-    site_id: riga.site_id,
-  }));
+  return {
+    rows: esito.rows.map((riga) => ({
+      id: riga.id,
+      organization_id: clubId,
+      athlete_id: athleteId,
+      category_id: riga.category_id,
+      category_name: riga.category_name,
+      is_primary: riga.is_primary,
+      site_id: riga.site_id,
+    })),
+    projection: esito.athlete,
+  };
 };
 
 /**
@@ -721,55 +740,6 @@ const conIdentificativiDelleRighe = (
   });
 };
 
-/**
- * La proiezione `athletes.data.categoryMemberships` deve portare gli
- * identificativi **delle righe**, non quelli sintetici che il client compone
- * prima di sapere cosa l'archivio coniera. Il writer salva la scheda prima
- * delle righe (la scheda nuova non ha ancora un identificativo da dare alle
- * righe), quindi dopo le righe la proiezione si **riallinea** — solo se
- * dice qualcosa di diverso, per non scrivere due volte la stessa cosa.
- */
-const riallineaProiezioneAppartenenze = async (
-  clubId: string,
-  athlete: any,
-  savedMemberships: readonly Record<string, any>[],
-) => {
-  if (!athlete || typeof athlete !== "object") return athlete;
-  const data = isRecord(athlete.data) ? athlete.data : {};
-  const attese = serializeAthleteMemberships(
-    normalizeAthleteCategoryMemberships({
-      ...athlete,
-      data,
-      category_memberships: savedMemberships,
-      categoryMemberships: savedMemberships,
-    }),
-    { clubId, athleteId: athlete.id || null },
-  );
-  const scritte = Array.isArray(data.categoryMemberships) ? data.categoryMemberships : [];
-  const stessaRiga = (a: any, b: any) =>
-    String(a?.id ?? "") === String(b?.id ?? "") &&
-    String(a?.category_id ?? "") === String(b?.category_id ?? "") &&
-    Boolean(a?.is_primary) === Boolean(b?.is_primary) &&
-    String(a?.site_id ?? "") === String(b?.site_id ?? "");
-  const allineata =
-    scritte.length === attese.length &&
-    attese.every((riga) => scritte.some((scritta: any) => stessaRiga(scritta, riga)));
-  if (allineata) return athlete;
-
-  const nuovaData = { ...data, categoryMemberships: attese };
-  const { data: aggiornato, error } = await supabase
-    .from("simplified_athletes")
-    .update({ data: nuovaData })
-    .eq("id", athlete.id)
-    .eq("club_id", clubId)
-    .select()
-    .single();
-  if (error) {
-    console.error("Error realigning athlete membership projection:", error);
-    throw error;
-  }
-  return aggiornato ?? { ...athlete, data: nuovaData };
-};
 
 /**
  * Vero se l'aggiornamento **dice qualcosa** sulle appartenenze.
@@ -982,8 +952,23 @@ const resolveRequestedAthleteMemberships = (
       La dedupe per identita resta al normalizzatore: se la destinazione era
       gia una secondaria, la riga si promuove e non nasce un doppione.
     */
+    /*
+      La primaria uscente e quella **dichiarata dalle righe**, non quella che
+      il normalizzatore promuove quando nessuna lo e (revisione ostile A14):
+      un atleta con due sole secondarie non ne perde una per un cambio.
+    */
+    const righeGrezze = Array.isArray(currentAthlete?.category_memberships)
+      ? (currentAthlete.category_memberships as any[])
+      : [];
+    const primarieDichiarate = righeGrezze.length
+      ? new Set(
+          righeGrezze
+            .filter((riga) => Boolean(riga?.is_primary ?? riga?.isPrimary))
+            .map((riga) => String(riga?.category_id ?? riga?.categoryId ?? "").trim().toLowerCase()),
+        )
+      : new Set(currentMemberships.filter((m) => m.isPrimary).map((m) => String(m.categoryId).trim().toLowerCase()));
     const secondaryMemberships = currentMemberships
-      .filter((membership) => !membership.isPrimary)
+      .filter((membership) => !primarieDichiarate.has(String(membership.categoryId).trim().toLowerCase()))
       .map((membership) => ({
       category_id: membership.categoryId,
       category_name: membership.categoryName,
@@ -1365,18 +1350,44 @@ export async function addClubAthlete(clubId: string, athleteData: any) {
     throw error;
   }
 
-  const savedMemberships = await replaceAthleteMemberships(
-    clubId,
-    data.id,
-    normalizedMemberships,
-    catalogo,
-  );
+  /*
+    Le appartenenze le scrive il server con la proiezione (ADR-0194). Se le
+    rifiuta, la scheda appena nata non resta orfana: si toglie e l'errore
+    torna a chi ha compilato, cosi un secondo tentativo non fa due schede
+    (revisione ostile A3).
+  */
+  let salvate: Awaited<ReturnType<typeof replaceAthleteMemberships>>;
+  try {
+    salvate = await replaceAthleteMemberships(clubId, data.id, normalizedMemberships, catalogo);
+  } catch (error) {
+    await supabase.from("simplified_athletes").delete().eq("id", data.id).eq("club_id", clubId);
+    throw error;
+  }
 
   return hydrateAthleteWithMemberships(
-    await riallineaProiezioneAppartenenze(clubId, data, savedMemberships),
-    savedMemberships,
+    normalizedMemberships.length ? conProiezioneDelServer(data, salvate.projection) : data,
+    salvate.rows,
   );
 }
+
+/**
+ * La scheda con la proiezione **del server**: colonne e `data` come le ha
+ * scritte il writer delle appartenenze, non come le aveva calcolate il
+ * client prima di sapere cosa l'archivio avrebbe coniato (revisione ostile
+ * B5/A12: il riallineamento client riesumava le chiavi legacy).
+ */
+const conProiezioneDelServer = (
+  athlete: any,
+  projection: { category_id: string | null; category_name: string | null; data: Record<string, unknown> } | null | undefined,
+) => {
+  if (!athlete || !projection) return athlete;
+  return {
+    ...athlete,
+    category_id: projection.category_id,
+    category_name: projection.category_name,
+    data: { ...(isRecord(athlete.data) ? athlete.data : {}), ...(projection.data || {}) },
+  };
+};
 
 /**
  * Ottiene un atleta specifico con tutti i suoi dati
@@ -1447,8 +1458,15 @@ export async function updateClubAthlete(
       throw new Error("Athlete not found");
     }
 
+    /*
+      La sede non e un campo dell'atleta (ADR-0194 §25): una chiave
+      `siteId`/`site_id` arrivata qui non finisce in `data` (revisione
+      ostile B7). La sede sta sull'appartenenza, derivata dalla squadra.
+    */
+    const { siteId: _sedeIgnorata, site_id: _sedeIgnorataSnake, ...updatesSenzaSede } = (isRecord(updates) ? updates : {}) as Record<string, any>;
+    updates = updatesSenzaSede;
     // Merge updates with existing data
-    const currentData = isRecord(currentAthlete.data) ? currentAthlete.data : {};
+    const { siteId: _legacySiteId, site_id: _legacySiteIdSnake, ...currentData } = (isRecord(currentAthlete.data) ? currentAthlete.data : {}) as Record<string, any>;
 
     /*
       **Salvare la foto cancellava le appartenenze.**
@@ -1514,6 +1532,19 @@ export async function updateClubAthlete(
       (revisione ostile A11).
     */
     const catalogoPresente = catalogo.length > 0;
+
+    /*
+      **Prima le appartenenze, poi la scheda** (revisione ostile D2/A3/B6).
+      Il writer del server vaglia la coppia (categoria, sede), il perimetro
+      e la primaria unica e scrive righe e proiezione nella stessa
+      transazione: se rifiuta, la scheda non e stata toccata e la colonna non
+      dice una categoria che le righe non hanno. La proiezione che torna e
+      quella che la scheda riporta, con gli identificativi veri.
+    */
+    const salvate = membershipsDeclared
+      ? await replaceAthleteMemberships(clubId, athleteId, normalizedMemberships, catalogo, membershipRows)
+      : null;
+    const proiezioneServer = salvate?.projection || null;
     /*
       Un salvataggio che **non dichiara** le appartenenze — la foto, lo stato,
       un certificato — non tocca la colonna: rimandarla dalle righe lette
@@ -1522,16 +1553,20 @@ export async function updateClubAthlete(
     */
     const nextCategoryId = !membershipsDeclared
       ? currentAthlete.category_id ?? null
-      : primaryMembership?.categoryId ??
-        (catalogoPresente ? null : updates.category ?? updates.category_id ?? null) ??
-        currentAthlete.category_id ??
-        null;
+      : proiezioneServer
+        ? proiezioneServer.category_id
+        : primaryMembership?.categoryId ??
+          (catalogoPresente ? null : updates.category ?? updates.category_id ?? null) ??
+          currentAthlete.category_id ??
+          null;
     const nextCategoryName = !membershipsDeclared
       ? currentAthlete.category_name ?? null
-      : primaryMembership?.categoryName ??
-        (catalogoPresente ? null : updates.categoryName ?? updates.category_name ?? null) ??
-        currentAthlete.category_name ??
-        null;
+      : proiezioneServer
+        ? proiezioneServer.category_name
+        : primaryMembership?.categoryName ??
+          (catalogoPresente ? null : updates.categoryName ?? updates.category_name ?? null) ??
+          currentAthlete.category_name ??
+          null;
     /*
       W6-05. `??` risponde alla domanda «e nullo?», e queste righe devono
       rispondere a un'altra: «e stato dichiarato?».
@@ -1594,10 +1629,12 @@ export async function updateClubAthlete(
     const updatedData = {
       ...currentData,
       ...updates,
-      ...buildAthleteCategoryProjection(normalizedMemberships, {
-        clubId,
-        athleteId,
-      }),
+      ...(proiezioneServer
+        ? proiezioneServer.data
+        : buildAthleteCategoryProjection(normalizedMemberships, {
+            clubId,
+            athleteId,
+          })),
       category: nextCategoryId,
       categoryName: nextCategoryName,
       birthDate: nextBirthDate,
@@ -1636,22 +1673,9 @@ export async function updateClubAthlete(
       throw error;
     }
 
-    const savedMemberships = membershipsDeclared
-      ? await replaceAthleteMemberships(
-          clubId,
-          athleteId,
-          normalizedMemberships,
-          catalogo,
-          membershipRows,
-        )
-      : membershipRows;
+    const savedMemberships = salvate ? salvate.rows : membershipRows;
 
-    return hydrateAthleteWithMemberships(
-      membershipsDeclared
-        ? await riallineaProiezioneAppartenenze(clubId, data, savedMemberships)
-        : data,
-      savedMemberships,
-    );
+    return hydrateAthleteWithMemberships(data, savedMemberships);
   } catch (error) {
     console.error("Error updating club athlete:", error);
     throw error;

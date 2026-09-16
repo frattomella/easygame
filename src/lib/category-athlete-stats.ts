@@ -209,6 +209,19 @@ export function calculateCategoryAthleteStats(
     bastava a toglierlo. Qui si scorre ogni riga una volta, e poi si legge.
   */
   const presentTrainingsByAthlete = new Map<string, Set<string>>();
+  /*
+    Chi ha una riga «della categoria» — non un extra ne un ospite di un
+    allenamento congiunto — su un evento di questa categoria (ADR-0194 §19,
+    revisione ostile C2): la fotografia `is_extra_category` della riga dice
+    se allora era dei nostri.
+  */
+  const membriPerRiga = new Set<string>();
+  const annotaMembro = (entry: any) => {
+    const entryAthleteId = getAttendanceAthleteId(entry);
+    if (!entryAthleteId) return;
+    if (entry?.is_extra_category === true || entry?.isExtraCategory === true) return;
+    membriPerRiga.add(entryAthleteId);
+  };
   categoryTrainings.forEach((training, index) => {
     // Un allenamento senza id resta distinguibile dagli altri: contarne due
     // come uno solo abbasserebbe le presenze di chi c'era.
@@ -216,6 +229,7 @@ export function calculateCategoryAthleteStats(
 
     for (const entry of getTrainingAttendanceEntries(training, attendance)) {
       if (!isPresentAttendanceEntry(entry)) continue;
+      annotaMembro(entry);
 
       const entryAthleteId = getAttendanceAthleteId(entry);
       if (!entryAthleteId) continue;
@@ -240,6 +254,7 @@ export function calculateCategoryAthleteStats(
     for (const entry of getTrainingAttendanceEntries(training, attendance)) {
       const stato = normalizeValue(entry?.rsvp_status ?? entry?.rsvpStatus);
       if (!stato) continue;
+      annotaMembro(entry);
 
       const entryAthleteId = getAttendanceAthleteId(entry);
       if (!entryAthleteId) continue;
@@ -271,6 +286,12 @@ export function calculateCategoryAthleteStats(
   const matchesConRosa = attachParticipationToEvents(categoryMatches, attendance);
 
   const convocationsByAthlete = new Map<string, number>();
+  const idsGare = new Set(categoryMatches.map((match, index) => getTrainingId(match) || `#m${index}`));
+  for (const entry of Array.isArray(attendance) ? attendance : []) {
+    const idEvento = String((entry as any)?.training_id ?? (entry as any)?.event_id ?? (entry as any)?.match_id ?? "").trim();
+    const convocata = normalizeValue((entry as any)?.convocation_status ?? (entry as any)?.convocationStatus) === "convocated";
+    if (convocata && idsGare.has(idEvento)) annotaMembro(entry);
+  }
   for (const match of matchesConRosa) {
     for (const convocatedId of new Set(getConvocatedAthleteIdsFromMatch(match))) {
       convocationsByAthlete.set(
@@ -294,7 +315,7 @@ export function calculateCategoryAthleteStats(
   const conStoria = (Array.isArray(athletes) ? athletes : [])
     .filter((athlete) => {
       const id = getAthleteId(athlete);
-      return id && !idsCorrenti.has(id) && (presentTrainingsByAthlete.has(id) || convocationsByAthlete.has(id) || rispostiPerAtleta.has(id));
+      return id && !idsCorrenti.has(id) && membriPerRiga.has(id);
     })
     .sort(compareAthletesByLastName);
   const conMembriStorici = [...categoryAthletes, ...conStoria];
@@ -322,11 +343,11 @@ export function calculateCategoryAthleteStats(
       presenceRate: totalTrainings
         ? Math.round((presences / totalTrainings) * 100)
         : 0,
-      rsvpRequested: eventiConRsvp.length,
-      noResponse: Math.max(
-        0,
-        eventiConRsvp.length - (rispostiPerAtleta.get(athleteId)?.size || 0),
-      ),
+      /* Il silenzio si conta a chi e membro oggi: a chi e altrove non si chiede piu niente. */
+      rsvpRequested: idsCorrenti.has(athleteId) ? eventiConRsvp.length : rispostiPerAtleta.get(athleteId)?.size || 0,
+      noResponse: idsCorrenti.has(athleteId)
+        ? Math.max(0, eventiConRsvp.length - (rispostiPerAtleta.get(athleteId)?.size || 0))
+        : 0,
       formerMember: !idsCorrenti.has(athleteId),
     };
   });

@@ -12714,10 +12714,21 @@ punto, l'identificativo o niente. Nessun secondo modello di categoria.
    `batchId`) e `athlete.memberships.bulk` per blocco. Il blocco scrive a
    lotti di 50 atomici; un lotto fallito non lascia meta lotto e il rapporto
    dice per ogni atleta `updated | unchanged | blocked | failed |
-   not_attempted`. Il client (`simplified-db.replaceAthleteMemberships`)
+   not_attempted`. Una richiesta porta al massimo 200 atleti
+   (`MAX_ATHLETES_PER_REQUEST`, un minuto di funzione); il client spezza
+   «tutti» in richieste da 200 con lo stesso `batchId` e fonde i rapporti.
+   L'anteprima porta per atleta la **firma** delle righe correnti;
+   l'applicazione la confronta con l'archivio letto con il blocco in mano e
+   ferma l'atleta (`changed_since_preview`) se e cambiato: cio che si e
+   letto e cio che si scrive. Il client (`simplified-db.replaceAthleteMemberships`)
    non scrive piu riga per riga: manda l'insieme a
-   `PUT /api/v1/athletes/:id/memberships`. Concorrenza provata sul database
-   vero (`scripts/prova-appartenenze-concorrenti.mjs`: 8 comandi simultanei,
+   `PUT /api/v1/athletes/:id/memberships` **prima** di toccare la scheda,
+   con gli identificativi delle righe lette (`expectedRowIds`, 409 se
+   cambiate), e riporta sulla scheda la proiezione che il writer risponde:
+   nessuna colonna scritta prima del vaglio, nessun riallineamento client.
+   Il registro generico HTTP (`POST|PATCH|DELETE /api/v1/athlete_category_memberships`)
+   non scrive piu appartenenze. Concorrenza provata sul database vero
+   (`scripts/prova-appartenenze-concorrenti.mjs`: 8 comandi simultanei,
    1 primaria, audit uguale alle scritture).
 4. **La sede si deriva dalla squadra** (`src/lib/categories/placement.ts`):
    le collocazioni scegliibili di un club sono i gruppi operativi attivi
@@ -12732,7 +12743,9 @@ punto, l'identificativo o niente. Nessun secondo modello di categoria.
    bonifica, ADR-0185 §8); una riga **nuova** senza sede su una categoria con
    una squadra sola prende quella sede. Per assegnare una sede a una
    categoria si configura la squadra nella pagina Categorie, non si scrive
-   una sede sulla riga.
+   una sede sulla riga. Vale anche per il riporto di stagione
+   (`season-memberships.ts`): la riga nuova prende la sede della coppia
+   configurata, la squadra unica della destinazione, o nessuna.
 5. **Campi legacy della sede.** `athletes.site_id/site_name`: non esistono.
    `athletes.data.siteId` (iscrizione) e `data.site_id` (blocco):
    **DEPRECATED** — writer attivi 0 (l'approvazione non lo scrive piu; il
@@ -12783,6 +12796,29 @@ punto, l'identificativo o niente. Nessun secondo modello di categoria.
    della categoria primaria attuale?», «Altre categorie secondarie», poi
    l'**anteprima del server** (conteggi §27 e prima → dopo per atleta) e
    «Conferma cambio»; il testo dice che presenze e storico non cambiano.
+
+### Revisione ostile (§37): quattro revisori in sola lettura, un solo scrittore
+
+Trovati: Critical 0, **High 12** (A3 · B4 · C2 · D3), Medium 28, Low 28.
+Chiusi tutti gli High e 20 Medium; alla chiusura **Critical 0, High 0**,
+Medium 8 dichiarati, Low 20 dichiarati (`docs/redesign/APPARTENENZE-SEDE.md`
+§5). Le chiusure che hanno cambiato la decisione: la vecchia primaria di una
+categoria fuori catalogo **scende** invece di restare doppia (A1); il
+perimetro dell'accesso si vaglia sulle righe che cambiano e sulla
+destinazione, e un atleta fuori perimetro si **ferma** senza far cadere il
+lotto (A2/B9/D6); la scheda scrive le righe prima delle colonne e riporta la
+proiezione del writer (A3/B5/B6/D2); il riporto di stagione e l'upsert del
+registro vagliano la coppia (B1/B2); `getAthleteSiteIds` e il normalizzatore
+non riversano piu `data.siteId` sulle righe (B3/B4); l'appello non
+riscrive la fotografia di una riga che ha gia un fatto, e la rosa di una
+gara riaperta nemmeno (C1); il rapporto per categoria include solo chi ha
+una riga «della categoria», non gli extra (C2/C6); il ruolo e le politiche
+del comando sono un vocabolario chiuso (D4); il rapporto dice `updated` solo
+di cio che e stato scritto e le righe fuori catalogo non si dicono «rimosse»
+(D5); l'approvazione dell'iscrizione e il riallineamento della pagina
+Categorie passano dal writer (A6/B11); «Pulcini» con due omonime non si
+risolve per nome nudo (A5); una risposta «Sede» di un modulo precedente
+distingue due squadre omonime (A7).
 
 ### Migrazioni
 

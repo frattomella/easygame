@@ -52,6 +52,7 @@ import {
   type CategoryViewModel,
 } from "@/components/categories/v2/category-grid-model";
 import { apiRequest } from "@/lib/api/client";
+import { applyAthleteMembershipCommand } from "@/lib/athletes/memberships-client";
 import { useToast } from "@/components/ui/toast-notification";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/providers/AuthProvider";
@@ -773,19 +774,25 @@ export default function CategoriesPage() {
             ),
           );
 
+        /*
+          Il riallineamento e un cambio di appartenenza (ADR-0194): passa dal
+          comando canonico, che deriva la sede dalla squadra, tiene il ruolo
+          della riga, riscrive la proiezione e lascia l'audit prima/dopo.
+          Una sede vuota («senza sede») non e una squadra: le righe restano
+          come sono, e lo si dice.
+        */
         for (const membership of appartenenze) {
+          const athleteId = String(membership?.athlete_id || membership?.athleteId || "");
+          if (!athleteId || !riallineamento.siteId) continue;
           try {
-            const risposta = await apiRequest(
-              `/api/v1/athlete_category_memberships/${String(membership.id)}`,
-              {
-                method: "PATCH",
-                headers: { "x-active-club-id": activeClub.id },
-                body: { site_id: riallineamento.siteId },
-              },
-            );
-            if ((risposta as any)?.error) {
-              throw new Error((risposta as any).error.message);
-            }
+            await applyAthleteMembershipCommand(athleteId, {
+              kind: "assign",
+              categoryId: String(savedCategoryId),
+              siteId: String(riallineamento.siteId),
+              role: membership?.is_primary || membership?.isPrimary ? "primary" : "secondary",
+              previousPrimaryPolicy: "remove",
+              otherSecondariesPolicy: "keep",
+            });
             riallineati += 1;
           } catch (errore) {
             console.error("Error realigning athlete membership:", errore);

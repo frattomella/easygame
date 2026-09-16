@@ -234,10 +234,11 @@ export const buildMembershipTargetIndex = ({
     const testo = normalizeCategoryToken(label);
     if (!testo) return { target: null, ambiguous: false };
     const esatte = ordinati.filter((target) => normalizeCategoryToken(target.label) === testo);
-    if (esatte.length === 1) return { target: esatte[0], ambiguous: false };
-    if (esatte.length > 1) return { target: null, ambiguous: true };
-    /* Il solo nome della categoria: vale se nomina una categoria sola con una collocazione sola. */
+    /* Il nome nudo di una categoria: se lo porta anche un'altra categoria, non ne nomina nessuna (ADR-0155). */
     const perNome = ordinati.filter((target) => normalizeCategoryToken(target.categoryName) === testo);
+    const categorieConQuelNome = new Set(perNome.map((target) => normalizeCategoryToken(target.categoryId)));
+    if (esatte.length === 1 && categorieConQuelNome.size <= 1) return { target: esatte[0], ambiguous: false };
+    if (esatte.length > 1 || (esatte.length === 1 && categorieConQuelNome.size > 1)) return { target: null, ambiguous: true };
     if (perNome.length === 1) return { target: perNome[0], ambiguous: false };
     return { target: null, ambiguous: perNome.length > 1 };
   };

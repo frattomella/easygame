@@ -431,7 +431,11 @@ export const calculateAttendanceReport = ({
     );
     const conRiga = athletes.filter((athlete) => {
       const athleteId = firstString(athlete?.id, athlete?.athleteId);
-      return athleteId && !idsAttesi.has(athleteId) && entriesByAthlete.has(athleteId);
+      if (!athleteId || idsAttesi.has(athleteId)) return false;
+      const entry = entriesByAthlete.get(athleteId);
+      /* Solo una riga registrata «della categoria»: un extra o l'ospite di un allenamento congiunto non e un atteso di questa categoria (revisione ostile C6). */
+      if (!entry || entry?.is_extra_category === true || entry?.isExtraCategory === true) return false;
+      return isPresentAttendance(entry) || isAbsentAttendance(entry);
     });
     const attesi = [...eligibleAthletes, ...conRiga];
 
