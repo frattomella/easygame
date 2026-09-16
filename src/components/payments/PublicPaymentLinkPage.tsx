@@ -3,7 +3,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { CheckCircle2, CreditCard, Loader2, ShieldCheck } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/web/primitives/Button";
+import { AlertBlock } from "@/components/web/page/Alerts";
 import { OutsideShell, OutsideStatus } from "@/components/web/shell/OutsideShell";
 
 /**
@@ -264,37 +265,20 @@ export function PublicPaymentLinkPage({ token }: { token: string }) {
           )}
         </div>
 
-        {notice ? (
-          <p
-            role="status"
-            className="mt-4 rounded-egw-control border border-egw-tint-blue-bd bg-egw-tint-blue p-3 text-sm text-egw-blue-800"
-          >
-            {notice}
-          </p>
-        ) : null}
+        {notice ? <AlertBlock severity="info" role="status" title={notice} className="mt-4" /> : null}
 
-        {failure ? (
-          <p
-            role="alert"
-            className="mt-4 rounded-egw-control border border-egw-tint-red-bd bg-egw-tint-red p-3 text-sm text-egw-red"
-          >
-            {failure}
-          </p>
-        ) : null}
+        {failure ? <AlertBlock severity="danger" role="alert" title={failure} className="mt-4" /> : null}
 
         {!saldata ? (
           <>
             <Button
               type="button"
+              variant="primary"
               onClick={paga}
-              disabled={opening}
+              loading={opening}
+              icon={<CreditCard />}
               className="mt-5 min-h-[44px] w-full"
             >
-              {opening ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <CreditCard className="mr-2 h-4 w-4" />
-              )}
               Paga {euro(view.residualAmount)}
             </Button>
 

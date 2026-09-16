@@ -76,14 +76,14 @@ export function AthleteCategoriesPanel({
   );
 
   return (
-    <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+    <div className="space-y-3 rounded-egw-control border border-egw-hairline bg-egw-page-100 p-4">
       <div>
         <Label htmlFor="athlete-primary-category">Categoria primaria</Label>
         <select
           id="athlete-primary-category"
           value={primaryCategoryId}
           onChange={(event) => onPrimaryCategoryChange(event.target.value)}
-          className="mt-2 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          className="mt-2 w-full rounded-egw-control border border-input bg-background px-3 py-2 text-sm"
         >
           <option value="">Seleziona categoria primaria</option>
           {/*
@@ -145,10 +145,10 @@ export function AthleteCategoriesPanel({
               return (
                 <label
                   key={`athlete-secondary-category-${category.id}`}
-                  className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+                  className={`flex items-center gap-2 rounded-egw-control border px-3 py-2 text-sm ${
                     isPrimary
-                      ? "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
-                      : "cursor-pointer border-slate-200 bg-white"
+                      ? "cursor-not-allowed border-egw-hairline bg-egw-page-100 text-egw-ink-42"
+                      : "cursor-pointer border-egw-hairline bg-white"
                   }`}
                 >
                   <Checkbox

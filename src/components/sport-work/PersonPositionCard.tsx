@@ -83,7 +83,7 @@ const Row = ({
       <p
         className={
           strong
-            ? "text-sm font-semibold text-egw-ink dark:text-slate-100"
+            ? "text-sm font-semibold text-egw-ink"
             : "text-sm text-egw-ink-72 dark:text-egw-ink-42"
         }
       >

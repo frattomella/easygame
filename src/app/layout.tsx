@@ -60,7 +60,7 @@ export default function RootLayout({
     >
       <head suppressHydrationWarning />
       <body
-        className="bg-slate-50 font-sans text-slate-900 antialiased"
+        className="bg-egw-page font-sans text-egw-ink antialiased"
         suppressHydrationWarning
       >
         <AppClientProviders>{children}</AppClientProviders>

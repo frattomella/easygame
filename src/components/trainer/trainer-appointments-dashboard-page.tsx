@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarClock, CheckCircle2, RefreshCcw, XCircle } from "lucide-react";
 import { PageHeading } from "@/components/dashboard/page-heading";
-import { Badge } from "@/components/ui/badge";
+import { StatusPill } from "@/components/web/primitives/StatusPill";
+import { APPOINTMENT_STATUS, resolveStatus } from "@/lib/web/status";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,7 +24,6 @@ import {
   rescheduleClubAppointment,
   type ClubAppointment,
 } from "@/lib/api/appointments-client";
-import { cn } from "@/lib/utils";
 
 /**
  * **Gli appuntamenti assegnati all'allenatore.**
@@ -47,19 +47,7 @@ import { cn } from "@/lib/utils";
  * invece di aggiornare la riga in mano, che a quel punto e chiusa.
  */
 
-const STATUS_BADGE_CLASSES: Record<string, string> = {
-  requested: "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink hover:bg-egw-tint-amber",
-  confirmed:
-    "border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green",
-  rejected: "border-egw-tint-red-bd bg-egw-tint-red text-egw-red hover:bg-egw-tint-red",
-  rescheduled: "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue",
-  completed: "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
-  no_show: "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
-  cancelled_by_family:
-    "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
-  cancelled_by_club:
-    "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
-};
+/* Lo stato di un appuntamento e una parola in una pillola: APPOINTMENT_STATUS, la stessa dell'area famiglia. */
 
 const APERTI = new Set(["requested", "confirmed", "rescheduled"]);
 
@@ -221,15 +209,11 @@ export default function ClubAppointmentsDashboardPage() {
               {nomeAtleta(appointment.athlete_id)}
             </p>
           </div>
-          <Badge
-            className={cn(
-              "shrink-0",
-              STATUS_BADGE_CLASSES[appointment.status] ||
-                "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
-            )}
-          >
-            {appointment.status_label}
-          </Badge>
+          <StatusPill
+            status={APPOINTMENT_STATUS[appointment.status as keyof typeof APPOINTMENT_STATUS] || resolveStatus(appointment.status)}
+            size="sm"
+            className="shrink-0"
+          />
         </div>
 
         <p className="mt-3 text-sm text-egw-ink-72">
@@ -358,7 +342,7 @@ export default function ClubAppointmentsDashboardPage() {
             {puoConfermare ? (
               <Button
                 size="sm"
-                className="bg-egw-green hover:bg-emerald-700"
+                className="bg-egw-green hover:bg-egw-green/90"
                 disabled={inCorso}
                 onClick={() =>
                   esegui(

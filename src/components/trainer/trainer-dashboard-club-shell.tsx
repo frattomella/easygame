@@ -72,7 +72,22 @@ export default function TrainerDashboardClubShell({ children }: { children: Reac
   }
 
   return (
-    <AreaShell groups={groups} title={resolvePageTitle(pathname || "")} notificationCount={operationalAlerts.length}>
+    <AreaShell
+      groups={groups}
+      title={resolvePageTitle(pathname || "")}
+      notificationCount={operationalAlerts.length}
+      identity={
+        activeClub
+          ? {
+              eyebrow: "Allenatore",
+              name: trainerProfile?.name || activeClub.name || "Allenatore",
+              meta: activeClub.name || null,
+              avatarSrc: (trainerProfile as { avatar_url?: string | null } | null)?.avatar_url || null,
+              actions: [{ id: "account", label: "Torna al mio account", onSelect: () => router.push("/account"), tone: "muted" }],
+            }
+          : undefined
+      }
+    >
       {loading ? (
         <AreaLoading label="Area allenatore in caricamento" />
       ) : !trainerProfile ? (

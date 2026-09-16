@@ -79,7 +79,7 @@ import { getTrainingStableKey } from "@/lib/training-utils";
   tabella scritta qui: e la stessa che il server usa per costruire l'etichetta,
   e due copie sarebbero due badge diversi sullo stesso documento.
 */
-import { APPOINTMENT_STATUS, DOSSIER_STATUS, resolveStatus } from "@/lib/web/status";
+import { APPOINTMENT_STATUS, BOOKING_STATUS, DOSSIER_STATUS, resolveStatus } from "@/lib/web/status";
 import { withPayableInstalment } from "@/lib/payments/family-checkout";
 import { apiRequest } from "@/lib/api/client";
 import { todayLocalDateOnly } from "@/lib/date-only";
@@ -2582,7 +2582,7 @@ export function ParentSecretariatPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Lascialo</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-egw-red hover:bg-red-700"
+              className="bg-egw-red hover:bg-egw-red/90"
               onClick={(evento) => {
                 evento.preventDefault();
                 void handleCancelAppointment();
@@ -2929,7 +2929,7 @@ export function ParentStructuresPage() {
                       {new Date(booking.start).toLocaleString("it-IT")}
                     </p>
                   </div>
-                  <StatusPill status={String(booking.status || "requested")} size="sm" />
+                  <StatusPill status={BOOKING_STATUS[(booking.status as keyof typeof BOOKING_STATUS) || "pending"] || BOOKING_STATUS.pending} size="sm" />
                 </div>
               ))}
             </div>

@@ -10,8 +10,8 @@ import {
 } from "@/lib/access-roles";
 
 const LoadingScreen = () => (
-  <div className="flex min-h-screen items-center justify-center bg-slate-50">
-    <div className="h-9 w-9 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600" />
+  <div className="flex min-h-screen items-center justify-center bg-egw-page-100">
+    <div className="h-9 w-9 animate-spin rounded-full border-2 border-egw-tint-blue-bd border-t-egw-blue" />
   </div>
 );
 

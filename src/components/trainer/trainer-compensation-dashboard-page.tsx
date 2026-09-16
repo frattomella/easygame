@@ -5,7 +5,8 @@ import { CalendarClock, FileText, Wallet } from "lucide-react";
 
 import { apiRequest } from "@/lib/api/client";
 import { PageHeading } from "@/components/dashboard/page-heading";
-import { Badge } from "@/components/ui/badge";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { MONEY_STATUS, spec, type StatusSpec } from "@/lib/web/status";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import {
   SectionBlockedState,
@@ -14,7 +15,6 @@ import {
   formatDate,
 } from "@/components/trainer/trainer-dashboard-shared";
 import { SPORT_WORK_ROLE_LABELS } from "@/lib/sport-work/model";
-import { cn } from "@/lib/utils";
 
 /**
  * **«I miei compensi»: la superficie che mancava a `sport_work.read_own`**
@@ -96,23 +96,15 @@ const RELATIONSHIP_STATUS_LABELS: Record<string, string> = {
   TERMINATED: "Cessato",
 };
 
-const INSTALLMENT_STATUS_LABELS: Record<string, string> = {
-  SCHEDULED: "Programmata",
-  ACCRUED: "Maturata",
-  PARTIALLY_PAID: "Pagata in parte",
-  PAID: "Pagata",
-  OVERDUE: "Scaduta",
-  CANCELLED: "Annullata",
-};
 
-const INSTALLMENT_STATUS_CLASSES: Record<string, string> = {
-  SCHEDULED: "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
-  ACCRUED: "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue",
-  PARTIALLY_PAID:
-    "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink hover:bg-egw-tint-amber",
-  PAID: "border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green",
-  OVERDUE: "border-egw-tint-red-bd bg-egw-tint-red text-egw-red hover:bg-egw-tint-red",
-  CANCELLED: "border-egw-hairline bg-egw-page-100 text-egw-ink-62 hover:bg-[#e9eef9]",
+/* Lo stato di una rata e una parola in una pillola: MONEY_STATUS, lo stesso vocabolario della prima nota. */
+const INSTALLMENT_STATUS_SPEC: Record<string, StatusSpec> = {
+  SCHEDULED: spec("PROGRAMMATA", "quiet", "neutral"),
+  ACCRUED: spec("MATURATA", "solid", "blue"),
+  PARTIALLY_PAID: MONEY_STATUS.partial,
+  PAID: MONEY_STATUS.paid_out,
+  OVERDUE: MONEY_STATUS.overdue,
+  CANCELLED: MONEY_STATUS.cancelled,
 };
 
 const money = (value: number | null | undefined, currency = "EUR") =>
@@ -274,10 +266,9 @@ export default function TrainerCompensationDashboardPage() {
                           relationship.role as keyof typeof SPORT_WORK_ROLE_LABELS
                         ] || relationship.role}
                       </p>
-                      <Badge className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue">
-                        {RELATIONSHIP_STATUS_LABELS[relationship.status] ||
-                          relationship.status}
-                      </Badge>
+                      <DataChip tone="blue">
+                        {RELATIONSHIP_STATUS_LABELS[relationship.status] || relationship.status}
+                      </DataChip>
                     </div>
                     <p className="mt-2 text-sm text-egw-ink-72">
                       Dal {formatDate(relationship.startDate)}
@@ -342,15 +333,10 @@ export default function TrainerCompensationDashboardPage() {
                           {money(installment.paidAmount)}
                         </td>
                         <td className="py-2">
-                          <Badge
-                            className={cn(
-                              INSTALLMENT_STATUS_CLASSES[installment.status] ||
-                                INSTALLMENT_STATUS_CLASSES.SCHEDULED,
-                            )}
-                          >
-                            {INSTALLMENT_STATUS_LABELS[installment.status] ||
-                              installment.status}
-                          </Badge>
+                          <StatusPill
+                            status={INSTALLMENT_STATUS_SPEC[installment.status] || INSTALLMENT_STATUS_SPEC.SCHEDULED}
+                            size="sm"
+                          />
                         </td>
                       </tr>
                     ))}
@@ -381,9 +367,7 @@ export default function TrainerCompensationDashboardPage() {
                       <p className="font-semibold text-egw-ink">
                         Anno {declaration.fiscalYear}
                       </p>
-                      <Badge className="border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]">
-                        {declaration.status}
-                      </Badge>
+                      <DataChip>{declaration.status}</DataChip>
                     </div>
                     <p className="mt-2 text-sm text-egw-ink-72">
                       Importo dichiarato:{" "}

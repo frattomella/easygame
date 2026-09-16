@@ -37,7 +37,7 @@ export function SportWorkStat({
         ? "text-egw-amber-ink"
         : tone === "danger"
           ? "text-egw-red"
-          : "text-egw-ink dark:text-slate-100";
+          : "text-egw-ink";
 
   return (
     <Card>

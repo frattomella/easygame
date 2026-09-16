@@ -1,84 +1,48 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
  * **`includes` non e un'area, e un pezzo di stringa** (PP-03 §13).
  *
- * `mobile-header.tsx` sceglieva il menu con `pathname.includes("trainer")`. Ci
- * finiscono dentro `/trainers` e `/trainers/<id>`, che sono schermate
- * **gestionali**: su un telefono, chi apriva la scheda di un allenatore
- * dall'area di gestione si vedeva comparire un menu intitolato «ALLENATORE»,
- * con dentro tre percorsi che a un allenatore vero sono vietati
- * (`MANAGEMENT_PATH_PREFIXES`).
+ * `mobile-header.tsx` sceglieva il menu con `pathname.includes("trainer")`:
+ * ci finivano dentro `/trainers` e `/trainers/<id>`, schermate gestionali, e
+ * a chi apriva la scheda di un allenatore da telefono compariva un menu
+ * «ALLENATORE» con dentro percorsi vietati a un allenatore vero.
  *
- * Le due meta della correzione si tengono: il confine si chiede per **prefisso
- * d'area**, e le voci del menu allenatore spariscono, perche l'area allenatore
- * ha il proprio guscio e questa intestazione non la serve mai — la esclude
- * `mobile-layout-wrapper`.
+ * Con ADR-0187 quell'intestazione **non esiste piu**: le tre aree montano
+ * `AreaShell`, che disegna la barra e il menu sotto i 1024 px dallo stesso
+ * elenco (`area-navigation.ts`) filtrato per permesso, e il gestionale monta
+ * `MobileTopBar` con le voci di `visibleNavGroups`. Non c'e piu una lista
+ * scritta a mano che possa promettere a un allenatore una pagina che non puo
+ * aprire, ne un confronto per sottostringa che scelga il menu sbagliato.
  */
 
 const SRC = path.join(process.cwd(), "src");
-const leggi = (relativo) =>
-  readFileSync(path.join(SRC, ...relativo.split("/")), "utf8");
+const leggi = (relativo) => readFileSync(path.join(SRC, ...relativo.split("/")), "utf8");
+const senzaCommenti = (sorgente) => sorgente.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-const senzaCommenti = (sorgente) =>
-  sorgente.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-
-const HEADER = "components/ui/mobile-header.tsx";
-
-test("PP-03 §13 · l'area si riconosce dal prefisso, non da una sottostringa", () => {
-  const sorgente = senzaCommenti(leggi(HEADER));
-
-  assert.ok(
-    !/pathname\?\.includes\("trainer"\)/.test(sorgente),
-    "`includes(\"trainer\")` aggancia anche `/trainers/<id>`, che e gestionale",
-  );
-  assert.ok(
-    !/pathname\?\.includes\("parent"\)/.test(sorgente),
-    "stessa forma, stesso difetto sull'altra area",
-  );
-  assert.ok(
-    sorgente.includes('"/trainer-dashboard"') &&
-      sorgente.includes('"/parent-view"'),
-    "le due aree si nominano per intero",
-  );
-  assert.ok(
-    /startsWith\(`\$\{prefisso\}\/`\)/.test(sorgente),
-    "il confronto per prefisso e lo stesso che usa `mobile-layout-wrapper` per decidere se mostrare l'intestazione",
-  );
-});
-
-test("PP-03 §13 · questa intestazione non promette all'allenatore pagine gestionali", () => {
-  const sorgente = senzaCommenti(leggi(HEADER));
-
-  const inizio = sorgente.indexOf("const trainerSections");
-  const fine = sorgente.indexOf("const parentSections");
-  assert.ok(inizio >= 0 && fine > inizio, "le due liste devono restare accanto");
-
-  const blocco = sorgente.slice(inizio, fine);
-
-  for (const percorso of ["/training", "/matches", "/athletes"]) {
-    assert.ok(
-      !blocco.includes(`"${percorso}"`),
-      `\`${percorso}\` sta in MANAGEMENT_PATH_PREFIXES: a un allenatore promette una pagina che non puo aprire`,
-    );
+test("PP-03 §13 · l'intestazione mobile legacy e il suo wrapper non esistono piu", () => {
+  for (const file of ["components/ui/mobile-header.tsx", "app/mobile-layout-wrapper.tsx"]) {
+    assert.equal(existsSync(path.join(SRC, ...file.split("/"))), false, `${file} e stato tolto`);
   }
 });
 
-test("PP-03 §13 · l'intestazione mobile non serve mai l'area allenatore", () => {
-  /*
-    La ragione per cui le voci si possono togliere invece che correggere: il
-    guscio dell'area allenatore ha la propria navigazione, e questa
-    intestazione e esclusa da `/trainer-dashboard`. Se domani l'esclusione
-    cadesse, questa prova fallirebbe e chiederebbe di ricostruire il menu con
-    le chiavi di permesso giuste, invece di lasciare l'area senza navigazione.
-  */
-  const wrapper = senzaCommenti(leggi("app/mobile-layout-wrapper.tsx"));
+test("PP-03 §13 · il menu mobile non sceglie l'area per sottostringa: le voci arrivano da chi lo monta", () => {
+  const barra = senzaCommenti(leggi("components/layout/MobileTopBar.tsx"));
+  assert.doesNotMatch(barra, /pathname\?\.includes\("(trainer|parent)"\)/, "nessun `includes` su un pezzo di percorso");
+  assert.doesNotMatch(barra, /const trainerSections|const parentSections/, "nessuna lista d'area scritta a mano");
+  assert.match(barra, /navSectionsOverride \|\| toSections\(visibleNavGroups\(navContext\)\)/, "le voci del gestionale vengono dalla fonte unica, quelle di un'area da chi la monta");
+});
 
-  assert.ok(
-    wrapper.includes('"/trainer-dashboard"'),
-    "`/trainer-dashboard` deve restare fra i percorsi che nascondono questa intestazione",
-  );
+test("PP-03 §13 · le voci dell'allenatore non promettono pagine gestionali", () => {
+  const voci = senzaCommenti(leggi("components/web/shell/area-navigation.ts"));
+  const inizio = voci.indexOf("TRAINER_NAV");
+  assert.ok(inizio >= 0, "l'elenco dell'allenatore esiste");
+  const blocco = voci.slice(inizio, voci.indexOf("ATHLETE_AREA_NAV_GROUPS"));
+  for (const percorso of ['"/training"', '"/matches"', '"/athletes"']) {
+    assert.ok(!blocco.includes(percorso), `${percorso} sta in MANAGEMENT_PATH_PREFIXES: a un allenatore promette una pagina che non puo aprire`);
+  }
+  assert.match(blocco, /TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY/, "la rotta viene dalla mappa dell'area, non da una stringa");
 });

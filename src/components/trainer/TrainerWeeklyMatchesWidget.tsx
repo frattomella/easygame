@@ -1,8 +1,8 @@
 "use client";
 
-import { CalendarDays, Clock3, Trophy } from "lucide-react";
+import { CalendarDays, Clock3 } from "lucide-react";
 import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
-import { Badge } from "@/components/ui/badge";
+import { DataChip } from "@/components/web/primitives/StatusPill";
 import {
   SectionEmptyState,
   formatTimeRange,
@@ -142,10 +142,9 @@ export function TrainerWeeklyMatchesWidget({
                           ? `vs ${match.opponent}`
                           : match?.title || "Gara"}
                       </p>
-                      <Badge className="mt-2 border-egw-tint-orange-bd bg-egw-tint-orange text-egw-orange hover:bg-egw-tint-orange">
-                        <Trophy className="mr-1 h-3 w-3" />
+                      <DataChip tone="orange" size="sm" className="mt-2">
                         {match.displayCategory || match.category || "Categoria"}
-                      </Badge>
+                      </DataChip>
                     </button>
                   );
                 })}

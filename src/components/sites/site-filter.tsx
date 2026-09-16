@@ -50,7 +50,7 @@ export function SiteFilter({
 
   return (
     <div className={className}>
-      <Label htmlFor={id} className="text-xs text-slate-500">
+      <Label htmlFor={id} className="text-xs text-egw-ink-62">
         {label}
       </Label>
       <Select
@@ -60,7 +60,7 @@ export function SiteFilter({
         }
       >
         <SelectTrigger id={id} className="mt-1 w-full sm:w-56">
-          <MapPin className="mr-2 h-4 w-4 shrink-0 text-slate-400" />
+          <MapPin className="mr-2 h-4 w-4 shrink-0 text-egw-ink-42" />
           <SelectValue placeholder="Tutte le sedi" />
         </SelectTrigger>
         <SelectContent>
@@ -119,7 +119,7 @@ export function CategoryGroupFilter({
 
   return (
     <div className={className}>
-      <Label htmlFor={id} className="text-xs text-slate-500">
+      <Label htmlFor={id} className="text-xs text-egw-ink-62">
         {label}
       </Label>
       <Select
@@ -129,7 +129,7 @@ export function CategoryGroupFilter({
         }
       >
         <SelectTrigger id={id} className="mt-1 w-full sm:w-56">
-          <Users className="mr-2 h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+          <Users className="mr-2 h-4 w-4 shrink-0 text-egw-ink-42" aria-hidden />
           <SelectValue placeholder="Tutti i gruppi" />
         </SelectTrigger>
         <SelectContent>

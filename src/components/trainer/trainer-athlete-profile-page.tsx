@@ -22,7 +22,7 @@ import {
 import { PageHeading } from "@/components/dashboard/page-heading";
 import { AthleteCategoryAnalyticsSection } from "@/components/athletes/AthleteCategoryAnalyticsSection";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+import { DataChip } from "@/components/web/primitives/StatusPill";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -38,7 +38,7 @@ import { downloadClientFileUrl, openClientFileUrl } from "@/lib/client-files";
 import { getRecordDisplayCategory } from "@/lib/trainer-dashboard-helpers";
 import { EntityIcon } from "@/components/ui/entity-icon";
 import { calculateAthleteCategoryAnalytics } from "@/lib/athlete-category-analytics";
-import { membershipRoleLabel } from "@/lib/categories/display";
+import { MembershipRoleBadge } from "@/components/categories/category-label";
 import {
   getPrimaryAthleteCategoryMembership,
   normalizeAthleteCategoryMemberships,
@@ -438,22 +438,13 @@ export default function TrainerAthleteProfilePage() {
             <h1 className="text-2xl font-bold">{displayName}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               {categoryBadges.map((membership) => (
-                <Badge
-                  key={`${membership.categoryId}-${membership.isPrimary ? "primary" : "secondary"}`}
-                  className={
-                    membership.isPrimary
-                      ? "bg-egw-blue text-white hover:bg-egw-blue"
-                      : "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-indigo hover:bg-egw-tint-blue"
-                  }
-                >
-                  {etichetta(membership)}{" "}
-                  {membershipRoleLabel(membership.isPrimary)}
-                </Badge>
+                <span key={`${membership.categoryId}-${membership.isPrimary ? "primary" : "secondary"}`} className="inline-flex items-center gap-1.5">
+                  <DataChip tone="blue">{etichetta(membership)}</DataChip>
+                  <MembershipRoleBadge isPrimary={membership.isPrimary} />
+                </span>
               ))}
               {medicalCertExpiry && canSeeClinicalStatus ? (
-                <Badge className="border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green">
-                  Certificato: {formatDate(medicalCertExpiry)}
-                </Badge>
+                <DataChip tone="green">Certificato: {formatDate(medicalCertExpiry)}</DataChip>
               ) : null}
             </div>
           </div>
@@ -510,12 +501,9 @@ export default function TrainerAthleteProfilePage() {
                       secondaryCategories.length > 0 ? (
                         <div className="flex flex-wrap gap-2">
                           {secondaryCategories.map((membership) => (
-                            <Badge
-                              key={membership.categoryId}
-                              className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-indigo hover:bg-egw-tint-blue"
-                            >
+                            <DataChip key={membership.categoryId} tone="blue">
                               {etichetta(membership)}
-                            </Badge>
+                            </DataChip>
                           ))}
                         </div>
                       ) : (
@@ -851,9 +839,9 @@ export default function TrainerAthleteProfilePage() {
                                 "Stato non definito"}
                             </p>
                           </div>
-                          <Badge className="border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green">
+                          <DataChip tone="green" className="egw-num">
                             {getTextValue(payment?.amount) || "0"} €
-                          </Badge>
+                          </DataChip>
                         </div>
                       </div>
                     ))}

@@ -2,7 +2,8 @@
 
 import { Megaphone, StickyNote } from "lucide-react";
 import { PageHeading } from "@/components/dashboard/page-heading";
-import { Badge } from "@/components/ui/badge";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { READ_STATUS } from "@/lib/web/status";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import {
   SectionBlockedState,
@@ -71,9 +72,7 @@ export default function TrainerBoardDashboardPage() {
                     scelto restano al club, e infatti la proiezione li toglie.
                   */}
                   {!announcement?.readAt ? (
-                    <Badge className="shrink-0 border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue">
-                      Nuovo
-                    </Badge>
+                    <StatusPill status={READ_STATUS.unread} size="sm" className="shrink-0" />
                   ) : null}
                 </div>
                 <p className="mt-2 whitespace-pre-line text-sm text-egw-ink-72">
@@ -119,10 +118,9 @@ export default function TrainerBoardDashboardPage() {
                     )}
                   </h3>
                   {reminder?.expiryDate || reminder?.expiry_date ? (
-                    <Badge className="shrink-0 border-egw-tint-amber-bd bg-white text-egw-amber-ink hover:bg-white">
-                      Scade il{" "}
-                      {formatDate(reminder.expiryDate || reminder.expiry_date)}
-                    </Badge>
+                    <DataChip tone="amber" size="sm" className="shrink-0">
+                      Scade il {formatDate(reminder.expiryDate || reminder.expiry_date)}
+                    </DataChip>
                   ) : null}
                 </div>
                 {/*

@@ -696,6 +696,8 @@ export function AuthShell({
                   */}
                   <Field label="Ti registri come" htmlFor="register-role">
                     <SegmentedControl
+                      id="register-role"
+                      mode="radio"
                       aria-label="Ti registri come"
                       value={registerRole}
                       onChange={(value) => setRegisterRole(value)}

@@ -106,7 +106,9 @@ test("le topbar mostrano club e stagione", () => {
   */
   assert.match(read(HEADER), /ClubIdentity/, `${relative(HEADER)} deve mostrare club e stagione`);
   const mobile = read(MOBILE_TOPBAR);
-  assert.match(mobile, /<Avatar src=\{logoUrl\} name=\{clubName\}/, "la barra mobile mostra il club");
+  /* In area l'intestazione dice chi si guarda (il figlio); nel gestionale il club e la stagione. */
+  assert.match(mobile, /<Avatar src=\{headerAvatar\} name=\{headerName\}/, "la barra mobile mostra il club");
+  assert.match(mobile, /const headerName = identity\?\.name \|\| clubName/, "che e il club quando non c'e un'identita d'area");
   assert.match(mobile, /Stagione \$\{seasonLabel\}/, "e la stagione");
 });
 

@@ -29,6 +29,7 @@
  */
 
 import { hasAttachment } from "./attachments";
+import { CERTIFICATE_STATUS, spec, type StatusSpec } from "@/lib/web/status";
 
 export type TrainerDocumentTypeId =
   | "contratto"
@@ -241,15 +242,13 @@ export const TRAINER_DOCUMENT_STATUS_LABELS: Record<
   "missing-file": "File mancante",
 };
 
-export const TRAINER_DOCUMENT_STATUS_CLASSES: Record<
-  TrainerDocumentStatus,
-  string
-> = {
-  valid: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  expiring: "border-amber-200 bg-amber-50 text-amber-800",
-  expired: "border-red-200 bg-red-50 text-red-700",
-  "no-expiry": "border-slate-200 bg-slate-100 text-slate-600",
-  "missing-file": "border-slate-200 bg-slate-100 text-slate-600",
+/** Lo stato come parola in una pillola del sistema (ADR-0187 §5): niente classi proprie. */
+export const TRAINER_DOCUMENT_STATUS_SPEC: Record<TrainerDocumentStatus, StatusSpec> = {
+  valid: CERTIFICATE_STATUS.valid,
+  expiring: CERTIFICATE_STATUS.expiring,
+  expired: CERTIFICATE_STATUS.expired,
+  "no-expiry": spec("SENZA SCADENZA", "quiet", "neutral"),
+  "missing-file": spec("FILE MANCANTE", "outline", "amber"),
 };
 
 /**

@@ -48,10 +48,25 @@ export type MobileNavSection = {
   }>;
 };
 
+/** Il blocco d'identita di un'area (il figlio, «Torna al mio account»): la stessa forma della barra larga. */
+export type MobileIdentity = {
+  eyebrow: string;
+  name: string;
+  meta?: string | null;
+  avatarSrc?: string | null;
+  actions?: Array<{ id: string; label: string; onSelect: () => void; tone?: "default" | "muted" | "danger" }>;
+};
+
 interface MobileTopBarProps {
   showHubLink?: boolean;
   title?: string;
   navSectionsOverride?: MobileNavSection[];
+  /**
+   * Chi si sta guardando, sotto i 1024 px: la barra larga lo porta in
+   * `Sidebar.identity`, e senza questo il telefono mostrava il club al posto
+   * del figlio e non aveva «Cambia figlio» (revisione ostile ADR-0187, H2).
+   */
+  identity?: MobileIdentity | null;
   /**
    * **Il club e la stagione detti dal server**, quando chi guarda non ha una
    * tessera (PP-02 §C): un tutore collegato senza tessera non ha `activeClub`
@@ -76,6 +91,7 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
   title,
   navSectionsOverride,
   clubIdentity = null,
+  identity = null,
 }) => {
   const auth = useAuth();
   const { user, activeClub } = auth;
@@ -158,6 +174,10 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
   const clubName = clubIdentity?.name || activeClub?.name || "EasyGame";
   const seasonLabel = clubIdentity ? clubIdentity.seasonLabel : activeClub?.activeSeasonLabel || null;
   const logoUrl = clubIdentity ? clubIdentity.logoUrl || null : activeClub?.logo_url || null;
+  /* In area l'intestazione dice chi si guarda (il figlio), non il club. */
+  const headerName = identity?.name || clubName;
+  const headerMeta = identity ? identity.meta || identity.eyebrow : seasonLabel ? `Stagione ${seasonLabel}` : "Nessuna stagione attiva";
+  const headerAvatar = identity ? identity.avatarSrc || null : logoUrl;
 
   const close = () => setMenuOpen(false);
 
@@ -170,12 +190,10 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
             sapere: in che club sei e in che stagione.
           */}
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            <Avatar src={logoUrl} name={clubName} size={34} />
+            <Avatar src={headerAvatar} name={headerName} size={34} />
             <div className="min-w-0">
-              <p className="egw-ellipsis text-[13px] font-bold leading-4 text-egw-ink">{clubName}</p>
-              <p className="egw-num egw-ellipsis text-[10.5px] font-medium leading-[14px] text-egw-ink-62">
-                {seasonLabel ? `Stagione ${seasonLabel}` : "Nessuna stagione attiva"}
-              </p>
+              <p className="egw-ellipsis text-[13px] font-bold leading-4 text-egw-ink">{headerName}</p>
+              <p className="egw-num egw-ellipsis text-[10.5px] font-medium leading-[14px] text-egw-ink-62">{headerMeta}</p>
             </div>
           </div>
 
@@ -229,6 +247,40 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
             </div>
 
             <nav className="egw-scroll-onblue relative min-h-0 flex-1 overflow-y-auto px-3.5 pb-4">
+              {identity ? (
+                <div className="mb-4 rounded-egw-field border border-white/26 bg-white/14 px-3 py-3">
+                  <p className="text-[9.5px] font-bold uppercase tracking-[var(--egw-track-eyebrow)] text-white/58">{identity.eyebrow}</p>
+                  <div className="mt-1.5 flex items-center gap-2.5">
+                    <Avatar src={identity.avatarSrc || null} name={identity.name} size={32} />
+                    <div className="min-w-0">
+                      <p className="egw-ellipsis text-[13px] font-bold leading-4 text-white">{identity.name}</p>
+                      {identity.meta ? <p className="egw-ellipsis text-[11px] leading-4 text-white/70">{identity.meta}</p> : null}
+                    </div>
+                  </div>
+                  {identity.actions?.length ? (
+                    <ul className="mt-2.5 flex flex-col gap-[3px]">
+                      {identity.actions.map((action) => (
+                        <li key={action.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              close();
+                              action.onSelect();
+                            }}
+                            className={cn(
+                              "flex h-9 w-full items-center rounded-egw-control px-2.5 text-left text-[12.5px] font-semibold transition-colors duration-hover hover:bg-white/10 focus-visible:outline-none focus-visible:shadow-egw-focus-dark",
+                              action.tone === "muted" ? "text-white/78" : "text-white",
+                            )}
+                          >
+                            {action.label}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+
               {quickActions.length ? (
                 <div className="mb-4">
                   <p className="mb-2 px-2.5 text-[9.5px] font-bold uppercase tracking-[var(--egw-track-eyebrow)] text-white/58">Azioni rapide</p>

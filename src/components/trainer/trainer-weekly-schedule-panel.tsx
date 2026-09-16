@@ -2,7 +2,7 @@
 
 import React from "react";
 import { CalendarDays } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { DataChip } from "@/components/web/primitives/StatusPill";
 import { Button } from "@/components/ui/button";
 import {
   SectionEmptyState,
@@ -450,12 +450,8 @@ export function TrainerWeeklySchedulePanel({
       ) : (
         <div className="space-y-5">
           <div className="flex flex-wrap gap-2">
-            <Badge className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue">
-              {filteredSchedule.length} sessioni
-            </Badge>
-            <Badge className="border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]">
-              Read-only
-            </Badge>
+            <DataChip tone="blue">{filteredSchedule.length} sessioni</DataChip>
+            <DataChip>Sola lettura</DataChip>
           </div>
 
           <div className="hidden space-y-5 lg:block">
@@ -556,9 +552,7 @@ export function TrainerWeeklySchedulePanel({
                                 {item.startTime} - {item.endTime}
                               </p>
                             </div>
-                            <Badge className="shrink-0 border-egw-tint-blue-bd bg-white text-egw-blue-700 hover:bg-white">
-                              {item.fieldName}
-                            </Badge>
+                            <DataChip tone="blue" size="sm" className="shrink-0">{item.fieldName}</DataChip>
                           </div>
                           <p className="mt-2 text-xs text-egw-ink-72">
                             {item.structureName}

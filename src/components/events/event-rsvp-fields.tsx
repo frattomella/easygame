@@ -40,15 +40,15 @@ export function EventRsvpFields({
   idPrefix?: string;
 }) {
   return (
-    <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+    <div className="space-y-3 rounded-egw-field border border-egw-hairline bg-egw-page-100 p-4">
       <label
-        className="flex items-start gap-3 text-sm font-medium text-slate-800"
+        className="flex items-start gap-3 text-sm font-medium text-egw-ink"
         htmlFor={`${idPrefix}-rsvp-required`}
       >
         <input
           id={`${idPrefix}-rsvp-required`}
           type="checkbox"
-          className="mt-1 h-4 w-4 rounded border-slate-300"
+          className="mt-1 h-4 w-4 rounded border-egw-hairline"
           checked={value.rsvpRequired}
           onChange={(event) =>
             onChange({ ...value, rsvpRequired: event.target.checked })
@@ -56,7 +56,7 @@ export function EventRsvpFields({
         />
         <span>
           Chiedi conferma alle famiglie
-          <span className="mt-1 block text-xs font-normal text-slate-500">
+          <span className="mt-1 block text-xs font-normal text-egw-ink-62">
             Le famiglie ricevono la convocazione e rispondono «ci sono» o «non
             ci sono». Senza questa spunta l&apos;evento non chiede niente a
             nessuno.

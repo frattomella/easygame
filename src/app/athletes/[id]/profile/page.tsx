@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 
 import { useAuth } from "@/components/providers/AuthProvider";
 import { normalizeAccessRole } from "@/lib/access-roles";
+import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 
 /**
  * **La pagina profilo non e piu una pagina: e un rinvio** (W6-33).
@@ -67,9 +68,5 @@ export default function AthleteProfileRedirectPage() {
     );
   }, [accessLoading, activeClub?.id, athleteId, loading, router, ruolo]);
 
-  return (
-    <div className="flex min-h-[100dvh] items-center justify-center bg-slate-50">
-      <div className="h-9 w-9 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600" />
-    </div>
-  );
+  return <AppLoadingScreen compact className="mx-auto mt-16 max-w-md" subtitle="Apro la scheda" />;
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { CalendarClock, CheckCircle2, Clock, Loader2, XCircle } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { StatusPill } from "@/components/web/primitives/StatusPill";
+import { ENROLMENT_REQUEST_STATUS } from "@/lib/web/status";
 import { OutsideShell, OutsideStatus } from "@/components/web/shell/OutsideShell";
 
 /**
@@ -80,22 +82,6 @@ const giorno = (value: string | null | undefined) => {
       });
 };
 
-/**
- * Il colore e l'icona di ogni stato.
- *
- * `sent` e `in_review` **non** sono un avviso: una pratica in coda e una
- * pratica che sta funzionando, e vestirla di giallo direbbe alla famiglia che
- * c'e qualcosa che non va quando non c'e niente che non va.
- */
-const VESTITO: Record<
-  PublicEnrollmentView["state"],
-  { icona: React.ComponentType<{ className?: string }>; classe: string }
-> = {
-  sent: { icona: Clock, classe: "bg-egw-page-100 text-egw-ink-72" },
-  in_review: { icona: CalendarClock, classe: "bg-egw-tint-blue text-egw-blue-800" },
-  approved: { icona: CheckCircle2, classe: "bg-egw-tint-green text-egw-green" },
-  rejected: { icona: XCircle, classe: "bg-egw-tint-red text-egw-red" },
-};
 
 /**
  * Cosa deve fare adesso la famiglia, per ogni stato.
@@ -204,8 +190,6 @@ export function PublicEnrollmentStatusPage({ reference }: { reference: string })
     );
   }
 
-  const vestito = VESTITO[view.state] || VESTITO.sent;
-  const Icona = vestito.icona;
 
   return (
     <Guscio>
@@ -220,12 +204,8 @@ export function PublicEnrollmentStatusPage({ reference }: { reference: string })
       </header>
 
       <section className="border border-b-0 border-egw-hairline bg-white px-5 py-4">
-        <span
-          className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-semibold ${vestito.classe}`}
-        >
-          <Icona className="h-4 w-4" />
-          {view.stateLabel}
-        </span>
+        {/* Lo stato e una parola in una pillola del sistema (ENROLMENT_REQUEST_STATUS), la stessa dell'area famiglia. */}
+        <StatusPill status={ENROLMENT_REQUEST_STATUS[view.state] || ENROLMENT_REQUEST_STATUS.sent} />
         <p className="mt-3 text-sm text-egw-ink-72">{COSA_FARE[view.state]}</p>
 
         {view.reviewNote ? (
@@ -275,7 +255,7 @@ export function PublicEnrollmentStatusPage({ reference }: { reference: string })
         <Riga etichetta="Esaminata il" valore={giorno(view.reviewedAt)} />
       </section>
 
-      <p className="mt-4 text-center text-xs text-egw-ink-62">
+      <p className="mt-4 text-center text-xs text-white/80">
         Conserva questo link: e l&#8217;unico modo per rileggere lo stato della
         domanda, e non puo essere ristampato.
       </p>

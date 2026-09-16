@@ -2,8 +2,10 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
-import { CheckCircle2, Loader2, Send } from "lucide-react";
+import { CheckCircle2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Button as WebButton } from "@/components/web/primitives/Button";
+import { AlertBlock } from "@/components/web/page/Alerts";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { OutsideShell, OutsideStatus } from "@/components/web/shell/OutsideShell";
@@ -329,10 +331,10 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
           */}
           {foundDraft ? (
             <div className="space-y-3 rounded-egw-control border border-egw-tint-blue-bd bg-egw-tint-blue p-4">
-              <p className="text-sm font-semibold text-sky-900">
+              <p className="text-sm font-semibold text-egw-blue-800">
                 Abbiamo ritrovato quello che avevi iniziato a compilare
               </p>
-              <p className="text-sm text-sky-900">
+              <p className="text-sm text-egw-blue-800">
                 E rimasto su questo telefono e non e stato inviato. Allegati e
                 consensi vanno rifatti.
               </p>
@@ -411,27 +413,11 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
             }}
           />
 
-          {failure ? (
-            <p
-              role="alert"
-              className="rounded-egw-control border border-egw-tint-red-bd bg-egw-tint-red p-3 text-sm text-egw-red"
-            >
-              {failure}
-            </p>
-          ) : null}
+          {failure ? <AlertBlock severity="danger" role="alert" title={failure} /> : null}
 
-          <Button
-            type="submit"
-            disabled={sending}
-            className="min-h-[44px] w-full"
-          >
-            {sending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Send className="mr-2 h-4 w-4" />
-            )}
+          <WebButton type="submit" variant="primary" loading={sending} icon={<Send />} className="min-h-[44px] w-full">
             Invia
-          </Button>
+          </WebButton>
         </form>
 
         <p className="py-4 text-center text-[11.5px] text-white/70">Modulo gestito con EasyGame</p>

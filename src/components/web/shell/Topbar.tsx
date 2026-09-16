@@ -11,7 +11,7 @@ import { QuickActionsDrawer } from "@/components/web/shell/QuickActionsDrawer";
 import { NotificationDrawer, type NotificationItem } from "@/components/web/shell/NotificationDrawer";
 import { Avatar } from "@/components/web/primitives/Identity";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip, TooltipProvider } from "@/components/web/primitives/Overlays";
-import { MobileTopBar, type MobileNavSection } from "@/components/layout/MobileTopBar";
+import { MobileTopBar, type MobileIdentity, type MobileNavSection } from "@/components/layout/MobileTopBar";
 import { canAccessPath, getAccessRedirectPath, getPathAccessArea } from "@/lib/access-roles";
 import { openExternalUrl } from "@/lib/navigation/external-link";
 
@@ -43,6 +43,8 @@ export interface TopbarProps {
   userAvatar?: string;
   searchQuery?: string;
   mobileNavSections?: MobileNavSection[];
+  /** L'identita dell'area (il figlio), per il menu sotto i 1024 px. */
+  mobileIdentity?: MobileIdentity | null;
   showMobileHubLink?: boolean;
   clubIdentity?: HeaderClubIdentity | null;
   /** La variante sul cielo: la chiede la Dashboard V2 (ambiente 2), nessun altro. */
@@ -56,6 +58,7 @@ export function Topbar({
   notificationCount = 0,
   userAvatar = "",
   mobileNavSections,
+  mobileIdentity = null,
   showMobileHubLink = true,
   clubIdentity = null,
   variant,
@@ -163,6 +166,7 @@ export function Topbar({
           title={title}
           clubIdentity={clubIdentity}
           navSectionsOverride={mobileNavSections}
+          identity={mobileIdentity}
         />
       </div>
 

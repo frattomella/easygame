@@ -567,7 +567,7 @@ export default function OnboardingPage() {
             Salta per ora
           </Button>
           <div className="basis-full">
-            <ProgressBar value={progress.percent} label="Avanzamento della configurazione" className="[&>div]:bg-white/20" />
+            <ProgressBar value={progress.percent} label="Avanzamento della configurazione" />
           </div>
         </div>
       }

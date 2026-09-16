@@ -385,7 +385,8 @@ test("W6-19 · le fatture hanno una schermata", () => {
 });
 
 test("W6-21 · nessuna voce di menu promette una pagina che non esiste", () => {
-  const menu = senzaCommenti(leggi("components/ui/mobile-header.tsx"));
+  /* Il menu della famiglia vive in `area-navigation.ts` (ADR-0187): l'intestazione legacy non esiste piu. */
+  const menu = senzaCommenti(leggi("components/web/shell/area-navigation.ts"));
 
   for (const rotta of [
     '"/parent-view/calendar"',

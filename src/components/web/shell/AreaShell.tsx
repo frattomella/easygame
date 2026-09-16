@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Sidebar, type SidebarIdentity } from "@/components/web/shell/Sidebar";
 import { Topbar, type HeaderClubIdentity, type TopbarProps } from "@/components/web/shell/Topbar";
@@ -17,8 +18,8 @@ import { EmptyStateCard } from "@/components/web/page/Cards";
  * atleta (EGDS v3.1.0, guideline 06).
  *
  * Tre aree avevano tre gusci: tre barre laterali con tre gradienti (blu,
- * blu, smeraldo), tre modi di comprimersi, tre sfondi sfumati
- * `from-blue-50 via-white to-purple-50`, e ognuno con il proprio elenco di
+ * blu, smeraldo), tre modi di comprimersi, tre sfondi sfumati con
+ * un gradiente blu-viola proprio, e ognuno con il proprio elenco di
  * voci copiato a mano nel menu mobile. Erano la stessa cosa scritta tre
  * volte, e ogni volta un po' diversa: il difetto che il Web V2 esiste per
  * chiudere.
@@ -56,11 +57,26 @@ export function AreaShell({
   className,
 }: AreaShellProps) {
   useShellArea(groups);
+  const router = useRouter();
   const mobileNavSections = React.useMemo(() => toMobileNavSections(groups), [groups]);
+  /*
+    Un'area ha sempre la propria identita: senza, la barra ricadrebbe sul
+    blocco del club con «Stagioni del club», che e un'azione di gestione e
+    che a un allenatore o a un atleta il guscio poi rimbalza (revisione
+    ostile ADR-0187, H5). Il ripiego e il club che si sta guardando, con la
+    sola uscita verso l'account.
+  */
+  const areaIdentity: SidebarIdentity = identity || {
+    eyebrow: "Club",
+    name: clubIdentity?.name || "EasyGame",
+    meta: clubIdentity?.seasonLabel ? `Stagione ${clubIdentity.seasonLabel}` : null,
+    avatarSrc: clubIdentity?.logoUrl || null,
+    actions: [{ id: "account", label: "Torna al mio account", onSelect: () => router.push("/account"), tone: "muted" }],
+  };
 
   return (
     <div className={cn("flex h-[100dvh] overflow-hidden bg-egw-page", className)}>
-      <Sidebar groups={groups} identity={identity} withClubParam={false} />
+      <Sidebar groups={groups} identity={areaIdentity} withClubParam={false} />
       {/*
         `min-w-0` accanto a `overflow-hidden`: senza, a 768 px il guscio si
         allarga fino alla larghezza del proprio contenuto invece di lasciarlo
@@ -71,6 +87,7 @@ export function AreaShell({
           title={title}
           showMobileHubLink={false}
           mobileNavSections={mobileNavSections}
+          mobileIdentity={areaIdentity}
           notifications={notifications}
           notificationCount={notificationCount}
           onMarkRead={onMarkRead}
@@ -87,7 +104,8 @@ export function AreaShell({
 /** Il primo caricamento di un'area: uno scheletro nella forma di cio che arriva. */
 export function AreaLoading({ label }: { label: string }) {
   return (
-    <div aria-busy aria-label={label} className="flex flex-col gap-[18px]">
+    <div role="status" aria-busy className="flex flex-col gap-[18px]">
+      <span className="sr-only">{label}</span>
       <div>
         <Skeleton className="mb-3 h-3 w-24" />
         <Skeleton className="h-8 w-64" />

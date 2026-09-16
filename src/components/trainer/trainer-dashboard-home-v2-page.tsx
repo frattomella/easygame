@@ -14,7 +14,6 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
-import { Badge } from "@/components/ui/badge";
 import { PageHeading } from "@/components/dashboard/page-heading";
 import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
 import { ACTIVITY_STATUS, type StatusSpec } from "@/lib/web/status";
@@ -192,21 +191,18 @@ export default function TrainerDashboardHomeV2Page() {
             label="Atleti nel perimetro"
             value={assignedAthletes.length}
             accentClassName="bg-egw-tint-green text-egw-green"
-            topBarClassName="from-emerald-500 to-emerald-600"
           />
           <SummaryCard
             icon={CalendarDays}
             label="Allenamenti di oggi"
             value={todayTrainings.length}
             accentClassName="bg-egw-tint-blue text-egw-indigo"
-            topBarClassName="from-purple-500 to-purple-600"
           />
           <SummaryCard
             icon={Trophy}
             label="Gare di oggi"
             value={todayMatches.length}
             accentClassName="bg-egw-tint-orange text-egw-orange"
-            topBarClassName="from-orange-500 to-orange-600"
           />
         </div>
       ) : null}

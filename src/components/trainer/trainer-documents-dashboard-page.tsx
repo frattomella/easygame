@@ -2,7 +2,8 @@
 
 import { FileHeart, FolderOpen } from "lucide-react";
 import { PageHeading } from "@/components/dashboard/page-heading";
-import { Badge } from "@/components/ui/badge";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { CERTIFICATE_STATUS } from "@/lib/web/status";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import {
   SectionBlockedState,
@@ -12,20 +13,12 @@ import {
   getAthleteDisplayName,
 } from "@/components/trainer/trainer-dashboard-shared";
 import {
-  TRAINER_DOCUMENT_STATUS_CLASSES,
-  TRAINER_DOCUMENT_STATUS_LABELS,
+  TRAINER_DOCUMENT_STATUS_SPEC,
   resolveTrainerDocumentStatus,
   type TrainerDocument,
 } from "@/lib/trainer-documents";
 import { buildTrainerSquadCertificates } from "@/lib/trainer-clinical-view";
-import { cn } from "@/lib/utils";
 
-const CERTIFICATE_BADGE_CLASSES: Record<string, string> = {
-  missing: "border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]",
-  expired: "border-egw-tint-red-bd bg-egw-tint-red text-egw-red hover:bg-egw-tint-red",
-  expiring: "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink hover:bg-egw-tint-amber",
-  valid: "border-egw-tint-green-bd bg-egw-tint-green text-egw-green hover:bg-egw-tint-green",
-};
 
 /**
  * **I documenti pertinenti a un allenatore: i propri, e lo stato di quelli del
@@ -99,14 +92,7 @@ export default function TrainerDocumentsDashboardPage() {
                         {document.typeLabel}
                       </p>
                     </div>
-                    <Badge
-                      className={cn(
-                        "shrink-0",
-                        TRAINER_DOCUMENT_STATUS_CLASSES[status],
-                      )}
-                    >
-                      {TRAINER_DOCUMENT_STATUS_LABELS[status]}
-                    </Badge>
+                    <StatusPill status={TRAINER_DOCUMENT_STATUS_SPEC[status]} size="sm" className="shrink-0" />
                   </div>
                   <p className="mt-3 text-xs text-egw-ink-62">
                     {document.expiryDate
@@ -134,9 +120,7 @@ export default function TrainerDocumentsDashboardPage() {
         icon={FileHeart}
         action={
           certificates.allowed && certificates.attentionCount > 0 ? (
-            <Badge className="border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink hover:bg-egw-tint-amber">
-              {certificates.attentionCount} da sistemare
-            </Badge>
+            <DataChip tone="amber">{certificates.attentionCount} da sistemare</DataChip>
           ) : null
         }
       >
@@ -164,14 +148,11 @@ export default function TrainerDocumentsDashboardPage() {
                         : ""}
                     </p>
                   </div>
-                  <Badge
-                    className={cn(
-                      "shrink-0",
-                      CERTIFICATE_BADGE_CLASSES[row.availability],
-                    )}
-                  >
-                    {row.availabilityLabel}
-                  </Badge>
+                  <StatusPill
+                    status={CERTIFICATE_STATUS[row.availability as keyof typeof CERTIFICATE_STATUS] || CERTIFICATE_STATUS.missing}
+                    size="sm"
+                    className="shrink-0"
+                  />
                 </li>
               ))}
             </ul>

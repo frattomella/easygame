@@ -10,7 +10,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { MatchCertificateWarningBadge } from "@/components/matches/MatchCertificateWarningBadge";
-import { Badge } from "@/components/ui/badge";
+import { DataChip } from "@/components/web/primitives/StatusPill";
 import { Button } from "@/components/ui/button";
 import {
   SectionEmptyState,
@@ -115,9 +115,7 @@ function MatchAgendaItem({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue">
-              {category}
-            </Badge>
+            <DataChip tone="blue" size="sm">{category}</DataChip>
             <span className="text-xs font-medium text-egw-ink-62">
               {formatTimeRange(match?.time)}
             </span>

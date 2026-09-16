@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo } from "react";
-import { CalendarDays, Trophy, Users } from "lucide-react";
+import { Users } from "lucide-react";
 
 import { PageHeading } from "@/components/dashboard/page-heading";
-import { Badge } from "@/components/ui/badge";
+import { DataChip } from "@/components/web/primitives/StatusPill";
 import { useTrainerDashboard } from "@/components/trainer/trainer-dashboard-context";
 import {
   ActionLinkButton,
@@ -110,12 +110,7 @@ export default function TrainerCategoriesDashboardPage() {
         >
           <div className="flex flex-wrap gap-2">
             {declaredGroups.map((group) => (
-              <Badge
-                key={group}
-                className="border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-700 hover:bg-egw-tint-blue"
-              >
-                {group}
-              </Badge>
+              <DataChip key={group} tone="blue">{group}</DataChip>
             ))}
           </div>
         </SurfacePanel>
@@ -163,14 +158,8 @@ export default function TrainerCategoriesDashboardPage() {
               >
                 <div className="space-y-4">
                   <div className="flex flex-wrap gap-2">
-                    <Badge className="border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]">
-                      <CalendarDays className="mr-1 h-3.5 w-3.5" />
-                      {trainings.length} allenamenti
-                    </Badge>
-                    <Badge className="border-egw-hairline bg-egw-page-100 text-egw-ink-72 hover:bg-[#e9eef9]">
-                      <Trophy className="mr-1 h-3.5 w-3.5" />
-                      {matches.length} gare
-                    </Badge>
+                    <DataChip size="sm">{trainings.length} allenamenti</DataChip>
+                    <DataChip size="sm">{matches.length} gare</DataChip>
                   </div>
 
                   {athletes.length > 0 ? (

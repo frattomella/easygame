@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { useOnSky } from "@/components/web/primitives/Surface";
 
 /**
  * Controlli piccoli del Web V2: segmented control, skeleton, barra di
@@ -16,25 +17,59 @@ export type SegmentOption<T extends string> = {
   disabled?: boolean;
 };
 
+/**
+ * Due semantiche, una forma. `tabs` (default) e una scelta di vista: le
+ * schede di una pagina. `radio` e una scelta di **valore** dentro un modulo
+ * («Ti registri come»): un gruppo di radio con un solo tabstop e le frecce
+ * che spostano la scelta, come vuole WAI-ARIA — una tablist senza pannelli
+ * non lo era (revisione ostile ADR-0187, M11). `aria-labelledby` lega il
+ * gruppo all'etichetta del campo che lo contiene.
+ */
 export function SegmentedControl<T extends string>({
   value,
   onChange,
   options,
   size = "md",
   className,
+  mode = "tabs",
+  id,
   "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
 }: {
   value: T;
   onChange: (value: T) => void;
   options: readonly SegmentOption<T>[];
   size?: "md" | "sm";
   className?: string;
-  "aria-label": string;
+  mode?: "tabs" | "radio";
+  id?: string;
+  "aria-label"?: string;
+  "aria-labelledby"?: string;
 }) {
+  const radio = mode === "radio";
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!radio) return;
+    const abilitate = options.filter((option) => !option.disabled);
+    const indice = abilitate.findIndex((option) => option.value === value);
+    if (indice < 0) return;
+    let prossimo = indice;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") prossimo = (indice + 1) % abilitate.length;
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") prossimo = (indice - 1 + abilitate.length) % abilitate.length;
+    else if (event.key === "Home") prossimo = 0;
+    else if (event.key === "End") prossimo = abilitate.length - 1;
+    else return;
+    event.preventDefault();
+    onChange(abilitate[prossimo].value);
+    const bottone = event.currentTarget.querySelector<HTMLButtonElement>(`[data-value="${abilitate[prossimo].value}"]`);
+    bottone?.focus();
+  };
   return (
     <div
-      role="tablist"
+      id={id}
+      role={radio ? "radiogroup" : "tablist"}
       aria-label={ariaLabel}
+      aria-labelledby={ariaLabelledBy}
+      onKeyDown={onKeyDown}
       className={cn(
         "inline-flex shrink-0 items-center rounded-egw-control border border-[rgba(11,26,58,.1)] bg-[#e9eef9] p-[2px]",
         className,
@@ -46,8 +81,11 @@ export function SegmentedControl<T extends string>({
           <button
             key={option.value}
             type="button"
-            role="tab"
-            aria-selected={active}
+            data-value={option.value}
+            role={radio ? "radio" : "tab"}
+            aria-selected={radio ? undefined : active}
+            aria-checked={radio ? active : undefined}
+            tabIndex={radio ? (active ? 0 : -1) : undefined}
             disabled={option.disabled}
             onClick={() => onChange(option.value)}
             className={cn(
@@ -101,6 +139,8 @@ export function ProgressBar({
 }) {
   const determinate = value != null && Number.isFinite(value);
   const pct = determinate ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+  /* Sul cielo la barra e bianca e l'etichetta anche: blu su blu non si legge (ADR-0187 §4). */
+  const onSky = useOnSky();
   return (
     <div className={cn("w-full", className)}>
       <div
@@ -109,7 +149,8 @@ export function ProgressBar({
         aria-valuemax={max}
         aria-valuenow={determinate ? value : undefined}
         className={cn(
-          "relative h-1.5 w-full overflow-hidden rounded-egw-pill bg-[rgba(11,26,58,.08)]",
+          "relative h-1.5 w-full overflow-hidden rounded-egw-pill",
+          onSky ? "bg-white/25" : "bg-[rgba(11,26,58,.08)]",
           !determinate && "egw-indeterminate",
         )}
       >
@@ -117,17 +158,21 @@ export function ProgressBar({
           <div
             className={cn(
               "h-full rounded-egw-pill transition-[width] duration-panel ease-egw",
-              tone === "action" && "bg-egw-action",
-              tone === "green" && "bg-egw-green",
-              tone === "amber" && "bg-egw-amber",
-              tone === "red" && "bg-egw-red",
+              onSky
+                ? "bg-white"
+                : [
+                    tone === "action" && "bg-egw-action",
+                    tone === "green" && "bg-egw-green",
+                    tone === "amber" && "bg-egw-amber",
+                    tone === "red" && "bg-egw-red",
+                  ],
             )}
             style={{ width: `${pct}%` }}
           />
         ) : null}
       </div>
       {label ? (
-        <div className="egw-num mt-1.5 font-brand text-[11.5px] font-semibold text-egw-ink-62">
+        <div className={cn("egw-num mt-1.5 font-brand text-[11.5px] font-semibold", onSky ? "text-white/85" : "text-egw-ink-62")}>
           {label}
         </div>
       ) : null}

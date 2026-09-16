@@ -13,7 +13,7 @@ const buttonVariants = cva(
     `link` la variante testuale. Stessi raggi, stesse ombre, stesso font
     (ADR-0187).
   */
-  "inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap rounded-egw-control font-brand text-[13px] font-semibold leading-none transition-[background-color,border-color,box-shadow,filter,transform] duration-hover ease-egw focus-visible:outline-none disabled:cursor-not-allowed disabled:border-transparent disabled:bg-[rgba(11,26,58,.06)] disabled:text-egw-ink-42 disabled:shadow-none disabled:filter-none active:translate-y-px",
+  "inline-flex select-none items-center justify-center gap-2 rounded-egw-control font-brand text-[13px] font-semibold leading-none transition-[background-color,border-color,box-shadow,filter,transform] duration-hover ease-egw focus-visible:outline-none disabled:cursor-not-allowed disabled:border-transparent disabled:bg-[rgba(11,26,58,.06)] disabled:text-egw-ink-42 disabled:shadow-none disabled:filter-none active:translate-y-px",
   {
     variants: {
       variant: {

@@ -4,7 +4,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
+import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { CALLUP_STATUS, CERTIFICATE_STATUS } from "@/lib/web/status";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -14,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast-notification";
-import { CheckCircle, X, Save, Edit, Mail, AlertTriangle } from "lucide-react";
+import { X, Save, Edit, Mail } from "lucide-react";
 import {
   getMedicalCertificateAvailability,
   getMedicalCertificateAvailabilityLabel,
@@ -536,19 +537,9 @@ export function MatchConvocations({
     )
     .slice(0, 6);
 
-  const getParticipationBadgeClassName = (
-    context?: "primary" | "secondary" | "extra",
-  ) => {
-    if (context === "extra") {
-      return "border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink";
-    }
-
-    if (context === "secondary") {
-      return "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-800";
-    }
-
-    return "border-egw-tint-green-bd bg-egw-tint-green text-egw-green";
-  };
+  /* Il ruolo di partecipazione e un chip di dato: verde la primaria, blu la secondaria, ambra l'aggiunta. */
+  const participationTone = (context?: "primary" | "secondary" | "extra"): "green" | "blue" | "amber" =>
+    context === "extra" ? "amber" : context === "secondary" ? "blue" : "green";
 
   return (
     <Dialog
@@ -567,7 +558,7 @@ export function MatchConvocations({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="mb-6 p-4 bg-egw-page-100 dark:bg-gray-800 rounded-egw-control">
+        <div className="mb-6 p-4 bg-egw-page-100 rounded-egw-control">
           <h3 className="text-lg font-semibold mb-2">{matchTitle}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div>
@@ -615,7 +606,7 @@ export function MatchConvocations({
                 </Button>
                 {selectedAthleteIds.size > 0 && (
                   <Button
-                    className="bg-egw-green hover:bg-green-700 flex items-center gap-1"
+                    className="bg-egw-green hover:bg-egw-green/90 flex items-center gap-1"
                     onClick={() => {
                       showToast(
                         "success",
@@ -675,14 +666,9 @@ export function MatchConvocations({
                         </p>
                       ) : null}
                     </div>
-                    <Badge
-                      variant="outline"
-                      className={getParticipationBadgeClassName(
-                        athlete.participationContext,
-                      )}
-                    >
+                    <DataChip size="sm" tone={participationTone(athlete.participationContext)}>
                       {athlete.participationBadgeLabel || "Aggiungi"}
-                    </Badge>
+                    </DataChip>
                   </button>
                   );
                 })}
@@ -733,21 +719,13 @@ export function MatchConvocations({
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-medium text-base">{athlete.name}</p>
                   {athlete.participationBadgeLabel ? (
-                    <Badge
-                      variant="outline"
-                      className={getParticipationBadgeClassName(
-                        athlete.participationContext,
-                      )}
-                    >
+                    <DataChip size="sm" tone={participationTone(athlete.participationContext)}>
                       {athlete.participationBadgeLabel}
-                    </Badge>
+                    </DataChip>
                   ) : null}
                   {getMedicalCertificateAvailability(athlete.medicalCertExpiry) !==
                   "valid" ? (
-                    <Badge className="border-egw-tint-amber-bd bg-egw-tint-amber text-egw-amber-ink hover:bg-egw-tint-amber">
-                      <AlertTriangle className="mr-1 h-3.5 w-3.5" />
-                      Attenzione
-                    </Badge>
+                    <StatusPill status={CERTIFICATE_STATUS.expiring} size="sm" />
                   ) : null}
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -777,17 +755,9 @@ export function MatchConvocations({
               </div>
               <div className="sm:self-center">
                 {isSelected ? (
-                  <Badge className="bg-egw-blue text-white">
-                    <CheckCircle className="h-3 w-3 mr-1" />
-                    Convocato
-                  </Badge>
+                  <StatusPill status={CALLUP_STATUS.called} />
                 ) : (
-                  <Badge
-                    variant="outline"
-                    className="text-egw-ink-62 border-egw-hairline"
-                  >
-                    Non convocato
-                  </Badge>
+                  <StatusPill status={CALLUP_STATUS.not_called} />
                 )}
               </div>
               </div>

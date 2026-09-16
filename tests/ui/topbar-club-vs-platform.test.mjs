@@ -117,7 +117,8 @@ test("il marchio EasyGame sta nella sidebar, non nella topbar del club", () => {
 test("le due topbar del club mostrano club e stagione", () => {
   assert.match(readCode(CLUB_HEADER), /ClubIdentity/, `${CLUB_HEADER} deve montare ClubIdentity`);
   const mobile = readCode(CLUB_MOBILE);
-  assert.match(mobile, /<Avatar src=\{logoUrl\} name=\{clubName\}/, `${CLUB_MOBILE} mostra il club`);
+  assert.match(mobile, /<Avatar src=\{headerAvatar\} name=\{headerName\}/, `${CLUB_MOBILE} mostra il club`);
+  assert.match(mobile, /const headerName = identity\?\.name \|\| clubName/, `${CLUB_MOBILE}: il club quando non c'e un'identita d'area`);
   assert.match(mobile, /Stagione \$\{seasonLabel\}/, `${CLUB_MOBILE} mostra la stagione`);
 });
 

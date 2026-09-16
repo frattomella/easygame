@@ -140,7 +140,6 @@ function ScegliFiglio() {
     }
   }, [figli, router]);
 
-  const soloUnClub = figli ? new Set(figli.map((figlio) => figlio.clubId)).size <= 1 : true;
 
   return (
     <OutsideShell
@@ -158,7 +157,8 @@ function ScegliFiglio() {
       <p className="sr-only">Area famiglia</p>
 
       {figli === null ? (
-        <div className="flex flex-col gap-3" aria-busy aria-label="Cerco i tuoi figli collegati">
+        <div className="flex flex-col gap-3" role="status" aria-busy>
+          <span className="sr-only">Cerco i tuoi figli collegati</span>
           {[0, 1].map((index) => (
             <div key={index} className="flex items-center gap-4 rounded-egw-field border border-egw-hairline bg-egw-page-100 p-4">
               <Skeleton className="h-12 w-12 rounded-egw-pill" />
@@ -208,7 +208,6 @@ function ScegliFiglio() {
                 <button
                   type="button"
                   onClick={() => router.push(`/parent-view/${figlio.id}`)}
-                  aria-label={`Apri l'area di ${figlio.name}`}
                   className={cn(
                     "group flex w-full items-start gap-4 rounded-egw-field border border-egw-field-border bg-egw-page-100 p-4 text-left transition-[border-color,background-color,box-shadow] duration-hover",
                     "hover:border-[rgba(37,99,235,.32)] hover:bg-white focus-visible:border-egw-blue focus-visible:bg-white focus-visible:outline-none focus-visible:shadow-egw-focus",
@@ -227,9 +226,9 @@ function ScegliFiglio() {
                       {stato && STATI_DA_DIRE.has(stato) ? <StatusPill status={stato} size="sm" /> : null}
                     </div>
                     <p className="egw-num mt-0.5 text-[12.5px] leading-[1.5] text-egw-ink-62">
-                      {[figlio.birthYear ? `Classe ${figlio.birthYear}` : "", !soloUnClub || !figlio.clubLogoUrl ? figlio.clubName : ""]
+                      {[figlio.birthYear ? `Classe ${figlio.birthYear}` : "", figlio.clubName]
                         .filter(Boolean)
-                        .join(" · ") || figlio.clubName}
+                        .join(" · ")}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {appartenenze.length ? (
