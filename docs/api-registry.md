@@ -694,7 +694,27 @@ peggio di nessun elenco, perche nessuno lo verifica.
 
 - `GET /api/public/enrollment-status/:reference` — lo stato della propria
   domanda, con il riferimento opaco restituito dall'invio. Rate limit doppio,
-  404 unico per ogni esito negativo, nessun identificativo interno in risposta
+  404 unico per ogni esito negativo, nessun identificativo interno in risposta.
+  Da ADR-0189 porta anche `changesRequested` (campi con etichetta e nota)
+  quando la pratica e in «integrazione richiesta», e `revision`.
+- `GET|POST /api/public/enrollment-status/:reference/revision` (ADR-0189
+  §4, ADR-0191) — l'integrazione: la ricevuta e la credenziale; risponde solo
+  a una pratica in `changes_requested`. GET: versione compilata, risposte
+  correnti, file gia inviati (nome), campi consentiti, nota. POST (multipart
+  come l'invio): cambia **solo** i campi elencati dal club — gli altri li
+  rifiuta il server qualunque cosa arrivi — conserva la copia precedente in
+  `form_submission_revisions` con il motivo, ricalcola dichiarazioni e
+  impronta, `revision + 1`, stato `pending`. Rate limit 10/ora per indirizzo.
+- `POST /api/public/forms/:publicSlug/draft` e
+  `GET /api/public/forms/:publicSlug/draft/:token` (ADR-0189 §3) — «Salva e
+  continua dopo»: una bozza senza allegati, con un gettone da 256 bit che esce
+  una volta sola (in archivio resta il SHA-256), scade in 30 giorni, si
+  aggiorna con lo stesso gettone e si consuma all'invio (`draftToken` nel
+  payload di `POST /api/public/forms/:slug`). Il gettone si cerca **dentro**
+  il modulo dello slug. Rate limit 30 scritture / 60 letture per quarto d'ora.
+- `GET /api/public/forms/:publicSlug/assets/:attachmentId` (ADR-0190) — le
+  immagini dei blocchi di contenuto: solo un allegato del modulo dello slug,
+  categoria `contenuto-modulo`, MIME immagine; cache pubblica di un'ora.
 
 ## Area allenatore
 
@@ -1027,6 +1047,35 @@ categoria), il club e sempre quello dello scope risolto.
 
 
 ---
+
+### Pratiche di iscrizione (ADR-0189, 2026-09-16)
+
+La pratica **e** `form_submissions` (nessuna seconda entita): stati
+`pending | changes_requested | approved | converted | rejected | archived`,
+`revision`, `declarations` (la prova delle spunte legali: testo mostrato,
+impronta, versione, risposta, ora, metodo), `snapshot_hash`, `athlete_id`,
+`trial_athlete_id`, `archived_at`; le copie precedenti in
+`form_submission_revisions`, le bozze in `form_drafts`.
+
+- `POST /api/v1/forms/submissions/:id` — `action` in `preview | approve |
+  reject | request_changes | archive`. `request_changes` porta `field_ids`
+  (campi della versione compilata che raccolgono una risposta) e `note`, e
+  manda l'email alla famiglia quando c'e (`forms.submissions.request_changes`).
+  `approve` accetta `trial_athlete_id` (ADR-0193): la scheda nasce dalla
+  conversione canonica di ADR-0188 e poi si completa con la pratica; la
+  pratica diventa `converted` quando da essa e nata o si e collegata una
+  scheda (`athlete_id`), `approved` altrimenti; creare o aggiornare una
+  scheda richiede `forms.submissions.convert`. `archive` chiude senza
+  scrivere l'anagrafica (non da `converted`). La risposta di `preview`/GET
+  porta `trialCandidates` (persone in prova con lo stesso nome e cognome,
+  `sameBirthDate`) accanto a `duplicates`, e le `declarations` con il testo
+  solo per chi ha `forms.evidence.read`.
+- `GET /api/v1/forms` — ogni modulo porta `statusCounts` per stato, da cui
+  la coda somma i contatori.
+- I modelli: `forms.templates.read | manage | publish` — creare, modificare e
+  duplicare e di GESTIONE; pubblicare, archiviare, rigenerare il link e
+  cancellare e della DIREZIONE. Il contenuto dei blocchi `content` si
+  sanifica sul server a ogni salvataggio e pubblicazione.
 
 ## Cosa questo file elenca e `src/lib/api/registry.ts` no (2026-09-02)
 

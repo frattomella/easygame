@@ -1328,6 +1328,27 @@ di vedere.
 > non sono estremi bancari. Chi aggiunge un campo a quella proiezione deve
 > chiedersi in quale perimetro vive.
 
+## Moduli e pratiche di iscrizione: capacita proprie (ADR-0189, 2026-09-16)
+
+I modelli erano governati dalla sola matrice generica `forms`: chi leggeva
+poteva pubblicare a nome della societa e rigenerare il link vivo. Il dominio
+`forms` del catalogo guadagna sei chiavi; `forms.ts` e
+`form-submissions.ts` le applicano.
+
+| Chiave | Ruoli | Perche li |
+|--------|-------|-----------|
+| `forms.templates.read` | gestione | Vedere i moduli e le anteprime web |
+| `forms.templates.manage` | gestione | Creare, modificare, duplicare una bozza |
+| `forms.templates.publish` | direzione | Pubblicare, archiviare, rigenerare il link, cancellare: pubblicare parla a nome della societa |
+| `forms.submissions.read` / `review` | gestione | Leggere la coda; approvare, rifiutare, archiviare (esistenti) |
+| `forms.submissions.request_changes` | gestione | «Richiedi integrazione»: rimanda la pratica alla famiglia con i campi da correggere |
+| `forms.submissions.convert` | gestione | Creare o aggiornare una scheda atleta da una pratica: chi approva un modulo senza atleta non ne ha bisogno |
+| `forms.evidence.read` | gestione | La prova delle dichiarazioni (testo mostrato e impronta); senza, resta la risposta |
+
+L'allenatore, che con `trials.attendance` registra una presenza di prova,
+**non** ha nessuna di queste: registrare una presenza non e revisionare
+un'iscrizione.
+
 ## Persone in prova: cinque chiavi, e la conversione e della segreteria (ADR-0188, 2026-09-16)
 
 Il catalogo guadagna il dominio `trials` («Persone in prova»).

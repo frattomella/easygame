@@ -4209,3 +4209,30 @@ un'indisponibilita.
 Restano da chiudere allo stesso modo `athletes/[id]/documents/[documentId]/file`
 e `forms/assets/[assetId]`, che rispondono **500** a un errore contenente
 «Accesso negato» e non passano da `publicErrorMessage`.
+
+
+## Le tre strade pubbliche delle pratiche di iscrizione (ADR-0191, 2026-09-16)
+
+Tre segreti, tre usi, tutti a **segreto portato**: nessuna sessione, nessun
+elenco, ogni esito negativo lo stesso 404, rate limit dalla stessa policy
+dell'autenticazione (`src/lib/auth/rate-limit-policy.ts`).
+
+| Strada | Segreto | Vita | Cosa apre |
+|--------|---------|------|-----------|
+| `/forms/:slug` | lo slug (48 bit) | finche il modulo e pubblicato | compilare; **non** autorizza niente altro |
+| `/forms/:slug?riprendi=<gettone>` | 256 bit, SHA-256 a riposo, confronto a tempo costante | 30 giorni, consumato all'invio | **una** bozza di **quel** modulo (il gettone si cerca dentro il modulo dello slug) |
+| `/iscrizione/:ricevuta` e `/iscrizione/:ricevuta/integra` | la ricevuta (256 bit, hash) | senza scadenza | lo stato di **una** pratica e, solo in «integrazione richiesta», la correzione dei **soli** campi elencati dal club |
+
+Non esiste nessuna rotta pubblica che risponda «esiste Mario Rossi?»: il
+riconoscimento di una persona in prova o di un atleta avviene solo in
+revisione, dietro `forms.submissions.review` (una prova lo fa valere leggendo
+le sei rotte pubbliche). Il testo formattato dei moduli e dei documenti e
+sanificato **dal server** con un'allowlist (niente `script`, gestori,
+`javascript:`, `data:`, host esterni per le immagini); il client lo
+risanifica con la stessa funzione prima di renderlo. Le immagini di contenuto
+di un modulo pubblico escono da `/api/public/forms/:slug/assets/:id`, che
+serve **solo** gli allegati di contenuto di quel modulo. La matrice legale
+(GDPR, minori, consenso, eIDAS, CAD, FEA) e in
+`docs/redesign/LEGAL-AUDIT-ISCRIZIONI.md`: EasyGame registra la prova delle
+dichiarazioni (testo mostrato, impronta, versione, ora), non afferma la
+conformita del club.

@@ -77,11 +77,13 @@ export type FormDraftView = {
   updatedAt: string;
 };
 
-const serialize = (row: { answers: unknown; respondent_email: string | null; expires_at: Date; updated_at: Date }): FormDraftView => ({
+const toIso = (value: unknown) => (value instanceof Date ? value.toISOString() : asText(value));
+
+const serialize = (row: { answers: unknown; respondent_email: string | null; expires_at: Date; updated_at?: Date | null }): FormDraftView => ({
   answers: row.answers && typeof row.answers === "object" ? (row.answers as Record<string, unknown>) : {},
   respondentEmail: asText(row.respondent_email),
-  expiresAt: row.expires_at.toISOString(),
-  updatedAt: row.updated_at.toISOString(),
+  expiresAt: toIso(row.expires_at),
+  updatedAt: toIso(row.updated_at) || new Date().toISOString(),
 });
 
 const findDraftRow = async (match: PublicFormMatch, token: string) => {

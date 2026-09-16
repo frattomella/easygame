@@ -1505,3 +1505,21 @@ della prova. La riga di prova **non si cancella**: diventa `enrolled`.
 
 **Un solo scrittore**: `src/lib/server/trial-athletes.ts`. Le due risorse non
 sono nel registro generico.
+
+
+## Le pratiche di iscrizione: la compilazione si estende, due tabelle nuove (ADR-0189, 2026-09-16)
+
+Migrazione `20260916200000_adr0189_pratiche_di_iscrizione`, **additiva**
+(applicata solo a `web-redesign-staging`, copia di sicurezza Neon
+`br-sparkling-butterfly-al5o6a2g`); nessuna riga esistente riscritta o
+reinterpretata — una compilazione `approved` di ieri resta `approved`.
+
+| Tabella | Colonne | Note |
+|---------|---------|------|
+| `form_submissions` | + `declarations` (JSON), `snapshot_hash`, `revision` (default 1), `changes_requested` (JSON), `athlete_id`, `trial_athlete_id`, `archived_at`; `status` in `pending · changes_requested · approved · converted · rejected · archived`; indice `(organization_id, athlete_id)` | la **pratica**. `declarations`: per ogni casella legale il testo mostrato, l'impronta, la versione, la risposta, l'ora e il metodo (ADR-0192); `snapshot_hash`: SHA-256 di versione+risposte+dichiarazioni+allegati; `converted` = da questa pratica e nata o si e collegata la scheda `athlete_id` |
+| `form_submission_revisions` | `organization_id`, `submission_id` (FK cascata), `revision`, `answers`, `files`, `declarations`, `snapshot_hash`, `reason`, `submitted_at`, `superseded_at`; unico `(submission_id, revision)` | la copia **precedente** di una pratica a ogni reinvio dopo «integrazione richiesta»; non si aggiorna mai |
+| `form_drafts` | `organization_id`, `template_id` (FK cascata), `version_id` (FK cascata), `resume_token_hash` **UNIQUE**, `answers`, `respondent_email`, `expires_at`, `submitted_id` | la bozza pubblica «salva e continua dopo»: in archivio il SHA-256 del gettone, mai il gettone; scade in 30 giorni; `submitted_id` quando e diventata pratica; `purgeExpiredFormDrafts` le toglie |
+
+Scrittori: `src/lib/server/form-submissions.ts` (pratiche e revisioni),
+`src/lib/server/form-drafts.ts` (bozze). Nessuna delle tre passa dal
+registro generico.

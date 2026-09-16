@@ -472,6 +472,38 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "public.forms.draft",
+    method: "POST",
+    path: "/api/public/forms/:publicSlug/draft",
+    description:
+      "«Salva e continua dopo» (ADR-0189 §3): crea o aggiorna una bozza pubblica; senza gettone ne conia uno da 256 bit che esce una volta sola (in archivio resta l'impronta), scade in 30 giorni e si consuma all'invio. Rate limit per indirizzo, 404 unico",
+    mobile_ready: false,
+  },
+  {
+    name: "public.forms.draft_resume",
+    method: "GET",
+    path: "/api/public/forms/:publicSlug/draft/:token",
+    description:
+      "La ripresa di una bozza con il suo gettone, cercato dentro il modulo dello slug: una bozza di un altro modulo o club non si apre. 404 per gettone assente, scaduto o consumato",
+    mobile_ready: false,
+  },
+  {
+    name: "public.forms.assets",
+    method: "GET",
+    path: "/api/public/forms/:publicSlug/assets/:attachmentId",
+    description:
+      "Le immagini dei blocchi di contenuto di un modulo pubblicato (ADR-0190): serve solo un allegato del modulo dello slug, categoria contenuto-modulo, MIME immagine. Tutto il resto e 404",
+    mobile_ready: false,
+  },
+  {
+    name: "public.enrollment_revision",
+    method: "GET|POST",
+    path: "/api/public/enrollment-status/:reference/revision",
+    description:
+      "L'integrazione di una pratica in «integrazione richiesta» (ADR-0189 §4), con la ricevuta come credenziale: GET dice cosa correggere (versione, risposte, campi consentiti, nota), POST reinvia cambiando solo i campi elencati dal club, conserva la copia precedente in form_submission_revisions e riporta la pratica in coda",
+    mobile_ready: false,
+  },
+  {
     name: "public.enrollment_status",
     method: "GET",
     path: "/api/public/enrollment-status/:reference",

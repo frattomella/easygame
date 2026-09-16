@@ -2332,3 +2332,12 @@ Fortitudo non e mai stato toccato. Decisione: [ADR-0184](18-decision-log.md).
 | Candidati alle fondamenta emersi dalle migrazioni (guscio di azione di massa guidata, `RailPanel`, `RecordRowList`/`FieldList`/`RecordSection`, `FileInput`, righe ripetibili nel cassetto, cassetto a modi, `SiteContextControl`, KPI a piano 0, filtri server-side nel DataGrid; dalla Wave D: `MonthGrid`, dialogo di storno, stati delle prenotazioni e degli incassi sponsor — D-RD-10; i quattro hook `use*ClubId` sono gia un solo `useRouteClubId` in `src/components/web/hooks/`) | **Aperto** — vivono oggi accanto alle pagine (`src/components/<dominio>/v2/`); si promuovono quando una seconda pagina li chiede (D-RD-2) |
 | Tavolozza dei comandi ⌘K (§6.6) | **Aperto** — la ricerca porta a `/athletes?q=`; non si costruisce una seconda ricerca |
 | Stripe sul redesign staging | **Aperto** — le chiavi sono `sensitive` su Vercel e non copiabili (`DEPLOY.md`) |
+
+
+## Secondo lotto del redesign (2026-09-16): pratiche di iscrizione e builder
+
+Chiusi: D-RD-22 (conversione transazionale), le correzioni UAT (§4 del
+mandato), il dominio delle pratiche (ADR-0189/0191/0192/0193), il builder a
+blocchi e l'editor ProseMirror (ADR-0190). Aperti e dichiarati: D-RD-23,
+D-RD-24, D-RD-19, D-RD-20. La promozione dello staging ufficiale resta
+un'autorizzazione separata.

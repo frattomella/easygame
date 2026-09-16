@@ -616,6 +616,9 @@ const UNIQUE_CONSTRAINTS = {
     },
   ],
   formTemplate: [["public_slug"]],
+  /* Le bozze pubbliche e le revisioni (ADR-0189). */
+  formDraft: [["resume_token_hash"]],
+  formSubmissionRevision: [["submission_id", "revision"]],
   /*
     L'impronta della ricevuta di iscrizione (Wave 5, lane 5G): unica in base
     dati (`form_submissions_receipt_token_hash_key`), e **parziale** solo nel
@@ -1053,6 +1056,12 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     appointment: {
       slot: { tipo: "uno", delegato: "appointmentSlot", locale: "slot_id" },
       athlete: { tipo: "uno", delegato: "athlete", locale: "athlete_id" },
+    },
+    /* Le pratiche di iscrizione (ADR-0189): modulo, versione compilata, revisioni. */
+    formSubmission: {
+      template: { tipo: "uno", delegato: "formTemplate", locale: "template_id" },
+      template_version: { tipo: "uno", delegato: "formTemplateVersion", locale: "version_id" },
+      revisions: { tipo: "molti", delegato: "formSubmissionRevision", remota: "submission_id" },
     },
     /* Le persone in prova (ADR-0188). */
     trialAthlete: {

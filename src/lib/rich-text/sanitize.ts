@@ -148,6 +148,10 @@ export const sanitizeRichHtml = (html: unknown): string => {
 
 /** Il solo testo, senza tag: per anteprime, riassunti e impronte. */
 export const richHtmlToText = (html: unknown): string =>
-  sanitizeHtml(String(html ?? ""), { allowedTags: [], allowedAttributes: {} })
+  sanitizeHtml(
+    /* Un blocco che finisce e uno spazio: «Informativa» e «Testo» non si incollano. */
+    String(html ?? "").replace(/<\/(p|h[1-6]|li|tr|td|th|div|blockquote|figcaption)>/gi, "$& "),
+    { allowedTags: [], allowedAttributes: {} },
+  )
     .replace(/\s+/g, " ")
     .trim();

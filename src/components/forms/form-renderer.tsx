@@ -326,13 +326,13 @@ export function FormRenderer({
               </label>
             ) : null}
 
-            {field.type === "file_upload" ? (
+            {field.type === "file_upload" || field.type === "image_upload" ? (
               <div className="space-y-2">
                 <Input
                   id={field.id}
                   type="file"
                   disabled={readOnlyHere}
-                  accept={ACCEPT_ATTRIBUTE}
+                  accept={field.type === "image_upload" || field.upload?.accept === "images" ? ACCEPT_IMAGES : ACCEPT_ATTRIBUTE}
                   onChange={(event) =>
                     setFile(field.id, event.target.files?.[0] || null)
                   }
@@ -342,9 +342,18 @@ export function FormRenderer({
                     <Paperclip className="h-3 w-3" />
                     {files[field.id]?.name}
                   </p>
+                ) : existingFiles[field.id] ? (
+                  <p className="flex items-center gap-2 text-xs text-egw-ink-72">
+                    <Paperclip className="h-3 w-3" />
+                    Gia inviato: {existingFiles[field.id]}
+                    {locked ? "" : " — carica un file per sostituirlo"}
+                  </p>
                 ) : (
                   <p className="text-xs text-egw-ink-62">
-                    PDF o foto, fino a 8 MB.
+                    {field.type === "image_upload" || field.upload?.accept === "images"
+                      ? "Immagine (JPEG, PNG, WebP o HEIC)"
+                      : "PDF o foto"}
+                    , fino a {formatMegabytes(field.upload?.maxBytes || 8 * 1024 * 1024)}.
                   </p>
                 )}
               </div>

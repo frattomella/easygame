@@ -148,6 +148,19 @@ const PUBLIC_BY_DESIGN = new Map([
     "stato della propria domanda: riferimento opaco, hashato a riposo, con rate limit",
   ],
   /*
+    Le pratiche di iscrizione (ADR-0189, ADR-0191). Tre rotte senza sessione
+    per progetto, ognuna difesa da un segreto che vive solo nelle mani di chi
+    lo ha ricevuto e da un rate limit: il gettone della bozza (256 bit, hash a
+    riposo, 30 giorni, consumato all'invio), la ricevuta per l'integrazione
+    (limitata ai campi che il club ha elencato), e le immagini di contenuto di
+    un modulo pubblicato (solo quelle: owner form, categoria contenuto-modulo,
+    MIME immagine). Ogni esito negativo e lo stesso 404.
+  */
+  ["public/forms/[publicSlug]/draft", "bozza pubblica: salva e continua dopo, gettone a 256 bit hashato a riposo"],
+  ["public/forms/[publicSlug]/draft/[token]", "ripresa della bozza con il suo gettone"],
+  ["public/forms/[publicSlug]/assets/[attachmentId]", "immagini di contenuto del modulo pubblicato, e solo quelle"],
+  ["public/enrollment-status/[reference]/revision", "integrazione della pratica con la ricevuta, limitata ai campi chiesti"],
+  /*
     Il riscatto dell'invito di accesso di un atleta (Wave 6, lane 6C). Non ha
     sessione **per progetto**: l'utenza dell'invitato nasce senza credenziali
     note, perche la password la scegliera lui. Chiedere una sessione qui
@@ -388,9 +401,19 @@ test("la deroga pubblica resta piccola e giustificata", () => {
     l'utenza dell'invitato nasce senza credenziali note, perche la password la
     sceglie lui dopo. Chiedere una sessione qui vorrebbe dire chiedergli di
     accedere prima di poterlo fare.
+
+    Da 20 a 24 nel secondo lotto del redesign (ADR-0189, ADR-0191), per le
+    pratiche di iscrizione: la bozza «salva e continua dopo» (salvataggio e
+    ripresa), l'integrazione con la ricevuta e le immagini di contenuto del
+    modulo. Stessa famiglia: una famiglia che compila dal telefono senza
+    account, per contratto. Stesso presidio: gettone da 32 byte con il solo
+    SHA-256 in archivio e confronto a tempo costante, scadenza e consumo
+    all'invio; la ricevuta gia esistente come credenziale dell'integrazione,
+    che cambia solo i campi che il club ha elencato; rate limit; ogni esito
+    negativo lo stesso 404; nessun endpoint che risponda «esiste Mario Rossi?».
   */
   assert.ok(
-    PUBLIC_BY_DESIGN.size <= 20,
+    PUBLIC_BY_DESIGN.size <= 24,
     `troppi endpoint pubblici: ${PUBLIC_BY_DESIGN.size}`,
   );
   for (const [id, motivo] of PUBLIC_BY_DESIGN) {

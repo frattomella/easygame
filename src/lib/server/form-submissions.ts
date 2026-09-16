@@ -2584,10 +2584,17 @@ const eseguiDecisione = async (
       );
       const { first_name: _fn, last_name: _ln, birth_date: _bd, ...restoColonne } = patch.columns as Record<string, unknown>;
       if (Object.keys(values).length) {
+        /*
+          La scheda nata dalla conversione porta gia dei dati (la proiezione
+          delle appartenenze, i recapiti della prova, `trialOriginId`): la
+          pratica li **completa**, non li sostituisce.
+        */
+        const nata = await (prisma as any).athlete.findUnique({ where: { id: athleteId }, select: { data: true } });
+        const datiNati = nata?.data && typeof nata.data === "object" ? (nata.data as Record<string, unknown>) : {};
         const updated = await updateResource(
           "athletes",
           athleteId,
-          { ...restoColonne, data: patch.data },
+          { ...restoColonne, data: { ...datiNati, ...patch.data } },
           scope,
         );
         athleteRecord = updated as any;
