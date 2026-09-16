@@ -79,7 +79,7 @@ const FIELDS = [
   { id: "f_cognome", type: "short_text", label: "Cognome", binding: "athlete.lastName", required: true },
   { id: "f_nascita", type: "date", label: "Data di nascita", binding: "athlete.birthDate", required: true },
   { id: "f_minore", type: "checkbox", label: "Atleta minorenne?" },
-  { id: "f_tutore", type: "short_text", label: "Nome del genitore", binding: "guardian.firstName", visibleWhen: { fieldId: "f_minore", equals: "true" }, required: true },
+  { id: "f_tutore", type: "short_text", label: "Nome del genitore", binding: "guardian.name", visibleWhen: { fieldId: "f_minore", equals: "true" }, required: true },
   { id: "f_note", type: "long_text", label: "Note (facoltative)" },
   { id: "f_cert", type: "file_upload", label: "Certificato", required: true, upload: { accept: "documents", maxBytes: 2 * 1024 * 1024 } },
   { id: "f_foto", type: "image_upload", label: "Fototessera" },

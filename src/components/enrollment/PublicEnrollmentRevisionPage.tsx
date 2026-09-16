@@ -143,6 +143,17 @@ export function PublicEnrollmentRevisionPage({ reference }: { reference: string 
   }
 
   const existingFiles = Object.fromEntries(contesto.files.map((file) => [file.fieldId, file.fileName]));
+  /*
+    Si mostrano **solo** i campi da correggere, i campi che ne governano la
+    visibilita e il testo che li accompagna: il server non manda le altre
+    risposte (ADR-0191 §1), e un campo bloccato e vuoto sembrerebbe un dato
+    perso.
+  */
+  const consentiti = new Set(contesto.allowedFieldIds);
+  const governanti = new Set(contesto.schema.fields.filter((f) => consentiti.has(f.id) && f.visibleWhen).map((f) => f.visibleWhen!.fieldId));
+  const campiMostrati = contesto.schema.fields.filter(
+    (f) => consentiti.has(f.id) || governanti.has(f.id) || f.type === "content" || f.type === "section",
+  );
 
   return (
     <OutsideShell width="wide" bare>
@@ -166,7 +177,7 @@ export function PublicEnrollmentRevisionPage({ reference }: { reference: string 
 
         <form onSubmit={submit} className="space-y-6 rounded-b-egw-panel border border-t-0 border-white/60 bg-white p-5 shadow-egw-plane-2">
           <FormRenderer
-            fields={contesto.schema.fields}
+            fields={campiMostrati}
             values={values}
             files={files}
             errors={errors}

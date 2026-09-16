@@ -18,6 +18,7 @@
  */
 
 import { Extension, Node, mergeAttributes } from "@tiptap/core";
+import { TextSelection } from "@tiptap/pm/state";
 import Image from "@tiptap/extension-image";
 import { PAGE_BREAK_CLASS, PLACEHOLDER_CLASS } from "@/lib/rich-text/sanitize";
 
@@ -150,8 +151,28 @@ export const PageBreak = Node.create({
     return {
       insertPageBreak:
         () =>
-        ({ chain }) =>
-          chain().insertContent({ type: this.name }).insertContent({ type: "paragraph" }).run(),
+        ({ state, tr, dispatch }) => {
+          /*
+            Un nodo di blocco non si infila dentro un paragrafo: si mette
+            **dopo** il blocco corrente, seguito da un paragrafo vuoto su cui
+            continuare a scrivere (come fa la riga orizzontale di TipTap).
+          */
+          const { $to } = state.selection;
+          /* Dopo il blocco di **primo livello** che contiene la selezione: mai dentro un elenco o una cella. */
+          const posAfter = $to.depth > 0 ? $to.after(1) : $to.pos;
+          const paragraph = state.schema.nodes.paragraph;
+          if (!paragraph) return false;
+          if (dispatch) {
+            try {
+              tr.insert(posAfter, [this.type.create(), paragraph.create()]);
+              tr.setSelection(TextSelection.near(tr.doc.resolve(posAfter + 2)));
+              tr.scrollIntoView();
+            } catch {
+              return false;
+            }
+          }
+          return true;
+        },
     };
   },
 });
