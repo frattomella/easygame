@@ -37,6 +37,7 @@ import {
   normalizeClubSeasons,
 } from "@/lib/club-seasons";
 import { toEventDay, toEventTime } from "@/lib/events/model";
+import { resolveCategoryReference } from "@/lib/categories/identity";
 
 /**
  * Limite oltre il quale "Genera fino a..." rifiuta (WP-03).
@@ -138,6 +139,13 @@ type AutomationRunResult = {
   preview: boolean;
   /** L'ultimo giorno fino a cui questa esecuzione ha generato, in `YYYY-MM-DD`. */
   generatedUntil: string | null;
+  /**
+   * Le voci del programma saltate perche la categoria non risolve sul
+   * catalogo — un nome che ne nomina due, o che nessuna voce riconosce
+   * (ADR-0186). Un allenamento non nasce con l'etichetta al posto
+   * dell'identificativo.
+   */
+  unresolvedCategorySlots?: string[];
 };
 
 const isMissingCategoryMembershipTableError = (error: unknown) =>
@@ -1460,6 +1468,8 @@ export async function runTrainingAutomationForClub(
         return rolling;
       })();
   let existingCount = 0;
+  /* Le voci del programma la cui categoria non risolve sul catalogo (ADR-0186): saltate, e dette. */
+  const unresolvedCategorySlots: string[] = [];
 
   for (
     const currentDate = new Date(startDate);
@@ -1512,9 +1522,32 @@ export async function runTrainingAutomationForClub(
         scheduleItem.categoryName,
         scheduleItem.category,
       );
-      const resolvedCategoryId =
-        resolveCategoryId(rawCategoryReference, categoryList) || "";
+      /*
+        **Un allenamento generato porta l'identificativo della categoria, o
+        non nasce** (ADR-0186, revisione ostile A9). Qui `resolveCategoryId`
+        restituiva il riferimento com'e quando non risolveva, e `find` per
+        nome prendeva la prima omonima: con due «Pulcini» l'evento nasceva
+        con `categoryId = "Pulcini"` — il difetto di Fortitudo, scritto da un
+        cron. Un riferimento che il catalogo conosce si scrive con il suo
+        identificativo; uno ambiguo o sconosciuto, con il catalogo in mano,
+        salta la data e lo dice.
+      */
+      const riferimentoRisolto = resolveCategoryReference(
+        rawCategoryReference,
+        getNonEmptyString(scheduleItem.categoryName, scheduleItem.category_name),
+        categoryList,
+      );
+      if (categoryList.length && rawCategoryReference && !riferimentoRisolto?.known) {
+        unresolvedCategorySlots.push(
+          `Voce del programma ${scheduleItem.id || ""} (${trainingDate}): la categoria «${rawCategoryReference}» ${riferimentoRisolto?.ambiguous ? "nomina piu squadre" : "non e nel catalogo"}, allenamento non generato`,
+        );
+        continue;
+      }
+      const resolvedCategoryId = riferimentoRisolto?.known
+        ? riferimentoRisolto.id
+        : resolveCategoryId(rawCategoryReference, categoryList) || "";
       const resolvedCategoryLabel =
+        (riferimentoRisolto?.known ? riferimentoRisolto.name : "") ||
         resolveCategoryLabel(rawCategoryReference, categoryList) ||
         scheduleItem.categoryName ||
         rawCategoryReference;
@@ -1522,9 +1555,7 @@ export async function runTrainingAutomationForClub(
         resolvedCategoryId || resolvedCategoryLabel || rawCategoryReference;
       const categoryOption =
         categoryList.find(
-          (category) =>
-            String(category?.id || "").trim() === resolvedCategoryId ||
-            String(category?.name || "").trim() === resolvedCategoryLabel,
+          (category) => String(category?.id || "").trim() === resolvedCategoryId,
         ) || null;
       const location = findTrainingLocationOption(locationOptions, {
         structureId: scheduleItem.structureId,
@@ -1776,6 +1807,7 @@ export async function runTrainingAutomationForClub(
     ran: true,
     due: true,
     generatedCount: createdCount,
+    unresolvedCategorySlots,
     generatedTrainings,
     lastRunAt: options.preview ? effectiveSettings.lastRunAt : lastRunAt,
     settings: options.preview

@@ -773,6 +773,65 @@ export const getAthleteCategoryLabels = (
     (membership) => membership.categoryName,
   );
 
+/**
+ * Le appartenenze nella forma delle **righe** di `athlete_category_memberships`.
+ *
+ * E cio che il writer inserisce e cio che finisce, come proiezione, in
+ * `athletes.data.categoryMemberships`. Sta qui e non nel writer perche la
+ * bonifica delle proiezioni (D-RD-16, fase B) deve produrre **la stessa
+ * forma** che l'applicazione scrive a ogni salvataggio: due stesure
+ * divergerebbero al primo campo aggiunto.
+ *
+ * **Il nome com'era sulla riga non si riscrive per caso** (ADR-0185). Dopo
+ * una rinomina la riga porta ancora il nome vecchio, ed e l'evidenza con cui
+ * le righe gemelle di **altri** atleti — scritte con il solo nome —
+ * ritrovano la categoria vera. Un salvataggio che non tocca la categoria non
+ * deve cancellarla: la bonifica dei nomi stantii e un passo a se.
+ */
+export const serializeAthleteMemberships = (
+  memberships: readonly AthleteCategoryMembership[],
+  {
+    clubId,
+    athleteId,
+  }: {
+    clubId?: string | null;
+    athleteId?: string | null;
+  } = {},
+) =>
+  memberships.map((membership) => ({
+    id: membership.id,
+    organization_id: membership.organizationId || clubId || null,
+    athlete_id: membership.athleteId || athleteId || null,
+    category_id: membership.categoryId,
+    category_name: membership.storedCategoryName || membership.categoryName,
+    is_primary: membership.isPrimary,
+    site_id: membership.siteId || null,
+  }));
+
+/**
+ * La proiezione delle appartenenze dentro `athletes.data`, derivata **1:1**
+ * dalle appartenenze canoniche: `category`/`categoryName` dicono la
+ * primaria, `categoryMemberships` sono le righe, `categories` le etichette.
+ *
+ * Nessun lettore la governa (ADR-0185 §8: con le righe presenti e una
+ * proiezione), ma i consumatori diretti di `athletes.data` — export, mobile,
+ * analitiche — la leggono com'e: deve dire cio che dicono le righe. La
+ * scrive il writer a ogni salvataggio e la ricostruisce la bonifica di fase
+ * B con questa stessa funzione.
+ */
+export const buildAthleteCategoryProjection = (
+  memberships: readonly AthleteCategoryMembership[],
+  ids: { clubId?: string | null; athleteId?: string | null } = {},
+) => {
+  const primary = memberships.find((membership) => membership.isPrimary) || null;
+  return {
+    category: primary?.categoryId ?? null,
+    categoryName: primary?.categoryName ?? null,
+    categoryMemberships: serializeAthleteMemberships(memberships, ids),
+    categories: memberships.map((membership) => membership.categoryName),
+  };
+};
+
 export const getAthleteCategoryReferences = (
   athleteOrMemberships: unknown,
   categories: readonly CategoryOptionLike[] = [],

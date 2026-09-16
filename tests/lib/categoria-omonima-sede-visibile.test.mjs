@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import {
   buildCategoryDisplayIndex,
   describeCategoryForDisplay,
+  UNKNOWN_CATEGORY_LABEL,
 } from "../../src/lib/categories/display.ts";
 
 /**
@@ -190,10 +191,20 @@ test("un gruppo archiviato non presta la propria sede", () => {
 /* Nessun catalogo, nessun danno                                       */
 /* ------------------------------------------------------------------ */
 
-test("un riferimento che il catalogo non conosce si mostra com'e", () => {
+test("un riferimento che il catalogo non conosce: il nome se c'e, altrimenti «Categoria non disponibile»", () => {
+  /*
+    D-RD-17 (a): con il catalogo in mano un valore nudo che nessuna voce
+    riconosce non si distingue da un identificativo stantio, e non si scrive
+    com'e. Il nome dato dal chiamante, invece, e un'etichetta e si legge.
+  */
   const indice = buildCategoryDisplayIndex({ categories: CATALOGO_OMONIME, groups: GRUPPI });
 
-  assert.equal(indice.label("Giovanissimi"), "Giovanissimi");
+  assert.equal(indice.label("Giovanissimi"), UNKNOWN_CATEGORY_LABEL);
+  assert.equal(indice.label("category-1757000000000-spari"), UNKNOWN_CATEGORY_LABEL);
+  assert.equal(
+    indice.label({ categoryId: "category-1757000000000-spari", categoryName: "Giovanissimi" }),
+    "Giovanissimi",
+  );
   assert.equal(indice.describe("Giovanissimi").site, "");
 });
 

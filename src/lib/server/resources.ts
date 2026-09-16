@@ -85,6 +85,11 @@ import { hasSeasonPermission } from "@/lib/seasons/permissions";
 import { hasTrainingAutomationPermission } from "@/lib/training-automation-permissions";
 import { assertPersonalDataDisposed } from "./data-subject";
 import {
+  assertAthleteCategoryColumnIsCanonical,
+  assertAthleteDataProjectionIsCanonical,
+  assertMembershipCategoryIsCanonical,
+} from "./category-write-guard";
+import {
   normalizeAccessScopes,
   type AccessScopeEntry,
 } from "@/lib/roles/access-scope";
@@ -6796,6 +6801,25 @@ export const createResource = async (
     }
   }
 
+  /*
+    **Una categoria si scrive con il suo identificativo, o non si scrive**
+    (D-RD-17, revisione dei writer). Qui passano tutti i writer — la Web
+    corrente, il redesign, l'import, la scheda dell'allenatore, i moduli — e
+    qui si controlla una volta: il riferimento si risolve sul catalogo del
+    club e diventa l'identificativo vero; un nome che ne nomina due, o che
+    nessuna voce riconosce, non nasce come riga. Vedi `category-write-guard`.
+  */
+  if (resource === "athlete_category_memberships") {
+    await assertMembershipCategoryIsCanonical(
+      String(normalized.organization_id ?? scope?.activeOrganizationId ?? ""),
+      normalized,
+    );
+  }
+  if (resource === "athletes" || resource === "simplified_athletes") {
+    const club = String(normalized.organization_id ?? scope?.activeOrganizationId ?? "");
+    await assertAthleteCategoryColumnIsCanonical(club, normalized, null);
+    await assertAthleteDataProjectionIsCanonical(club, normalized, null);
+  }
 
   const existingCharge =
     (resource === "payments" || resource === "simplified_payments") && normalized.id
@@ -8215,6 +8239,28 @@ export const updateResource = async (
     }
   }
 
+  /* Lo stesso vaglio della creazione (D-RD-17): vedi `category-write-guard`. */
+  if (resource === "athlete_category_memberships") {
+    await assertMembershipCategoryIsCanonical(
+      String(
+        normalized.organization_id ??
+          existing?.organization_id ??
+          scope?.activeOrganizationId ??
+          "",
+      ),
+      normalized,
+    );
+  }
+  if (resource === "athletes" || resource === "simplified_athletes") {
+    const club = String(
+      normalized.organization_id ??
+        existing?.organization_id ??
+        scope?.activeOrganizationId ??
+        "",
+    );
+    await assertAthleteCategoryColumnIsCanonical(club, normalized, existing);
+    await assertAthleteDataProjectionIsCanonical(club, normalized, existing);
+  }
 
   if ("user_id" in normalized) {
     await guardNotificationRecipient(

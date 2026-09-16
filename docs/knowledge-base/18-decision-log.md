@@ -11800,3 +11800,102 @@ dati del pilota), `tests/lib/categoria-revisione-ostile-adr-0185.test.mjs`
 `categoria-omonima-superfici`, `training-categoria-groupOptions`,
 `multisite-ux`, `area-famiglia-wave6`, `atleti-v2-parita`,
 `categorie-v2-parita` alla forma nuova.
+
+## ADR-0186 — Una categoria si scrive con il suo identificativo o non si scrive; l'etichetta di una categoria sconosciuta non e mai un identificativo; le proiezioni si derivano con la funzione del writer
+
+**Data:** 2026-09-16
+
+**Contesto.** D-RD-16 (fase A) ha bonificato sul redesign le 213 righe di
+`athlete_category_memberships` che portavano l'etichetta al posto
+dell'identificativo. Il difetto era nato da writer che persistevano cio che
+ricevevano: il registro generico accettava qualunque stringa in
+`category_id`, e il writer client risolveva un cambio per nome sulle sole
+appartenenze dell'atleta, creando la riga quando non ne trovava una. Restavano
+inoltre i residui D-RD-17: due risolutori che restituivano il riferimento
+**com'e** quando il catalogo non lo conosceva (`category-1757…` a schermo),
+l'import che risolveva un'etichetta con una mappa per nome a ultimo-vince
+(due «Pulcini» → l'ultima, in silenzio), la data di nascita che fra due
+categorie con la stessa fascia prendeva la prima, la modulistica che faceva lo
+stesso con `find`, il ruolo scritto con il glifo della sede («Pulcini · Scauri ·
+Primaria») e l'indice ricostruito a ogni chip.
+
+**Decisioni.**
+
+1. **Il vaglio del server.** `src/lib/server/category-write-guard.ts` e
+   l'unico punto in cui il registro generico (`resources.ts`, creazione e
+   modifica) decide cosa entra come categoria: il riferimento si risolve sul
+   catalogo del club con `resolveCategoryReference` e si scrive
+   **l'identificativo**; un nome che ne nomina due, o che nessuna voce
+   riconosce, **non nasce come riga** e l'errore torna a chi chiama. Con il
+   catalogo vuoto (club con i soli nomi, ADR-0185 §9) il nome e l'identita e
+   si passa. Sulla colonna `athletes.category_id` un valore **uguale a
+   quello in archivio** passa: un club non ancora bonificato continua a
+   salvare le schede, e il difetto vecchio non peggiora.
+2. **Il writer client controlla prima di cancellare.** `replaceAthleteMemberships`
+   cancella e reinserisce: un rifiuto del server dopo la cancellazione
+   lascerebbe l'atleta senza categorie. Percio `updateClubAthlete`,
+   `addClubAthlete` e l'import caricano il catalogo una volta, lo passano a
+   `resolveRequestedAthleteMemberships` — che risolve un nome **prima** sul
+   catalogo del club e poi, come ripiego per il club senza catalogo, sulle
+   appartenenze correnti — e rifiutano (`assertMembershipsAreCanonical`) prima
+   del `DELETE`.
+3. **Una categoria sconosciuta si dice, non si scrive com'e.** In
+   `buildCategoryDisplayIndex` un riferimento nudo che il catalogo non
+   riconosce, **con il catalogo in mano**, e `UNKNOWN_CATEGORY_LABEL`
+   («Categoria non disponibile»); il nome dato dal chiamante si legge sempre;
+   con il catalogo vuoto il riferimento resta com'e. `resolveCategoryLabelForTraining`
+   passa dall'indice (che riceve dalla pagina, o costruisce dal catalogo) per
+   ogni nome che scrive: due omonime si leggono con la sede. `resolveCategoryLabel`
+   di `category-utils` **non cambia**: i suoi chiamanti server lo usano come
+   generatore di chiavi di confronto, e un ripiego costante darebbe a due
+   riferimenti sconosciuti la stessa chiave. Un'etichetta derivata non si
+   persiste mai come nome (`WeeklyTrainingSchedulePanel` tiene il nome che la
+   riga portava).
+4. **Un nome che ne nomina due non ne nomina nessuna, ovunque.** L'import
+   segnala la riga ambigua e non la importa (`failed`, con le due squadre
+   scritte); `findCategoryForBirthDate` risponde `null` se la fascia piu
+   stretta e contesa; la modulistica risolve con `resolveCategoryReference`.
+5. **Il ruolo non e una sede.** `membershipRoleLabel` e `MembershipRoleBadge`
+   (in `category-label.tsx`, condiviso): il ruolo sta in un elemento suo, mai
+   dopo `CATEGORY_SITE_SEPARATOR`.
+6. **La proiezione in `athletes.data` la scrive il dominio.**
+   `serializeAthleteMemberships` e `buildAthleteCategoryProjection` vivono in
+   `athlete-category-memberships.ts`; il writer le usa in creazione e in
+   modifica, e la bonifica di fase B ricostruisce le proiezioni **con la
+   stessa funzione**: derivabili 1:1, nessuna informazione propria.
+7. **Le fasi B e C di D-RD-16** hanno il loro strumento
+   (`scripts/bonifica-appartenenze-fasi.mjs`, regole in
+   `scripts/lib/bonifica-fasi.mjs`) con le stesse guardie della fase A, ora
+   in un modulo solo (`scripts/lib/bonifica-guardie.mjs`: un elenco di branch
+   ammessi, non due). La fase C (nomi stantii: identita certa, si allinea il
+   solo nome) precede la B (proiezioni), perche la B copia i nomi delle righe.
+   Dentro la transazione gli invarianti della fase A si ricontrollano e devono
+   restare uguali.
+
+8. **Le righe si aggiornano per differenza, nell'ordine che l'indice impone.**
+   `replaceAthleteMemberships` non cancella e riscrive: scende la primaria
+   che smette di esserlo, cancella, inserisce, sale la nuova primaria —
+   l'indice parziale «una primaria per atleta» non ammette altro ordine —
+   e rilancia gli errori. **Non cancella** una riga che il catalogo non
+   conosce: la toglie la bonifica, con il suo audit. Un salvataggio che non
+   dichiara le appartenenze non tocca la colonna, e le raccolte della scheda
+   (certificati, tutori, pagamenti) non le dichiarano.
+9. **Un'etichetta derivata non torna mai in archivio come nome**: il programma
+   settimanale tiene il nome che la riga portava, la pagina Allenamenti
+   riscrive `categoryName` salvato e non l'etichetta a schermo.
+
+**Conseguenze.** Writer attivi capaci di scrivere un'etichetta come
+`category_id`: **0** (revisione C). Revisione ostile in tre piu una seconda
+passata di verifica: Critical 2 (riferimento vuoto rifiutato; ordine degli
+inserimenti contro l'indice della primaria) e High 8 trovati e chiusi;
+Critical 0, High 0 alla chiusura. Restano documentati come Low: un
+riferimento **nudo** che e un nome stantio in un club con catalogo si legge
+«Categoria non disponibile» (senza catalogo non si distingue da un
+identificativo); il vaglio sulla proiezione puo fermare un salvataggio quando
+`athletes.data` e le righe sono gia in disaccordo prima della bonifica. `tests/lib/categoria-scrittura-canonica-d-rd-17.test.mjs`
+(16), `tests/scripts/bonifica-appartenenze-fasi.test.mjs` (8);
+`categoria-omonima-sede-visibile` e `categoria-revisione-ostile-adr-0185`
+adeguati. Resta fuori, e documentato: `athlete-participation-utils.ts` tiene
+un risolutore locale per nome dentro `buildAthleteParticipationAnalytics`, che
+**nessuna** schermata chiama (codice irraggiungibile: D-RD-18).
+

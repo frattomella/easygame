@@ -903,5 +903,22 @@ export const findCategoryForBirthDate = (
       return (right.birthYearFrom as number) - (left.birthYearFrom as number);
     });
 
-  return matches[0]?.category || null;
+  /*
+    **Due categorie con la stessa fascia d'eta sono due squadre, non una**
+    (D-RD-17 b). Due «Pulcini» su due sedi hanno gli stessi anni di nascita:
+    prendere la prima assegnava ogni bambino importato senza etichetta alla
+    stessa sede, in silenzio. Se la fascia piu stretta e contesa, la data di
+    nascita non decide, e si risponde «non lo so».
+  */
+  const [prima, seconda] = matches;
+  if (
+    prima &&
+    seconda &&
+    prima.birthYearFrom === seconda.birthYearFrom &&
+    prima.birthYearTo === seconda.birthYearTo
+  ) {
+    return null;
+  }
+
+  return prima?.category || null;
 };

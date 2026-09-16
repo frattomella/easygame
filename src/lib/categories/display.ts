@@ -69,6 +69,34 @@ export const CATEGORY_SITE_SEPARATOR = " · ";
  */
 export const UNKNOWN_SITE_LABEL = "Sede non disponibile";
 
+/**
+ * L'etichetta di una categoria che il catalogo **non conosce** quando il
+ * catalogo c'e (D-RD-17 a).
+ *
+ * Con un catalogo in mano un riferimento sconosciuto e un identificativo
+ * stantio — una categoria tolta, una colonna mai bonificata — e scriverlo
+ * com'e mette `category-1757…` a schermo. Senza catalogo non si distingue un
+ * nome da un identificativo, e il riferimento resta com'e: e il club che
+ * lavora con i soli nomi. Se il chiamante ha un **nome** da leggere, quello
+ * vince sempre: e un'etichetta, non un identificativo.
+ */
+export const UNKNOWN_CATEGORY_LABEL = "Categoria non disponibile";
+
+/**
+ * Il ruolo di un'appartenenza, per chi lo scrive accanto alla categoria.
+ *
+ * Non passa per `CATEGORY_SITE_SEPARATOR`: «Pulcini · Scauri · Primaria»
+ * fa leggere il ruolo come una terza sede (D-RD-17 c). Il ruolo e un dato
+ * dell'appartenenza, non della categoria, e sta in un elemento suo.
+ */
+export const MEMBERSHIP_ROLE_LABELS = Object.freeze({
+  primary: "Primaria",
+  secondary: "Secondaria",
+});
+
+export const membershipRoleLabel = (isPrimary: boolean) =>
+  isPrimary ? MEMBERSHIP_ROLE_LABELS.primary : MEMBERSHIP_ROLE_LABELS.secondary;
+
 export type CategoryDisplayEntry = {
   id?: string | null;
   name?: string | null;
@@ -267,26 +295,42 @@ export const buildCategoryDisplayIndex = ({
         : reference,
     );
 
-    const perLeggere = trim(
+    const nomeDato = trim(
       typeof reference === "object" && reference
         ? (reference as any).categoryName ??
             (reference as any).category_name ??
             (reference as any).name
         : "",
     );
+    /*
+      **Un nome uguale al riferimento non e un nome** (revisione ostile A2):
+      il normalizzatore, senza catalogo, mette l'identificativo anche in
+      `categoryName`; letto come nome, un `category-1757…` uscirebbe a
+      schermo dalla porta di servizio. Se il nome dato e a sua volta un
+      identificativo del catalogo, si risolve come tale.
+    */
+    const perLeggere =
+      nomeDato && normalizeCategoryToken(nomeDato) === normalizeCategoryToken(perCercare)
+        ? ""
+        : nomeDato;
 
     const grezzo = perCercare || perLeggere;
-    const voce = perId.get(normalizeCategoryToken(perCercare));
+    const voce =
+      perId.get(normalizeCategoryToken(perCercare)) ||
+      (!perCercare ? perId.get(normalizeCategoryToken(perLeggere)) : undefined);
 
     if (!voce) {
       /*
         Il catalogo non lo conosce: si mostra il **nome** se il chiamante ce
-        l'ha, e il valore com'e solo quando non c'e altro. Non e un errore: e
-        il club che non ha mai aperto la pagina delle categorie, o una colonna
-        storica mai bonificata. Nessuna sede da accostare, perche non si sa a
-        quale categoria appartenga.
+        l'ha. Senza un nome, il valore com'e **solo** quando il catalogo e
+        vuoto — il club che non ha mai aperto la pagina delle categorie; con
+        il catalogo in mano un riferimento che nessuna voce riconosce e un
+        identificativo, e a schermo va `UNKNOWN_CATEGORY_LABEL`, non
+        `category-1757…` (D-RD-17 a). Nessuna sede da accostare, perche non
+        si sa a quale categoria appartenga.
       */
-      const etichetta = perLeggere || grezzo;
+      const etichetta =
+        perLeggere || (voci.length ? UNKNOWN_CATEGORY_LABEL : grezzo);
 
       return {
         id: grezzo,

@@ -11,6 +11,7 @@
 */
 
 import { resolveCategoryId, resolveCategoryLabel } from "@/lib/category-utils";
+import { UNKNOWN_CATEGORY_LABEL } from "@/lib/categories/display";
 import { categoryIdentity, sameCategory } from "@/lib/categories/identity";
 
 export const normalizeTrainerDashboardValue = (value: unknown) =>
@@ -159,7 +160,19 @@ export const getRecordDisplayCategory = (
     return "Senza categoria";
   }
 
-  return resolveCategoryLabel(firstValue, categories);
+  /*
+    Con il catalogo in mano un riferimento che nessuna voce riconosce non
+    esce com'e — `category-1757…` come «categoria primaria» — ma come
+    «Categoria non disponibile» (D-RD-17 a, revisione ostile A10). Senza
+    catalogo resta il riferimento: e il club con i soli nomi.
+  */
+  const risolta = resolveCategoryLabel(firstValue, categories);
+  const conosciuta = categories.some(
+    (category) =>
+      String(category?.id || "").trim() === firstValue ||
+      String(category?.name || "").trim() === firstValue,
+  );
+  return categories.length && !conosciuta ? UNKNOWN_CATEGORY_LABEL : risolta;
 };
 
 /**

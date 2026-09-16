@@ -245,8 +245,16 @@ test("la scheda atleta manda le appartenenze solo dal cassetto che le modifica, 
   assert.match(pagina, /editingSection === "general" \? editFormData : fuoriDalleCategorie/);
   assert.match(pagina, /stored_category_name: membership\.storedCategoryName/);
 
+  /*
+    D-RD-17: la serializzazione vive nel dominio (`serializeAthleteMemberships`
+    in `athlete-category-memberships.ts`) e il writer la importa: e la stessa
+    forma che la bonifica di fase B ricostruisce.
+  */
+  const dominio = readFileSync("src/lib/athlete-category-memberships.ts", "utf8");
+  assert.match(dominio, /category_name: membership\.storedCategoryName \|\| membership\.categoryName,/);
   const db = readFileSync("src/lib/simplified-db.ts", "utf8");
-  assert.match(db, /category_name: membership\.storedCategoryName \|\| membership\.categoryName,/);
+  assert.match(db, /serializeAthleteMemberships,\n/, "il writer importa la serializzazione dal dominio");
+  assert.doesNotMatch(db, /const serializeAthleteMemberships =/, "nessuna copia locale nel writer");
 });
 
 test("l'area famiglia e l'area atleta leggono l'etichetta canonica scritta dal server", () => {

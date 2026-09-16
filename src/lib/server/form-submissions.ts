@@ -23,6 +23,7 @@ import {
   type FormsAccessScope,
   type PublicFormMatch,
 } from "./forms";
+import { resolveCategoryReference } from "@/lib/categories/identity";
 import {
   listConsentDefinitions,
   listConsentRecords,
@@ -1383,13 +1384,29 @@ const resolveEnrollmentPlacement = (
       ? options.sites[0].id
       : "";
 
-  const answeredCategory = asText(values["athlete.categoryName"]).toLowerCase();
-  const category =
-    options.categories.find(
-      (entry) => entry.name.toLowerCase() === answeredCategory,
-    ) || null;
+  /*
+    **Un nome che ne nomina due non ne nomina nessuna** (ADR-0155, D-RD-17).
+    Qui c'era `find`, che prende la prima: con due «Pulcini» — una per sede —
+    ogni iscrizione approvata finiva sulla prima. Il modulo chiede il nome, e
+    il nome risolve solo se e di una sola categoria; altrimenti l'iscrizione
+    resta senza categoria e la sede, se c'e, si scrive lo stesso.
+  */
+  const answeredCategory = asText(values["athlete.categoryName"]);
+  const risolta = resolveCategoryReference(
+    answeredCategory,
+    answeredCategory,
+    options.categories,
+  );
+  const category = risolta?.known
+    ? options.categories.find((entry) => entry.id === risolta.id) || null
+    : null;
 
-  return { siteId, category };
+  return {
+    siteId,
+    category,
+    /* Il nome che nomina piu squadre: chi approva lo deve sapere, non scoprirlo dopo (revisione ostile A15). */
+    categoriaAmbigua: risolta?.ambiguous ? answeredCategory : "",
+  };
 };
 
 /**
@@ -2037,6 +2054,7 @@ const eseguiDecisione = async (
   let placement: ReturnType<typeof resolveEnrollmentPlacement> = {
     siteId: "",
     category: null,
+    categoriaAmbigua: "",
   };
 
   if (athleteChange) {
@@ -2083,6 +2101,11 @@ const eseguiDecisione = async (
       athleteId = asText((created as any)?.id);
       athleteRecord = created as any;
       applied.push(`Atleta creato: ${athleteChange.recordLabel}`);
+      if (placement.categoriaAmbigua) {
+        applied.push(
+          `Categoria non assegnata: «${placement.categoriaAmbigua}» nomina piu squadre del club, indicarla dalla scheda`,
+        );
+      }
     } else if (Object.keys(values).length) {
       const updated = await updateResource(
         "athletes",
@@ -2094,6 +2117,11 @@ const eseguiDecisione = async (
       applied.push(
         `Scheda atleta aggiornata: ${Object.keys(values).length} dati`,
       );
+      if (placement.categoriaAmbigua) {
+        applied.push(
+          `Categoria non assegnata: «${placement.categoriaAmbigua}» nomina piu squadre del club, indicarla dalla scheda`,
+        );
+      }
     }
   }
 

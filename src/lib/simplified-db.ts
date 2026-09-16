@@ -5,9 +5,12 @@ import { normalizeTrainerList } from "./trainer-utils";
 import { listClubFederations } from "@/lib/club-federations";
 import { resolveCategoryReference } from "@/lib/categories/identity";
 import {
+  buildAthleteCategoryProjection,
   getAthleteCategoryLabels,
   getPrimaryAthleteCategoryMembership,
   normalizeAthleteCategoryMemberships,
+  serializeAthleteMemberships,
+  type AthleteCategoryMembership,
 } from "./athlete-category-memberships";
 import {
   athleteMatchesAnyCategory,
@@ -98,33 +101,6 @@ const isMissingAthleteMembershipResource = (error: any) => {
     message.includes("does not exist")
   );
 };
-
-const serializeAthleteMemberships = (
-  memberships: ReturnType<typeof normalizeAthleteCategoryMemberships>,
-  {
-    clubId,
-    athleteId,
-  }: {
-    clubId?: string | null;
-    athleteId?: string | null;
-  } = {},
-) =>
-  memberships.map((membership) => ({
-    id: membership.id,
-    organization_id: membership.organizationId || clubId || null,
-    athlete_id: membership.athleteId || athleteId || null,
-    category_id: membership.categoryId,
-    /*
-      **Il nome com'era sulla riga non si riscrive per caso** (ADR-0185).
-      Dopo una rinomina la riga porta ancora il nome vecchio, ed e l'evidenza
-      con cui le righe gemelle di **altri** atleti — scritte con il solo nome
-      — ritrovano la categoria vera. Un salvataggio che non tocca la categoria
-      non deve cancellarla: la bonifica delle righe storiche e un passo a se.
-    */
-    category_name: membership.storedCategoryName || membership.categoryName,
-    is_primary: membership.isPrimary,
-    site_id: membership.siteId || null,
-  }));
 
 const hydrateAthleteWithMemberships = (
   athlete: any,
@@ -375,14 +351,21 @@ const buildAthleteInsertPayload = (
   clubId: string,
   athleteData: any,
   normalizedMemberships: ReturnType<typeof resolveRequestedAthleteMemberships>,
+  /**
+   * Con il catalogo in mano la colonna dice la primaria risolta o niente: il
+   * riferimento com'era — un nome ambiguo, un'etichetta — non ci finisce
+   * (revisione ostile A11; il server lo rifiuterebbe comunque).
+   */
+  catalogoPresente = false,
 ) => {
   const primaryMembership = getPrimaryAthleteCategoryMembership(
     normalizedMemberships,
   );
   const categoryId =
-    primaryMembership?.categoryId || athleteData.category || null;
+    primaryMembership?.categoryId || (catalogoPresente ? null : athleteData.category || null);
   const categoryName =
-    primaryMembership?.categoryName || athleteData.categoryName || null;
+    primaryMembership?.categoryName ||
+    (catalogoPresente ? null : athleteData.categoryName || null);
   const status = athleteData.status || "active";
   const accessCode = athleteData.accessCode || null;
   const avatar = athleteData.avatar || null;
@@ -406,12 +389,9 @@ const buildAthleteInsertPayload = (
     avatar_url: avatar,
     data: {
       ...(isRecord(athleteData.data) ? athleteData.data : {}),
+      ...buildAthleteCategoryProjection(normalizedMemberships, { clubId }),
       category: categoryId,
       categoryName,
-      categoryMemberships: serializeAthleteMemberships(normalizedMemberships, {
-        clubId,
-      }),
-      categories: getAthleteCategoryLabels(normalizedMemberships),
       birthDate,
       medicalCertExpiry,
       accessCode,
@@ -456,16 +436,19 @@ export async function addClubAthletesBatch(
   clubId: string,
   rows: any[],
   handlers: { onProgress?: (completed: number) => void } = {},
-): Promise<{ created: any[]; failedIndexes: number[] }> {
+): Promise<{ created: any[]; failedIndexes: number[]; failedReasons: Record<number, string> }> {
   const created: any[] = [];
   const failedIndexes: number[] = [];
+  /* Il motivo per riga: «Scrittura non riuscita» nascondeva il vaglio delle categorie (revisione ostile C-R4). */
+  const failedReasons: Record<number, string> = {};
   let completed = 0;
+  const catalogo = await loadCatalogoPerScrittura(clubId);
 
   for (let start = 0; start < rows.length; start += ATHLETE_IMPORT_CHUNK) {
     const chunk = rows.slice(start, start + ATHLETE_IMPORT_CHUNK);
 
     try {
-      const inserted = await insertAthleteChunk(clubId, chunk);
+      const inserted = await insertAthleteChunk(clubId, chunk, catalogo);
       created.push(...inserted);
     } catch {
       /*
@@ -476,8 +459,10 @@ export async function addClubAthletesBatch(
       for (let index = 0; index < chunk.length; index += 1) {
         try {
           created.push(await addClubAthlete(clubId, chunk[index]));
-        } catch {
+        } catch (errore) {
           failedIndexes.push(start + index);
+          const messaggio = String((errore as any)?.message || "").trim();
+          if (messaggio) failedReasons[start + index] = messaggio;
         }
       }
     }
@@ -486,21 +471,28 @@ export async function addClubAthletesBatch(
     handlers.onProgress?.(Math.min(completed, rows.length));
   }
 
-  return { created, failedIndexes };
+  return { created, failedIndexes, failedReasons };
 }
 
 /** Un solo `POST` con l'elenco, piu un solo `POST` per le appartenenze. */
-const insertAthleteChunk = async (clubId: string, rows: any[]) => {
+const insertAthleteChunk = async (
+  clubId: string,
+  rows: any[],
+  catalogo: readonly { id?: string | null; name?: string | null }[] = [],
+) => {
   const prepared = rows.map((row) => ({
     row,
-    memberships: resolveRequestedAthleteMemberships(row, row),
+    memberships: resolveRequestedAthleteMemberships(row, row, catalogo),
   }));
+  for (const { memberships } of prepared) {
+    assertMembershipsAreCanonical(memberships, catalogo);
+  }
 
   const { data, error } = await supabase
     .from("simplified_athletes")
     .insert(
       prepared.map(({ row, memberships }) =>
-        buildAthleteInsertPayload(clubId, row, memberships),
+        buildAthleteInsertPayload(clubId, row, memberships, catalogo.length > 0),
       ),
     )
     .select();
@@ -547,53 +539,198 @@ const insertAthleteChunk = async (clubId: string, rows: any[]) => {
   return inserted;
 };
 
+/**
+ * **Un'appartenenza si scrive con l'identificativo di una categoria del club,
+ * o non si scrive** (D-RD-17, revisione dei writer).
+ *
+ * Il difetto di Fortitudo — 213 righe con l'etichetta al posto
+ * dell'identificativo — e nato da un writer che ha persistito cio che gli
+ * arrivava. Qui il catalogo del club e in mano, e si controlla **prima** di
+ * cancellare le righe correnti: `replaceAthleteMemberships` cancella e
+ * reinserisce, e un rifiuto del server dopo la cancellazione lascerebbe
+ * l'atleta senza categorie. Con il catalogo vuoto — il club che lavora con i
+ * soli nomi — non c'e niente con cui confrontare, e il nome e l'identita.
+ */
+const assertMembershipsAreCanonical = (
+  memberships: readonly AthleteCategoryMembership[],
+  catalogo: readonly { id?: string | null; name?: string | null }[],
+  /**
+   * Le categorie che l'atleta ha **gia** in archivio: una riga che c'era —
+   * anche storica, anche non ancora bonificata — passa. Il vaglio ferma cio
+   * che si **aggiunge**, non il salvataggio di un certificato su una scheda
+   * che aspetta la sua bonifica (revisione ostile A6).
+   */
+  giaInArchivio: ReadonlySet<string> = new Set(),
+) => {
+  const configurate = catalogo.filter((voce) => (voce as any)?.configured !== false);
+  if (!configurate.length) return;
+  const ids = new Set(configurate.map((voce) => String(voce.id ?? "").trim()));
+  const estranee = memberships.filter((membership) => {
+    const id = String(membership.categoryId ?? "").trim();
+    return !ids.has(id) && !giaInArchivio.has(id);
+  });
+  if (estranee.length) {
+    throw new Error(
+      `La categoria «${estranee[0].categoryName || estranee[0].categoryId}» non identifica una categoria del club: scegliere una categoria del catalogo`,
+    );
+  }
+};
+
+const chiaviCategoria = (righe: readonly { category_id?: unknown }[]) =>
+  new Set(righe.map((riga) => String(riga?.category_id ?? "").trim()).filter(Boolean));
+
+/**
+ * Il catalogo del club per risolvere le appartenenze **prima** di scriverle:
+ * **le stesse sorgenti del vaglio del server** (`clubs.categories` +
+ * `club_resource_items`), senza le voci derivate dagli atleti, altrimenti
+ * client e server direbbero due cose diverse sullo stesso club (revisione B9).
+ *
+ * Un errore di lettura **ferma** il salvataggio: leggere «catalogo vuoto» al
+ * posto di «catalogo non letto» farebbe passare al client cio che il server
+ * rifiuta, e con il cancella-e-reinserisci l'atleta resterebbe senza righe
+ * (revisione A7/B2).
+ */
+const loadCatalogoPerScrittura = async (clubId: string) => {
+  const [club, items] = await Promise.all([
+    readClubFields(clubId, ["categories"]),
+    supabase
+      .from("club_resource_items")
+      .select("id, name, payload")
+      .eq("organization_id", clubId)
+      .eq("resource_type", "categories"),
+  ]);
+  if (club.error && (club.error as any)?.code !== "42703") {
+    throw new Error("Catalogo delle categorie non leggibile: le appartenenze non si salvano finche non si rilegge");
+  }
+  if (items.error && !isMissingAthleteMembershipResource(items.error)) {
+    throw new Error("Catalogo delle categorie non leggibile: le appartenenze non si salvano finche non si rilegge");
+  }
+  const resourceCategories = (Array.isArray(items.data) ? items.data : []).map((item: any) => {
+    const payload = isRecord(item?.payload) ? item.payload : {};
+    return { ...payload, id: payload.id || item?.id, name: payload.name || item?.name };
+  });
+  return buildClubCategoryOptions({
+    clubCategories: Array.isArray(club.data?.categories) ? club.data.categories : [],
+    resourceCategories,
+  }).filter((voce) => voce.configured !== false);
+};
+
+/**
+ * **Le righe si aggiornano per differenza, non si cancellano e riscrivono.**
+ *
+ * La stesura precedente faceva `DELETE` di tutte le righe e poi un `INSERT`
+ * per ciascuna: un rifiuto del server al primo inserimento — il vaglio di
+ * `category-write-guard`, un errore di rete — lasciava l'atleta **senza
+ * categorie**, e l'errore veniva pure inghiottito (revisione ostile B2).
+ * Adesso: prima gli inserimenti delle categorie nuove, poi gli aggiornamenti
+ * delle righe che cambiano bandiera, sede o nome, e **per ultime** le
+ * cancellazioni. Se qualcosa si rifiuta, in archivio c'e ancora tutto.
+ *
+ * **Non si cancella cio che il catalogo non conosce** (revisione B3): una riga
+ * storica che il lettore lascia fuori — il pendente di una bonifica non ancora
+ * fatta — non e una scelta dell'utente, e il cassetto non l'ha nemmeno
+ * mostrata. La toglie la bonifica, con il suo audit, non un salvataggio.
+ */
 const replaceAthleteMemberships = async (
   clubId: string,
   athleteId: string,
   memberships: ReturnType<typeof normalizeAthleteCategoryMemberships>,
+  catalogo: readonly { id?: string | null; name?: string | null }[] = [],
+  righeCorrenti: readonly Record<string, any>[] = [],
 ) => {
+  const correnti = righeCorrenti.filter(
+    (riga) => String(riga?.athlete_id ?? athleteId) === String(athleteId),
+  );
+  assertMembershipsAreCanonical(memberships, catalogo, chiaviCategoria(correnti));
+
   const serializedMemberships = serializeAthleteMemberships(memberships, {
     clubId,
     athleteId,
   });
+  const correntePerCategoria = new Map(
+    correnti.map((riga) => [String(riga.category_id ?? "").trim(), riga] as const),
+  );
+  const nuovePerCategoria = new Set(
+    serializedMemberships.map((riga) => String(riga.category_id ?? "").trim()),
+  );
+  const configurate = new Set(
+    catalogo
+      .filter((voce) => (voce as any)?.configured !== false)
+      .map((voce) => String(voce.id ?? "").trim()),
+  );
+
+  const daInserire = serializedMemberships.filter(
+    (riga) => !correntePerCategoria.has(String(riga.category_id ?? "").trim()),
+  );
+  const daAggiornare = serializedMemberships.flatMap((riga) => {
+    const corrente = correntePerCategoria.get(String(riga.category_id ?? "").trim());
+    if (!corrente) return [];
+    const campi: Record<string, any> = {};
+    if (Boolean(corrente.is_primary) !== Boolean(riga.is_primary)) campi.is_primary = riga.is_primary;
+    if (String(corrente.site_id ?? "") !== String(riga.site_id ?? "")) campi.site_id = riga.site_id;
+    if (riga.category_name && String(corrente.category_name ?? "") !== String(riga.category_name)) campi.category_name = riga.category_name;
+    return Object.keys(campi).length ? [{ id: String(corrente.id), campi }] : [];
+  });
+  const daCancellare = correnti.filter((riga) => {
+    const id = String(riga.category_id ?? "").trim();
+    if (nuovePerCategoria.has(id)) return false;
+    /* Con il catalogo in mano si cancella solo una categoria che il catalogo conosce: il resto e della bonifica. */
+    return configurate.size === 0 || configurate.has(id);
+  });
+
+  /*
+    **L'archivio ammette una sola primaria per atleta** (indice parziale
+    `athlete_category_memberships_single_primary_per_athlete`). L'ordine
+    quindi non e libero (revisione ostile, seconda passata N1): prima si
+    **scende** la primaria che smette di esserlo, poi si cancella, poi si
+    inseriscono le righe nuove — la nuova primaria compresa, che adesso non ha
+    concorrenti — e per ultimo si **sale** la riga che diventa primaria. Un
+    inserimento prima della discesa sarebbe due primarie, e il rifiuto
+    dell'indice.
+  */
+  const discese = daAggiornare.filter(({ campi }) => campi.is_primary === false);
+  const salite = daAggiornare.filter(({ campi }) => campi.is_primary === true);
+  const altreModifiche = daAggiornare.filter(({ campi }) => campi.is_primary === undefined);
+  const aggiorna = async ({ id, campi }: { id: string; campi: Record<string, any> }) => {
+    const { error } = await supabase
+      .from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE)
+      .update(campi)
+      .eq("id", id)
+      .eq("organization_id", clubId);
+    if (error) throw error;
+  };
 
   try {
-    const { error: deleteError } = await supabase
-      .from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE)
-      .delete()
-      .eq("organization_id", clubId)
-      .eq("athlete_id", athleteId);
-
-    if (deleteError) {
-      throw deleteError;
-    }
-
-    for (const membership of serializedMemberships) {
-      const payload = {
-        ...membership,
-        organization_id: clubId,
-        athlete_id: athleteId,
-      } as Record<string, any>;
-
-      if (!UUID_PATTERN.test(String(payload.id || "").trim())) {
-        delete payload.id;
-      }
-
+    for (const modifica of discese) await aggiorna(modifica);
+    for (const riga of daCancellare) {
       const { error } = await supabase
         .from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE)
-        .insert(payload);
-
-      if (error) {
-        throw error;
-      }
+        .delete()
+        .eq("id", String(riga.id))
+        .eq("organization_id", clubId)
+        .eq("athlete_id", athleteId);
+      if (error) throw error;
     }
+    for (const membership of daInserire) {
+      const payload = { ...membership, organization_id: clubId, athlete_id: athleteId } as Record<string, any>;
+      if (!UUID_PATTERN.test(String(payload.id || "").trim())) delete payload.id;
+      const { error } = await supabase.from(ATHLETE_CATEGORY_MEMBERSHIPS_RESOURCE).insert(payload);
+      if (error) throw error;
+    }
+    for (const modifica of altreModifiche) await aggiorna(modifica);
+    for (const modifica of salite) await aggiorna(modifica);
   } catch (error) {
-    if (!isMissingAthleteMembershipResource(error)) {
-      console.warn("Error syncing athlete memberships:", error);
+    if (isMissingAthleteMembershipResource(error)) {
+      return serializedMemberships;
     }
+    throw error;
   }
 
-  return serializedMemberships;
+  /* Le righe come stanno adesso: le nuove con l'identificativo che avevano prima, se c'era. */
+  return serializedMemberships.map((riga) => {
+    const corrente = correntePerCategoria.get(String(riga.category_id ?? "").trim());
+    return corrente ? { ...riga, id: corrente.id } : riga;
+  });
 };
 
 /**
@@ -624,11 +761,18 @@ const updatesDeclareAthleteMemberships = (updates: any) =>
 export const __resolveRequestedAthleteMembershipsForTests = (
   currentAthlete: any,
   updates: any,
-) => resolveRequestedAthleteMemberships(currentAthlete, updates);
+  catalogo: readonly { id?: string | null; name?: string | null }[] = [],
+) => resolveRequestedAthleteMemberships(currentAthlete, updates, catalogo);
 
 const resolveRequestedAthleteMemberships = (
   currentAthlete: any,
   updates: any,
+  /**
+   * Il catalogo del club (D-RD-17): un riferimento per nome si risolve
+   * sull'identita vera **prima** di diventare una riga. Vuoto = club con i
+   * soli nomi, e il nome e l'identita.
+   */
+  catalogo: readonly { id?: string | null; name?: string | null }[] = [],
 ) => {
   const explicitMemberships =
     updates?.categoryMemberships ??
@@ -636,7 +780,7 @@ const resolveRequestedAthleteMemberships = (
     updates?.memberships;
 
   if (Array.isArray(explicitMemberships)) {
-    return normalizeAthleteCategoryMemberships(explicitMemberships);
+    return normalizeAthleteCategoryMemberships(explicitMemberships, catalogo);
   }
 
   const hasSingleCategoryUpdate = [
@@ -647,7 +791,10 @@ const resolveRequestedAthleteMemberships = (
   ].some((value) => value !== undefined);
 
   if (hasSingleCategoryUpdate) {
-    const currentMemberships = normalizeAthleteCategoryMemberships(currentAthlete);
+    const currentMemberships = normalizeAthleteCategoryMemberships(
+      currentAthlete,
+      catalogo,
+    );
     const currentPrimary = currentMemberships.find(
       (membership) => membership.isPrimary,
     );
@@ -708,15 +855,40 @@ const resolveRequestedAthleteMemberships = (
         name: membership.categoryName,
       }));
 
+    /*
+      **Prima il catalogo del club, poi le appartenenze dell'atleta**
+      (D-RD-17). Con il catalogo in mano un nome si risolve sull'identita
+      vera; le appartenenze correnti restano il ripiego per il club che non
+      ha un catalogo. Un riferimento che il catalogo non conosce **non crea
+      una riga**: sarebbe la stessa etichetta-al-posto-dell'identificativo
+      di Fortitudo, scritta da un altro writer.
+    */
+    const catalogoConfigurato = catalogo.filter(
+      (voce) => (voce as any)?.configured !== false,
+    );
     const risolto = resolveCategoryReference(
       riferimentoRichiesto,
       nomeRichiesto,
-      catalogoCorrente,
+      catalogoConfigurato.length ? catalogoConfigurato : catalogoCorrente,
     );
 
     if (risolto?.ambiguous) {
       /* Ne nomina due: non ne nomina nessuna. Le appartenenze restano com'erano. */
       return currentMemberships;
+    }
+
+    /*
+      Un riferimento **vuoto** — `category: null` di chi crea un atleta senza
+      categoria, o di un import con la colonna in bianco — non e una categoria
+      sconosciuta: e «nessuna primaria», com'era prima (revisione ostile,
+      Critical 1). Il rifiuto vale per un riferimento **dato** che il catalogo
+      non riconosce.
+    */
+    const riferimentoDato = Boolean(String(riferimentoRichiesto ?? "").trim() || String(nomeRichiesto ?? "").trim());
+    if (riferimentoDato && catalogoConfigurato.length && !risolto?.known) {
+      throw new Error(
+        `La categoria «${nomeRichiesto || riferimentoRichiesto}» non identifica una categoria del club: scegliere una categoria del catalogo`,
+      );
     }
 
     const gia = currentMemberships.find(
@@ -730,6 +902,7 @@ const resolveRequestedAthleteMemberships = (
         ? {
             category_id: gia.categoryId,
             category_name: gia.categoryName,
+            stored_category_name: gia.storedCategoryName,
             is_primary: true,
             /*
               Promuovendo una secondaria la sua sede e **la sua**, non quella
@@ -740,12 +913,13 @@ const resolveRequestedAthleteMemberships = (
               updates?.siteId ?? updates?.site_id ?? gia.siteId ?? "",
           }
         : {
-            category_id: riferimentoRichiesto,
-            category_name: nomeRichiesto,
+            /* Risolto sul catalogo: l'identificativo vero, non il riferimento com'era. */
+            category_id: risolto?.id || riferimentoRichiesto,
+            category_name: risolto?.name || nomeRichiesto,
             is_primary: true,
             site_id: requestedSiteId,
           },
-    ]);
+    ], catalogo);
 
     /*
       **La primaria non si toglie dalle secondarie a mano: la toglie l'identita.**
@@ -770,18 +944,19 @@ const resolveRequestedAthleteMemberships = (
     const secondaryMemberships = currentMemberships.map((membership) => ({
       category_id: membership.categoryId,
       category_name: membership.categoryName,
+      stored_category_name: membership.storedCategoryName,
       is_primary: false,
       // La sede delle secondarie non c'entra con la categoria che cambia.
       site_id: membership.siteId,
     }));
 
-    return normalizeAthleteCategoryMemberships([
-      ...nextPrimary,
-      ...secondaryMemberships,
-    ]);
+    return normalizeAthleteCategoryMemberships(
+      [...nextPrimary, ...secondaryMemberships],
+      catalogo,
+    );
   }
 
-  return normalizeAthleteCategoryMemberships(currentAthlete);
+  return normalizeAthleteCategoryMemberships(currentAthlete, catalogo);
 };
 
 /**
@@ -1126,15 +1301,18 @@ const getClubAthleteCategorySources = async (clubId: string) => {
  * Aggiunge un nuovo atleta al club
  */
 export async function addClubAthlete(clubId: string, athleteData: any) {
+  const catalogo = await loadCatalogoPerScrittura(clubId);
   const normalizedMemberships = resolveRequestedAthleteMemberships(
     athleteData,
     athleteData,
+    catalogo,
   );
+  assertMembershipsAreCanonical(normalizedMemberships, catalogo);
 
   const { data, error } = await supabase
     .from("simplified_athletes")
     .insert(
-      buildAthleteInsertPayload(clubId, athleteData, normalizedMemberships),
+      buildAthleteInsertPayload(clubId, athleteData, normalizedMemberships, catalogo.length > 0),
     )
     .select()
     .single();
@@ -1148,6 +1326,7 @@ export async function addClubAthlete(clubId: string, athleteData: any) {
     clubId,
     data.id,
     normalizedMemberships,
+    catalogo,
   );
 
   return hydrateAthleteWithMemberships(data, savedMemberships);
@@ -1253,10 +1432,21 @@ export async function updateClubAthlete(
       category_memberships: membershipRows,
     };
     const membershipsDeclared = updatesDeclareAthleteMemberships(updates);
+    const catalogo = membershipsDeclared
+      ? await loadCatalogoPerScrittura(clubId)
+      : [];
     const normalizedMemberships = resolveRequestedAthleteMemberships(
       athleteWithMemberships,
       updates,
+      catalogo,
     );
+    if (membershipsDeclared) {
+      assertMembershipsAreCanonical(
+        normalizedMemberships,
+        catalogo,
+        chiaviCategoria(membershipRows),
+      );
+    }
     const primaryMembership = getPrimaryAthleteCategoryMembership(
       normalizedMemberships,
     );
@@ -1269,18 +1459,30 @@ export async function updateClubAthlete(
           : `${rawBirthDate.trim()}T00:00:00.000Z`
         : currentAthlete.birth_date || null;
 
-    const nextCategoryId =
-      primaryMembership?.categoryId ??
-      updates.category ??
-      updates.category_id ??
-      currentAthlete.category_id ??
-      null;
-    const nextCategoryName =
-      primaryMembership?.categoryName ??
-      updates.categoryName ??
-      updates.category_name ??
-      currentAthlete.category_name ??
-      null;
+    /*
+      Con il catalogo in mano la colonna e la primaria risolta, o resta
+      com'era: il riferimento grezzo dell'aggiornamento non ci finisce
+      (revisione ostile A11).
+    */
+    const catalogoPresente = catalogo.length > 0;
+    /*
+      Un salvataggio che **non dichiara** le appartenenze — la foto, lo stato,
+      un certificato — non tocca la colonna: rimandarla dalle righe lette
+      senza catalogo ci metterebbe l'etichetta di una riga storica (revisione
+      ostile C-R3). La colonna la cambia solo chi cambia le categorie.
+    */
+    const nextCategoryId = !membershipsDeclared
+      ? currentAthlete.category_id ?? null
+      : primaryMembership?.categoryId ??
+        (catalogoPresente ? null : updates.category ?? updates.category_id ?? null) ??
+        currentAthlete.category_id ??
+        null;
+    const nextCategoryName = !membershipsDeclared
+      ? currentAthlete.category_name ?? null
+      : primaryMembership?.categoryName ??
+        (catalogoPresente ? null : updates.categoryName ?? updates.category_name ?? null) ??
+        currentAthlete.category_name ??
+        null;
     /*
       W6-05. `??` risponde alla domanda «e nullo?», e queste righe devono
       rispondere a un'altra: «e stato dichiarato?».
@@ -1343,13 +1545,12 @@ export async function updateClubAthlete(
     const updatedData = {
       ...currentData,
       ...updates,
-      category: nextCategoryId,
-      categoryName: nextCategoryName,
-      categoryMemberships: serializeAthleteMemberships(normalizedMemberships, {
+      ...buildAthleteCategoryProjection(normalizedMemberships, {
         clubId,
         athleteId,
       }),
-      categories: getAthleteCategoryLabels(normalizedMemberships),
+      category: nextCategoryId,
+      categoryName: nextCategoryName,
       birthDate: nextBirthDate,
       medicalCertExpiry:
         updates.medicalCertExpiry ??
@@ -1387,7 +1588,13 @@ export async function updateClubAthlete(
     }
 
     const savedMemberships = membershipsDeclared
-      ? await replaceAthleteMemberships(clubId, athleteId, normalizedMemberships)
+      ? await replaceAthleteMemberships(
+          clubId,
+          athleteId,
+          normalizedMemberships,
+          catalogo,
+          membershipRows,
+        )
       : membershipRows;
 
     return hydrateAthleteWithMemberships(data, savedMemberships);

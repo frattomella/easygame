@@ -1,4 +1,5 @@
-import { findCategoryForBirthDate, resolveCategoryId } from "@/lib/category-utils";
+import { findCategoryForBirthDate } from "@/lib/category-utils";
+import { resolveCategoryReference } from "@/lib/categories/identity";
 import { isWellFormedCodiceFiscale } from "@/lib/italian-registry";
 import { todayLocalDateOnly } from "@/lib/date-only";
 import {
@@ -687,24 +688,29 @@ export const normalizeImportedAthletes = (
       errors.push("Email non valida");
     }
 
-    const rawCategory = mapping.category ? row[mapping.category] : "";
-    // `resolveCategoryId` restituisce il valore grezzo quando non trova nulla:
-    // qui servirebbe a poco, perche produrrebbe un id che nel club non esiste
-    // e l'anteprima direbbe "collegata" per una categoria da creare.
-    const resolvedCategoryId = rawCategory
-      ? resolveCategoryId(rawCategory, categories)
+    const rawCategory = mapping.category ? String(row[mapping.category] ?? "").trim() : "";
+    /*
+      **Un nome che ne nomina due non ne nomina nessuna** (ADR-0155, D-RD-17 b).
+      L'anteprima deve dire la stessa cosa dell'import: con due «Pulcini» la
+      riga non e «da creare» e non e «collegata» — e da correggere, e lo si
+      dice qui, prima di premere Importa.
+    */
+    const riferimento = rawCategory
+      ? resolveCategoryReference(rawCategory, rawCategory, categories)
       : null;
     const categoryId = rawCategory
-      ? categories.some((category) => category.id === resolvedCategoryId)
-        ? resolvedCategoryId
+      ? riferimento?.known
+        ? riferimento.id
         : null
       : findCategoryForBirthDate(birthDate, categories as any)?.id || null;
     const categoryLabel =
       categories.find((category) => category.id === categoryId)?.name ||
-      (rawCategory ? String(rawCategory).trim() : "") ||
+      rawCategory ||
       "";
 
-    if (!categoryId && !categoryLabel) {
+    if (riferimento?.ambiguous) {
+      errors.push(`La categoria "${rawCategory}" nomina piu squadre del club: indicare quale`);
+    } else if (!categoryId && !categoryLabel) {
       warnings.push("Nessuna categoria: verra assegnata dopo l'import");
     } else if (!categoryId) {
       warnings.push(`La categoria "${categoryLabel}" verra creata`);

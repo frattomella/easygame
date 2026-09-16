@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import {
   CATEGORY_SITE_SEPARATOR,
   buildCategoryDisplayIndex,
+  membershipRoleLabel,
   type CategoryDisplay,
   type CategoryDisplayEntry,
   type CategoryDisplayIndex,
@@ -78,6 +79,35 @@ export function CategoryLabel({
         {CATEGORY_SITE_SEPARATOR.trimStart()}
         {descritta.site}
       </span>
+    </span>
+  );
+}
+
+/**
+ * Il ruolo di un'appartenenza — «Primaria» / «Secondaria» — accanto alla
+ * categoria, in un elemento suo.
+ *
+ * Non si scrive «Pulcini · Scauri · Primaria»: il glifo della sede farebbe
+ * leggere il ruolo come una terza sede (D-RD-17 c). Il ruolo e un dato
+ * dell'appartenenza, non della categoria: una pillola dentro il chip, con il
+ * testo dal dominio (`membershipRoleLabel`), la stessa nella Web corrente e
+ * nel redesign.
+ */
+export function MembershipRoleBadge({
+  isPrimary,
+  className,
+}: {
+  isPrimary: boolean;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full border border-black/10 px-1.5 py-px text-[0.7em] font-semibold uppercase tracking-wide opacity-80",
+        className,
+      )}
+    >
+      {membershipRoleLabel(isPrimary)}
     </span>
   );
 }

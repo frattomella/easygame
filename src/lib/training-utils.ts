@@ -1,4 +1,8 @@
 import type { NormalizedCategoryOption } from "./category-utils";
+import {
+  buildCategoryDisplayIndex,
+  type CategoryDisplayIndex,
+} from "./categories/display";
 import type { NormalizedTrainerViewModel } from "./trainer-utils";
 import { getTrainerDisplayName } from "./trainer-utils";
 import { formatLocalDateOnly } from "./date-only";
@@ -237,17 +241,21 @@ const findCategoryMatch = (
     return null;
   }
 
-  return (
-    categories.find((category) => {
-      const normalizedId = normalizeLookupValue(category?.id);
-      const normalizedName = normalizeLookupValue(category?.name);
-
-      return (
-        normalizedReference === normalizedId ||
-        normalizedReference === normalizedName
-      );
-    }) || null
+  /*
+    **Un nome che ne nomina due non ne nomina nessuna** (ADR-0155, revisione
+    ostile A4). Qui c'era `find`, che con due «Pulcini» prendeva la prima — e
+    da quando l'etichetta passa dall'indice, le avrebbe pure attribuito una
+    sede. L'identificativo risolve sempre; il nome solo se e di una sola.
+  */
+  const perId = categories.find(
+    (category) => normalizeLookupValue(category?.id) === normalizedReference,
   );
+  if (perId) return perId;
+
+  const perNome = categories.filter(
+    (category) => normalizeLookupValue(category?.name) === normalizedReference,
+  );
+  return perNome.length === 1 ? perNome[0] : null;
 };
 
 /**
@@ -985,22 +993,30 @@ export const getTrainingCategoryReferences = (training: unknown) => {
 export const resolveCategoryLabelForTraining = (
   training: unknown,
   categories: Array<Pick<NormalizedCategoryOption, "id" | "name" | "color">> = [],
+  /**
+   * L'indice canonico della pagina (ADR-0185): con i gruppi e le sedi in
+   * mano scrive «Pulcini · Scauri» dove il nome ne nomina due. Senza, se ne
+   * costruisce uno dal solo catalogo: omonime nude, mai un identificativo.
+   */
+  display?: CategoryDisplayIndex,
 ) => {
   if (!isRecord(training)) {
     return "Categoria assegnata";
   }
 
+  const indice = display ?? buildCategoryDisplayIndex({ categories });
   const source = getTrainingSourceRecord(training);
   /*
     **Se l'allenamento e di tre categorie, l'etichetta ne dice tre.** E la
     stessa stringa che il modulo di creazione compone al salvataggio: prima
     dopo una ricarica ne restava una, e le altre due sparivano dalla vista pur
-    restando in archivio.
+    restando in archivio. Ogni nome passa dall'indice: due «Pulcini» su due
+    sedi si leggono con la sede accanto (D-RD-17 a).
   */
   const currentMatches = getTrainingCategoryMatches(training, categories);
   if (currentMatches.length) {
     return currentMatches
-      .map((match) => String(match.name))
+      .map((match) => indice.label(match.id))
       .filter(Boolean)
       .join(", ");
   }
@@ -1020,13 +1036,25 @@ export const resolveCategoryLabelForTraining = (
 
   const references = getTrainingCategoryReferences(training);
 
-  const fallbackLabel = firstNonEmptyString(
-    training.category,
-    source.category,
-    references[0],
-  );
+  /*
+    **Un riferimento che il catalogo non conosce non si scrive com'e**
+    (D-RD-17 a). Con il catalogo in mano e un identificativo stantio, e a
+    schermo va `UNKNOWN_CATEGORY_LABEL`; senza catalogo — chi chiama con `[]`
+    per derivare un nome — resta il riferimento, che e l'unica cosa che c'e.
+    La regola vive nell'indice, non qui.
+  */
+  const nomeScritto = firstNonEmptyString(training.category, source.category);
+  const riferimento = firstNonEmptyString(references[0], nomeScritto);
+  if (!riferimento) return "Categoria assegnata";
 
-  return fallbackLabel || "Categoria assegnata";
+  /*
+    `training.category` e il **nome** che il modulo ha scritto (revisione A5):
+    si legge come nome, non come identificativo. Quando e l'unica cosa che
+    c'e, non si passa anche come identificativo, o l'indice lo leggerebbe come
+    l'eco di un identificativo e direbbe «non disponibile» a un nome vero.
+  */
+  const identificativo = riferimento === nomeScritto ? "" : riferimento;
+  return indice.label({ categoryId: identificativo, categoryName: nomeScritto });
 };
 
 export const getTrainingCategoryLabel = resolveCategoryLabelForTraining;
