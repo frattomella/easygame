@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, Save, Send } from "lucide-react";
 import { Button as WebButton } from "@/components/web/primitives/Button";
 import { AlertBlock } from "@/components/web/page/Alerts";
@@ -114,17 +114,23 @@ export function PublicFormPage({ publicSlug }: PublicFormPageProps) {
     query string per i link salvati prima di questa scelta.
   */
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [resumeParam, setResumeParam] = useState("");
   useEffect(() => {
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
     const token = hash.get("riprendi") || searchParams?.get("riprendi") || "";
     if (!token) return;
     setResumeParam(token);
+    /*
+      Dal router e non da `history.replaceState`: il router di Next tiene il
+      proprio indirizzo canonico e lo rimetterebbe nella barra al primo
+      aggiornamento, gettone compreso.
+    */
     const pulita = new URL(window.location.href);
     pulita.hash = "";
     pulita.searchParams.delete("riprendi");
-    window.history.replaceState(null, "", pulita.toString());
-  }, [searchParams]);
+    router.replace(`${pulita.pathname}${pulita.search}`, { scroll: false });
+  }, [router, searchParams]);
   const [serverDraftToken, setServerDraftToken] = useState<string>("");
   const [savingDraft, setSavingDraft] = useState(false);
   const [resumeLink, setResumeLink] = useState("");

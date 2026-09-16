@@ -127,17 +127,25 @@ export function SubmissionReviewDialog({
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [requestedFieldIds, setRequestedFieldIds] = useState<string[]>([]);
 
+  /*
+    `showToast` e `onClose` cambiano identita a ogni render: dentro le
+    dipendenze di `load` facevano ripartire la lettura a ogni risposta, cioe
+    un ciclo di richieste senza fine (UAT del secondo lotto). Si leggono da un
+    riferimento: la lettura dipende solo dalla pratica.
+  */
+  const callbacks = React.useRef({ showToast, onClose });
+  callbacks.current = { showToast, onClose };
   const load = useCallback(async () => {
     setLoading(true);
     try {
       setReview(await formsApi.fetchSubmissionReview(submissionId));
     } catch (error: any) {
-      showToast("error", error?.message || "Non riesco a leggere la compilazione");
-      onClose();
+      callbacks.current.showToast("error", error?.message || "Non riesco a leggere la compilazione");
+      callbacks.current.onClose();
     } finally {
       setLoading(false);
     }
-  }, [submissionId, showToast, onClose]);
+  }, [submissionId]);
 
   useEffect(() => {
     void load();
