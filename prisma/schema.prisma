@@ -144,13 +144,13 @@ model ImapProviderConfig {
 }
 
 model Session {
-  id                String            @id @default(uuid()) @db.Uuid
-  token             String            @unique
-  user_id           String            @db.Uuid
-  expires_at        DateTime
-  created_at        DateTime          @default(now())
-  updated_at        DateTime          @updatedAt
-  user              User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  id                 String            @id @default(uuid()) @db.Uuid
+  token              String            @unique
+  user_id            String            @db.Uuid
+  expires_at         DateTime
+  created_at         DateTime          @default(now())
+  updated_at         DateTime          @updatedAt
+  user               User              @relation(fields: [user_id], references: [id], onDelete: Cascade)
   device_push_tokens DevicePushToken[]
 
   @@index([user_id])
@@ -1788,6 +1788,7 @@ model FormTemplate {
   organization      Club                  @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   versions          FormTemplateVersion[]
   submissions       FormSubmission[]
+  drafts            FormDraft[]
 
   @@index([organization_id, status])
   @@map("form_templates")
@@ -1809,6 +1810,7 @@ model FormTemplateVersion {
   published_by    String?          @db.Uuid
   template        FormTemplate     @relation(fields: [template_id], references: [id], onDelete: Cascade)
   submissions     FormSubmission[]
+  drafts          FormDraft[]
 
   @@unique([template_id, version])
   @@index([organization_id])
@@ -1825,17 +1827,17 @@ model FormTemplateVersion {
 /// compilazioni non si cancella — si archivia — proprio perche quella
 /// citazione deve restare risolvibile.
 model FormSubmission {
-  id                 String              @id @default(uuid()) @db.Uuid
-  organization_id    String              @db.Uuid
-  template_id        String              @db.Uuid
-  version_id         String              @db.Uuid
+  id                 String                   @id @default(uuid()) @db.Uuid
+  organization_id    String                   @db.Uuid
+  template_id        String                   @db.Uuid
+  version_id         String                   @db.Uuid
   /// `public` | `internal`
-  source             String              @default("public")
+  source             String                   @default("public")
   /// `enrollment` | `renewal`.
   ///
   /// Il rinnovo non e un secondo motore: e lo stesso modulo con un contesto —
   /// i dati esistenti precompilati e la stagione di destinazione citata.
-  kind               String              @default("enrollment")
+  kind               String                   @default("enrollment")
   /// La stagione a cui la domanda si riferisce, quando la dichiara.
   season_id          String?
   /// **La difesa contro il doppio invio.**
@@ -1857,32 +1859,103 @@ model FormSubmission {
   /// riferimento opaco che l'invio restituisce vive **solo** nelle mani di chi
   /// lo ha ricevuto; qui resta l'impronta, come per i link di pagamento
   /// (ADR-0085). Chi legge il database non puo aprire la pratica di nessuno.
-  receipt_token_hash String?             @unique
-  /// `pending` | `approved` | `rejected`
-  status             String              @default("pending")
+  receipt_token_hash String?                  @unique
+  /// `pending` | `changes_requested` | `approved` | `converted` | `rejected` | `archived`
+  /// (ADR-0189). `approved` scrive consensi e documenti ma non crea schede;
+  /// `converted` e la pratica da cui e nata o a cui e stata collegata una
+  /// scheda atleta (`athlete_id`).
+  status             String                   @default("pending")
   /// Quale atleta, quale genitore: `FormSubjectSelection[]`.
   subjects           Json
   answers            Json
   /// Metadati degli allegati caricati: riferimenti, mai byte.
   files              Json
+  /// **La prova delle dichiarazioni** (ADR-0192): per ogni casella legale il
+  /// testo mostrato, la sua impronta, la versione, la risposta, l'ora e il
+  /// metodo. E cio che si esibisce, non un riferimento a cio che si esibiva.
+  declarations       Json?
+  /// SHA-256 di {versione, risposte, dichiarazioni, impronte degli allegati}
+  /// calcolata all'invio: l'integrita della pratica cosi come e stata inviata.
+  snapshot_hash      String?
+  /// Progressivo del reinvio: 1 al primo invio, +1 a ogni integrazione.
+  /// Le versioni precedenti stanno in `form_submission_revisions`.
+  revision           Int                      @default(1)
+  /// Cosa il club ha chiesto di correggere: `{fieldIds, note, requestedAt, requestedBy}`.
+  changes_requested  Json?
+  /// La scheda atleta nata da questa pratica o collegata da essa.
+  athlete_id         String?                  @db.Uuid
+  /// La persona in prova che questa pratica ha riconosciuto (ADR-0193).
+  trial_athlete_id   String?                  @db.Uuid
+  archived_at        DateTime?
   respondent_name    String?
   respondent_email   String?
-  submitted_by       String?             @db.Uuid
-  submitted_at       DateTime            @default(now())
-  reviewed_by        String?             @db.Uuid
+  submitted_by       String?                  @db.Uuid
+  submitted_at       DateTime                 @default(now())
+  reviewed_by        String?                  @db.Uuid
   reviewed_at        DateTime?
   review_note        String?
-  created_at         DateTime            @default(now())
-  updated_at         DateTime            @updatedAt
-  organization       Club                @relation(fields: [organization_id], references: [id], onDelete: Cascade)
-  template           FormTemplate        @relation(fields: [template_id], references: [id], onDelete: Cascade)
-  template_version   FormTemplateVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
+  created_at         DateTime                 @default(now())
+  updated_at         DateTime                 @updatedAt
+  organization       Club                     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  template           FormTemplate             @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  template_version   FormTemplateVersion      @relation(fields: [version_id], references: [id], onDelete: Cascade)
+  revisions          FormSubmissionRevision[]
 
   @@unique([organization_id, dedup_key])
   @@index([organization_id, status])
   @@index([organization_id, template_id, submitted_at])
   @@index([organization_id, kind, submitted_at])
+  @@index([organization_id, athlete_id])
   @@map("form_submissions")
+}
+
+/// La copia **precedente** di una pratica, conservata a ogni reinvio
+/// (ADR-0189 §2). Non si aggiorna mai: e cio che la famiglia aveva inviato
+/// prima che il club chiedesse un'integrazione.
+model FormSubmissionRevision {
+  id              String         @id @default(uuid()) @db.Uuid
+  organization_id String         @db.Uuid
+  submission_id   String         @db.Uuid
+  /// Il numero della revisione che questa copia **era**.
+  revision        Int
+  answers         Json
+  files           Json
+  declarations    Json?
+  snapshot_hash   String?
+  /// La richiesta del club che ha portato al reinvio.
+  reason          Json?
+  submitted_at    DateTime
+  superseded_at   DateTime       @default(now())
+  submission      FormSubmission @relation(fields: [submission_id], references: [id], onDelete: Cascade)
+
+  @@unique([submission_id, revision])
+  @@index([organization_id])
+  @@map("form_submission_revisions")
+}
+
+/// Una bozza pubblica ripristinabile (ADR-0189 §3, ADR-0191). Non e una
+/// compilazione: non entra in coda, non ha ricevuta, scade da sola. Il
+/// gettone di ripresa vive solo nelle mani di chi lo ha ricevuto; qui resta
+/// l'impronta.
+model FormDraft {
+  id                String              @id @default(uuid()) @db.Uuid
+  organization_id   String              @db.Uuid
+  template_id       String              @db.Uuid
+  version_id        String              @db.Uuid
+  resume_token_hash String              @unique
+  answers           Json
+  respondent_email  String?
+  expires_at        DateTime
+  /// La pratica nata da questa bozza, quando e stata inviata.
+  submitted_id      String?             @db.Uuid
+  created_at        DateTime            @default(now())
+  updated_at        DateTime            @updatedAt
+  template          FormTemplate        @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  template_version  FormTemplateVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, template_id])
+  @@index([expires_at])
+  @@map("form_drafts")
 }
 
 /**

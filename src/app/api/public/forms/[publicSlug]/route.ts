@@ -122,6 +122,7 @@ export async function POST(request: Request, context: Context) {
       files: payload.files,
       respondentName: payload.respondentName,
       respondentEmail: payload.respondentEmail,
+      draftToken: payload.draftToken,
     });
 
     return NextResponse.json({ data: result, error: null });

@@ -16,6 +16,9 @@ export type AuthRateLimitPolicy = {
     | "payment_link_view"
     | "payment_link_checkout"
     | "enrollment_status"
+    | "public_form_draft_read"
+    | "public_form_draft_write"
+    | "public_form_resubmit"
     | "access_token_redeem"
     /** Cambio di un fattore su un account gia autenticato (PP-05). */
     | "credential_change"
@@ -111,6 +114,15 @@ export const AUTH_RATE_LIMITS = {
     e fermano chi riempie la coda della segreteria.
   */
   publicFormSubmit: { scope: "public_form_submit", limit: 10, windowMs: 60 * 60_000 },
+  /*
+    La bozza ripristinabile (ADR-0191 §3): leggerla e come aprire il modulo,
+    salvarla scrive una riga piccola. Trenta salvataggi in un quarto d'ora
+    coprono chi salva a ogni sezione; il reinvio dopo un'integrazione ha il
+    costo dell'invio e lo stesso tetto.
+  */
+  publicFormDraftRead: { scope: "public_form_draft_read", limit: 60, windowMs: 15 * 60_000 },
+  publicFormDraftWrite: { scope: "public_form_draft_write", limit: 30, windowMs: 15 * 60_000 },
+  publicFormResubmit: { scope: "public_form_resubmit", limit: 10, windowMs: 60 * 60_000 },
   /*
     Il link di pagamento (W2-B). Due contatori per gesto, e non uno: quello
     **per token** ferma chi martella un link che ha ricevuto o indovinato,

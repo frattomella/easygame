@@ -326,7 +326,7 @@ test("approvare registra il consenso e genera il documento", async () => {
     decision: "approve",
   });
 
-  assert.equal(esito.submission.status, "approved");
+  assert.equal(esito.submission.status, "converted", "la scheda e nata da questa pratica: «Atleta creato» (ADR-0189)");
   assert.deepEqual(esito.issues, [], esito.issues.join(" | "));
 
   const atleta = fake.rows("athlete")[0];
@@ -524,7 +524,7 @@ test("un modello non pubblicato non blocca l'approvazione, e l'esito lo dice", a
     decision: "approve",
   });
 
-  assert.equal(esito.submission.status, "approved");
+  assert.equal(esito.submission.status, "converted");
   assert.equal(fake.rows("athlete").length, 1, "l'anagrafica e il fatto principale");
   assert.equal(fake.rows("consentRecord").length, 1, "il consenso non dipende dal documento");
   assert.equal(fake.rows("generatedDocument").length, 0);
@@ -586,7 +586,7 @@ test("se la generazione fallisce a meta non resta nessuna entita orfana", async 
     fake.client.athletePayment.findMany = originale;
   }
 
-  assert.equal(esito.submission.status, "approved");
+  assert.equal(esito.submission.status, "converted");
   assert.equal(fake.rows("athlete").length, 1);
   assert.equal(fake.rows("consentRecord").length, 1);
   assert.equal(fake.rows("generatedDocument").length, 0);

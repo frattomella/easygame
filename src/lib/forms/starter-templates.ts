@@ -70,6 +70,10 @@ const field = (
   options: [],
   binding: "",
   consentKey: "",
+  legalKind: "",
+  content: "",
+  visibleWhen: null,
+  upload: null,
   ...extra,
 });
 

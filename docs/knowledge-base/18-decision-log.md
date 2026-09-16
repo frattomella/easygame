@@ -12231,3 +12231,412 @@ Alla chiusura: Critical 0, High 0. Cio che ha trovato e come e stato chiuso:
   per atleti e persone in prova; le pagine pubbliche usano \`StatusPill\`,
   \`AlertBlock\` e il bottone del sistema; la scelta «Utente/Club» e un
   \`radiogroup\` con le frecce (\`SegmentedControl mode="radio"\
+
+## ADR-0189 — Una domanda di iscrizione online e una pratica, non un atleta: `form_submissions` e l'entita, con bozza ripristinabile, integrazione richiesta, revisioni conservate e conversione idempotente
+
+**Data:** 2026-09-16 · **Stato:** accettata · **Migrazione:**
+`20260916200000_adr0189_pratiche_di_iscrizione` (additiva; applicata solo a
+`web-redesign-staging`, copia di sicurezza Neon `br-sparkling-butterfly-al5o6a2g`
+presa prima di applicarla; registro in `docs/redesign/ISCRIZIONI-ONLINE.md`).
+
+### Trace di cio che c'era (CURRENT)
+
+Prima di disegnare si e tracciato il sistema vero (tre agenti in sola lettura,
+report in `docs/redesign/ISCRIZIONI-ONLINE.md` §1). In sintesi:
+
+- **Il dominio esisteva gia e non scriveva l'anagrafica dal pubblico.**
+  `form_templates` (bozza + `published_version`), `form_template_versions`
+  (schema **congelato** per versione), `form_submissions` (`version_id` cita la
+  versione esatta; `status` in `pending | approved | rejected`; `subjects`,
+  `answers`, `files` come riferimenti ad `attachments`; `receipt_token_hash`
+  = SHA-256 di una ricevuta da 256 bit; `dedup_key` a finestra di dieci
+  minuti). Il modulo pubblico (`/forms/<slug>`) **non** crea atleti ne tutori:
+  crea una compilazione `pending`. E l'approvazione (`decideFormSubmission`)
+  la sola strada che scrive `athletes` (dal registro generico, con il vaglio
+  di categoria ADR-0186), `athlete_category_memberships`
+  (`syncEnrollmentMembership`), i tutori (`upsertGuardianFromFormApproval`,
+  **solo recapito** quando la fonte e pubblica: nessuna autorita), i consensi
+  (`consent_records` con `evidence_kind = form_submission`) e il documento
+  generato. La presa in esame (`reviewed_at` con `updateMany` condizionato)
+  gia impedisce due approvazioni simultanee.
+- **Il catalogo dei dati e chiuso e server-side**: `DYNAMIC_FIELDS`
+  (`src/lib/forms/dynamic-fields.ts`) dice per ogni chiave `athlete.*`,
+  `guardian.*`, `club.*` dove vive e se e scrivibile; il builder puo
+  chiedere solo quelle; le opzioni di sede e categoria le inietta il server.
+  Un campo del modulo senza `binding` e un **campo personalizzato** e resta
+  nella pratica.
+- **Cio che mancava**: una bozza ripristinabile; uno stato «integrazione
+  richiesta» con una strada per correggere solo cio che e stato chiesto e senza
+  perdere la versione precedente; la distinzione fra «approvata» e «atleta
+  creato»; il riconoscimento, in revisione, di una persona in prova o di un
+  atleta gia in archivio; l'archiviazione; una semantica legale per le spunte;
+  permessi propri (i modelli erano governati dalla sola matrice generica
+  `forms`: chi leggeva poteva pubblicare).
+
+### La decisione (TARGET)
+
+1. **La pratica e `form_submissions`.** Non si crea una seconda entita:
+   la tabella ha gia versione citata, ricevuta, dedup, presa in esame, audit e
+   cancellazione dell'interessato. Si **estende**: `status` in
+   `pending | changes_requested | approved | converted | rejected | archived`
+   (etichette: Da revisionare · Integrazione richiesta · Approvata · Atleta
+   creato · Rifiutata · Archiviata), `revision` (progressivo, parte da 1),
+   `changes_requested` (JSON: campi da correggere, nota, chi e quando),
+   `athlete_id` (la scheda creata o collegata da **questa** pratica),
+   `trial_athlete_id` (la persona in prova riconosciuta), `declarations`
+   (la prova delle spunte legali, ADR-0192), `archived_at`.
+2. **Le revisioni si conservano.** `form_submission_revisions` tiene, per
+   ogni reinvio, la copia di `answers`/`files`/`declarations` **precedente**
+   con il numero di revisione e il motivo (la richiesta del club). La pratica
+   porta sempre l'ultima; la storia si legge dalle righe.
+3. **La bozza e un'altra cosa.** `form_drafts` (club, modello, versione,
+   `resume_token_hash` unico, `answers`, `expires_at`, `submitted_id` quando
+   diventa pratica). Una bozza non e una compilazione: non entra in coda, non
+   ha ricevuta, scade da sola (30 giorni) e si cancella quando la pratica
+   nasce. Gli allegati non entrano in bozza: si caricano all'invio (**rinvio
+   dichiarato**, vedi sotto).
+4. **Macchina degli stati e transizioni autorizzate.**
+
+   | Da | A | Chi | Come |
+   |---|---|---|---|
+   | (bozza) | `pending` | chi ha il link | invio pubblico |
+   | `pending` | `changes_requested` | `forms.submissions.request_changes` | «Richiedi integrazione»: campi + nota |
+   | `changes_requested` | `pending` | chi ha la **ricevuta** | reinvio: revisione salvata, `revision + 1` |
+   | `pending` | `approved` | `forms.submissions.review` | «Approva»: scrive consensi/documenti, **non** crea schede |
+   | `pending` | `converted` | `forms.submissions.convert` | «Approva e crea atleta» / «Collega ad atleta esistente» / «Converti la persona in prova» |
+   | `pending` | `rejected` | `forms.submissions.review` | «Rifiuta» con nota |
+   | `pending`, `changes_requested`, `rejected`, `approved` | `archived` | `forms.submissions.review` | «Archivia» (non tocca l'anagrafica) |
+
+   Ogni transizione e un'azione di `decideFormSubmission` sotto la stessa
+   presa in esame; ogni transizione scrive audit
+   (`form.submission.changes_requested | resubmitted | approved | converted |
+   rejected | archived`).
+5. **L'approvazione resta l'unica autorita di scrittura** e diventa
+   idempotente anche nel risultato: `athlete_id` sulla pratica dice quale
+   scheda e nata; una pratica `converted` non si riapprova; la presa in esame
+   fa fallire il secondo clic con un errore, non con un doppione.
+6. **Riconoscimento in revisione, mai in pubblico** (ADR-0193): la pratica
+   in esame mostra le possibili corrispondenze fra persone in prova
+   (`trial_athletes`, stesso nome e cognome, con la data di nascita a dire se
+   coincide) e atleti gia in archivio (`matchDuplicates`, gia esistente). Il
+   modulo pubblico non ha nessun endpoint che risponda «esiste Mario Rossi?».
+7. **Permessi propri** (`src/lib/permissions/catalog.ts`):
+   `forms.templates.read` (GESTIONE), `forms.templates.manage` (GESTIONE),
+   `forms.templates.publish` (DIREZIONE: pubblicare, archiviare, rigenerare il
+   link), `forms.submissions.read` / `review` (GESTIONE, esistenti),
+   `forms.submissions.request_changes` (GESTIONE),
+   `forms.submissions.convert` (GESTIONE — chi crea schede),
+   `forms.evidence.read` (GESTIONE: la prova delle dichiarazioni).
+   L'allenatore, che puo registrare una presenza di prova, **non** ha nessuna
+   di queste.
+8. **Cancellazione dell'interessato**: `data-subject.ts` gia cancella le
+   pratiche proprie e anonimizza quelle condivise; le revisioni seguono la
+   pratica (cascata) e le bozze scadute le toglie `purgeExpiredFormDrafts`.
+
+### Migrazione
+
+Additiva: colonne nullable con default, due tabelle nuove, nessuna riscrittura
+di righe esistenti (`pending | approved | rejected` restano validi: una riga
+`approved` con una scheda creata **non** viene reinterpretata come
+`converted` — sarebbe una reinterpretazione di dati reali, ed e vietata dal
+mandato; da qui in poi le nuove approvazioni dicono la differenza).
+
+### Sicurezza e privacy
+
+Il confine resta `organization_id` + permesso di catalogo; le strade pubbliche
+sono tre e tutte a segreto portato dal solo chi lo riceve (ADR-0191). La
+reinvio dopo «integrazione richiesta» modifica **solo** i campi elencati dal
+club; gli altri si rifiutano server-side. Le revisioni conservano dati
+personali: seguono la pratica nella cancellazione.
+
+### Rollback
+
+Le colonne nuove non sono lette dal codice precedente; le tabelle nuove non
+sono referenziate. Tornare indietro = ridistribuire il codice precedente e
+lasciare le colonne (`archived`/`changes_requested`/`converted` tornerebbero
+a leggersi come «stato sconosciuto» nella coda: `normalizeStatus` del codice
+vecchio ricade su `pending`).
+
+### Rinviato (DEFERRED)
+
+- Allegati in bozza (oggi si caricano all'invio).
+- Verifica del recapito (OTP) prima dell'invio: la ricevuta e il link di
+  ripresa hanno 256 bit e scadono; l'OTP si aggiunge quando un club lo
+  chiedera (ADR-0191 §DEFERRED).
+- Attivazione dell'account famiglia **dopo** l'approvazione: oggi passa
+  dall'invito del club (gettone di accesso, ADR-0104/0135); non cambia qui.
+
+## ADR-0190 — Il builder dei moduli e strutturato a blocchi sopra il modello JSON esistente; l'editor dei documenti abbandona `contentEditable` + `execCommand` per ProseMirror (TipTap) con schema chiuso e sanificazione **anche** server-side
+
+**Data:** 2026-09-16 · **Stato:** accettata
+
+### Trace (CURRENT)
+
+Due motori, per scelta e non per duplicazione:
+
+- **Moduli online** = `FormSchema` JSON (`src/lib/forms/model.ts`: 13 tipi
+  di campo, `binding` al catalogo, `consentKey`), un solo renderer
+  (`form-renderer.tsx`) usato da modulo pubblico, anteprima del builder,
+  compilazione interna e rinnovo. Versionato e congelato per versione. E gia
+  un builder strutturato: la cosa che gli mancava e il **contenuto** (testo
+  legale formattato, intestazioni, tabelle, immagini), la semantica legale
+  delle spunte e la visibilita condizionale.
+- **Modelli di documento** = HTML con segnaposto `{{token}}`
+  (`src/lib/documents/*`), editato da `DocumentEditor.tsx`: 1178 righe di
+  `contentEditable` + `document.execCommand` senza libreria, sanificazione
+  **solo** client (allowlist propria), immagini **base64 dentro l'HTML**
+  (limite 200k caratteri), niente tabelle dall'interfaccia, interruzione di
+  pagina come `<div class="easygame-page-break">`, anteprima in
+  `<iframe sandbox>`. E questo l'editor che l'UAT ha bocciato: campi
+  dinamici che vanno a capo, interlinea, niente dimensione del carattere,
+  immagini non ridimensionabili, link e caselle assenti, multipagina
+  ingestibile.
+
+### La decisione (TARGET)
+
+1. **Non si sostituisce il modello dei moduli: si completa.** `FormField`
+   guadagna:
+   - `type: "content"` — un blocco di contenuto (HTML sanificato, prodotto
+     dal nuovo editor) per titoli, paragrafi, elenchi, link, tabelle,
+     immagini, interruzioni di pagina: e il testo legale e le istruzioni,
+     dentro la versione;
+   - `legalKind` sulle `checkbox`: `"" | acknowledgement | required_acceptance
+     | optional_consent | authorization` (ADR-0192) — una casella grafica non e
+     un consenso finche il builder non lo dice;
+   - `visibleWhen: { fieldId, equals }` — «se X vale Y mostra Y»: una sola
+     condizione di uguaglianza, valutata dal renderer **e** dal server (un
+     campo nascosto non e obbligatorio e non si accetta); non e un motore di
+     workflow e lo schema puo crescere senza riscrivere;
+   - `upload: { accept, maxBytes }` sui `file_upload` e il tipo
+     `image_upload` (solo immagini).
+   Il builder li mostra in una tavolozza a tre famiglie: **Contenuto**,
+   **Dati EasyGame** (i campi con `binding`, con visibile/obbligatorio/
+   facoltativo/non richiesto decisi dal club per ogni campo consentito),
+   **Campi e dichiarazioni**.
+2. **L'editor di contenuto e uno solo, su ProseMirror (TipTap)**, con schema
+   chiuso: paragrafo, titoli 1–3, grassetto/corsivo/sottolineato, dimensione
+   del carattere (scala chiusa), allineamento, interlinea e spazio fra
+   paragrafi (scala chiusa), elenchi, link (solo `http(s)`/`mailto`), tabelle
+   (inserisci, riga/colonna, intestazione), immagini (ridimensionabili,
+   allineate, con testo alternativo; i byte vanno in `attachments` e nell'HTML
+   resta l'URL dell'allegato — mai base64), interruzione di pagina (nodo),
+   annulla/ripeti. I **segnaposto sono nodi atomici inline**
+   (`{{athlete.firstName}}` reso come chip): non si spezzano, non si editano
+   dentro, si selezionano e si cancellano come un carattere, e in anteprima
+   si risolvono. Lo stesso editor serve il blocco `content` dei moduli e il
+   corpo dei modelli di documento.
+3. **La sanificazione e server-side ed e l'autorita.** `sanitizeRichHtml`
+   (`src/lib/rich-text/sanitize.ts`, allowlist di tag, attributi e proprieta
+   di stile; `href` solo `http(s):`/`mailto:`; `src` solo `/api/v1/attachments/`
+   o `data:` **rifiutato**) gira su ogni scrittura di `content` e di
+   `draft_content`/`content_html`; il client la applica anche, ma non conta.
+   Un HTML che la sanificazione cambia non e un errore: e cio che si salva.
+4. **L'anteprima principale e una pagina web**, non un PDF:
+   `/modulistica/moduli/<id>/anteprima` (desktop e 375 px con la stessa
+   `form-renderer` del pubblico, nessuna scrittura). La stampa resta
+   HTML+`@media print` con `page-break-before` sui nodi di interruzione (nessun
+   motore PDF server: D38 resta aperto e dichiarato).
+5. **Pubblicazione e versioni** restano quelle di ADR-0039/0040: una versione
+   pubblicata e immutabile, la compilazione la cita, «Duplica» crea un modello
+   nuovo in bozza.
+
+### Perche non A (evolvere l'editor attuale) ne B puro (solo cambiare il core)
+
+`execCommand` e deprecato e non ha un modello del documento: ogni difetto
+dell'UAT (il token che va a capo, l'interlinea, il ridimensionamento) e una
+patch sul DOM senza uno schema che la difenda. ProseMirror ha uno schema, e
+lo schema **e** la sanificazione lato client. Costruire il builder dei moduli
+*sopra* l'editor (C puro) avrebbe voluto dire buttare il modello JSON che
+funziona, e versionato e ha un solo renderer: si tiene il modello e gli si da
+il contenuto che gli mancava.
+
+### Sicurezza
+
+Schema chiuso nell'editor; allowlist sul server; `<iframe sandbox>` per
+l'anteprima dei documenti risolti; nessun `dangerouslySetInnerHTML` senza
+`sanitizeRichHtml` a monte. Le immagini passano da `attachments` (MIME
+allowlist, 10 MB, `nosniff`).
+
+### Rollback
+
+Il campo `content` e i nuovi attributi sono ignorati dal renderer precedente
+(campi sconosciuti → `short_text`, che e il ripiego esistente di
+`getFieldTypeDefinition`); i modelli di documento restano HTML.
+
+### Rinviato
+
+- Un motore PDF server (D38): finche la stampa e del browser, l'interruzione
+  di pagina e rispettata da Chrome/Edge/Firefox e non da tutti i visualizzatori
+  mobili.
+- Tabelle annidate, colonne, layout a griglia: fuori dal V1 per scelta.
+- Un blocco «firma» come nodo del documento: vedi ADR-0192.
+
+## ADR-0191 — Il modulo pubblico e a segreto portato: link non enumerabili, bozza ripristinabile con gettone a 256 bit e scadenza, reinvio con la ricevuta, nessun endpoint che risponda «esiste?»
+
+**Data:** 2026-09-16 · **Stato:** accettata
+
+### Trace (CURRENT)
+
+- Link del modulo: `public_slug` = 12 esadecimali (48 bit) in chiaro, unico;
+  revoca = rigenera lo slug / spegni il modulo / archivia; scadenza =
+  `settings.closeAt`. Rate limit 60 letture / 15 min e 10 invii / ora per IP;
+  ogni esito negativo e 404.
+- Ricevuta: 256 bit, in archivio come SHA-256, confronto a tempo costante,
+  sola lettura, senza scadenza.
+- Link di pagamento: 256 bit, hash, scadenza, revoca.
+- Corpo: multipart, 256 KB di risposte, 10 file da 8 MB, MIME allowlist
+  (PDF/JPEG/PNG/WebP/HEIC), firma solo PNG/JPEG; nessun byte in `answers`.
+- Non esiste nessuna rotta pubblica che cerchi atleti o persone in prova.
+
+### La decisione
+
+1. **Tre segreti, tre usi.** Il **link del modulo** identifica il modulo
+   (48 bit: sufficiente contro l'enumerazione con il rate limit; **non** e un
+   segreto per persona e non autorizza niente oltre a compilare). Il
+   **gettone di ripresa** (`form_drafts.resume_token_hash`, 256 bit, hash,
+   scade in 30 giorni, si consuma alla nascita della pratica) apre **una**
+   bozza. La **ricevuta** (256 bit, hash) apre **una** pratica: lo stato, e
+   — quando il club l'ha chiesta — l'integrazione, limitata ai campi
+   elencati. Nessuno dei tre e in una query string di un'email in chiaro
+   oltre al link stesso; nessuno finisce nei log (i route handler non lo
+   scrivono).
+2. **Enumerazione impossibile per costruzione**: nessuna rotta pubblica
+   accetta nome, cognome o data di nascita per rispondere se esistono; il
+   riconoscimento avviene solo in revisione, dietro `forms.submissions.review`.
+   Le rotte pubbliche rispondono 404 a gettone assente, scaduto, consumato,
+   di un altro club o di un altro modulo — lo stesso 404.
+3. **Rate limit** anche sulle rotte nuove: ripresa (lettura 60/15 min per
+   IP, scrittura 30/15 min) e reinvio (10/ora per IP), dalla stessa policy
+   (`src/lib/auth/rate-limit-policy.ts`).
+4. **Isolamento del tenant**: ogni lettura pubblica parte dallo slug del
+   modulo → `organization_id`, e ogni gettone si cerca **dentro** quel modulo
+   (`template_id` nel `where`): una ricevuta di un club non apre niente in un
+   altro.
+5. **XSS**: il contenuto dei moduli e sanificato server-side (ADR-0190); le
+   risposte sono testo e si rendono come testo; gli allegati non si rendono
+   inline se non sono `INLINE_RENDERABLE_MIME_TYPES`.
+6. **CSRF**: le rotte pubbliche non usano cookie di sessione (il segreto e
+   nel corpo o nel percorso), quindi un sito terzo non puo far compilare a
+   nome di qualcuno senza conoscerne il segreto.
+
+### Rollback
+
+Le rotte nuove si spengono togliendo i file; i gettoni in archivio scadono.
+
+### Rinviato
+
+- OTP sul recapito prima dell'invio o della ripresa (§15 del mandato,
+  «se necessario»): il modello di minaccia con 256 bit e scadenza non lo
+  richiede per una bozza; lo richiede una policy del club per l'identita del
+  dichiarante (vedi ADR-0192 sulla FEA), ed e un'integrazione da decidere
+  con il club.
+- Un limite per **modulo** oltre a quello per IP.
+
+## ADR-0192 — Una spunta non e un consenso finche non lo dice il modello: presa visione, accettazione richiesta, consenso facoltativo, autorizzazione; la prova e nella pratica con testo e versione; la firma disegnata e un'evidenza grafica, non una firma elettronica qualificata
+
+**Data:** 2026-09-16 · **Stato:** accettata (con **revisione legale richiesta**:
+vedi `docs/redesign/LEGAL-AUDIT-ISCRIZIONI.md`)
+
+### Trace (CURRENT)
+
+`consent_definitions` / `consent_versions` (testo immutabile per versione) /
+`consent_records` (append-only, `accepted | rejected | revoked`, `decided_at`,
+`decided_by`, `source`, `evidence_kind/evidence_id`) esistono (ADR-0090) e
+una `checkbox` con `consentKey` diventa un `consent_record` all'approvazione.
+Il campo `signature` produce un PNG tracciato con il dito, salvato come
+allegato; `generated_documents.status` conosce `awaiting_signature | signed`
+come **copia firmata caricata** (ADR-0091). Non c'era distinzione fra una
+presa visione, un'accettazione obbligatoria e un consenso facoltativo, e la
+prova di **cosa** era stato mostrato stava nella versione del modulo ma non
+accanto alla risposta.
+
+### La decisione
+
+1. **Quattro semantiche, un attributo** (`FormField.legalKind` sulle
+   `checkbox`):
+   - `acknowledgement` — presa visione (informativa privacy, regolamento):
+     non e un consenso, e una dichiarazione di aver letto; si puo rendere
+     obbligatoria;
+   - `required_acceptance` — accettazione richiesta per procedere (patto
+     associativo, condizioni): obbligatoria per costruzione; **non e la base
+     giuridica del trattamento** (che di regola e il contratto/l'obbligo
+     associativo, da dichiarare nell'informativa del club);
+   - `optional_consent` — consenso facoltativo, **mai obbligatorio**, separato
+     per finalita (immagini, comunicazioni), con `consentKey` per diventare un
+     `consent_record` revocabile;
+   - `authorization` — autorizzazione del genitore/tutore (uscita autonoma,
+     trasporto): dichiarazione dell'esercente la responsabilita genitoriale,
+     con `consentKey` facoltativa.
+   Il builder rifiuta `required: true` su un `optional_consent`.
+2. **La prova sta nella pratica.** All'invio la pratica salva `declarations`:
+   per ogni casella legale `{fieldId, legalKind, consentKey, label, text,
+   textHash (SHA-256), versionId, answer, at, method: "web_checkbox",
+   respondent}`. Il testo e quello **mostrato** (dal blocco `content` o dalla
+   descrizione del campo), non un riferimento: e cio che EDPB 05/2020 §108
+   chiede di poter dimostrare (chi, quando, come, cosa e stato mostrato). Un
+   reinvio conserva le dichiarazioni precedenti nella revisione.
+3. **All'approvazione**, come oggi, le caselle con `consentKey` diventano
+   `consent_records` con `evidence_kind = form_submission` (revocabili da
+   `/consensi`); le prese visione e le accettazioni restano nella pratica.
+   La **revoca** di un consenso facoltativo passa dal dominio consensi
+   (esiste); la revoca di una presa visione non ha senso e non esiste.
+4. **Firma.** Si distinguono e si nominano cosi nell'interfaccia:
+   - **Presa visione / Accettazione elettronica** — la casella con la sua
+     prova (sopra);
+   - **Firma disegnata** — il campo `signature`: un'immagine allegata alla
+     pratica, con la dichiarazione registrata accanto; e un'**evidenza
+     grafica** e, da sola, una firma elettronica *semplice* (eIDAS art. 3(10))
+     il cui valore e «liberamente valutabile in giudizio» (CAD art. 20 c.
+     1-bis): l'interfaccia **non la chiama** «firma digitale»;
+   - **Firma elettronica avanzata / qualificata** — non si costruisce in casa
+     (DPCM 22/2/2013 artt. 56–57: identificazione certa, conservazione
+     ventennale, assicurazione; eIDAS art. 26): quando un documento la
+     richiedera, passera da un fornitore (QTSP) dietro un'astrazione
+     `SignatureProvider` che questa decisione **disegna e non sceglie**.
+5. **Integrita del documento finale.** Alla nascita della pratica si
+   calcola `snapshot_hash` = SHA-256 di `{versionId, answers, declarations,
+   files[].checksum}` e si conserva; il documento generato (HTML) e derivato
+   da versione + risposte e non e la fonte di verita.
+
+### Rinviato / da decidere con un legale
+
+Testi, basi giuridiche, tempi di conservazione, minori (14 anni per i servizi
+della societa dell'informazione, art. 2-quinquies Codice), firma avanzata e
+fornitore: vedi la matrice. Nessuna riga di questa decisione afferma che
+«EasyGame e conforme»: afferma cosa registra e cosa non fa.
+
+## ADR-0193 — Una pratica di iscrizione puo riconoscere una persona in prova o un atleta gia in archivio, ma solo in revisione e solo per mano del club: la conversione e quella di ADR-0188, non una seconda
+
+**Data:** 2026-09-16 · **Stato:** accettata
+
+### Trace
+
+`convertTrialAthlete` (ADR-0188, ora transazionale — D-RD-22 chiuso in questo
+lotto) e l'unica strada che trasforma una persona in prova in atleta.
+`matchDuplicates` (`src/lib/forms/changes.ts`) gia cerca, in revisione, gli
+atleti con lo stesso nome/data di nascita/codice fiscale. La pagina «Nuovo
+atleta» ora riconosce le persone in prova (secondo lotto §5) e usa quella
+conversione.
+
+### La decisione
+
+1. **In revisione** la pratica mostra due elenchi: *persone in prova* con lo
+   stesso nome e cognome (e se la data di nascita coincide) e *atleti in
+   archivio* (`matchDuplicates`). Nessuna scelta automatica.
+2. **Tre esiti espliciti**: «Converti la persona in prova» → la scheda nasce
+   da `convertTrialAthlete` (stessa transazione, stessa idempotenza) e poi si
+   completa con i dati della pratica (`updateResource`); «Collega ad atleta
+   esistente» → la pratica aggiorna la scheda scelta; «E un'altra persona» →
+   scheda nuova. In tutti e tre i casi la pratica registra `athlete_id` e,
+   quando c'e, `trial_athlete_id`; la persona in prova registra `athlete_id`;
+   «ha fatto N prove prima dell'iscrizione» si deriva da `trial_attendances`.
+3. **Mai dal pubblico**: la corrispondenza non e calcolata ne mostrata sul
+   modulo pubblico, e nessuna rotta pubblica la calcola.
+4. **Idempotenza**: la presa in esame della pratica + la presa della prova +
+   `athlete_id` unico sulla prova: due clic non creano due schede; una
+   pratica gia `converted` non si riconverte.
+
+### Rinviato
+
+- Corrispondenza per codice fiscale fra pratica e persona in prova: la prova
+  non lo raccoglie (per scelta di ADR-0188); resta nome+cognome+data.

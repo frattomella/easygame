@@ -606,6 +606,32 @@ const ENTRIES: readonly PermissionEntry[] = [
   },
 
   /* ----------------------------------------------------- moduli online --- */
+  /*
+    I modelli erano governati dalla sola matrice generica `forms`: chi leggeva
+    poteva pubblicare a nome della societa e invalidare un link vivo. Da
+    ADR-0189 i modelli e le pratiche hanno chiavi proprie: gestire un modello
+    e di chi lavora in segreteria, pubblicarlo e rigenerare il link e della
+    direzione; creare una scheda atleta da una pratica e una capacita a se,
+    che l'allenatore — che pure registra una presenza di prova — non ha.
+  */
+  {
+    key: "forms.templates.read",
+    domain: "forms",
+    label: "Vedere i moduli online del club e le loro anteprime",
+    roles: GESTIONE,
+  },
+  {
+    key: "forms.templates.manage",
+    domain: "forms",
+    label: "Creare, modificare e duplicare un modulo online (bozza)",
+    roles: GESTIONE,
+  },
+  {
+    key: "forms.templates.publish",
+    domain: "forms",
+    label: "Pubblicare, archiviare o rigenerare il link di un modulo online",
+    roles: DIREZIONE,
+  },
   {
     key: "forms.submissions.read",
     domain: "forms",
@@ -615,7 +641,25 @@ const ENTRIES: readonly PermissionEntry[] = [
   {
     key: "forms.submissions.review",
     domain: "forms",
-    label: "Approvare o respingere un'iscrizione arrivata da un modulo online",
+    label: "Approvare, respingere o archiviare un'iscrizione arrivata da un modulo online",
+    roles: GESTIONE,
+  },
+  {
+    key: "forms.submissions.request_changes",
+    domain: "forms",
+    label: "Chiedere alla famiglia un'integrazione su una pratica",
+    roles: GESTIONE,
+  },
+  {
+    key: "forms.submissions.convert",
+    domain: "forms",
+    label: "Creare o collegare una scheda atleta da una pratica di iscrizione",
+    roles: GESTIONE,
+  },
+  {
+    key: "forms.evidence.read",
+    domain: "forms",
+    label: "Vedere la prova delle dichiarazioni (testo mostrato, ora, versione) di una pratica",
     roles: GESTIONE,
   },
 

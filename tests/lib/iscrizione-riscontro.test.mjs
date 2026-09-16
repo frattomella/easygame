@@ -143,12 +143,14 @@ test("la vista pubblica ha un elenco chiuso di campi", () => {
   const vista = buildPublicEnrollmentView(COMPILAZIONE);
 
   assert.deepEqual(Object.keys(vista).sort(), [
+    "changesRequested",
     "clubName",
     "kind",
     "kindLabel",
     "pendingDocuments",
     "reviewNote",
     "reviewedAt",
+    "revision",
     "seasonLabel",
     "state",
     "stateLabel",

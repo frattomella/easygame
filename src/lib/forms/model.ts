@@ -40,15 +40,105 @@ export const FORM_STATUS_LABELS: Record<FormStatus, string> = {
   archived: "Archiviato",
 };
 
-export type FormSubmissionStatus = "pending" | "approved" | "rejected";
+/**
+ * Gli stati di una pratica (ADR-0189).
+ *
+ * `approved` scrive consensi e documenti ma non crea schede; `converted` e la
+ * pratica da cui e nata, o a cui e stata collegata, una scheda atleta.
+ * `changes_requested` e la pratica tornata alla famiglia con un elenco di
+ * cose da correggere; il reinvio la riporta a `pending` con una revisione in
+ * piu. `archived` chiude senza toccare l'anagrafica.
+ */
+export const FORM_SUBMISSION_STATUSES = [
+  "pending",
+  "changes_requested",
+  "approved",
+  "converted",
+  "rejected",
+  "archived",
+] as const;
+
+export type FormSubmissionStatus = (typeof FORM_SUBMISSION_STATUSES)[number];
 
 export const FORM_SUBMISSION_STATUS_LABELS: Record<
   FormSubmissionStatus,
   string
 > = {
-  pending: "Da esaminare",
+  pending: "Da revisionare",
+  changes_requested: "Integrazione richiesta",
   approved: "Approvata",
+  converted: "Atleta creato",
   rejected: "Rifiutata",
+  archived: "Archiviata",
+};
+
+export const isFormSubmissionStatus = (value: unknown): value is FormSubmissionStatus =>
+  FORM_SUBMISSION_STATUSES.includes(String(value ?? "") as FormSubmissionStatus);
+
+/** La pratica e ancora aperta: qualcuno deve fare qualcosa. */
+export const submissionIsOpen = (status: string) =>
+  status === "pending" || status === "changes_requested";
+
+/** La pratica si e chiusa bene: approvata, con o senza scheda. */
+export const submissionIsApprovedLike = (status: string) =>
+  status === "approved" || status === "converted";
+
+/**
+ * Cio che il club ha chiesto di correggere (stato `changes_requested`).
+ * I campi non elencati non si possono cambiare al reinvio.
+ */
+export type FormChangesRequested = {
+  fieldIds: string[];
+  note: string;
+  requestedAt: string;
+  requestedBy: string | null;
+};
+
+/**
+ * La semantica legale di una casella (ADR-0192). Una casella senza
+ * `legalKind` e una domanda si/no e basta.
+ */
+export const FORM_LEGAL_KINDS = [
+  "",
+  "acknowledgement",
+  "required_acceptance",
+  "optional_consent",
+  "authorization",
+] as const;
+
+export type FormLegalKind = (typeof FORM_LEGAL_KINDS)[number];
+
+export const FORM_LEGAL_KIND_LABELS: Record<Exclude<FormLegalKind, "">, string> = {
+  acknowledgement: "Presa visione",
+  required_acceptance: "Accettazione richiesta",
+  optional_consent: "Consenso facoltativo",
+  authorization: "Autorizzazione",
+};
+
+export const FORM_LEGAL_KIND_HINTS: Record<Exclude<FormLegalKind, "">, string> = {
+  acknowledgement: "Dichiara di aver letto (informativa, regolamento). Non e un consenso.",
+  required_acceptance: "Senza questa accettazione non si va avanti (condizioni, patto associativo). Non e la base giuridica del trattamento.",
+  optional_consent: "Un consenso separato per una finalita (immagini, comunicazioni). Mai obbligatorio, sempre revocabile.",
+  authorization: "Una dichiarazione del genitore o tutore (uscita autonoma, trasporto).",
+};
+
+/**
+ * La prova di una dichiarazione, salvata nella pratica all'invio (ADR-0192):
+ * il testo mostrato, la sua impronta, la versione, la risposta, l'ora, il
+ * metodo.
+ */
+export type FormDeclaration = {
+  fieldId: string;
+  legalKind: Exclude<FormLegalKind, "">;
+  consentKey: string;
+  label: string;
+  text: string;
+  textHash: string;
+  versionId: string;
+  answer: boolean;
+  at: string;
+  method: "web_checkbox";
+  respondent: string;
 };
 
 /** Da dove arriva una compilazione. */
@@ -76,8 +166,10 @@ export type FormFieldType =
   | "dropdown"
   | "checkbox"
   | "file_upload"
+  | "image_upload"
   | "signature"
-  | "section";
+  | "section"
+  | "content";
 
 export type FormFieldTypeDefinition = {
   value: FormFieldType;
@@ -116,9 +208,11 @@ export const FORM_FIELD_TYPES: FormFieldTypeDefinition[] = [
   { value: "multiple_choice", label: "Scelta multipla", hint: "Piu opzioni fra quelle elencate", hasOptions: true, hasPlaceholder: false, collectsAnswer: true },
   { value: "dropdown", label: "Menu a tendina", hint: "Un'opzione, in un elenco richiudibile", hasOptions: true, hasPlaceholder: false, collectsAnswer: true },
   { value: "checkbox", label: "Casella da spuntare", hint: "Si o no. Con obbligatoria diventa un consenso", hasOptions: false, hasPlaceholder: false, collectsAnswer: true },
-  { value: "file_upload", label: "Allegato", hint: "Documento o foto da caricare", hasOptions: false, hasPlaceholder: false, collectsAnswer: true },
-  { value: "signature", label: "Firma", hint: "Firma tracciata con dito o mouse", hasOptions: false, hasPlaceholder: false, collectsAnswer: true },
+  { value: "file_upload", label: "Documento da caricare", hint: "PDF o foto di un documento", hasOptions: false, hasPlaceholder: false, collectsAnswer: true },
+  { value: "image_upload", label: "Immagine da caricare", hint: "Solo immagini: fototessera, foto del documento", hasOptions: false, hasPlaceholder: false, collectsAnswer: true },
+  { value: "signature", label: "Firma disegnata", hint: "Un'evidenza grafica tracciata con dito o mouse: non e una firma digitale", hasOptions: false, hasPlaceholder: false, collectsAnswer: true },
   { value: "section", label: "Sezione", hint: "Un titolo che separa: non si compila", hasOptions: false, hasPlaceholder: false, collectsAnswer: false },
+  { value: "content", label: "Testo formattato", hint: "Titoli, paragrafi, elenchi, link, tabelle, immagini: il testo legale e le istruzioni", hasOptions: false, hasPlaceholder: false, collectsAnswer: false },
 ];
 
 const FIELD_TYPE_BY_VALUE = new Map(
@@ -142,7 +236,23 @@ export const fieldHasOptions = (type?: string | null) =>
 
 /** I tipi il cui valore e un file, quindi un allegato e non una risposta. */
 export const fieldIsFile = (type?: string | null) =>
-  type === "file_upload" || type === "signature";
+  type === "file_upload" || type === "image_upload" || type === "signature";
+
+/** Le famiglie di file che un campo di caricamento accetta. */
+export const FORM_UPLOAD_ACCEPTS = ["documents", "images"] as const;
+export type FormUploadAccept = (typeof FORM_UPLOAD_ACCEPTS)[number];
+
+export type FormFieldUpload = {
+  accept: FormUploadAccept;
+  /** Byte massimi per file; il tetto del sistema resta `MAX_PUBLIC_FORM_UPLOAD_BYTES`. */
+  maxBytes: number;
+};
+
+/** «Se X vale Y mostra questo campo» (ADR-0190 §1): una condizione sola. */
+export type FormVisibilityRule = {
+  fieldId: string;
+  equals: string;
+};
 
 export type FormField = {
   id: string;
@@ -174,6 +284,14 @@ export type FormField = {
    * che si traduce in «accettato / rifiutato» senza interpretare niente.
    */
   consentKey: string;
+  /** La semantica legale di una casella (ADR-0192); vuoto per una domanda si/no. */
+  legalKind: FormLegalKind;
+  /** L'HTML sanificato di un blocco `content`; vuoto per gli altri tipi. */
+  content: string;
+  /** Visibile solo se un altro campo vale un certo valore; `null` = sempre. */
+  visibleWhen: FormVisibilityRule | null;
+  /** Le regole di caricamento di un `file_upload`/`image_upload`; `null` per gli altri. */
+  upload: FormFieldUpload | null;
 };
 
 export type FormSettings = {
@@ -328,6 +446,44 @@ export const normalizeFormField = (value: unknown): FormField => {
       ? normalizeConsentKey(record.consentKey)
       : "";
 
+  /*
+    La semantica legale vive solo su una casella; un valore fuori dal
+    vocabolario si scarta. Un consenso facoltativo **non e mai obbligatorio**
+    (EDPB 05/2020: un consenso condizionato non e libero): il modello lo
+    rifiuta qui, prima che il builder possa anche solo salvarlo.
+  */
+  const legalKind: FormLegalKind =
+    type === "checkbox" && FORM_LEGAL_KINDS.includes(asText(record.legalKind) as FormLegalKind)
+      ? (asText(record.legalKind) as FormLegalKind)
+      : "";
+
+  const visibleWhenRecord = asRecord(record.visibleWhen);
+  const visibleWhen: FormVisibilityRule | null =
+    asText(visibleWhenRecord.fieldId) && asText(visibleWhenRecord.equals) !== undefined && asText(visibleWhenRecord.fieldId) !== firstText(record.id)
+      ? { fieldId: asText(visibleWhenRecord.fieldId), equals: asText(visibleWhenRecord.equals) }
+      : null;
+
+  const uploadRecord = asRecord(record.upload);
+  const upload: FormFieldUpload | null =
+    type === "file_upload" || type === "image_upload"
+      ? {
+          accept:
+            type === "image_upload"
+              ? "images"
+              : FORM_UPLOAD_ACCEPTS.includes(asText(uploadRecord.accept) as FormUploadAccept)
+                ? (asText(uploadRecord.accept) as FormUploadAccept)
+                : "documents",
+          maxBytes: clampUploadBytes(uploadRecord.maxBytes),
+        }
+      : null;
+
+  const required =
+    definition.collectsAnswer && legalKind !== "optional_consent"
+      ? Boolean(record.required)
+      : legalKind === "required_acceptance"
+        ? true
+        : false;
+
   return {
     id: firstText(record.id) || createFieldId(),
     type,
@@ -335,15 +491,56 @@ export const normalizeFormField = (value: unknown): FormField => {
       firstText(record.label, record.title) ||
       (definition.collectsAnswer ? "Domanda senza titolo" : "Sezione"),
     description: asText(record.description),
-    required: definition.collectsAnswer ? Boolean(record.required) : false,
+    required: legalKind === "required_acceptance" ? true : required,
     placeholder: definition.hasPlaceholder ? asText(record.placeholder) : "",
     options: definition.hasOptions
       ? asArray(record.options).map(asText).filter(Boolean)
       : [],
     binding,
     consentKey,
+    legalKind,
+    /*
+      Il contenuto lo sanifica il server prima di salvarlo (`sanitizeRichHtml`,
+      ADR-0190 §3); qui si conserva e si limita, perche questo modulo e puro.
+    */
+    content: type === "content" ? String(record.content ?? "").slice(0, MAX_CONTENT_HTML_CHARS) : "",
+    visibleWhen,
+    upload,
   };
 };
+
+/** Un blocco di contenuto: 60k caratteri di HTML, cioe molte pagine di testo. */
+export const MAX_CONTENT_HTML_CHARS = 60_000;
+
+/** Il tetto di un allegato pubblico, in byte, come lo dichiara la validazione. */
+const UPLOAD_MAX_BYTES_CEILING = 8 * 1024 * 1024;
+
+const clampUploadBytes = (value: unknown) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return UPLOAD_MAX_BYTES_CEILING;
+  return Math.min(Math.max(Math.round(n), 256 * 1024), UPLOAD_MAX_BYTES_CEILING);
+};
+
+/**
+ * Un campo e visibile con queste risposte? Chi lo nasconde lo rende anche
+ * non obbligatorio e non ne accetta la risposta: lo decide il server con la
+ * stessa funzione del renderer.
+ */
+export const isFieldVisible = (
+  field: Pick<FormField, "visibleWhen">,
+  answers: Record<string, unknown>,
+): boolean => {
+  if (!field.visibleWhen) return true;
+  const raw = answers[field.visibleWhen.fieldId];
+  const wanted = field.visibleWhen.equals;
+  if (Array.isArray(raw)) return raw.map((v) => String(v)).includes(wanted);
+  if (typeof raw === "boolean") return String(raw) === wanted || (raw && wanted === "si");
+  return String(raw ?? "").trim() === wanted;
+};
+
+/** Le caselle con una semantica legale: quelle di cui la pratica conserva la prova. */
+export const getLegalFields = (schema: Pick<FormSchema, "fields">) =>
+  schema.fields.filter((field) => field.type === "checkbox" && field.legalKind);
 
 export const normalizeFormSettings = (value: unknown): FormSettings => {
   const record = asRecord(value);
@@ -581,6 +778,41 @@ export type FormSubmissionRecord = {
   submittedAt: string;
   reviewedAt: string;
   reviewNote: string;
+  /* ADR-0189: la pratica. */
+  kind: string;
+  revision: number;
+  declarations: FormDeclaration[];
+  snapshotHash: string;
+  changesRequested: FormChangesRequested | null;
+  athleteId: string;
+  trialAthleteId: string;
+  archivedAt: string;
+  /** Le copie precedenti, dalla piu recente; vuoto se mai reinviata. */
+  revisions: FormSubmissionRevisionSummary[];
+};
+
+export type FormSubmissionRevisionSummary = {
+  id: string;
+  revision: number;
+  answers: Record<string, unknown>;
+  files: FormSubmissionFile[];
+  declarations: FormDeclaration[];
+  snapshotHash: string;
+  reason: FormChangesRequested | null;
+  submittedAt: string;
+  supersededAt: string;
+};
+
+export const normalizeChangesRequested = (value: unknown): FormChangesRequested | null => {
+  const record = asRecord(value);
+  const fieldIds = asArray(record.fieldIds).map(asText).filter(Boolean);
+  if (!fieldIds.length && !asText(record.note)) return null;
+  return {
+    fieldIds,
+    note: asText(record.note).slice(0, 2000),
+    requestedAt: asText(record.requestedAt),
+    requestedBy: asText(record.requestedBy) || null,
+  };
 };
 
 /* ------------------------------------------------------------ derivazioni */

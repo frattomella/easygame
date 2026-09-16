@@ -2,7 +2,10 @@ import { randomBytes, randomUUID } from "crypto";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { canAccessClubResource } from "@/lib/access-roles";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
+import { roleHasPermission } from "@/lib/permissions/catalog";
+import { sanitizeRichHtml } from "@/lib/rich-text/sanitize";
 import { prisma } from "./prisma";
+import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
 import {
   buildPublicFormPath,
   buildPublicSlug,
@@ -112,6 +115,49 @@ const ensureOrganizationAccess = (
     throw denied("i moduli della societa li gestisce chi ci lavora dentro");
   }
 };
+
+/**
+ * Le capacita proprie dei modelli (ADR-0189 §7): gestire una bozza,
+ * pubblicarla, rigenerarne il link. Prima bastava leggere `forms`.
+ */
+const assertTemplatePermission = (
+  scope: FormsAccessScope | undefined,
+  permesso: "forms.templates.read" | "forms.templates.manage" | "forms.templates.publish",
+  cosa: string,
+) => {
+  if (!scope) return;
+  if (!roleHasPermission(scope.activeRole, permesso)) {
+    throw denied(cosa);
+  }
+};
+
+/**
+ * **Il contenuto si sanifica qui, prima di salvarlo** (ADR-0190 §3): i
+ * blocchi `content` portano HTML e l'autorita e il server. Cio che la
+ * sanificazione toglie non torna piu.
+ */
+const conContenutoSanificato = <T extends { fields: Array<{ type: string; content: string }> }>(schema: T): T => ({
+  ...schema,
+  fields: schema.fields.map((field) =>
+    field.type === "content" ? { ...field, content: sanitizeRichHtml(field.content) } : field,
+  ),
+});
+
+const auditModello = (
+  scope: FormsAccessScope,
+  action: string,
+  row: { id: string; organization_id: string },
+  metadata: Record<string, unknown> = {},
+) =>
+  recordAuditEvent({
+    action,
+    actorUserId: scope.userId || null,
+    actorRole: scope.activeRole || null,
+    organizationId: row.organization_id,
+    resource: "form_templates",
+    resourceId: row.id,
+    metadata,
+  });
 
 const resolveOrganizationId = (
   scope: FormsAccessScope | undefined,
@@ -409,6 +455,7 @@ export const createFormTemplate = async (
   options: { organizationId?: string | null; starter?: string | null } = {},
 ): Promise<FormTemplateDetail> => {
   const organizationId = resolveOrganizationId(scope, options.organizationId);
+  assertTemplatePermission(scope, "forms.templates.manage", "creare un modulo e di chi gestisce le pratiche");
 
   /*
     **Adottare una voce di catalogo e creare un modulo vuoto sono lo stesso
@@ -451,6 +498,7 @@ export const createFormTemplate = async (
       created_by: scope.userId || null,
     },
   });
+  await auditModello(scope, AUDIT_ACTIONS.formTemplateCreated, { id, organization_id: organizationId }, { starter: options.starter || null });
 
   return getFormTemplate(scope, id);
 };
@@ -461,7 +509,8 @@ export const updateFormTemplateDraft = async (
   rawSchema: unknown,
 ): Promise<FormTemplateDetail> => {
   const row = await loadTemplateRow(scope, id);
-  const draft = normalizeFormSchema(rawSchema);
+  assertTemplatePermission(scope, "forms.templates.manage", "modificare un modulo e di chi gestisce le pratiche");
+  const draft = conContenutoSanificato(normalizeFormSchema(rawSchema));
 
   const validation = validateSchema(draft);
   if (!validation.valid) {
@@ -476,6 +525,7 @@ export const updateFormTemplateDraft = async (
       draft,
     },
   });
+  await auditModello(scope, AUDIT_ACTIONS.formTemplateUpdated, row, { campi: draft.fields.length });
 
   return getFormTemplate(scope, row.id);
 };
@@ -492,7 +542,8 @@ export const publishFormTemplate = async (
   id: string,
 ): Promise<FormTemplateDetail> => {
   const row = await loadTemplateRow(scope, id);
-  const draft = normalizeFormSchema(row.draft);
+  assertTemplatePermission(scope, "forms.templates.publish", "pubblicare un modulo e della direzione");
+  const draft = conContenutoSanificato(normalizeFormSchema(row.draft));
 
   const validation = validateSchemaForPublish(draft);
   if (!validation.valid) {
@@ -527,6 +578,7 @@ export const publishFormTemplate = async (
       published_at: now,
     },
   });
+  await auditModello(scope, AUDIT_ACTIONS.formTemplatePublished, row, { version: nextVersion, nuovaVersione: !unchanged });
 
   return getFormTemplate(scope, row.id);
 };
@@ -544,6 +596,7 @@ export const setFormTemplateStatus = async (
   status: FormStatus,
 ): Promise<FormTemplateDetail> => {
   const row = await loadTemplateRow(scope, id);
+  assertTemplatePermission(scope, "forms.templates.publish", "cambiare lo stato di un modulo e della direzione");
 
   if (status === "published") {
     return publishFormTemplate(scope, row.id);
@@ -563,6 +616,7 @@ export const setFormTemplatePublicAccess = async (
   enabled: boolean,
 ): Promise<FormTemplateDetail> => {
   const row = await loadTemplateRow(scope, id);
+  assertTemplatePermission(scope, "forms.templates.publish", "aprire o chiudere il link di un modulo e della direzione");
 
   await (prisma as any).formTemplate.update({
     where: { id: row.id },
@@ -584,6 +638,7 @@ export const regenerateFormTemplateSlug = async (
   id: string,
 ): Promise<FormTemplateDetail> => {
   const row = await loadTemplateRow(scope, id);
+  assertTemplatePermission(scope, "forms.templates.publish", "rigenerare il link di un modulo e della direzione");
   const draft = normalizeFormSchema(row.draft);
 
   await (prisma as any).formTemplate.update({
@@ -599,6 +654,7 @@ export const duplicateFormTemplate = async (
   id: string,
 ): Promise<FormTemplateDetail> => {
   const row = await loadTemplateRow(scope, id);
+  assertTemplatePermission(scope, "forms.templates.manage", "duplicare un modulo e di chi gestisce le pratiche");
   const source = normalizeFormSchema(row.draft);
   const draft: FormSchema = { ...source, title: `${source.title} (copia)` };
   const newId = randomUUID();
@@ -633,6 +689,7 @@ export const deleteFormTemplate = async (
   id: string,
 ): Promise<{ deleted: boolean; archived: boolean }> => {
   const row = await loadTemplateRow(scope, id);
+  assertTemplatePermission(scope, "forms.templates.publish", "cancellare un modulo e della direzione");
 
   const submissions = await (prisma as any).formSubmission.count({
     where: { organization_id: row.organization_id, template_id: row.id },

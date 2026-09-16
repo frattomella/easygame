@@ -45,6 +45,16 @@ export const AUDIT_ACTIONS = {
   seasonRollover: "season.rollover",
   formSubmissionApproved: "form.submission.approved",
   formSubmissionRejected: "form.submission.rejected",
+  /* Le pratiche di iscrizione (ADR-0189): ogni transizione e un fatto. */
+  formSubmissionReceived: "form.submission.received",
+  formSubmissionResumed: "form.submission.draft_resumed",
+  formSubmissionChangesRequested: "form.submission.changes_requested",
+  formSubmissionResubmitted: "form.submission.resubmitted",
+  formSubmissionConverted: "form.submission.converted",
+  formSubmissionArchived: "form.submission.archived",
+  formTemplateCreated: "form.template.created",
+  formTemplateUpdated: "form.template.updated",
+  formTemplatePublished: "form.template.published",
   adminEmailConfigUpdated: "admin.email_config.updated",
   adminEmailTestSent: "admin.email_config.test_sent",
   /*

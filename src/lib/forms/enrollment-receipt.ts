@@ -229,8 +229,10 @@ export const normalizeEnrollmentKind = (value: unknown): EnrollmentKind => {
 export const FAMILY_ENROLLMENT_STATES = [
   "sent",
   "in_review",
+  "changes_requested",
   "approved",
   "rejected",
+  "archived",
 ] as const;
 
 export type FamilyEnrollmentState = (typeof FAMILY_ENROLLMENT_STATES)[number];
@@ -241,8 +243,10 @@ export const FAMILY_ENROLLMENT_STATE_LABELS: Record<
 > = {
   sent: "Inviata",
   in_review: "In lavorazione",
+  changes_requested: "Integrazione richiesta",
   approved: "Approvata",
   rejected: "Respinta",
+  archived: "Archiviata",
 };
 
 export type FamilyEnrollmentStateInput = {
@@ -269,8 +273,11 @@ export const deriveFamilyEnrollmentState = (
   input: FamilyEnrollmentStateInput,
 ): FamilyEnrollmentState => {
   const status = asText(input.status);
-  if (status === "approved") return "approved";
+  /* `converted` e un'approvazione con una scheda in piu: per la famiglia e «approvata». */
+  if (status === "approved" || status === "converted") return "approved";
   if (status === "rejected") return "rejected";
+  if (status === "changes_requested") return "changes_requested";
+  if (status === "archived") return "archived";
 
   return Number(input.openDocumentRequests || 0) > 0 ? "in_review" : "sent";
 };
@@ -294,6 +301,9 @@ export type PublicEnrollmentViewInput = {
   reviewedAt?: unknown;
   reviewNote?: unknown;
   pendingDocuments?: FamilyPendingDocument[];
+  /** I campi che il club chiede di correggere (stato `changes_requested`), con l'etichetta. */
+  changesRequested?: { fields: Array<{ id: string; label: string }>; note: string } | null;
+  revision?: number;
 };
 
 export type PublicEnrollmentView = {
@@ -308,6 +318,8 @@ export type PublicEnrollmentView = {
   reviewedAt: string | null;
   reviewNote: string;
   pendingDocuments: FamilyPendingDocument[];
+  changesRequested: { fields: Array<{ id: string; label: string }>; note: string } | null;
+  revision: number;
 };
 
 /**
@@ -360,6 +372,14 @@ export const buildPublicEnrollmentView = (
     */
     reviewNote: asText(input.reviewNote),
     pendingDocuments,
+    changesRequested:
+      state === "changes_requested" && input.changesRequested
+        ? {
+            fields: (input.changesRequested.fields || []).map((f) => ({ id: asText(f.id), label: asText(f.label) })),
+            note: asText(input.changesRequested.note),
+          }
+        : null,
+    revision: Number(input.revision) || 1,
   };
 };
 

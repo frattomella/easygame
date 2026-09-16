@@ -394,7 +394,7 @@ test("approvare con un documento mancante lo chiede, e non respinge la domanda",
     },
   );
 
-  assert.equal(outcome.submission.status, "approved");
+  assert.equal(outcome.submission.status, "converted");
   assert.ok(
     outcome.applied.some((riga) => riga.includes("Documento richiesto")),
     outcome.applied.join(" | "),

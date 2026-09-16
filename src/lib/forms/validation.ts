@@ -20,6 +20,7 @@ import {
   fieldCollectsAnswer,
   fieldIsFile,
   getAnswerableFields,
+  isFieldVisible,
   type FormField,
   type FormSchema,
 } from "./model";
@@ -145,6 +146,30 @@ export const validateSchema = (schema: FormSchema): SchemaValidationResult => {
     if (field.binding && !getDynamicField(field.binding)) {
       errors.push(`«${field.label}» e collegato a un dato che non esiste.`);
     }
+
+    /*
+      Una condizione di visibilita cita un campo che esiste, viene prima e
+      raccoglie una risposta: altrimenti il campo non si mostrerebbe mai.
+    */
+    if (field.visibleWhen) {
+      const controllo = schema.fields.find((f) => f.id === field.visibleWhen?.fieldId);
+      if (!controllo || !fieldCollectsAnswer(controllo.type) || fieldIsFile(controllo.type)) {
+        errors.push(`«${field.label}» dipende da un campo che non esiste o non raccoglie una risposta.`);
+      } else if (schema.fields.indexOf(controllo) > schema.fields.indexOf(field)) {
+        errors.push(`«${field.label}» dipende da un campo che viene dopo di lui.`);
+      }
+    }
+
+    /* Una spunta con semantica legale porta un testo: e quello che si esibisce. */
+    if (field.type === "checkbox" && field.legalKind && !asText(field.description) && !asText(field.label)) {
+      errors.push("Una dichiarazione deve avere un testo.");
+    }
+    if (field.type === "checkbox" && field.legalKind === "optional_consent" && field.required) {
+      errors.push(`«${field.label}»: un consenso facoltativo non puo essere obbligatorio.`);
+    }
+    if (field.type === "content" && asText(field.content).length === 0) {
+      errors.push(`Il blocco di testo «${field.label}» e vuoto.`);
+    }
   }
 
   return { valid: errors.length === 0, errors };
@@ -231,6 +256,12 @@ export const validateAnswers = (
 
   for (const field of schema.fields) {
     if (!fieldCollectsAnswer(field.type)) continue;
+
+    /*
+      Un campo nascosto da una condizione (ADR-0190 §1) non e obbligatorio e
+      la sua risposta non si accetta: la stessa regola del renderer, qui.
+    */
+    if (!isFieldVisible(field, rawAnswers)) continue;
 
     const raw = rawAnswers[field.id];
 

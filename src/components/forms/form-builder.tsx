@@ -94,6 +94,10 @@ const newField = (type: FormFieldType): FormField => ({
       : [],
   binding: "",
   consentKey: "",
+  legalKind: "",
+  content: "",
+  visibleWhen: null,
+  upload: type === "file_upload" ? { accept: "documents", maxBytes: 8 * 1024 * 1024 } : type === "image_upload" ? { accept: "images", maxBytes: 8 * 1024 * 1024 } : null,
 });
 
 export function FormBuilder({

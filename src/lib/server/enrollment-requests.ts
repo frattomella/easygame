@@ -25,6 +25,7 @@ import {
 import {
   isEnrollmentForm,
   isFormClosed,
+  normalizeChangesRequested,
   normalizeFormSchema,
   type FormSchema,
 } from "@/lib/forms/model";
@@ -200,6 +201,8 @@ type EnrollmentRow = {
   receipt_token_hash: string | null;
   template_id: string;
   version_id: string;
+  changes_requested?: unknown;
+  revision?: number | null;
 };
 
 /**
@@ -238,7 +241,7 @@ export const readPublicEnrollmentStatus = async (
     return null;
   }
 
-  const [club, template, stagioni] = await Promise.all([
+  const [club, template, stagioni, versione] = await Promise.all([
     prisma.club.findUnique({
       where: { id: row.organization_id },
       select: { name: true },
@@ -248,7 +251,32 @@ export const readPublicEnrollmentStatus = async (
       select: { title: true },
     }),
     readClubSeasonState(row.organization_id).catch(() => null),
+    asText(row.status) === "changes_requested"
+      ? (prisma as any).formTemplateVersion.findUnique({
+          where: { id: row.version_id },
+          select: { schema_json: true },
+        })
+      : Promise.resolve(null),
   ]);
+
+  /*
+    L'integrazione richiesta (ADR-0189): i campi con l'etichetta della
+    versione compilata e la nota del club. Solo in quello stato.
+  */
+  const richiesta = normalizeChangesRequested(row.changes_requested);
+  const schemaVersione = versione ? normalizeFormSchema(versione.schema_json) : null;
+  const changesRequested =
+    richiesta && schemaVersione
+      ? {
+          fields: richiesta.fieldIds
+            .map((id) => {
+              const field = schemaVersione.fields.find((f) => f.id === id);
+              return field ? { id, label: field.label } : null;
+            })
+            .filter((f): f is { id: string; label: string } => Boolean(f)),
+          note: richiesta.note,
+        }
+      : null;
 
   const pendingDocuments = await loadPendingDocuments(
     row.organization_id,
@@ -269,6 +297,8 @@ export const readPublicEnrollmentStatus = async (
     reviewedAt: toIso(row.reviewed_at),
     reviewNote: row.review_note,
     pendingDocuments,
+    changesRequested,
+    revision: Number(row.revision) || 1,
   });
 };
 

@@ -41,11 +41,17 @@ import {
   MAX_ATTACHMENT_BYTES,
 } from "@/lib/attachments";
 import {
+  fieldCollectsAnswer,
   fieldIsFile,
   formatAnswer,
   getSchemaSubjects,
   isEnrollmentForm,
+  isFormSubmissionStatus,
+  normalizeChangesRequested,
   normalizeFormSchema,
+  submissionIsApprovedLike,
+  submissionIsOpen,
+  type FormChangesRequested,
   type FormSchema,
   type FormSubmissionFile,
   type FormSubmissionRecord,
@@ -53,6 +59,11 @@ import {
   type FormSubmissionStatus,
   type FormSubjectSelection,
 } from "@/lib/forms/model";
+import { buildDeclarations, buildSnapshotHash, normalizeDeclarations } from "./form-declarations";
+import { enrollmentReceiptHashesMatch } from "@/lib/forms/enrollment-receipt";
+import { consumeFormDraft } from "./form-drafts";
+import { AUDIT_ACTIONS, recordAuditEvent } from "./audit";
+import { convertTrialAthlete, listTrialAthletes } from "./trial-athletes";
 import {
   FORM_SUBJECT_KEYS,
   getDynamicField,
@@ -318,13 +329,32 @@ type SubmissionRow = {
   submitted_by?: string | null;
   reviewed_at: Date | null;
   review_note: string | null;
+  /* ADR-0189 */
+  declarations?: unknown;
+  snapshot_hash?: string | null;
+  revision?: number | null;
+  changes_requested?: unknown;
+  athlete_id?: string | null;
+  trial_athlete_id?: string | null;
+  archived_at?: Date | null;
   template?: { title: string } | null;
   template_version?: { version: number; schema_json: unknown } | null;
+  revisions?: Array<{
+    id: string;
+    revision: number;
+    answers: unknown;
+    files: unknown;
+    declarations: unknown;
+    snapshot_hash: string | null;
+    reason: unknown;
+    submitted_at: Date;
+    superseded_at: Date;
+  }> | null;
 };
 
 const normalizeStatus = (value: unknown): FormSubmissionStatus => {
   const status = asText(value);
-  return status === "approved" || status === "rejected" ? status : "pending";
+  return isFormSubmissionStatus(status) ? status : "pending";
 };
 
 const normalizeSource = (value: unknown): FormSubmissionSource =>
@@ -368,12 +398,35 @@ const serializeSubmission = (row: SubmissionRow): FormSubmissionRecord => {
     submittedAt: toIso(row.submitted_at),
     reviewedAt: toIso(row.reviewed_at),
     reviewNote: asText(row.review_note),
+    kind: asText(row.kind) || "enrollment",
+    revision: Number(row.revision) || 1,
+    declarations: normalizeDeclarations(row.declarations),
+    snapshotHash: asText(row.snapshot_hash),
+    changesRequested: normalizeChangesRequested(row.changes_requested),
+    athleteId: asText(row.athlete_id),
+    trialAthleteId: asText(row.trial_athlete_id),
+    archivedAt: toIso(row.archived_at),
+    revisions: (row.revisions || [])
+      .slice()
+      .sort((a, b) => b.revision - a.revision)
+      .map((r) => ({
+        id: r.id,
+        revision: r.revision,
+        answers: r.answers && typeof r.answers === "object" ? (r.answers as Record<string, unknown>) : {},
+        files: normalizeFiles(r.files),
+        declarations: normalizeDeclarations(r.declarations),
+        snapshotHash: asText(r.snapshot_hash),
+        reason: normalizeChangesRequested(r.reason),
+        submittedAt: toIso(r.submitted_at),
+        supersededAt: toIso(r.superseded_at),
+      })),
   };
 };
 
 const SUBMISSION_INCLUDE = {
   template: { select: { title: true } },
   template_version: { select: { version: true, schema_json: true } },
+  revisions: true,
 } as const;
 
 /* --------------------------------------------------------- invio pubblico */
@@ -390,6 +443,8 @@ export type SubmitFormInput = {
   files: IncomingFormFile[];
   respondentName?: string;
   respondentEmail?: string;
+  /** Il gettone della bozza da cui questo invio nasce (ADR-0189 §3): si consuma. */
+  draftToken?: string;
 };
 
 export class FormSubmissionError extends Error {
@@ -449,9 +504,13 @@ const storeSubmissionFiles = async ({
     */
     if (!field || !fieldIsFile(field.type)) continue;
 
+    /*
+      Il tetto e del sistema; il club puo solo abbassarlo (`field.upload.maxBytes`).
+    */
     const maxBytes = Math.min(
       MAX_PUBLIC_FORM_UPLOAD_BYTES,
       MAX_ATTACHMENT_BYTES,
+      field.upload?.maxBytes || MAX_PUBLIC_FORM_UPLOAD_BYTES,
     );
     if (incoming.content.length > maxBytes) {
       throw new FormSubmissionError(
@@ -477,16 +536,24 @@ const storeSubmissionFiles = async ({
       Una firma e un'immagine, e sono queste due.
     */
     const TIPI_FIRMA = new Set(["image/png", "image/jpeg"]);
+    /* Un campo «immagine» accetta solo immagini, anche da un mittente autenticato. */
+    const soloImmagini =
+      field.type === "image_upload" || field.upload?.accept === "images";
+    const mimeIncoming = String(incoming.mimeType || "").toLowerCase();
     const mimeAccettato =
       field.type === "signature"
-        ? TIPI_FIRMA.has(String(incoming.mimeType || "").toLowerCase())
-        : !requireNarrowMimeTypes || isPublicFormUploadMimeType(incoming.mimeType);
+        ? TIPI_FIRMA.has(mimeIncoming)
+        : soloImmagini
+          ? isPublicFormUploadMimeType(mimeIncoming) && mimeIncoming.startsWith("image/")
+          : !requireNarrowMimeTypes || isPublicFormUploadMimeType(incoming.mimeType);
 
     if (!mimeAccettato) {
       throw new FormSubmissionError(
         field.type === "signature"
           ? `«${field.label}»: la firma deve essere un'immagine.`
-          : `«${field.label}»: formato non accettato. Carica un PDF o una foto.`,
+          : soloImmagini
+            ? `«${field.label}»: carica un'immagine (JPEG, PNG, WebP o HEIC).`
+            : `«${field.label}»: formato non accettato. Carica un PDF o una foto.`,
       );
     }
 
@@ -618,6 +685,174 @@ export const submitPublicForm = async (
   });
 };
 
+/* ------------------------------------------------ integrazione pubblica */
+
+/**
+ * Cio che la famiglia vede quando il club ha chiesto un'integrazione
+ * (ADR-0189 §4, ADR-0191 §1): la ricevuta e la credenziale — la stessa che
+ * apre lo stato — e la pratica deve essere in `changes_requested`. Torna la
+ * versione compilata, le risposte correnti (non i file), i campi che si
+ * possono correggere e la nota. Ogni esito negativo e `null` → 404.
+ */
+export type PublicRevisionContext = {
+  clubName: string;
+  templateTitle: string;
+  schema: FormSchema;
+  answers: Record<string, unknown>;
+  files: Array<{ fieldId: string; fileName: string }>;
+  allowedFieldIds: string[];
+  note: string;
+  revision: number;
+};
+
+const trovaPraticaConRicevuta = async (reference: unknown): Promise<SubmissionRow | null> => {
+  const hash = hashEnrollmentReceiptReference(reference);
+  if (!hash) return null;
+  const row = (await (prisma as any).formSubmission.findUnique({
+    where: { receipt_token_hash: hash },
+    include: SUBMISSION_INCLUDE,
+  })) as (SubmissionRow & { receipt_token_hash?: string | null }) | null;
+  if (!row) return null;
+  if (!enrollmentReceiptHashesMatch(asText(row.receipt_token_hash), hash)) return null;
+  return row;
+};
+
+export const readPublicRevisionContext = async (reference: unknown): Promise<PublicRevisionContext | null> => {
+  const row = await trovaPraticaConRicevuta(reference);
+  if (!row || normalizeStatus(row.status) !== "changes_requested") return null;
+  const richiesta = normalizeChangesRequested(row.changes_requested);
+  if (!richiesta) return null;
+  const schema = normalizeFormSchema(row.template_version?.schema_json);
+  const club = await prisma.club.findUnique({ where: { id: row.organization_id }, select: { name: true } });
+  const answers = row.answers && typeof row.answers === "object" ? (row.answers as Record<string, unknown>) : {};
+  return {
+    clubName: asText(club?.name),
+    templateTitle: row.template?.title || schema.title,
+    schema,
+    answers,
+    files: normalizeFiles(row.files).map((file) => ({ fieldId: file.fieldId, fileName: file.fileName })),
+    allowedFieldIds: richiesta.fieldIds,
+    note: richiesta.note,
+    revision: Number(row.revision) || 1,
+  };
+};
+
+/**
+ * Il reinvio dopo un'integrazione richiesta.
+ *
+ * Si cambiano **solo** i campi elencati dal club: le altre risposte si
+ * prendono dalla pratica, qualunque cosa arrivi. La copia precedente finisce
+ * in `form_submission_revisions` con il motivo; la pratica porta l'ultima,
+ * `revision + 1`, dichiarazioni e impronta ricalcolate, e torna `pending`.
+ */
+export const resubmitPublicSubmission = async (
+  reference: unknown,
+  input: SubmitFormInput,
+): Promise<{ revision: number }> => {
+  const row = await trovaPraticaConRicevuta(reference);
+  if (!row || normalizeStatus(row.status) !== "changes_requested") {
+    throw new FormSubmissionError("Pratica non disponibile", 404);
+  }
+  const richiesta = normalizeChangesRequested(row.changes_requested);
+  if (!richiesta) throw new FormSubmissionError("Pratica non disponibile", 404);
+
+  const schema = normalizeFormSchema(row.template_version?.schema_json);
+  const consentiti = new Set(richiesta.fieldIds);
+  const correnti = row.answers && typeof row.answers === "object" ? (row.answers as Record<string, unknown>) : {};
+  const fileCorrenti = normalizeFiles(row.files);
+
+  /* Le risposte: le correnti, con sopra **solo** i campi consentiti. */
+  const unite: Record<string, unknown> = { ...correnti };
+  const inArrivo = input.answers && typeof input.answers === "object" ? input.answers : {};
+  for (const id of consentiti) {
+    if (id in inArrivo) unite[id] = (inArrivo as Record<string, unknown>)[id];
+    else delete unite[id];
+  }
+
+  /* I file: quelli correnti restano, salvo i campi consentiti che ricevono un file nuovo. */
+  const fileInArrivo = input.files.filter((file) => consentiti.has(asText(file.fieldId)));
+  const campiSostituiti = new Set(fileInArrivo.map((file) => asText(file.fieldId)));
+  const fileConservati = fileCorrenti.filter((file) => !campiSostituiti.has(file.fieldId));
+
+  const match: PublicFormMatch = {
+    organizationId: row.organization_id,
+    templateId: row.template_id,
+    versionId: row.version_id,
+    schema,
+  } as PublicFormMatch;
+
+  const nuoviFile = await storeSubmissionFiles({
+    organizationId: row.organization_id,
+    templateId: row.template_id,
+    schema,
+    files: fileInArrivo,
+    requireNarrowMimeTypes: true,
+  });
+  const files = [...fileConservati, ...nuoviFile];
+
+  const validated = validateAnswers(schema, unite, files.map((file) => file.fieldId));
+  if (!validated.valid) {
+    await scartaAllegati(nuoviFile);
+    throw new FormSubmissionError("Controlla i campi segnalati.", 422, validated.errors);
+  }
+
+  const respondent = asText(row.respondent_name) || asText(row.respondent_email);
+  const declarations = buildDeclarations({ schema, versionId: row.version_id, answers: validated.answers, respondent });
+  const snapshotHash = buildSnapshotHash({ versionId: row.version_id, answers: validated.answers, declarations, files });
+  const revisionePrecedente = Number(row.revision) || 1;
+
+  await prisma.$transaction(async (tx) => {
+    await (tx as any).formSubmissionRevision.create({
+      data: {
+        organization_id: row.organization_id,
+        submission_id: row.id,
+        revision: revisionePrecedente,
+        answers: correnti,
+        files: fileCorrenti,
+        declarations: row.declarations ?? null,
+        snapshot_hash: row.snapshot_hash ?? null,
+        reason: richiesta,
+        submitted_at: row.submitted_at,
+      },
+    });
+    const esito = await (tx as any).formSubmission.updateMany({
+      where: { id: row.id, status: "changes_requested", revision: revisionePrecedente },
+      data: {
+        status: "pending",
+        answers: validated.answers,
+        files,
+        declarations,
+        snapshot_hash: snapshotHash,
+        revision: revisionePrecedente + 1,
+        changes_requested: null,
+        submitted_at: new Date(),
+        reviewed_at: null,
+        reviewed_by: null,
+      },
+    });
+    if (esito.count !== 1) throw new FormSubmissionError("La pratica e cambiata nel frattempo: ricarica.", 409);
+  });
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.formSubmissionResubmitted,
+    organizationId: row.organization_id,
+    resource: "form_submissions",
+    resourceId: row.id,
+    metadata: { revisione: revisionePrecedente + 1, campi: richiesta.fieldIds, allegatiNuovi: nuoviFile.length },
+  });
+
+  const templateTitle = row.template?.title || schema.title;
+  await notifyClub({
+    organizationId: row.organization_id,
+    templateTitle: `${templateTitle} (integrazione ricevuta)`,
+    templateId: row.template_id,
+    submissionId: row.id,
+    respondentName: asText(row.respondent_name),
+  }).catch(() => undefined);
+
+  return { revision: revisionePrecedente + 1 };
+};
+
 /**
  * Cosa torna a chi ha appena inviato.
  *
@@ -745,7 +980,7 @@ const assertNonGiaCompilato = async (
     where: {
       organization_id: match.organizationId,
       template_id: match.templateId,
-      status: { in: ["pending", "approved"] },
+      status: { in: ["pending", "changes_requested", "approved", "converted"] },
       OR: soggetti.map((recordId) => ({
         subjects: { array_contains: [{ subject: "athlete", recordId }] },
       })),
@@ -861,6 +1096,24 @@ const storeSubmission = async ({
   const submissionId = randomUUID();
 
   /*
+    **La prova delle dichiarazioni e l'impronta nascono con la pratica**
+    (ADR-0192): il testo mostrato accanto a ogni casella legale, la risposta,
+    l'ora; e l'impronta di versione, risposte, dichiarazioni e allegati.
+  */
+  const declarations = buildDeclarations({
+    schema: match.schema,
+    versionId: match.versionId,
+    answers: validated.answers,
+    respondent: asText(input.respondentName).slice(0, 200) || respondentEmail || "",
+  });
+  const snapshotHash = buildSnapshotHash({
+    versionId: match.versionId,
+    answers: validated.answers,
+    declarations,
+    files,
+  });
+
+  /*
     **La ricevuta nasce con la compilazione, non dopo.**
 
     Solo per cio che arriva da fuori la segreteria: una compilazione fatta
@@ -892,6 +1145,9 @@ const storeSubmission = async ({
         subjects: selections,
         answers: validated.answers,
         files,
+        declarations,
+        snapshot_hash: snapshotHash,
+        revision: 1,
         respondent_name: asText(input.respondentName).slice(0, 200) || null,
         respondent_email: respondentEmail.toLowerCase() || null,
         submitted_by: submittedBy,
@@ -922,6 +1178,27 @@ const storeSubmission = async ({
     if (vincente) return riscontroDelDuplicato(vincente, match);
     throw error;
   }
+
+  /*
+    La bozza da cui l'invio nasce si consuma: il gettone non apre piu niente
+    e la riga dice quale pratica e diventata (ADR-0191 §1).
+  */
+  if (asText(input.draftToken)) {
+    await consumeFormDraft({
+      templateId: match.templateId,
+      token: asText(input.draftToken),
+      submissionId,
+    }).catch(() => undefined);
+  }
+
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.formSubmissionReceived,
+    actorUserId: submittedBy,
+    organizationId: match.organizationId,
+    resource: "form_submissions",
+    resourceId: submissionId,
+    metadata: { source, kind, version: match.versionId, dichiarazioni: declarations.length, allegati: files.length },
+  });
 
   if (match.schema.settings.notifyOnSubmit) {
     await notifyClub({
@@ -1155,6 +1432,59 @@ export type SubmissionReview = {
   submission: FormSubmissionRecord;
   changeSet: FormChangeSet;
   duplicates: DuplicateCandidate[];
+  /**
+   * Le persone in prova che potrebbero essere questa (ADR-0193): stesso nome
+   * e cognome, con la data di nascita a dire se coincide. Solo in revisione,
+   * mai dal pubblico; nessuna scelta automatica.
+   */
+  trialCandidates: TrialMatchCandidate[];
+};
+
+export type TrialMatchCandidate = {
+  id: string;
+  name: string;
+  birthDate: string;
+  sameBirthDate: boolean;
+  categoryLabel: string | null;
+  trialsCount: number;
+  lastTrialAt: string | null;
+};
+
+const findTrialCandidates = async (
+  scope: FormsAccessScope,
+  organizationId: string,
+  probe: ReturnType<typeof buildDuplicateProbes>[number],
+): Promise<TrialMatchCandidate[]> => {
+  if (!probe.firstName || !probe.lastName) return [];
+  if (!roleHasPermission(scope.activeRole, "trials.read")) return [];
+  const normal = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+  try {
+    const rows = await listTrialAthletes(
+      {
+        userId: scope.userId,
+        activeOrganizationId: organizationId,
+        activeRole: scope.activeRole ?? null,
+        allowedOrganizationIds: scope.allowedOrganizationIds,
+        accessScopes: scope.accessScopes,
+      },
+      { status: "in_trial", q: `${probe.firstName} ${probe.lastName}` },
+    );
+    return rows
+      .filter(
+        (row) => normal(row.firstName) === normal(probe.firstName) && normal(row.lastName) === normal(probe.lastName),
+      )
+      .map((row) => ({
+        id: row.id,
+        name: row.name,
+        birthDate: row.birthDate,
+        sameBirthDate: Boolean(probe.birthDate) && row.birthDate === probe.birthDate.slice(0, 10),
+        categoryLabel: row.categoryLabel,
+        trialsCount: row.trialsCount,
+        lastTrialAt: row.lastTrialAt,
+      }));
+  } catch {
+    return [];
+  }
 };
 
 const findAthleteDuplicates = async (
@@ -1293,17 +1623,33 @@ export const reviewFormSubmission = async (
   });
 
   const duplicates: DuplicateCandidate[] = [];
+  const trialCandidates: TrialMatchCandidate[] = [];
+  const athleteSelection = selections.find((selection) => selection.subject === "athlete");
   for (const probe of buildDuplicateProbes(changeSet)) {
     if (probe.subject !== "athlete") continue;
     duplicates.push(
       ...(await findAthleteDuplicates(row.organization_id, probe)),
     );
+    /* Una scheda gia scelta non cerca prove: la persona c'e gia. */
+    if (!asText(athleteSelection?.recordId)) {
+      trialCandidates.push(...(await findTrialCandidates(scope, row.organization_id, probe)));
+    }
   }
 
+  /*
+    La prova delle dichiarazioni — il testo mostrato e la sua impronta — la
+    vede chi ha `forms.evidence.read` (ADR-0189 §7): agli altri resta la
+    risposta (spuntato o no), che e cio che serve per decidere.
+  */
+  const declarations = roleHasPermission(scope.activeRole, "forms.evidence.read")
+    ? submission.declarations
+    : submission.declarations.map((d) => ({ ...d, text: "", textHash: "" }));
+
   return {
-    submission: { ...submission, subjects: selections },
+    submission: { ...submission, subjects: selections, declarations },
     changeSet,
     duplicates,
+    trialCandidates,
   };
 };
 
@@ -1850,8 +2196,21 @@ const generateSubmissionDocument = async ({
 };
 
 export type ReviewDecision = {
-  decision: "approve" | "reject";
+  /*
+    ADR-0189 §4: le transizioni della pratica. `approve` scrive cio che la
+    proposta mostrava (e crea o collega la scheda quando c'e un atleta);
+    `request_changes` la rimanda alla famiglia con i campi da correggere;
+    `archive` la chiude senza toccare l'anagrafica.
+  */
+  decision: "approve" | "reject" | "request_changes" | "archive";
   note?: string;
+  /** I campi che la famiglia deve correggere (`request_changes`). */
+  fieldIds?: unknown;
+  /**
+   * La persona in prova che questa pratica riconosce (ADR-0193): la scheda
+   * nasce dalla conversione canonica di ADR-0188, non dal registro generico.
+   */
+  trialAthleteId?: string | null;
   /** La segreteria puo ricollegare un soggetto a una scheda esistente. */
   subjects?: unknown;
   /**
@@ -1919,8 +2278,57 @@ export const decideFormSubmission = async (
     );
   }
 
-  if (normalizeStatus(row.status) !== "pending") {
-    throw new Error("Questa compilazione e gia stata esaminata.");
+  const statoCorrente = normalizeStatus(row.status);
+  if (decision.decision === "archive") {
+    /*
+      Archiviare chiude senza scrivere niente: si puo da ogni stato che non
+      sia gia chiuso da una scheda creata, ed e l'unica transizione che non
+      passa dalla presa (non scrive in anagrafica).
+    */
+    if (statoCorrente === "converted" || statoCorrente === "archived") {
+      throw new Error("Questa pratica non si puo archiviare.");
+    }
+    const archiviata = await (prisma as any).formSubmission.update({
+      where: { id: row.id },
+      data: {
+        status: "archived",
+        archived_at: new Date(),
+        reviewed_by: scope.userId || null,
+        reviewed_at: new Date(),
+        review_note: asText(decision.note).slice(0, 2000) || row.review_note || null,
+      },
+      include: SUBMISSION_INCLUDE,
+    });
+    await recordAuditEvent({
+      action: AUDIT_ACTIONS.formSubmissionArchived,
+      actorUserId: scope.userId || null,
+      actorRole: scope.activeRole || null,
+      organizationId: row.organization_id,
+      resource: "form_submissions",
+      resourceId: row.id,
+      metadata: { da: statoCorrente },
+    });
+    return { submission: serializeSubmission(archiviata), applied: [], issues: [], generatedDocumentId: null };
+  }
+
+  if (statoCorrente !== "pending") {
+    throw new Error(
+      statoCorrente === "changes_requested"
+        ? "La pratica e in attesa dell'integrazione della famiglia."
+        : "Questa compilazione e gia stata esaminata.",
+    );
+  }
+
+  if (decision.decision === "request_changes" && !roleHasPermission(scope.activeRole, "forms.submissions.request_changes")) {
+    throw denied("chiedere un'integrazione e di chi gestisce le pratiche");
+  }
+  if (decision.decision === "approve" && !roleHasPermission(scope.activeRole, "forms.submissions.convert")) {
+    /*
+      Approvare puo creare una scheda: chi non ha la capacita di crearla puo
+      comunque approvare un modulo **senza** atleta (una raccolta di consensi),
+      ma non una pratica di iscrizione. Lo si decide dopo aver letto la
+      proposta, in `eseguiDecisione`; qui si lascia passare.
+    */
   }
 
   const presa = await prendiInEsame(row.id, scope);
@@ -2025,6 +2433,59 @@ const eseguiDecisione = async (
     };
   }
 
+  if (decision.decision === "request_changes") {
+    /*
+      **Integrazione richiesta** (ADR-0189 §4). I campi devono esistere nella
+      versione compilata e raccogliere una risposta; senza campi ne nota non
+      c'e niente da chiedere. La presa in esame si rilascia con il cambio di
+      stato: `reviewed_at` torna nullo, perche la pratica non e decisa.
+    */
+    const schema = normalizeFormSchema(row.template_version?.schema_json);
+    const richiesti = Array.from(
+      new Set(
+        (Array.isArray(decision.fieldIds) ? decision.fieldIds : [])
+          .map((id) => asText(id))
+          .filter((id) => schema.fields.some((field) => field.id === id && fieldCollectsAnswer(field.type))),
+      ),
+    );
+    if (!richiesti.length && !note) {
+      throw new Error("Indica almeno un campo da correggere o una nota per la famiglia.");
+    }
+    const changesRequested: FormChangesRequested = {
+      fieldIds: richiesti,
+      note,
+      requestedAt: new Date().toISOString(),
+      requestedBy: scope.userId || null,
+    };
+    const updated = await (prisma as any).formSubmission.update({
+      where: { id: row.id },
+      data: {
+        status: "changes_requested",
+        changes_requested: changesRequested,
+        reviewed_by: null,
+        reviewed_at: null,
+        review_note: note || null,
+      },
+      include: SUBMISSION_INCLUDE,
+    });
+    await recordAuditEvent({
+      action: AUDIT_ACTIONS.formSubmissionChangesRequested,
+      actorUserId: scope.userId || null,
+      actorRole: scope.activeRole || null,
+      organizationId: row.organization_id,
+      resource: "form_submissions",
+      resourceId: row.id,
+      metadata: { campi: richiesti, revisione: Number(row.revision) || 1 },
+    });
+    await notificaIntegrazioneRichiesta(updated, changesRequested).catch(() => undefined);
+    return {
+      submission: serializeSubmission(updated),
+      applied: [`Integrazione richiesta alla famiglia: ${richiesti.length} ${richiesti.length === 1 ? "campo" : "campi"}`],
+      issues: updated.respondent_email ? [] : ["La pratica non ha un'email: avvisa la famiglia con la ricevuta."],
+      generatedDocumentId: null,
+    };
+  }
+
   const review = await reviewFormSubmission(scope, row.id, decision.subjects);
   const organizationId = row.organization_id;
   const applied: string[] = [];
@@ -2044,6 +2505,9 @@ const eseguiDecisione = async (
   const athleteChange = review.changeSet.subjects.find(
     (subject) => subject.subject === "athlete",
   );
+  /* La persona in prova riconosciuta, se la pratica ne ha usata una (ADR-0193). */
+  let trialUsata = "";
+  const schedaEsistenteAllInizio = Boolean(athleteId);
 
   /*
     Sedi e categorie si leggono una volta sola, e dal club del modulo. Il
@@ -2083,7 +2547,51 @@ const eseguiDecisione = async (
       delete patch.columns.category_name;
     }
 
-    if (!athleteId) {
+    if (!roleHasPermission(scope.activeRole, "forms.submissions.convert")) {
+      throw denied("creare o aggiornare una scheda atleta da una pratica e di chi gestisce le pratiche");
+    }
+
+    if (!athleteId && asText(decision.trialAthleteId)) {
+      /*
+        **La scheda nasce dalla conversione della persona in prova**
+        (ADR-0193 §2): stessa autorita di ADR-0188, stessa transazione,
+        stessa idempotenza. Poi la pratica la completa con cio che ha
+        raccolto, come farebbe per una scheda esistente.
+      */
+      const esito = await convertTrialAthlete(
+        {
+          userId: scope.userId,
+          activeOrganizationId: organizationId,
+          activeRole: scope.activeRole ?? null,
+          allowedOrganizationIds: scope.allowedOrganizationIds,
+          accessScopes: scope.accessScopes,
+        },
+        asText(decision.trialAthleteId),
+        {
+          create: {
+            status: "active",
+            categoryId: placement.category?.id || null,
+            siteId: placement.siteId || null,
+          },
+        },
+        { userId: scope.userId },
+      );
+      athleteId = esito.athleteId;
+      trialUsata = asText(decision.trialAthleteId);
+      applied.push(
+        `Persona in prova convertita in atleta: ${athleteChange.recordLabel} (${esito.trial.trialsCount} ${esito.trial.trialsCount === 1 ? "prova" : "prove"} prima dell'iscrizione)`,
+      );
+      const { first_name: _fn, last_name: _ln, birth_date: _bd, ...restoColonne } = patch.columns as Record<string, unknown>;
+      if (Object.keys(values).length) {
+        const updated = await updateResource(
+          "athletes",
+          athleteId,
+          { ...restoColonne, data: patch.data },
+          scope,
+        );
+        athleteRecord = updated as any;
+      }
+    } else if (!athleteId) {
       const created = await createResource(
         "athletes",
         {
@@ -2497,17 +3005,37 @@ const eseguiDecisione = async (
     })),
   );
 
+  /*
+    `converted` quando da questa pratica e nata una scheda o ne e stata
+    collegata una (ADR-0189 §1); `approved` quando ha scritto consensi e
+    documenti su una scheda che gia c'era o su nessuna.
+  */
+  const schedaNataOCollegata = Boolean(athleteId) && (!schedaEsistenteAllInizio || Boolean(trialUsata));
+  const statoFinale = schedaNataOCollegata ? "converted" : "approved";
   const updated = await (prisma as any).formSubmission.update({
     where: { id: row.id },
     data: {
-      status: "approved",
+      status: statoFinale,
       subjects: nextSubjects,
+      athlete_id: athleteId || null,
+      trial_athlete_id: trialUsata || null,
       reviewed_by: scope.userId || null,
       reviewed_at: new Date(),
       review_note: note || null,
     },
     include: SUBMISSION_INCLUDE,
   });
+  if (statoFinale === "converted") {
+    await recordAuditEvent({
+      action: AUDIT_ACTIONS.formSubmissionConverted,
+      actorUserId: scope.userId || null,
+      actorRole: scope.activeRole || null,
+      organizationId: row.organization_id,
+      resource: "form_submissions",
+      resourceId: row.id,
+      metadata: { athleteId, trialAthleteId: trialUsata || null, schedaCreata: !schedaEsistenteAllInizio },
+    });
+  }
 
   return {
     submission: serializeSubmission(updated),
@@ -2515,6 +3043,37 @@ const eseguiDecisione = async (
     issues: extras.issues,
     generatedDocumentId: extras.generatedDocumentId,
   };
+};
+
+/**
+ * La famiglia viene avvisata dell'integrazione richiesta, quando ha lasciato
+ * un'email: il link e quello della ricevuta, che gia possiede (ADR-0191 §1).
+ */
+const notificaIntegrazioneRichiesta = async (
+  row: SubmissionRow & { respondent_email: string | null },
+  richiesta: FormChangesRequested,
+) => {
+  if (!row.respondent_email) return;
+  const { sendTransactionalEmail } = await import("./email/email-service");
+  const schema = normalizeFormSchema(row.template_version?.schema_json);
+  const campi = richiesta.fieldIds
+    .map((id) => schema.fields.find((field) => field.id === id)?.label)
+    .filter((label): label is string => Boolean(label));
+  const escape = (value: string) =>
+    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const righe = [
+    "Il club ha esaminato la tua iscrizione e chiede di correggere o completare:",
+    ...campi.map((label) => `- ${label}`),
+    richiesta.note ? `Nota del club: ${richiesta.note}` : "",
+    "",
+    "Apri la ricevuta che hai ricevuto all'invio e scegli «Integra la pratica».",
+  ].filter((riga) => riga !== "");
+  await sendTransactionalEmail({
+    to: row.respondent_email,
+    subject: `${row.template?.title || schema.title}: il club chiede un'integrazione`,
+    text: righe.join("\n"),
+    html: `<p>${righe.map(escape).join("<br/>")}</p>`,
+  });
 };
 
 /** Un riepilogo di una riga di elenco: chi ha compilato, in due parole. */

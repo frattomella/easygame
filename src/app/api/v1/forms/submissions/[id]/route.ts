@@ -49,7 +49,13 @@ export async function POST(request: Request, context: Context) {
       return ok(await reviewFormSubmission(scope, id, body?.subjects));
     }
 
-    if (action !== "approve" && action !== "reject") {
+    /*
+      Le transizioni della pratica (ADR-0189 §4): approva, rifiuta, chiedi
+      un'integrazione, archivia. Il dominio decide da quale stato e con quale
+      capacita; qui si nomina soltanto l'azione.
+    */
+    const AZIONI = ["approve", "reject", "request_changes", "archive"] as const;
+    if (!AZIONI.includes(action as (typeof AZIONI)[number])) {
       return failure(
         new Error(`Operazione sconosciuta: ${action}`),
         "Operazione sconosciuta",
@@ -57,9 +63,11 @@ export async function POST(request: Request, context: Context) {
     }
 
     const outcome = await decideFormSubmission(scope, id, {
-      decision: action,
+      decision: action as (typeof AZIONI)[number],
       note: body?.note,
       subjects: body?.subjects,
+      fieldIds: body?.field_ids ?? body?.fieldIds,
+      trialAthleteId: typeof body?.trialAthleteId === "string" ? body.trialAthleteId : typeof body?.trial_athlete_id === "string" ? body.trial_athlete_id : null,
       /*
         I documenti che mancano si chiedono **approvando**, non respingendo: e
         il punto in cui l'iscrizione e il fascicolo si saldano (Wave 5, lane
@@ -70,7 +78,12 @@ export async function POST(request: Request, context: Context) {
       documentRequests: body?.document_requests ?? body?.documentRequests,
     });
 
-    await recordAuditEvent({
+    /*
+      «Integrazione richiesta», «archiviata» e «atleta creato» le registra il
+      dominio, che sa cosa ha scritto; qui restano approvazione e rifiuto,
+      che portano il riepilogo di cio che e stato applicato.
+    */
+    if (action === "approve" || action === "reject") await recordAuditEvent({
       action:
         action === "approve"
           ? AUDIT_ACTIONS.formSubmissionApproved

@@ -29,6 +29,8 @@ export type SubmissionPayload = {
   respondentEmail: string;
   subjects: unknown;
   templateId: string;
+  /** Il gettone della bozza da cui l'invio nasce (ADR-0189 §3). */
+  draftToken: string;
 };
 
 const FILE_PART_PREFIX = "file:";
@@ -68,6 +70,7 @@ export const readSubmissionPayload = async (
       respondentEmail: asText(body?.respondentEmail),
       subjects: body?.subjects,
       templateId: asText(body?.templateId),
+      draftToken: asText(body?.draftToken).slice(0, 64),
     };
   }
 
@@ -112,5 +115,6 @@ export const readSubmissionPayload = async (
     respondentEmail: asText(body?.respondentEmail),
     subjects: body?.subjects,
     templateId: asText(body?.templateId),
+    draftToken: asText(body?.draftToken).slice(0, 64),
   };
 };

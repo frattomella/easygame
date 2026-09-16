@@ -621,7 +621,7 @@ test("approvare crea l'atleta con i valori mostrati nell'anteprima", async () =>
     "e non porta nessun legame: approvare non concede un accesso",
   );
   assert.equal(tutoreCreato.email ?? null, null);
-  assert.equal(esito.submission.status, "approved");
+  assert.equal(esito.submission.status, "converted", "la scheda e nata da questa pratica (ADR-0189)");
   assert.ok(esito.applied.length > 0);
 });
 
@@ -1273,7 +1273,7 @@ test("una compilazione presa in esame adesso si rifiuta; una presa vecchia si ri
   row.reviewed_at = new Date(Date.now() - 20 * 60_000);
   const esito = await submissions.decideFormSubmission(scopeA(), id, { decision: "approve" });
 
-  assert.equal(esito.submission.status, "approved");
+  assert.equal(esito.submission.status, "converted");
   assert.equal(fake.rows("athlete").length, 1);
 });
 

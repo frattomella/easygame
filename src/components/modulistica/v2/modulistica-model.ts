@@ -140,9 +140,12 @@ export const formStatusLabel = (status: unknown): string =>
 
 /** Lo stato di una compilazione (`FORM_SUBMISSION_STATUS_LABELS`). */
 export const SUBMISSION_STATUS: Record<FormSubmissionStatus, StatusSpec> = Object.freeze({
-  pending: spec("DA ESAMINARE", "solid", "amber"),
+  pending: spec("DA REVISIONARE", "solid", "amber"),
+  changes_requested: spec("INTEGRAZIONE RICHIESTA", "outline", "orange"),
   approved: spec("APPROVATA", "solid", "green"),
+  converted: spec("ATLETA CREATO", "solid", "green"),
   rejected: spec("RIFIUTATA", "urgent", "red"),
+  archived: spec("ARCHIVIATA", "quiet", "neutral"),
 });
 
 export const submissionStatusSpec = (status: unknown): StatusSpec =>

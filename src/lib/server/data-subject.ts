@@ -362,6 +362,8 @@ const readFormSubmissionsForSubject = async (
 ) => {
   const rows = await (prisma as any).formSubmission.findMany({
     where: { organization_id: organizationId },
+    /* Le revisioni (ADR-0189 §2) seguono la pratica: portano risposte e allegati precedenti. */
+    include: { revisions: true },
   });
 
   const mie: any[] = [];
@@ -369,9 +371,14 @@ const readFormSubmissionsForSubject = async (
 
   for (const row of Array.isArray(rows) ? rows : []) {
     const subjects = Array.isArray(row?.subjects) ? row.subjects : [];
-    const cita = subjects.some(
-      (subject: any) => asText(subject?.recordId) === subjectId,
-    );
+    /*
+      Una pratica nomina la persona nei soggetti, oppure nella colonna
+      `athlete_id` — la scheda che da essa e nata (ADR-0189): anche quella e
+      «sua».
+    */
+    const cita =
+      subjects.some((subject: any) => asText(subject?.recordId) === subjectId) ||
+      asText(row?.athlete_id) === subjectId;
     if (!cita) continue;
 
     /*
@@ -1376,9 +1383,19 @@ export const eraseDataSubject = async (
     compilazione, che e l'unico indice che li lega alla persona.
   */
   const allegatoDiUnModulo = (submission: any): string[] =>
-    (Array.isArray(submission?.files) ? submission.files : [])
-      .map((file: any) => parseAttachmentReference(asText(file?.reference)))
-      .filter(Boolean);
+    Array.from(
+      new Set(
+        [
+          ...(Array.isArray(submission?.files) ? submission.files : []),
+          /* E gli allegati delle revisioni precedenti, sostituiti da un reinvio. */
+          ...(Array.isArray(submission?.revisions) ? submission.revisions : []).flatMap((r: any) =>
+            Array.isArray(r?.files) ? r.files : [],
+          ),
+        ]
+          .map((file: any) => parseAttachmentReference(asText(file?.reference)))
+          .filter(Boolean),
+      ),
+    ) as string[];
 
   for (const submission of moduli.mie) {
     for (const idAllegato of allegatoDiUnModulo(submission)) {

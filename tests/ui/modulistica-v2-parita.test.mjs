@@ -263,7 +263,7 @@ test("/modulistica: i moduli online hanno tre griglie con le azioni e i toast de
   assert.match(sources.forms, /GIÀ FRA I MODULI DEL CLUB/);
   assert.match(sources.forms, /tone: "danger",\s*title: `Eliminare «\$\{template\.title\}»\?`/, "eliminare un modulo chiede conferma (la V1 non la chiedeva)");
   assert.equal(formStatusSpec("published").label, "PUBBLICATO");
-  assert.equal(submissionStatusSpec("pending").label, "DA ESAMINARE");
+  assert.equal(submissionStatusSpec("pending").label, "DA REVISIONARE");
   assert.equal(formCatalogClassLabel("A"), "Classe A — campi che EasyGame sa già leggere e scrivere");
   for (const status of Object.keys(FORM_STATUS_LABELS)) {
     assert.equal(formStatusSpec(status).label, FORM_STATUS_LABELS[status].toUpperCase());
