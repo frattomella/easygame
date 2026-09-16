@@ -34,6 +34,13 @@ export type CategoryAthleteStat = {
    */
   noResponse: number;
   rsvpRequested: number;
+  /**
+   * Vero per chi **oggi non e piu** in questa categoria ma ha presenze,
+   * convocazioni o risposte su eventi suoi (ADR-0194 §19): la riga resta
+   * nel rapporto perche la storia e della categoria in cui e successa, e
+   * il lettore lo dice invece di far sparire le presenze.
+   */
+  formerMember: boolean;
 };
 
 const PRESENT_STATUSES = new Set(["present", "presente", "yes", "true"]);
@@ -273,7 +280,26 @@ export function calculateCategoryAthleteStats(
     }
   }
 
-  return categoryAthletes.map((athlete) => {
+  /*
+    **La storia non si riclassifica con l'appartenenza corrente** (ADR-0194
+    §19). Una presenza o una convocazione registrata su un evento di questa
+    categoria e un fatto di questa categoria, anche se oggi l'atleta e
+    passato a un'altra: la riga dell'evento porta il contesto, e il rapporto
+    lo legge da li. Fin qui il rapporto elencava i soli membri **correnti**,
+    e un ragazzo passato da Under 15 a Under 17 perdeva a settembre le 35
+    presenze Under 15 che aveva fatto. Adesso entra chi ha una riga su un
+    evento della categoria, e resta chi ne e membro oggi.
+  */
+  const idsCorrenti = new Set(categoryAthletes.map((athlete) => getAthleteId(athlete)));
+  const conStoria = (Array.isArray(athletes) ? athletes : [])
+    .filter((athlete) => {
+      const id = getAthleteId(athlete);
+      return id && !idsCorrenti.has(id) && (presentTrainingsByAthlete.has(id) || convocationsByAthlete.has(id) || rispostiPerAtleta.has(id));
+    })
+    .sort(compareAthletesByLastName);
+  const conMembriStorici = [...categoryAthletes, ...conStoria];
+
+  return conMembriStorici.map((athlete) => {
     const athleteId = getAthleteId(athlete);
     const convocations = convocationsByAthlete.get(athleteId) || 0;
     const presences = presentTrainingsByAthlete.get(athleteId)?.size || 0;
@@ -301,6 +327,7 @@ export function calculateCategoryAthleteStats(
         0,
         eventiConRsvp.length - (rispostiPerAtleta.get(athleteId)?.size || 0),
       ),
+      formerMember: !idsCorrenti.has(athleteId),
     };
   });
 }

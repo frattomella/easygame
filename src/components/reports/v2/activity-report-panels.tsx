@@ -69,9 +69,14 @@ export const buildCategoryReportColumns = (): ColumnDef<CategoryReportRow>[] => 
     label: "Categoria",
     kind: "classification",
     minWidth: 130,
-    cell: (row) => row.categoryName,
+    /*
+      La categoria della riga e quella in cui le presenze sono **successe**
+      (ADR-0194 §19): chi oggi e altrove la tiene, con la nota, invece di
+      sparire dal rapporto insieme alle sue presenze.
+    */
+    cell: (row) => (row.formerMember ? `${row.categoryName} (oggi in altra categoria)` : row.categoryName),
     sortValue: (row) => row.categoryName,
-    title: (row) => row.categoryName,
+    title: (row) => (row.formerMember ? `${row.categoryName} — oggi in altra categoria` : row.categoryName),
   },
   {
     id: "convocations",

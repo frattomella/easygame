@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { getAthleteCategoryRelationship } from "@/lib/athlete-category-memberships";
 import {
   athleteIdsWithinAccessScope,
   buildAthleteAccessScopeConditions,
@@ -2436,6 +2437,35 @@ export const saveEventAttendance = async (
     "events.attendance",
   );
 
+  /*
+    **Il contesto della presenza si fotografa quando la si registra**
+    (ADR-0194 §20). La riga di presenza non porta la categoria — quella e
+    dell'evento, e non cambia — ma porta se l'atleta era **della** categoria
+    dell'evento o un extra: `is_extra_category`, la stessa colonna delle
+    convocazioni. Fin qui l'appello la lasciava a `false` e ogni lettore la
+    ricalcolava dall'appartenenza di oggi: chi cambiava categoria a ottobre
+    diventava «extra» sugli appelli di settembre. Si scrive alla **prima**
+    registrazione e non si riscrive: e una fotografia.
+  */
+  const categorieEvento = Array.from(
+    new Set([asText((event as any).category_id), ...((Array.isArray((event as any).category_ids) ? (event as any).category_ids : []) as unknown[]).map(asText)].filter(Boolean)),
+  );
+  const righeAppartenenza = normalizzate.length && categorieEvento.length
+    ? await (prisma as any).athleteCategoryMembership.findMany({
+        where: { organization_id: organizationId, athlete_id: { in: normalizzate.map((entry) => entry.athleteId) } },
+        select: { athlete_id: true, category_id: true, category_name: true, is_primary: true, site_id: true },
+      })
+    : [];
+  const appartenenzePerAtleta = new Map<string, any[]>();
+  for (const riga of righeAppartenenza as any[]) {
+    const bucket = appartenenzePerAtleta.get(riga.athlete_id) || [];
+    bucket.push(riga);
+    appartenenzePerAtleta.set(riga.athlete_id, bucket);
+  }
+  const eraDellaCategoria = (athleteId: string) =>
+    !categorieEvento.length ||
+    getAthleteCategoryRelationship({ category_memberships: appartenenzePerAtleta.get(athleteId) || [] }, categorieEvento) !== "none";
+
   await prisma.$transaction(async (tx) => {
     await assertEventoApertoNellaTransazione(
       tx,
@@ -2460,6 +2490,7 @@ export const saveEventAttendance = async (
           legacy_training_id: event.legacy_id,
           status: entry.status,
           notes: entry.notes,
+          is_extra_category: !eraDellaCategoria(entry.athleteId),
         },
       });
     }

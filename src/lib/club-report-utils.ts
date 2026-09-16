@@ -418,9 +418,26 @@ export const calculateAttendanceReport = ({
       }
     });
 
-    expectedAttendances += eligibleAthletes.length;
+    /*
+      **La riga di presenza e la prova che l'atleta era di questo evento**
+      (ADR-0194 §19). L'elenco degli attesi si calcola sull'appartenenza di
+      oggi; chi e passato di categoria dopo l'allenamento ha una riga e non
+      e piu «membro»: contarlo fuori vorrebbe dire che a settembre le sue
+      presenze Under 15 non sono mai esistite. Chi ha una riga entra fra gli
+      attesi di quell'evento, con la categoria dell'evento.
+    */
+    const idsAttesi = new Set(
+      eligibleAthletes.map((athlete) => firstString(athlete?.id, athlete?.athleteId)).filter(Boolean),
+    );
+    const conRiga = athletes.filter((athlete) => {
+      const athleteId = firstString(athlete?.id, athlete?.athleteId);
+      return athleteId && !idsAttesi.has(athleteId) && entriesByAthlete.has(athleteId);
+    });
+    const attesi = [...eligibleAthletes, ...conRiga];
 
-    eligibleAthletes.forEach((athlete) => {
+    expectedAttendances += attesi.length;
+
+    attesi.forEach((athlete) => {
       const athleteId = firstString(athlete?.id, athlete?.athleteId);
       const entry = athleteId ? entriesByAthlete.get(athleteId) : null;
 

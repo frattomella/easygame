@@ -29,7 +29,7 @@ interface Athlete {
   matchesAbsent?: number;
   isConvocated?: boolean;
   medicalCertExpiry?: string;
-  participationContext?: "primary" | "secondary" | "extra";
+  participationContext?: "primary" | "secondary" | "extra" | "member";
   participationBadgeLabel?: string | null;
   isExtraCategory?: boolean;
   isManualExtra?: boolean;
@@ -538,7 +538,7 @@ export function MatchConvocations({
     .slice(0, 6);
 
   /* Il ruolo di partecipazione e un chip di dato: verde la primaria, blu la secondaria, ambra l'aggiunta. */
-  const participationTone = (context?: "primary" | "secondary" | "extra"): "green" | "blue" | "amber" =>
+  const participationTone = (context?: "primary" | "secondary" | "extra" | "member"): "green" | "blue" | "amber" =>
     context === "extra" ? "amber" : context === "secondary" ? "blue" : "green";
 
   return (

@@ -5,7 +5,7 @@ type AthleteAnalyticsEvent = {
   date: string | null;
   categoryLabel: string;
   statusLabel: string;
-  context: "primary" | "secondary" | "extra";
+  context: "primary" | "secondary" | "extra" | "member";
   contextLabel: string;
   notes?: string;
 };

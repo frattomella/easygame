@@ -56,7 +56,7 @@ export type ConvocationAthlete = {
   matchesPlayed?: number;
   matchesAbsent?: number;
   medicalCertExpiry?: string | null;
-  participationContext?: "primary" | "secondary" | "extra";
+  participationContext?: "primary" | "secondary" | "extra" | "member";
   participationBadgeLabel?: string | null;
   isExtraCategory?: boolean;
   isManualExtra?: boolean;
@@ -106,7 +106,7 @@ const entryFor = (athlete: ConvocationAthlete, existing?: ConvocationEntry): Con
   };
 };
 
-const participationTone = (context?: "primary" | "secondary" | "extra") =>
+const participationTone = (context?: "primary" | "secondary" | "extra" | "member") =>
   context === "extra" ? "amber" : context === "secondary" ? "blue" : "green";
 
 export function ConvocationsDrawer({

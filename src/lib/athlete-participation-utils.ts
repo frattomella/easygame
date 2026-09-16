@@ -11,6 +11,8 @@ export type NormalizedAttendanceEntry = {
   isExtraCategory: boolean;
   isManualExtra: boolean;
   categoryMembershipType?: string | null;
+  /** Lo stato registrato sulla riga (`present`/`absent`/`pending`), o `null` senza riga: dice se la fotografia del contesto esiste (ADR-0194 §20). */
+  status?: string | null;
 };
 
 export type NormalizedConvocationEntry = {
@@ -208,6 +210,7 @@ export const normalizeTrainingAttendanceEntries = (
               : false),
         ),
         notes: firstNonEmptyString(entry.notes),
+        status: firstNonEmptyString(entry.status) || null,
         isExtraCategory: Boolean(
           entry.isExtraCategory ?? entry.is_extra_category ?? false,
         ),

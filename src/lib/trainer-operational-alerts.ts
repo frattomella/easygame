@@ -173,7 +173,6 @@ export const getTrainingAttendanceStatus = (
   training: any,
   athletes: any[],
 ) => {
-  const total = Array.isArray(athletes) ? athletes.length : 0;
   const allowedAthleteIds = new Set(
     (Array.isArray(athletes) ? athletes : [])
       .map((athlete) => String(athlete?.id || "").trim())
@@ -183,16 +182,25 @@ export const getTrainingAttendanceStatus = (
     ? training.attendance
     : [];
   const recordedAthleteIds = new Set<string>();
+  /*
+    **Una riga di presenza e un fatto dell'evento, non dell'elenco di oggi**
+    (ADR-0194 §19). L'elenco arriva dall'appartenenza corrente; chi ha
+    cambiato categoria dopo l'allenamento ha una riga e non e nell'elenco.
+    Scartarla faceva dire «presenze mancanti» a un appello completo, e
+    toglieva una presenza a chi c'era. La riga conta, e chi la porta entra nel
+    totale di quell'evento.
+  */
+  const fuoriElenco = new Set<string>();
   let present = 0;
 
   for (const entry of attendanceEntries) {
     const athleteId = getAttendanceAthleteId(entry);
-    if (!athleteId || (allowedAthleteIds.size > 0 && !allowedAthleteIds.has(athleteId))) {
-      continue;
-    }
-
+    if (!athleteId) continue;
     if (!isAttendanceEntryRecorded(entry)) {
       continue;
+    }
+    if (allowedAthleteIds.size > 0 && !allowedAthleteIds.has(athleteId)) {
+      fuoriElenco.add(athleteId);
     }
 
     recordedAthleteIds.add(athleteId);
@@ -215,6 +223,7 @@ export const getTrainingAttendanceStatus = (
     che si stanno guardando, mentre il numero e quello dell'evento intero. Due
     letture della stessa cosa, e la piu precisa comanda.
   */
+  const total = (Array.isArray(athletes) ? athletes.length : 0) + fuoriElenco.size;
   const dalServer = readRecordedAttendance(training);
   const senzaElenco = !dalServer.dallElenco && dalServer.recorded > 0;
 

@@ -36,7 +36,13 @@ export type AthleteCategoryMembership = {
 };
 
 export type AthleteCategoryRelationship = "primary" | "secondary" | "none";
-export type ParticipationCategoryContext = "primary" | "secondary" | "extra";
+/**
+ * `member`: la riga dell'evento dice che l'atleta **era** della categoria
+ * (`is_extra_category = false`, fotografato alla registrazione, ADR-0194
+ * §20) ma oggi non le appartiene piu: primaria o secondaria allora non si
+ * sa, e non si inventa dall'appartenenza corrente.
+ */
+export type ParticipationCategoryContext = "primary" | "secondary" | "extra" | "member";
 
 type CategoryOptionLike = CategoryCatalogEntry;
 
@@ -951,6 +957,17 @@ export const getParticipationCategoryContext = ({
     return "secondary";
   }
 
+  /*
+    Una riga registrata che dice «non extra» e la fotografia di allora
+    (ADR-0194 §20): l'atleta era della categoria dell'evento anche se oggi
+    non lo e piu. Senza riga, o con la colonna assente, vale l'appartenenza
+    corrente come prima.
+  */
+  const fotografato = entry?.is_extra_category ?? entry?.isExtraCategory;
+  if (fotografato === false && (entry?.status || entry?.convocation_status || entry?.convocationStatus)) {
+    return "member";
+  }
+
   return "extra";
 };
 
@@ -963,6 +980,10 @@ export const getParticipationCategoryBadgeLabel = (
 
   if (context === "extra") {
     return "Extra categoria";
+  }
+
+  if (context === "member") {
+    return "Della categoria";
   }
 
   return "Primaria";

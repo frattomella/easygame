@@ -1560,8 +1560,19 @@ export const getParentDashboardData = async (
       }),
   )
     .sort(sortByStart);
+  /*
+    Come per gli allenamenti: una gara con una riga di partecipazione — una
+    convocazione, una risposta — resta nella storia della famiglia anche se
+    l'atleta ha cambiato categoria dopo (ADR-0194 §19). Fin qui la storia
+    delle gare seguiva la sola appartenenza corrente e la convocazione di
+    settembre spariva a ottobre.
+  */
   const matches = rawMatches
-    .filter((match) => recordMatchesAthlete(match, selectedAthlete, categoryOptions))
+    .filter(
+      (match) =>
+        recordMatchesAthlete(match, selectedAthlete, categoryOptions) ||
+        attendanceTrainingIds.has(String(match?.id || "")),
+    )
     .map((match) => {
       const summary = summarizeEvent(match, categoryOptions, "match");
       return {
