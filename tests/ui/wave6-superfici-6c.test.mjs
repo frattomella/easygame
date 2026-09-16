@@ -67,12 +67,13 @@ test("W6-30 · le notifiche sono nel menu e nel registro delle rotte", () => {
     "una rotta fuori dal registro e una porta che il ripiego non sa aprire",
   );
 
-  const sidebar = senzaCommenti(leggi("components/trainer/TrainerSidebar.tsx"));
+  /* Redesign: la voce vive nella fonte unica delle aree, appesa alla sua chiave; la rotta arriva dalla mappa. */
+  const sidebar = senzaCommenti(leggi("components/web/shell/area-navigation.ts"));
   assert.ok(
-    sidebar.includes("/trainer-dashboard/notifications"),
+    sidebar.includes('key: "notifications"'),
     "la pagina esisteva e si raggiungeva solo dalla campanella",
   );
-  assert.ok(sidebar.includes("permissions.navigation.notifications"));
+  assert.ok(sidebar.includes("TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY[item.key]"));
 });
 
 /* ------------------------------------------------------------------ W6-31 */
@@ -99,9 +100,7 @@ test("W6-31 · la chiave categories non e piu forzata a false", () => {
     false,
     "leggere la scelta del club e buttarla via una riga dopo e peggio che non offrirla",
   );
-  assert.ok(leggi("components/trainer/TrainerSidebar.tsx").includes(
-    "permissions.navigation.categories",
-  ));
+  assert.ok(leggi("components/web/shell/area-navigation.ts").includes('key: "categories"'));
 });
 
 /* ------------------------------------------------------------------ W6-32 */
@@ -127,9 +126,9 @@ test("W6-32 · «I miei compensi» ha rotta, pagina e voce di menu", () => {
     "non esiste un parametro per farla diventare l'elenco di un altro",
   );
 
-  const sidebar = senzaCommenti(leggi("components/trainer/TrainerSidebar.tsx"));
-  assert.ok(sidebar.includes("/trainer-dashboard/compensi"));
-  assert.ok(sidebar.includes("permissions.navigation.compensation"));
+  const sidebar = senzaCommenti(leggi("components/web/shell/area-navigation.ts"));
+  assert.ok(sidebar.includes('key: "compensation"'));
+  assert.ok(leggi("lib/trainer-dashboard-permissions.ts").includes('compensation: "/trainer-dashboard/compensi"'));
 });
 
 /* ------------------------------------------------- il presidio trasversale */
@@ -151,13 +150,12 @@ test("ogni voce di navigazione dell'allenatore e raggiungibile dal menu", () => 
   const rotte = [...blocco.matchAll(/(\w+):\s*"(\/trainer-dashboard[^"]*)"/g)];
   assert.ok(rotte.length >= 10, `attese almeno dieci rotte, trovate ${rotte.length}`);
 
-  const sidebar = senzaCommenti(leggi("components/trainer/TrainerSidebar.tsx"));
+  /* La fonte unica nomina ogni chiave; la rotta la prende dalla mappa, quindi si cerca la chiave. */
+  const sidebar = senzaCommenti(leggi("components/web/shell/area-navigation.ts"));
 
   const invisibili = rotte
     .map(([, chiave, rotta]) => ({ chiave, rotta }))
-    /* La home ha il suo link, senza chiave nella stessa forma testuale. */
-    .filter(({ chiave }) => chiave !== "home")
-    .filter(({ rotta }) => !sidebar.includes(`"${rotta}"`))
+    .filter(({ chiave }) => !sidebar.includes(`key: "${chiave}"`))
     .map(({ chiave }) => chiave);
 
   assert.deepEqual(

@@ -99,13 +99,15 @@ test("la topbar del club non contiene la chat", () => {
 });
 
 test("le topbar mostrano club e stagione", () => {
-  for (const file of [HEADER, MOBILE_TOPBAR]) {
-    assert.match(
-      read(file),
-      /ClubIdentity/,
-      `${relative(file)} deve mostrare club e stagione con ClubIdentity`,
-    );
-  }
+  /*
+    La topbar desktop riceve `clubIdentity` e la barra mobile (Web V2) disegna
+    il club con l'`Avatar` del sistema e la riga «Stagione …»: la stessa
+    informazione, nella forma del guscio.
+  */
+  assert.match(read(HEADER), /ClubIdentity/, `${relative(HEADER)} deve mostrare club e stagione`);
+  const mobile = read(MOBILE_TOPBAR);
+  assert.match(mobile, /<Avatar src=\{logoUrl\} name=\{clubName\}/, "la barra mobile mostra il club");
+  assert.match(mobile, /Stagione \$\{seasonLabel\}/, "e la stagione");
 });
 
 // --- console di piattaforma ---------------------------------------------------

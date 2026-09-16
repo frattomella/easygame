@@ -56,36 +56,43 @@
 }
 
 @layer base {
+  /*
+    Le variabili delle primitive `ui/*` (shadcn) sono **alias dei token EGDS**
+    (`src/styles/egw-tokens.css`), in HSL perche Tailwind le consuma cosi:
+    ink #0b1a3a, blu #2563eb, page-100 #f4f7fd, rosso #b91c1c. Un componente
+    legacy che dice `bg-card` o `border-input` disegna quindi gli stessi
+    colori del Web V2 — un sistema solo, due grafie (ADR-0187).
+  */
   :root {
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 221 68% 14%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 221 68% 14%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 221 68% 14%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 221 83% 53%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 220 69% 97%;
+    --secondary-foreground: 221 68% 14%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 220 69% 97%;
+    --muted-foreground: 224 14% 46%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 222 78% 98%;
+    --accent-foreground: 221 68% 14%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 74% 42%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 222 16% 89%;
+    --input: 222 16% 89%;
+    --ring: 221 83% 53%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
   }
 
   .dark {

@@ -112,6 +112,33 @@
 .egw-drawer-panel[data-state="closed"] {
   animation: egw-drawer-out var(--egw-dur-drawer-out) var(--egw-ease);
 }
+/* Il menu di navigazione sotto i 1024px: entra da sinistra, come il cassetto entra da destra. */
+@keyframes egw-mobile-nav-in {
+  from {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+@keyframes egw-mobile-nav-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-24px);
+    opacity: 0;
+  }
+}
+.egw-mobile-nav[data-state="open"] {
+  animation: egw-mobile-nav-in var(--egw-dur-drawer) var(--egw-ease);
+}
+.egw-mobile-nav[data-state="closed"] {
+  animation: egw-mobile-nav-out var(--egw-dur-drawer-out) var(--egw-ease);
+}
 .egw-modal-panel[data-state="open"] {
   animation: egw-modal-in var(--egw-dur-panel) var(--egw-ease);
 }
@@ -139,6 +166,7 @@
 @media (prefers-reduced-motion: reduce) {
   .egw-skeleton,
   .egw-drawer-panel[data-state],
+  .egw-mobile-nav[data-state],
   .egw-modal-panel[data-state],
   .egw-scrim[data-state],
   .egw-toast-enter,

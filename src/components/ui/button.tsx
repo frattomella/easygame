@@ -5,25 +5,33 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 blue-outline-hover",
+  /*
+    La primitiva legacy veste le varianti del Web V2 (`web/primitives/Button`):
+    `default` e il neutro navy pieno — non il gradiente, che e uno solo per
+    schermata e appartiene al primario di pagina —, `outline` il secondario
+    bianco, `destructive` il contorno rosso (mai un riempimento), `ghost` e
+    `link` la variante testuale. Stessi raggi, stesse ombre, stesso font
+    (ADR-0187).
+  */
+  "inline-flex shrink-0 select-none items-center justify-center gap-2 whitespace-nowrap rounded-egw-control font-brand text-[13px] font-semibold leading-none transition-[background-color,border-color,box-shadow,filter,transform] duration-hover ease-egw focus-visible:outline-none disabled:cursor-not-allowed disabled:border-transparent disabled:bg-[rgba(11,26,58,.06)] disabled:text-egw-ink-42 disabled:shadow-none disabled:filter-none active:translate-y-px",
   {
     variants: {
       variant: {
-        default: "bg-blue-600 text-white shadow hover:bg-blue-700",
+        default: "border border-transparent bg-egw-navy-800 text-white hover:brightness-[1.1] focus-visible:shadow-egw-focus",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
+          "border-[1.5px] border-egw-red bg-white text-egw-red hover:bg-egw-tint-red focus-visible:shadow-egw-focus-danger",
         outline:
-          "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
+          "border border-egw-control-border bg-white text-egw-ink hover:border-[rgba(37,99,235,.32)] hover:bg-white focus-visible:border-egw-blue focus-visible:shadow-egw-focus active:bg-egw-page-050",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-blue-600 underline-offset-4 hover:underline",
-        blue: "bg-blue-600 text-white shadow hover:bg-blue-700",
+          "border border-transparent bg-egw-page-100 text-egw-ink hover:bg-[#e9eef9] focus-visible:shadow-egw-focus",
+        ghost: "border border-transparent bg-transparent text-egw-ink-72 hover:bg-egw-page-100 hover:text-egw-ink focus-visible:shadow-egw-focus",
+        link: "border border-transparent bg-transparent text-egw-blue-700 underline-offset-4 hover:underline focus-visible:shadow-egw-focus",
+        blue: "border border-white/30 bg-egw-action text-white shadow-egw-glow hover:brightness-[1.06] focus-visible:shadow-[var(--egw-focus-ring-dark)]",
       },
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-10 rounded-md px-8",
+        default: "h-10 px-4",
+        sm: "h-8 px-3 text-[12.5px]",
+        lg: "h-11 px-6 text-[13.5px]",
         icon: "h-9 w-9",
       },
     },

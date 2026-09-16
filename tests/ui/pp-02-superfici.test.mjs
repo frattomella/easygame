@@ -28,7 +28,8 @@ const senzaCommenti = (sorgente) =>
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
 const GUSCIO = "components/parent-dashboard/parent-dashboard-shell.tsx";
-const BARRA = "components/parent-dashboard/ParentSidebar.tsx";
+/* Redesign: la famiglia non ha piu una barra propria; il figlio sta nel blocco d'identita della `Sidebar` condivisa, dichiarato dal guscio. */
+const BARRA = "components/parent-dashboard/parent-dashboard-shell.tsx";
 const SCELTA = "app/parent-view/page.tsx";
 const PAGINE = "components/parent-dashboard/parent-dashboard-pages.tsx";
 /* Dal Web V2 la barra superiore e `web/shell/Topbar.tsx`. */
@@ -46,11 +47,11 @@ test("§A · il cambio figlio ha una porta nella barra laterale", () => {
     "senza questa voce il cambio figlio non e raggiungibile da nessuna pagina",
   );
   assert.ok(
-    barra.includes('href="/parent-view"'),
+    barra.includes('router.push("/parent-view")'),
     "e deve portare alla schermata di scelta, che e l'unico posto dove la scelta si fa",
   );
   assert.ok(
-    barra.includes("Stai vedendo"),
+    barra.includes('eyebrow: "Figlio"') && barra.includes("Stai vedendo"),
     "chi sta guardando va detto: e la pagina di un figlio, non della famiglia",
   );
   assert.ok(
@@ -62,13 +63,14 @@ test("§A · il cambio figlio ha una porta nella barra laterale", () => {
 test("§A · la fascia sopra il contenuto non c'e piu", () => {
   const guscio = senzaCommenti(leggi(GUSCIO));
 
+  /*
+    L'identita del figlio vive nel blocco in alto della barra laterale
+    (`identity`), e sotto i 1024 px nello stesso menu: nessuna fascia dentro
+    il contenuto, e nessun secondo elenco di voci scritto per il telefono.
+  */
   assert.ok(
-    !guscio.includes("Stai vedendo"),
+    !guscio.includes("<DashboardPageContainer") && guscio.includes("identity={identity}"),
     "la fascia occupava la prima riga di tredici pagine su tredici, sopra la piega a 375 px",
-  );
-  assert.ok(
-    guscio.includes('label: `FIGLIO · ${data.athlete.name}`'),
-    "su mobile la porta sta in cima al menu, che e dove si va per cambiare pagina",
   );
 });
 
@@ -86,7 +88,7 @@ test("§A · la schermata di scelta dice chi e ognuno, non solo come si chiama",
 
   assert.ok(scelta.includes("Classe"), "l'anno distingue due fratelli");
   assert.ok(
-    scelta.includes("ETICHETTE_STATO"),
+    scelta.includes("STATI_DA_DIRE") && scelta.includes("<StatusPill status={stato}"),
     "un figlio non piu iscritto va dichiarato prima di entrarci, non dopo",
   );
   assert.ok(
@@ -364,14 +366,15 @@ test("§N · le righe nuove dell'area famiglia vanno a capo", () => {
 });
 
 test("§N · la scheda del figlio nella barra non tronca il nome", () => {
-  const barra = senzaCommenti(leggi(BARRA));
+  /* Il blocco d'identita della Sidebar condivisa: `min-w-0` sul contenitore, `egw-ellipsis` sul nome. */
+  const barra = senzaCommenti(leggi("components/web/shell/Sidebar.tsx"));
 
   assert.ok(
-    barra.includes("min-w-0"),
-    "senza, `truncate` non tronca: la larghezza minima resta quella del nome intero",
+    barra.includes('<span className="min-w-0 flex-1">'),
+    "senza, l'ellissi non tronca: la larghezza minima resta quella del nome intero",
   );
   assert.ok(
-    barra.includes("truncate font-semibold"),
+    barra.includes("egw-ellipsis block text-[12.5px] font-bold leading-4 text-white\">{block.name}"),
     "un nome lungo deve troncarsi, non allargare la barra",
   );
 });

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { readPreference, writePreference } from "@/lib/web/preferences";
+import type { NavGroup } from "@/components/web/shell/navigation";
 
 /**
  * Lo stato del guscio Web V2, condiviso fra barra laterale e topbar anche
@@ -13,6 +14,11 @@ import { readPreference, writePreference } from "@/lib/web/preferences";
  *   alla volta (guideline 06 §6.7).
  * - `breadcrumbLabel`: l'etichetta dell'ultimo segmento quando la pagina la
  *   conosce (il nome dell'atleta nella sua scheda).
+ * - `areaNav`: i gruppi di navigazione dell'**area** in cui si sta — famiglia,
+ *   allenatore, atleta — quando non sono quelli del gestionale. Li dichiara
+ *   il guscio dell'area (`useShellArea`); il breadcrumb della topbar li usa
+ *   per risolvere il percorso, e la ricerca globale sugli atleti — che
+ *   porta a `/athletes`, una rotta del gestionale — non si disegna.
  */
 type ShellState = {
   collapsed: boolean;
@@ -24,6 +30,8 @@ type ShellState = {
   setNotificationsOpen: (next: boolean) => void;
   breadcrumbLabel: string | null;
   setBreadcrumbLabel: (label: string | null) => void;
+  areaNav: readonly NavGroup[] | null;
+  setAreaNav: (groups: readonly NavGroup[] | null) => void;
   hydrated: boolean;
 };
 
@@ -37,6 +45,8 @@ const ShellContext = React.createContext<ShellState>({
   setNotificationsOpen: () => {},
   breadcrumbLabel: null,
   setBreadcrumbLabel: () => {},
+  areaNav: null,
+  setAreaNav: () => {},
   hydrated: false,
 });
 
@@ -50,6 +60,7 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
   const [quickActionsOpen, setQuickActionsOpenState] = React.useState(false);
   const [notificationsOpen, setNotificationsOpenState] = React.useState(false);
   const [breadcrumbLabel, setBreadcrumbLabel] = React.useState<string | null>(null);
+  const [areaNav, setAreaNav] = React.useState<readonly NavGroup[] | null>(null);
   const userChoice = React.useRef<boolean | null>(null);
 
   React.useEffect(() => {
@@ -128,6 +139,8 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
       setNotificationsOpen,
       breadcrumbLabel,
       setBreadcrumbLabel,
+      areaNav,
+      setAreaNav,
       hydrated,
     }),
     [
@@ -139,6 +152,7 @@ export function ShellProvider({ children }: { children: React.ReactNode }) {
       notificationsOpen,
       setNotificationsOpen,
       breadcrumbLabel,
+      areaNav,
       hydrated,
     ],
   );
@@ -153,4 +167,16 @@ export function useBreadcrumbLabel(label: string | null | undefined) {
     setBreadcrumbLabel(label || null);
     return () => setBreadcrumbLabel(null);
   }, [label, setBreadcrumbLabel]);
+}
+
+/**
+ * Il guscio di un'area dichiara i propri gruppi di navigazione per il tempo
+ * in cui e montato: topbar e barra mobile li leggono da qui.
+ */
+export function useShellArea(groups: readonly NavGroup[] | null) {
+  const { setAreaNav } = useShell();
+  React.useEffect(() => {
+    setAreaNav(groups);
+    return () => setAreaNav(null);
+  }, [groups, setAreaNav]);
 }

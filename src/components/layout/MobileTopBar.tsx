@@ -1,206 +1,42 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import * as React from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import {
-  Menu,
-  UserCircle,
-  HelpCircle,
-  UserPlus,
-  Zap,
-  Home,
-  Building,
-  Users,
-  Dumbbell,
-  Calendar,
-  Trophy,
-  Settings,
-  FileHeart,
-  FileText,
-  Shield,
-  ShieldCheck,
-  CreditCard,
-  ClipboardList,
-  Bell,
-  BarChart3,
-  FolderKanban,
-  CalendarDays,
-  FileCheck,
-  HardHat,
-  ScrollText,
-  Send,
-  Shirt,
-  UserCog,
-} from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { HelpCircle, Menu as MenuIcon, Sparkles, UserCircle, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { ClubIdentity } from "@/components/brand/club-identity";
-import { EasyGameWordmark } from "@/components/brand/easygame-logo";
-import { canAccessPath } from "@/lib/access-roles";
-import { canOpenAccounting } from "@/lib/accounting/permissions";
+import { Avatar } from "@/components/web/primitives/Identity";
+import {
+  HELP_URL,
+  QUICK_ACTIONS,
+  visibleNavGroups,
+  visibleQuickActions,
+  type NavGroup,
+} from "@/components/web/shell/navigation";
+import { openExternalUrl } from "@/lib/navigation/external-link";
+import logoWhite from "@/../public/images/brand/logotipo-w.png";
 
 /**
- * Le stesse azioni rapide della topbar desktop.
+ * **La barra sotto i 1024 px** (EGDS v3.1.0, guideline 05 §5.10).
  *
- * Su telefono non hanno un pulsante proprio nella barra — lo spazio va speso
- * su club e stagione — ma vivono in cima al menu, dove non costano larghezza.
+ * `Sidebar` e `hidden lg:flex`: sotto quella soglia questa barra e **l'unica**
+ * navigazione che un proprietario, una segretaria, un allenatore o una
+ * famiglia hanno. Fino a qui aveva un elenco di voci **copiato a mano** dalla
+ * barra laterale, e per tre volte una voce e nata da un lato senza arrivare
+ * dall'altro (`tests/ui/navigazione-sotto-1024-e-768.test.mjs` racconta la
+ * storia). Adesso l'elenco del club **e** quello della barra laterale —
+ * `visibleNavGroups`, la stessa funzione con lo stesso filtro per ruolo — e le
+ * aree (famiglia, allenatore, atleta) passano il proprio, gia filtrato dai
+ * permessi del loro dominio, con `navSectionsOverride`.
+ *
+ * L'aspetto e quello del guscio: barra bianca di 56px con il filo di
+ * gradiente, e il menu che scorre da sinistra sullo stesso gradiente della
+ * barra laterale, con la voce attiva in bianco pieno.
  */
-const quickActions = [
-  { id: "new-athlete", label: "Nuovo atleta", icon: UserPlus, href: "/athletes/new" },
-  {
-    id: "register-certificate",
-    label: "Registra certificato medico",
-    icon: FileHeart,
-    href: "/medical?action=new",
-  },
-  {
-    id: "new-training",
-    label: "Nuovo allenamento",
-    icon: Calendar,
-    href: "/training?action=new",
-  },
-  { id: "new-match", label: "Nuova gara", icon: Trophy, href: "/matches?action=new" },
-  {
-    id: "new-payment",
-    label: "Registra pagamento",
-    icon: CreditCard,
-    href: "/movements?action=new",
-  },
-] as const;
-
-const HELP_URL = "https://www.cedisoft.it/contatti/";
-
-/**
- * **Le voci del menu sotto i 1024 px.**
- *
- * `Sidebar` e `hidden lg:flex`: sotto i 1024 px non esiste, e questo elenco e
- * **l'unica** navigazione che un proprietario o una segretaria hanno. Una voce
- * che sta solo nella barra laterale e quindi una pagina che dal telefono non
- * si raggiunge — il difetto che la Wave 6 ha ripetuto con «Documenti»,
- * «Ruoli e accessi» e «Registro attivita», e che prima di lei aveva gia
- * lasciato fuori Calendario, Strutture, Comunicazioni, Lavoro sportivo e
- * Abbigliamento.
- *
- * Adesso l'elenco e **completo rispetto alla barra desktop**, e a presidiarlo
- * c'e `tests/ui/navigazione-sotto-1024-e-768.test.mjs`, che ricava le voci da
- * `Sidebar.tsx` e pretende di ritrovarle qui: la prossima voce dimenticata
- * fallisce da sola, senza chiedere a nessuno di ricordarsene.
- *
- * Le sezioni non ricalcano quelle della barra laterale — su un telefono si
- * scorre, e otto gruppi da due voci costano piu di quattro da quattro — ma
- * ogni indirizzo della barra laterale deve comparire in uno di essi.
- */
-const navSections = [
-  {
-    id: "club",
-    label: "CLUB",
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: Home },
-      { href: "/organization", label: "Club", icon: Building },
-      { href: "/staff", label: "Staff", icon: Users },
-      { href: "/soci", label: "Soci", icon: Users },
-      { href: "/sponsors", label: "Sponsor", icon: Building },
-      { href: "/modulistica", label: "Modulistica", icon: FileText },
-      { href: "/consensi", label: "Consensi", icon: ShieldCheck },
-      { href: "/procura", label: "Procura", icon: Shield },
-    ],
-  },
-  {
-    id: "tesserati",
-    label: "TESSERATI",
-    items: [
-      { href: "/athletes", label: "Atleti", icon: Users },
-      { href: "/trainers", label: "Allenatori", icon: Users },
-      { href: "/categories", label: "Categorie", icon: FolderKanban },
-      { href: "/medical", label: "Certificati", icon: FileHeart },
-    ],
-  },
-  {
-    id: "attivita",
-    label: "ATTIVITÀ",
-    items: [
-      { href: "/calendar", label: "Calendario", icon: CalendarDays },
-      { href: "/training", label: "Allenamenti", icon: Dumbbell },
-      { href: "/matches", label: "Gare", icon: Trophy },
-      { href: "/structures", label: "Strutture", icon: Building },
-    ],
-  },
-  {
-    id: "contabilita",
-    label: "CONTABILITÀ",
-    items: [
-      {
-        href: "/registration-management",
-        label: "Gestione Iscrizioni",
-        icon: CreditCard,
-      },
-      { href: "/movements", label: "Movimenti", icon: CreditCard },
-    ],
-  },
-  {
-    id: "lavoro-sportivo",
-    label: "LAVORO SPORTIVO",
-    /*
-      Una voce sola, come nella barra laterale: le sezioni del modulo stanno
-      dentro il modulo (`SPORT_WORK_SECTIONS`). La parita fra i due menu e
-      verificata da `tests/ui/navigazione-sotto-1024-e-768.test.mjs`.
-    */
-    items: [{ href: "/sport-work", label: "Lavoro sportivo", icon: HardHat }],
-  },
-  {
-    id: "magazzino",
-    label: "MAGAZZINO",
-    items: [{ href: "/clothing", label: "Abbigliamento", icon: Shirt }],
-  },
-  {
-    id: "altro",
-    label: "ALTRO",
-    items: [
-      { href: "/secretariat", label: "Segreteria", icon: ClipboardList },
-      /*
-        W6-39. La coda documentale del club, con la stessa etichetta e la
-        stessa icona della barra laterale. Sta accanto a «Segreteria» perche e
-        il suo lavoro quotidiano: si apre la mattina e si guarda cosa e
-        arrivato. Senza questa riga la pagina esisteva solo per chi aveva uno
-        schermo largo almeno 1024 px.
-      */
-      { href: "/documenti", label: "Documenti", icon: FileCheck },
-      /*
-        Gli appuntamenti sono una voce della barra laterale V2 (gruppo
-        Segreteria): la stessa destinazione deve esistere anche qui, sotto i
-        1024 px.
-      */
-      { href: "/appuntamenti", label: "Appuntamenti", icon: CalendarDays },
-      { href: "/notifications", label: "Notifiche", icon: Bell },
-      { href: "/communications", label: "Comunicazioni", icon: Send },
-      { href: "/reports", label: "Report", icon: BarChart3 },
-      { href: "/settings", label: "Impostazioni", icon: Settings },
-      /* Stesso nome della barra laterale (PP-01 §M). */
-      { href: "/permissions", label: "Permessi allenatore", icon: Shield },
-      /*
-        W6-1 e W6-2. Le due schermate della lane 6G, con le etichette della
-        barra laterale. Chi governa i ruoli o legge il registro degli accessi
-        lo fa spesso **mentre** succede qualcosa, e non necessariamente da una
-        scrivania: lasciarle fuori di qui le rendeva raggiungibili solo per
-        indirizzo.
-      */
-      {
-        href: "/dashboard/access-management",
-        label: "Ruoli e accessi",
-        icon: UserCog,
-      },
-      { href: "/audit", label: "Registro attivita", icon: ScrollText },
-    ],
-  },
-];
 
 export type MobileNavSection = {
   id: string;
@@ -218,15 +54,8 @@ interface MobileTopBarProps {
   navSectionsOverride?: MobileNavSection[];
   /**
    * **Il club e la stagione detti dal server**, quando chi guarda non ha una
-   * tessera.
-   *
-   * PP-02 §C ha chiuso su `Header` il difetto per cui un tutore collegato
-   * senza tessera leggeva «EasyGame» e «Nessuna stagione attiva»: la barra
-   * pescava da `activeClub` in `localStorage`, che e una **copia** e per lui
-   * non esiste. Ma la correzione si fermava li, e `Header` non passava niente
-   * a questa barra — che e quella che si vede **sotto i 1024 px**, cioe su
-   * ogni telefono e ogni tablet, i due viewport che quel pacchetto cita in
-   * ogni sezione. Meta degli utenti vedeva ancora il difetto.
+   * tessera (PP-02 §C): un tutore collegato senza tessera non ha `activeClub`
+   * in `localStorage`, e leggeva «EasyGame · Nessuna stagione attiva».
    */
   clubIdentity?: {
     name: string;
@@ -235,16 +64,25 @@ interface MobileTopBarProps {
   } | null;
 }
 
+const toSections = (groups: readonly NavGroup[]): MobileNavSection[] =>
+  groups.map((group) => ({
+    id: group.id,
+    label: group.label,
+    items: group.items.map((item) => ({ href: item.href, label: item.label, icon: item.icon })),
+  }));
+
 export const MobileTopBar: React.FC<MobileTopBarProps> = ({
   showHubLink = true,
   title,
   navSectionsOverride,
   clubIdentity = null,
 }) => {
-  const { user, activeClub } = useAuth();
+  const auth = useAuth();
+  const { user, activeClub } = auth;
   const router = useRouter();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [clubId, setClubId] = useState<string | null>(null);
+  const pathname = usePathname() || "";
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [clubId, setClubId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (typeof window === "undefined") {
@@ -259,13 +97,13 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
       return;
     }
 
-    const activeClub = localStorage.getItem("activeClub");
-    if (!activeClub) {
+    const stored = localStorage.getItem("activeClub");
+    if (!stored) {
       return;
     }
 
     try {
-      const parsedClub = JSON.parse(activeClub);
+      const parsedClub = JSON.parse(stored);
       if (parsedClub?.id) {
         setClubId(parsedClub.id);
       }
@@ -274,215 +112,213 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({
     }
   }, []);
 
-  const buildUrl = useMemo(
+  /* Le aree passano indirizzi gia completi: il `clubId` si aggiunge solo alle voci del gestionale. */
+  const inArea = Boolean(navSectionsOverride);
+  const buildUrl = React.useMemo(
     () => (href: string) => {
-      if (!clubId) {
+      if (!clubId || inArea) {
         return href;
       }
-
       const separator = href.includes("?") ? "&" : "?";
       return `${href}${separator}clubId=${clubId}`;
     },
-    [clubId],
+    [clubId, inArea],
   );
 
-  const handleProfileClick = () => {
-    if (user?.id) {
-      router.push("/account?profile=1");
-    }
-  };
-
-  const handleQuickAction = (href: string) => {
-    setMenuOpen(false);
-    router.push(buildUrl(href));
-  };
-
-  const activeRole = activeClub?.role || user?.user_metadata?.role;
-  const visibleQuickActions = useMemo(
-    () =>
-      quickActions.filter((action) =>
-        canAccessPath(activeRole, action.href.split("?")[0]),
-      ),
-    [activeRole],
+  const activeRole = activeClub?.role || auth.userRole || user?.user_metadata?.role;
+  const navContext = React.useMemo(
+    () => ({
+      role: activeRole,
+      linkedAthleteId: activeClub?.linkedAthleteId ?? null,
+      linkedAthleteIds: activeClub?.linkedAthleteIds ?? null,
+    }),
+    [activeClub?.linkedAthleteId, activeClub?.linkedAthleteIds, activeRole],
   );
+
+  const quickActions = React.useMemo(() => (inArea ? [] : visibleQuickActions(navContext)), [inArea, navContext]);
 
   /*
-    **Il filtro delle voci, allineato a quello della barra laterale.**
-
-    La barra desktop non filtra per area — `canAccessPath` qui sopra governa le
-    azioni rapide, non le voci di menu, e `Sidebar.tsx` non la importa affatto —
-    ma una regola ce l'ha, ed e sulla cassa: `canOpenAccounting`, la stessa
-    matrice che difende la pagina e le rotte contabili. Questo elenco non ce
-    l'aveva, e l'effetto era una voce che rispondeva in due modi a seconda della
-    larghezza dello schermo: un collaboratore non vedeva «Movimenti» dal
-    desktop e la vedeva dal telefono, ci entrava, e trovava una prima nota
-    tutta a zero.
-
-    Le voci fornite dall'esterno — allenatore e famiglia via
-    `navSectionsOverride` — arrivano gia filtrate dai permessi del proprio
-    dominio e non passano di qui.
+    Il filtro delle voci e quello della barra laterale, perche l'elenco e lo
+    stesso: una voce che rispondeva in due modi a seconda della larghezza dello
+    schermo — «Movimenti» visibile solo dal telefono — non puo piu esistere.
   */
-  const visibleNavSections = useMemo(() => {
-    if (navSectionsOverride) {
-      return navSectionsOverride;
-    }
+  const sections = React.useMemo<MobileNavSection[]>(
+    () => navSectionsOverride || toSections(visibleNavGroups(navContext)),
+    [navContext, navSectionsOverride],
+  );
 
-    const accounting = canOpenAccounting(activeRole || null);
+  const isActive = (href: string) => {
+    const bare = href.split("?")[0];
+    const all = sections.flatMap((section) => section.items.map((item) => item.href.split("?")[0]));
+    const candidates = all.filter((candidate) => pathname === candidate || pathname.startsWith(`${candidate}/`));
+    const best = candidates.sort((a, b) => b.length - a.length)[0];
+    return best === bare;
+  };
 
-    return navSections
-      .map((section) => ({
-        ...section,
-        items: section.items.filter(
-          (item) => item.href !== "/movements" || accounting,
-        ),
-      }))
-      .filter((section) => section.items.length > 0);
-  }, [activeRole, navSectionsOverride]);
+  const clubName = clubIdentity?.name || activeClub?.name || "EasyGame";
+  const seasonLabel = clubIdentity ? clubIdentity.seasonLabel : activeClub?.activeSeasonLabel || null;
+  const logoUrl = clubIdentity ? clubIdentity.logoUrl || null : activeClub?.logo_url || null;
+
+  const close = () => setMenuOpen(false);
 
   return (
     <>
-      {/*
-        Su telefono lo spazio e poco e va speso su cosa serve davvero sapere:
-        in che club sei e in che stagione. Prima la barra ripeteva "EasyGame",
-        che e sempre vero e quindi non informa.
-      */}
-      <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 lg:hidden">
-        <ClubIdentity
-          compact
-          clubName={clubIdentity?.name || activeClub?.name || "EasyGame"}
-          seasonLabel={
-            clubIdentity
-              ? clubIdentity.seasonLabel
-              : activeClub?.activeSeasonLabel || null
-          }
-          logoUrl={
-            clubIdentity
-              ? clubIdentity.logoUrl || null
-              : activeClub?.logo_url || null
-          }
-          className="min-w-0 flex-1"
-        />
+      <header className="sticky top-0 z-30 bg-white font-brand shadow-[0_1px_0_rgba(11,26,58,.09)] lg:hidden">
+        <div className="flex h-14 items-center gap-2 px-3">
+          {/*
+            Su telefono lo spazio e poco e va speso su cosa serve davvero
+            sapere: in che club sei e in che stagione.
+          */}
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <Avatar src={logoUrl} name={clubName} size={34} />
+            <div className="min-w-0">
+              <p className="egw-ellipsis text-[13px] font-bold leading-4 text-egw-ink">{clubName}</p>
+              <p className="egw-num egw-ellipsis text-[10.5px] font-medium leading-[14px] text-egw-ink-62">
+                {seasonLabel ? `Stagione ${seasonLabel}` : "Nessuna stagione attiva"}
+              </p>
+            </div>
+          </div>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9 shrink-0 text-slate-600"
-          onClick={handleProfileClick}
-          aria-label="Profilo"
-        >
-          <UserCircle className="h-5 w-5" />
-        </Button>
+          <button
+            type="button"
+            onClick={() => {
+              if (user?.id) router.push("/account?profile=1");
+            }}
+            aria-label="Profilo"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-egw-control border border-transparent bg-egw-page-100 text-egw-ink transition-colors duration-hover hover:bg-[#e9eef9] focus-visible:outline-none focus-visible:shadow-egw-focus"
+          >
+            <UserCircle className="h-[19px] w-[19px]" />
+          </button>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9 shrink-0 text-slate-600"
-          onClick={() => setMenuOpen(true)}
-          aria-label="Apri il menu"
-        >
-          <Menu className="h-5 w-5" />
-        </Button>
+          <button
+            type="button"
+            onClick={() => setMenuOpen(true)}
+            aria-label="Apri il menu"
+            aria-haspopup="dialog"
+            aria-expanded={menuOpen}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-egw-control border border-transparent bg-egw-page-100 text-egw-ink transition-colors duration-hover hover:bg-[#e9eef9] focus-visible:outline-none focus-visible:shadow-egw-focus"
+          >
+            <MenuIcon className="h-[19px] w-[19px]" />
+          </button>
+        </div>
+        <div className="egw-hairline-strip" aria-hidden />
+        {title ? (
+          <p className="border-b border-egw-hairline bg-egw-page-025 px-3 py-1.5 text-[11.5px] font-semibold text-egw-ink-62">
+            {title}
+          </p>
+        ) : null}
       </header>
 
-      {title ? (
-        <p className="border-b border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500 lg:hidden">
-          {title}
-        </p>
-      ) : null}
+      <DialogPrimitive.Root open={menuOpen} onOpenChange={setMenuOpen}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="egw-scrim fixed inset-0 z-[55] bg-[var(--egw-scrim)] lg:hidden" />
+          <DialogPrimitive.Content
+            aria-label="Menu di navigazione"
+            className="egw-mobile-nav fixed inset-y-0 left-0 z-[56] flex w-[300px] max-w-[88vw] flex-col bg-egw-sidebar font-brand text-white shadow-egw-plane-drawer outline-none lg:hidden"
+          >
+            <DialogPrimitive.Title className="sr-only">Menu di navigazione</DialogPrimitive.Title>
+            <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[22%] bg-gradient-to-b from-white/10 to-transparent" />
+            <div className="relative flex shrink-0 items-center justify-between px-5 pb-4 pt-5">
+              <Image src={logoWhite} alt="EasyGame" width={140} height={34} className="h-auto w-[140px] object-contain" />
+              <DialogPrimitive.Close
+                aria-label="Chiudi il menu"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-egw-chip border border-white/22 bg-white/12 text-white/90 transition-colors duration-hover hover:bg-white/20 focus-visible:outline-none focus-visible:shadow-egw-focus-dark"
+              >
+                <X className="h-4 w-4" />
+              </DialogPrimitive.Close>
+            </div>
 
-      {/* Navigation sheet */}
-      <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
-        <SheetContent side="left" className="w-72 max-w-[86vw] p-0">
-          <SheetHeader className="shrink-0 border-b px-5 py-4 pr-12">
-            <SheetTitle>
-              <EasyGameWordmark logoClassName="h-6" />
-            </SheetTitle>
-          </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 pb-6">
-            {visibleQuickActions.length ? (
-              <div className="mb-4">
-                <p className="eg-eyebrow px-2 text-gray-500">Azioni rapide</p>
-                <div className="mt-1 space-y-1">
-                  {visibleQuickActions.map((action) => (
-                    <button
-                      key={action.id}
-                      type="button"
-                      onClick={() => handleQuickAction(action.href)}
-                      className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100"
-                    >
-                      <action.icon className="h-4 w-4" />
-                      <span className="font-medium">{action.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {showHubLink ? (
-              <div className="mb-4">
-                <Link
-                  href={buildUrl("/hub")}
-                  onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-3 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 px-3 py-3 shadow-md transition-all hover:from-purple-600 hover:to-pink-600"
-                >
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
-                    <Home className="h-4 w-4 text-white" />
-                  </span>
-                  <div className="flex flex-col">
-                    <span className="text-sm font-bold text-white">
-                      EasyGame HUB
-                    </span>
-                    <span className="text-xs text-white/80">
-                      Marketplace e servizi per il tuo club
-                    </span>
-                  </div>
-                </Link>
-              </div>
-            ) : null}
-
-            <nav className="space-y-4">
-              {visibleNavSections.map((section) => (
-                <div key={section.id}>
-                  <p className="eg-eyebrow px-2 text-gray-500 dark:text-gray-400">
-                    {section.label}
-                  </p>
-                  <div className="mt-1 space-y-1">
-                    {section.items.map((item) => {
-                      const Icon = item.icon;
+            <nav className="egw-scroll-onblue relative min-h-0 flex-1 overflow-y-auto px-3.5 pb-4">
+              {quickActions.length ? (
+                <div className="mb-4">
+                  <p className="mb-2 px-2.5 text-[9.5px] font-bold uppercase tracking-[var(--egw-track-eyebrow)] text-white/58">Azioni rapide</p>
+                  <ul className="flex flex-col gap-[3px]">
+                    {quickActions.map((action) => {
+                      const Icon = action.icon;
                       return (
-                        <Link
-                          key={item.href}
-                          href={buildUrl(item.href)}
-                          onClick={() => setMenuOpen(false)}
-                          className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
-                        >
-                          <Icon className="h-4 w-4" />
-                          <span className="font-medium text-sm">
-                            {item.label}
-                          </span>
-                        </Link>
+                        <li key={action.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              close();
+                              router.push(buildUrl(action.href));
+                            }}
+                            className="flex h-[38px] w-full items-center gap-[11px] rounded-egw-control px-3 text-left text-[13px] font-medium text-white transition-colors duration-hover hover:bg-white/10 focus-visible:outline-none focus-visible:shadow-egw-focus-dark"
+                          >
+                            <Icon className="h-[17px] w-[17px] shrink-0 text-white/82" aria-hidden />
+                            <span className="egw-ellipsis flex-1">{action.label}</span>
+                          </button>
+                        </li>
                       );
                     })}
-                  </div>
+                  </ul>
+                </div>
+              ) : null}
+
+              {showHubLink && !inArea ? (
+                <Link
+                  href={buildUrl("/hub")}
+                  onClick={close}
+                  className="mb-4 flex items-center gap-3 rounded-egw-field border border-white/26 bg-white/14 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,.18)] transition-colors duration-hover hover:bg-white/20 focus-visible:outline-none focus-visible:shadow-egw-focus-dark"
+                >
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-egw-micro bg-white text-egw-blue-700">
+                    <Sparkles className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-bold leading-4">EasyGame HUB</span>
+                    <span className="block text-[11px] leading-4 text-white/70">Marketplace e servizi per il club</span>
+                  </span>
+                </Link>
+              ) : null}
+
+              {sections.map((section, index) => (
+                <div key={section.id} className={cn(index > 0 && "mt-[17px]")}>
+                  <p className="mb-2 px-2.5 text-[9.5px] font-bold uppercase tracking-[var(--egw-track-eyebrow)] text-white/58">{section.label}</p>
+                  <ul className="flex flex-col gap-[3px]">
+                    {section.items.map((item) => {
+                      const Icon = item.icon;
+                      const active = isActive(item.href);
+                      return (
+                        <li key={item.href}>
+                          <Link
+                            href={buildUrl(item.href)}
+                            onClick={close}
+                            aria-current={active ? "page" : undefined}
+                            className={cn(
+                              "group flex h-[38px] items-center gap-[11px] rounded-egw-control px-3 transition-colors duration-hover focus-visible:outline-none focus-visible:shadow-egw-focus-dark",
+                              active ? "h-10 rounded-[13px_13px_4px_13px] bg-white text-egw-navy-800 shadow-[0_10px_22px_-12px_rgba(7,18,43,.5)]" : "text-white hover:bg-white/10",
+                            )}
+                          >
+                            <Icon className={cn("h-[17px] w-[17px] shrink-0", active ? "text-egw-blue-700" : "text-white/82 group-hover:text-white")} aria-hidden />
+                            <span className={cn("egw-ellipsis flex-1 text-[13px] leading-none", active ? "font-bold" : "font-medium")}>{item.label}</span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 </div>
               ))}
             </nav>
 
-            <div className="mt-4 border-t pt-4">
-              <a
-                href={HELP_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setMenuOpen(false)}
-                className="flex items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100"
+            <div className="relative shrink-0 p-3.5">
+              <button
+                type="button"
+                onClick={() => {
+                  close();
+                  openExternalUrl(HELP_URL);
+                }}
+                className="flex w-full items-center gap-2.5 rounded-egw-field border border-white/22 bg-white/12 px-[13px] py-3 text-white/90 transition-colors duration-hover hover:bg-white/18 focus-visible:outline-none focus-visible:shadow-egw-focus-dark"
               >
-                <HelpCircle className="h-4 w-4" />
-                <span className="font-medium">Assistenza</span>
-              </a>
+                <HelpCircle className="h-[15px] w-[15px] shrink-0" />
+                <span className="flex-1 text-left text-[12px] font-medium">Centro assistenza</span>
+              </button>
             </div>
-          </div>
-        </SheetContent>
-      </Sheet>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
     </>
   );
 };
+
+/* Le azioni rapide restano quelle della topbar: un elenco solo. */
+export { QUICK_ACTIONS as MOBILE_QUICK_ACTIONS };

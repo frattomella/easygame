@@ -51,7 +51,8 @@ const senzaCommenti = (sorgente) =>
 /* Web V2 (Wave E): le leve vivono nel modello puro della pagina. */
 const EDITOR = leggi("src/components/permissions/v2/trainer-permissions-model.ts");
 const EDITOR_CODICE = senzaCommenti(EDITOR);
-const SIDEBAR = senzaCommenti(leggi("src/components/trainer/TrainerSidebar.tsx"));
+/* Redesign: la barra dell'allenatore e la `Sidebar` condivisa; le voci vivono in `area-navigation.ts`. */
+const SIDEBAR = senzaCommenti(leggi("src/components/web/shell/area-navigation.ts"));
 
 const CHIAVI_NAVIGAZIONE = Object.keys(
   DEFAULT_TRAINER_DASHBOARD_PERMISSIONS.navigation,
@@ -187,13 +188,18 @@ for (const chiave of ["board", "appointments", "documents", "compensation"]) {
 
   test(`«${chiave}» comanda la voce di menu della barra laterale`, () => {
     assert.equal(
-      SIDEBAR.includes(`permissions.navigation.${chiave}`),
+      SIDEBAR.includes(`key: "${chiave}"`),
       true,
       "la voce di menu deve essere appesa alla chiave, altrimenti spegnerla non toglie il collegamento",
     );
-    assert.equal(
-      SIDEBAR.includes(TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY[chiave]),
-      true,
+    assert.match(
+      SIDEBAR,
+      /permissions\.navigation\[item\.key\]/,
+      "il filtro legge la chiave di ogni voce",
+    );
+    assert.match(
+      SIDEBAR,
+      /TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY\[item\.key\]/,
       "e deve puntare alla rotta che la chiave governa",
     );
   });

@@ -184,26 +184,20 @@ test("§K · la barra blu ha una larghezza sola, e le tre la condividono", () =>
   assert.ok(club.includes('"w-[72px]"'), `${BARRA_UI}: la barra compressa e a 72px`);
   assert.equal(club.includes('"w-[320px]"'), false);
 
-  const barre = [
-    "components/trainer/TrainerSidebar.tsx",
-    "components/parent-dashboard/ParentSidebar.tsx",
-  ];
-
-  for (const file of barre) {
-    const sorgente = leggi(file);
-    assert.ok(
-      sorgente.includes('"w-[264px]"'),
-      `${file}: la barra estesa deve avere la larghezza ridotta di PP-01`,
-    );
-    assert.ok(
-      sorgente.includes('"w-[80px]"'),
-      `${file}: la barra compressa non e cambiata`,
-    );
-    assert.equal(
-      sorgente.includes('"w-[320px]"'),
-      false,
-      `${file}: la larghezza precedente non deve sopravvivere in nessun ramo`,
-    );
+  /*
+    Redesign: le aree dell'allenatore e della famiglia non hanno piu una barra
+    propria — montano la stessa `Sidebar` del club via `AreaShell`, quindi la
+    larghezza e una sola per definizione.
+  */
+  const areaShell = senzaCommenti(leggi("components/web/shell/AreaShell.tsx"));
+  assert.ok(areaShell.includes("<Sidebar groups={groups}"), "AreaShell monta la Sidebar del club");
+  for (const file of [
+    "components/trainer/trainer-dashboard-club-shell.tsx",
+    "components/parent-dashboard/parent-dashboard-shell.tsx",
+  ]) {
+    const sorgente = senzaCommenti(leggi(file));
+    assert.ok(sorgente.includes("<AreaShell"), `${file}: deve montare AreaShell`);
+    assert.equal(sorgente.includes("w-[264px]"), false, `${file}: nessuna larghezza propria`);
   }
 });
 
@@ -237,7 +231,9 @@ test("§L · Lavoro Sportivo e una voce sola, in tutte e due le barre", () => {
     "/sport-work/obligations",
   ];
 
-  for (const file of [BARRA, BARRA_MOBILE]) {
+  /* La barra mobile legge le voci da `navigation.ts`: un elenco solo, quindi un controllo solo. */
+  assert.ok(senzaCommenti(leggi(BARRA_MOBILE)).includes("visibleNavGroups"), "la barra mobile deriva le voci dalla barra laterale");
+  for (const file of [BARRA]) {
     const sorgente = senzaCommenti(leggi(file));
     assert.ok(
       sorgente.includes('href: "/sport-work"'),
@@ -300,7 +296,7 @@ test("§M · «Permessi» e «Ruoli e accessi» non si chiamano piu allo stesso 
     La ricognizione che porta a **tenerle separate** sta in
     `docs/knowledge-base/42-pp-01-club-atleti-allenamenti.md`.
   */
-  for (const file of [BARRA, BARRA_MOBILE]) {
+  for (const file of [BARRA]) {
     const sorgente = senzaCommenti(leggi(file));
     assert.ok(
       sorgente.includes('"Permessi allenatore"'),

@@ -4,17 +4,15 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  /* La forma del `DataChip` del Web V2: tinta 10% con bordo 28%, etichetta 600/11.5, angolo tagliato (ADR-0187). */
+  "inline-flex items-center gap-1 rounded-egw-chip border px-2 py-[3px] font-brand text-[11.5px] font-semibold leading-none transition-colors focus:outline-none focus-visible:shadow-egw-focus",
   {
     variants: {
       variant: {
-        default:
-          "border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/80",
-        secondary:
-          "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        destructive:
-          "border-transparent bg-destructive text-destructive-foreground shadow hover:bg-destructive/80",
-        outline: "text-foreground",
+        default: "border-egw-tint-blue-bd bg-egw-tint-blue text-egw-blue-800",
+        secondary: "border-egw-hairline bg-egw-page-100 text-egw-ink-72",
+        destructive: "border-egw-tint-red-bd bg-egw-tint-red text-egw-red",
+        outline: "border-egw-control-border bg-white text-egw-ink-72",
       },
     },
     defaultVariants: {

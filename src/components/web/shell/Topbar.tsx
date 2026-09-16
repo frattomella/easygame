@@ -64,7 +64,7 @@ export function Topbar({
   const pathname = usePathname();
   const auth = useAuth();
   const { activeClub, accessLoading, loading: authLoading, user, userRole, signOut } = auth;
-  const { quickActionsOpen, setQuickActionsOpen, notificationsOpen, setNotificationsOpen, breadcrumbLabel } = useShell();
+  const { quickActionsOpen, setQuickActionsOpen, notificationsOpen, setNotificationsOpen, breadcrumbLabel, areaNav } = useShell();
 
   const onSky = variant === "sky";
   const activeRole = activeClub?.role || userRole || user?.user_metadata?.role;
@@ -93,18 +93,26 @@ export function Topbar({
   const seasonHref = clubIdentity ? clubIdentity.seasonHref ?? null : "/organization?tab=stagioni";
 
   const crumbs = React.useMemo(
-    () => buildBreadcrumb(pathname, { clubName, currentLabel: breadcrumbLabel || (title !== "Dashboard" ? title : null) }),
-    [breadcrumbLabel, clubName, pathname, title],
+    () => buildBreadcrumb(pathname, { clubName, currentLabel: breadcrumbLabel || (title !== "Dashboard" ? title : null), groups: areaNav }),
+    [areaNav, breadcrumbLabel, clubName, pathname, title],
   );
 
+  /*
+    Dentro un'area (famiglia, allenatore, atleta) le azioni rapide del
+    gestionale e la ricerca globale — che porta a `/athletes`, una rotta del
+    gestionale — non hanno una destinazione: non si disegnano.
+  */
+  const inArea = Boolean(areaNav);
   const quickActions = React.useMemo(
     () =>
-      visibleQuickActions({
-        role: activeRole,
-        linkedAthleteId: activeClub?.linkedAthleteId ?? null,
-        linkedAthleteIds: activeClub?.linkedAthleteIds ?? null,
-      }),
-    [activeClub?.linkedAthleteId, activeClub?.linkedAthleteIds, activeRole],
+      inArea
+        ? []
+        : visibleQuickActions({
+            role: activeRole,
+            linkedAthleteId: activeClub?.linkedAthleteId ?? null,
+            linkedAthleteIds: activeClub?.linkedAthleteIds ?? null,
+          }),
+    [activeClub?.linkedAthleteId, activeClub?.linkedAthleteIds, activeRole, inArea],
   );
 
   const notificationsHref = React.useMemo(() => {
@@ -209,6 +217,7 @@ export function Topbar({
             </nav>
 
             {/* Ricerca globale */}
+            {!inArea ? (
             <form onSubmit={submitSearch} role="search" className="hidden xl:block">
               <label className="sr-only" htmlFor="egw-global-search">
                 Cerca in tutto il club
@@ -234,6 +243,8 @@ export function Topbar({
                 <kbd className={cn("shrink-0 font-mono text-[10px] font-semibold", onSky ? "text-white/60" : "text-egw-ink-42")}>⌘K</kbd>
               </div>
             </form>
+            ) : null}
+            {!inArea ? (
             <Tooltip content="Cerca in tutto il club">
               <button
                 type="button"
@@ -244,6 +255,7 @@ export function Topbar({
                 <Search className="h-[17px] w-[17px]" />
               </button>
             </Tooltip>
+            ) : null}
 
             {/* Cluster destro */}
             <div className="flex shrink-0 items-center gap-2.5">
@@ -353,7 +365,7 @@ export function Topbar({
                   </MenuItem>
                   <MenuItem onSelect={() => router.push("/account")} tone="muted">
                     <Users />
-                    I miei club
+                    {inArea ? "Torna al mio account" : "I miei club"}
                   </MenuItem>
                   <MenuItem onSelect={() => openExternalUrl(HELP_URL)} tone="muted">
                     <HelpCircle />

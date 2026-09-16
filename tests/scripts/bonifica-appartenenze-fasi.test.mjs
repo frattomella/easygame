@@ -117,7 +117,8 @@ test("misura di fase: nomi stantii e proiezioni stantie si contano insieme", () 
 });
 
 test("le guardie comuni rifiutano ogni branch che non sia quello ammesso", () => {
-  const ok = "postgresql://u:p@ep-dry-block-alkxdiiu.c-3.eu-central-1.aws.neon.tech/neondb";
+  /* Segnaposto `USER:PASSWORD`: la guardia CI sui file tracciati lo riconosce come tale (ci-guardrails). */
+  const ok = "postgresql://USER:PASSWORD@ep-dry-block-alkxdiiu.c-3.eu-central-1.aws.neon.tech/neondb";
   assert.deepEqual(motiviDiRifiutoDelBersaglio({ url: ok, ambiente: "web-redesign-staging", scrive: false }), []);
   assert.deepEqual(motiviDiRifiutoDelBersaglio({ url: ok, ambiente: "web-redesign-staging", scrive: true, env: { EASYGAME_DB_ENV: "web-redesign-staging" } }), []);
   assert.ok(motiviDiRifiutoDelBersaglio({ url: ok.replace("ep-dry-block-alkxdiiu", "ep-shy-pine-alt2mp60"), ambiente: "web-redesign-staging", scrive: false }).length);

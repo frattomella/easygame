@@ -101,7 +101,7 @@ const TOUCHED = [
   "components/parent-dashboard/parent-dashboard-pages.tsx",
   "components/parent-dashboard/parent-family-pages.tsx",
   "components/parent-dashboard/parent-dashboard-shell.tsx",
-  "components/parent-dashboard/ParentSidebar.tsx",
+  "components/web/shell/AreaShell.tsx",
   "app/appuntamenti/page.tsx",
 ];
 
@@ -689,7 +689,7 @@ test("la riga di intestazione degli Atleti va a capo invece di tagliare le azion
  */
 const TRAINER_DASHBOARD = [
   "components/trainer/trainer-dashboard-club-shell.tsx",
-  "components/trainer/TrainerSidebar.tsx",
+  "components/web/shell/AreaShell.tsx",
   "components/trainer/trainer-dashboard-shared.tsx",
   "components/trainer/trainer-dashboard-home-v2-page.tsx",
   "components/trainer/trainer-trainings-dashboard-page.tsx",
@@ -759,15 +759,21 @@ test("gli elenchi della dashboard allenatore scrollano nel proprio contenitore",
  * che apre l'applicazione dal campo non le trova.
  */
 test("le sezioni nuove sono raggiungibili anche sotto i 768 px", () => {
+  /*
+    Redesign: barra larga e menu stretto leggono lo stesso elenco
+    (`trainerAreaNavGroups`), quindi basta che la voce esista li — con la
+    rotta presa dalla mappa.
+  */
+  const fonte = read("components/web/shell/area-navigation.ts");
   const shell = read("components/trainer/trainer-dashboard-club-shell.tsx");
+  assert.match(shell, /trainerAreaNavGroups\(permissions\)/);
+  assert.match(fonte, /TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY\[item\.key\]/);
 
   for (const voce of ["board", "appointments", "documents"]) {
     assert.match(
-      shell,
-      new RegExp(
-        `TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY\.${voce}`,
-      ),
-      `${voce}: manca dal menu mobile, quindi da un telefono la sezione non si raggiunge`,
+      fonte,
+      new RegExp(`key: "${voce}"`),
+      `${voce}: manca dalla fonte unica, quindi da un telefono la sezione non si raggiunge`,
     );
   }
 });
@@ -822,7 +828,7 @@ const PARENT_DASHBOARD = [
   "components/parent-dashboard/parent-dashboard-pages.tsx",
   "components/parent-dashboard/parent-family-pages.tsx",
   "components/parent-dashboard/parent-dashboard-shell.tsx",
-  "components/parent-dashboard/ParentSidebar.tsx",
+  "components/web/shell/Sidebar.tsx",
   "components/payments/EnrollmentPaymentBreakdown.tsx",
   /*
     La pagina pubblica della ricevuta di iscrizione. Non e dentro l'area
@@ -883,8 +889,10 @@ test("gli elenchi dell'area famiglia scrollano nel proprio contenitore", () => {
  * l'aspetto di una funzione.
  */
 test("le sezioni nuove della famiglia sono raggiungibili anche sotto i 768 px", () => {
-  const sidebar = read("components/parent-dashboard/ParentSidebar.tsx");
+  /* Redesign: un elenco solo (`parentAreaNavGroups`) letto da barra e menu. */
+  const fonte = read("components/web/shell/area-navigation.ts");
   const shell = read("components/parent-dashboard/parent-dashboard-shell.tsx");
+  assert.match(shell, /parentAreaNavGroups\(athleteRouteId\)/);
 
   for (const voce of [
     "calendar",
@@ -893,17 +901,12 @@ test("le sezioni nuove della famiglia sono raggiungibili anche sotto i 768 px", 
     "board",
     "notifications",
   ]) {
-    const href = new RegExp(`\\$\\{basePath\\}/${voce}\``);
+    const href = new RegExp(`\\$\\{base\\}/${voce}\``);
 
     assert.match(
-      sidebar,
+      fonte,
       href,
-      `${voce}: manca dalla barra laterale, quindi da un tablet o da un desktop la sezione non si raggiunge`,
-    );
-    assert.match(
-      shell,
-      href,
-      `${voce}: manca dal menu mobile, quindi da un telefono la sezione non si raggiunge`,
+      `${voce}: manca dalla fonte unica, quindi la sezione non si raggiunge`,
     );
     assert.equal(
       existsSync(path.join(SRC, "app", "parent-view", "[id]", voce, "page.tsx")),
@@ -923,8 +926,9 @@ test("le sezioni nuove della famiglia sono raggiungibili anche sotto i 768 px", 
  * non arriva un contenuto largo.
  */
 test("il guscio della famiglia non cresce con il proprio contenuto", () => {
+  /* Il guscio e `AreaShell`, condiviso con allenatore e atleta. */
   assert.match(
-    read("components/parent-dashboard/parent-dashboard-shell.tsx"),
+    read("components/web/shell/AreaShell.tsx"),
     /className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"/,
     "senza min-w-0 il guscio si allarga con il contenuto invece di lasciarlo scorrere",
   );

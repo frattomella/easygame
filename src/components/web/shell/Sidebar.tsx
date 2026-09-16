@@ -26,6 +26,13 @@ import iconWhite from "@/../public/images/brand/icon-w.png";
  *
  * Sotto i 1024px non si disegna: li vale la barra mobile che il prodotto ha
  * gia (CLAUDE.md: ogni pagina resta usabile a 375 e 768px).
+ *
+ * **E la barra di ogni area, non solo del gestionale.** Le aree famiglia,
+ * allenatore e atleta avevano tre barre proprie — tre gradienti, tre
+ * larghezze, tre modi di comprimersi — che erano la stessa barra con un altro
+ * elenco di voci. Le voci si passano da fuori (`groups`), e con loro il
+ * blocco d'identita in alto (`identity`): il club per il gestionale, il
+ * figlio per la famiglia. Un guscio solo, tre elenchi.
  */
 
 type NavContextSource = ReturnType<typeof useAuth>;
@@ -36,7 +43,33 @@ const buildNavContext = (auth: NavContextSource) => ({
   linkedAthleteIds: auth.activeClub?.linkedAthleteIds ?? null,
 });
 
-export function Sidebar() {
+export type SidebarIdentityAction = {
+  id: string;
+  label: string;
+  onSelect: () => void;
+  tone?: "default" | "muted" | "danger";
+};
+
+/** Il blocco d'identita in alto: chi si sta guardando e da dove si cambia. */
+export type SidebarIdentity = {
+  /** L'occhiello del menu (`Club attivo`, `Figlio`). */
+  eyebrow: string;
+  name: string;
+  meta?: string | null;
+  avatarSrc?: string | null;
+  ariaLabel?: string;
+  actions?: SidebarIdentityAction[];
+};
+
+export interface SidebarProps {
+  /** I gruppi di un'area; assenti, vale la navigazione del gestionale filtrata per ruolo. */
+  groups?: readonly NavGroup[];
+  identity?: SidebarIdentity;
+  /** Aggiunge `?clubId=` alle voci, come fa il gestionale. Le aree lo spengono. */
+  withClubParam?: boolean;
+}
+
+export function Sidebar({ groups: areaGroups, identity, withClubParam = !areaGroups }: SidebarProps = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const auth = useAuth();
@@ -44,13 +77,14 @@ export function Sidebar() {
   const { collapsed, toggleCollapsed, hydrated } = useShell();
   const [closedGroups, setClosedGroups] = usePreference<Record<string, boolean>>("shell", "groups", {});
 
-  const groups = React.useMemo(() => visibleNavGroups(buildNavContext(auth)), [auth]);
+  const clubGroups = React.useMemo(() => (areaGroups ? [] : visibleNavGroups(buildNavContext(auth))), [areaGroups, auth]);
+  const groups = areaGroups || clubGroups;
   const flat = groups.reduce((n, g) => n + g.items.length, 0) < 4;
 
   const clubId = activeClub?.id as string | undefined;
   const withClub = React.useCallback(
-    (href: string) => (clubId ? `${href}${href.includes("?") ? "&" : "?"}clubId=${clubId}` : href),
-    [clubId],
+    (href: string) => (withClubParam && clubId ? `${href}${href.includes("?") ? "&" : "?"}clubId=${clubId}` : href),
+    [clubId, withClubParam],
   );
 
   const isActive = React.useCallback(
@@ -67,6 +101,18 @@ export function Sidebar() {
   const clubName: string = activeClub?.name || "EasyGame";
   const seasonLabel: string | null = activeClub?.activeSeasonLabel || null;
   const clubLogo: string | null = activeClub?.logo_url || null;
+
+  const block: SidebarIdentity = identity || {
+    eyebrow: "Club attivo",
+    name: clubName,
+    meta: seasonLabel ? `Stagione ${seasonLabel}` : "Nessuna stagione attiva",
+    avatarSrc: clubLogo,
+    ariaLabel: `Club attivo: ${clubName}${seasonLabel ? `, stagione ${seasonLabel}` : ""}`,
+    actions: [
+      { id: "seasons", label: "Stagioni del club", onSelect: () => router.push("/organization?tab=stagioni") },
+      { id: "switch-club", label: "Cambia club", onSelect: () => router.push("/account") },
+    ],
+  };
 
   return (
     <TooltipProvider>
@@ -110,26 +156,26 @@ export function Sidebar() {
           </button>
         </div>
 
-        {/* Selettore del club */}
+        {/* Identita: il club attivo, o il figlio che la famiglia sta guardando */}
         <div className={cn("relative shrink-0", collapsed ? "px-3 pb-3" : "px-4 pb-4")}>
           <Menu>
             <MenuTrigger asChild>
               <button
                 type="button"
-                aria-label={`Club attivo: ${clubName}${seasonLabel ? `, stagione ${seasonLabel}` : ""}`}
+                aria-label={block.ariaLabel || `${block.eyebrow}: ${block.name}`}
                 className={cn(
                   "flex w-full items-center gap-2.5 rounded-egw-field border border-white/26 bg-white/14 text-left shadow-[inset_0_1px_0_rgba(255,255,255,.18)] transition-colors duration-hover hover:bg-white/20 focus-visible:outline-none focus-visible:shadow-egw-focus-dark",
                   collapsed ? "justify-center p-1.5" : "px-3 py-[11px]",
                 )}
               >
-                <Avatar src={clubLogo} name={clubName} size={32} />
+                <Avatar src={block.avatarSrc || null} name={block.name} size={32} />
                 {!collapsed ? (
                   <>
                     <span className="min-w-0 flex-1">
-                      <span className="egw-ellipsis block text-[12.5px] font-bold leading-4 text-white">{clubName}</span>
-                      <span className="egw-num block text-[10px] font-medium leading-[14px] text-white/68">
-                        {seasonLabel ? `Stagione ${seasonLabel}` : "Nessuna stagione attiva"}
-                      </span>
+                      <span className="egw-ellipsis block text-[12.5px] font-bold leading-4 text-white">{block.name}</span>
+                      {block.meta ? (
+                        <span className="egw-num egw-ellipsis block text-[10px] font-medium leading-[14px] text-white/68">{block.meta}</span>
+                      ) : null}
                     </span>
                     <ChevronDown className="h-[13px] w-[13px] shrink-0 text-white/80" />
                   </>
@@ -137,19 +183,24 @@ export function Sidebar() {
               </button>
             </MenuTrigger>
             <MenuContent align="start" width={262} side="bottom">
-              <MenuLabel>Club attivo</MenuLabel>
+              <MenuLabel>{block.eyebrow}</MenuLabel>
               <div className="flex items-center gap-2.5 px-2.5 pb-2">
-                <Avatar src={clubLogo} name={clubName} size={28} />
+                <Avatar src={block.avatarSrc || null} name={block.name} size={28} />
                 <div className="min-w-0">
-                  <div className="egw-ellipsis text-[12.5px] font-bold text-egw-ink">{clubName}</div>
-                  <div className="egw-num text-[10.5px] text-egw-ink-62">
-                    {seasonLabel ? `Stagione ${seasonLabel}` : "Nessuna stagione attiva"}
-                  </div>
+                  <div className="egw-ellipsis text-[12.5px] font-bold text-egw-ink">{block.name}</div>
+                  {block.meta ? <div className="egw-num egw-ellipsis text-[10.5px] text-egw-ink-62">{block.meta}</div> : null}
                 </div>
               </div>
-              <MenuSeparator />
-              <MenuItem onSelect={() => router.push("/organization?tab=stagioni")}>Stagioni del club</MenuItem>
-              <MenuItem onSelect={() => router.push("/account")}>Cambia club</MenuItem>
+              {block.actions && block.actions.length > 0 ? (
+                <>
+                  <MenuSeparator />
+                  {block.actions.map((action) => (
+                    <MenuItem key={action.id} onSelect={action.onSelect} tone={action.tone === "default" ? undefined : action.tone}>
+                      {action.label}
+                    </MenuItem>
+                  ))}
+                </>
+              ) : null}
             </MenuContent>
           </Menu>
         </div>

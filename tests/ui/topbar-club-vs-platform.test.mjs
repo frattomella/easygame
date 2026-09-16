@@ -68,9 +68,10 @@ test("le azioni rapide del club passano dalla matrice permessi", () => {
     /canAccessPath\(\s*context\.role\s*,\s*path/,
     `${CLUB_NAV}: una scorciatoia verso un'area vietata non deve comparire`,
   );
+  /* La barra mobile usa lo stesso elenco filtrato della topbar: `visibleQuickActions`. */
   assert.match(
     readCode(CLUB_MOBILE),
-    /canAccessPath\(\s*activeRole\s*,\s*action\.href/,
+    /visibleQuickActions\(navContext\)/,
     `${CLUB_MOBILE}: una scorciatoia verso un'area vietata non deve comparire`,
   );
 });
@@ -114,16 +115,17 @@ test("il marchio EasyGame sta nella sidebar, non nella topbar del club", () => {
 });
 
 test("le due topbar del club mostrano club e stagione", () => {
-  for (const file of [CLUB_HEADER, CLUB_MOBILE]) {
-    assert.match(readCode(file), /ClubIdentity/, `${file} deve montare ClubIdentity`);
-  }
+  assert.match(readCode(CLUB_HEADER), /ClubIdentity/, `${CLUB_HEADER} deve montare ClubIdentity`);
+  const mobile = readCode(CLUB_MOBILE);
+  assert.match(mobile, /<Avatar src=\{logoUrl\} name=\{clubName\}/, `${CLUB_MOBILE} mostra il club`);
+  assert.match(mobile, /Stagione \$\{seasonLabel\}/, `${CLUB_MOBILE} mostra la stagione`);
 });
 
 test("su telefono le azioni rapide e l'assistenza stanno nel menu", () => {
   const mobile = readCode(CLUB_MOBILE);
 
   assert.match(mobile, /quickActions/, "le azioni rapide esistono anche su telefono");
-  assert.match(mobile, /Assistenza/);
+  assert.match(mobile, /Centro assistenza/);
   assert.equal(
     /<header[\s\S]*?Zap[\s\S]*?<\/header>/.test(mobile),
     false,
@@ -360,6 +362,8 @@ const WEB_V2_SURFACES = new Set([
   "components/account/v2/account-profile-drawer.tsx", // 2026-09-15, Wave E
   "components/account/v2/account-create-club-drawer.tsx", // 2026-09-15, Wave E
   "components/account/v2/account-redeem-access-drawer.tsx", // 2026-09-15, Wave E
+  "components/layout/MobileTopBar.tsx", // 2026-09-16, barra sotto i 1024px sui token del guscio
+  "components/auth/password-reset-shell.tsx", // 2026-09-16, ambiente 3
 ]);
 
 test("le superfici dell'identita non inventano taglie di testo", () => {

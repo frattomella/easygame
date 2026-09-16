@@ -6,50 +6,38 @@ import path from "node:path";
 /**
  * **La navigazione sotto la soglia, presidiata invece che ricordata.**
  *
- * Il prodotto ha due gusci, e ciascuno ha **due** elenchi di navigazione
- * duplicati a mano:
+ * Il prodotto ha avuto per tre Wave due elenchi di navigazione copiati a mano
+ * per ogni guscio — la barra larga e il menu stretto — e per tre volte una
+ * voce e nata da un lato senza arrivare dall'altro (Notifiche, Squadre, I miei
+ * compensi dell'allenatore; Documenti, Ruoli e accessi, Registro attivita del
+ * club). Ogni volta la correzione e stata aggiungere la riga mancante; ogni
+ * volta e mancata la difesa.
  *
- * | guscio | barra larga | menu stretto | soglia |
- * |--------|-------------|--------------|--------|
- * | club | `Sidebar.tsx` (`hidden lg:flex`) | `MobileTopBar.tsx` | 1024 px |
- * | allenatore | `TrainerSidebar.tsx` (dentro `hidden md:block`) | `trainer-dashboard-club-shell.tsx` | 768 px |
+ * Dal Web V2 la difesa e **strutturale**: l'elenco e uno solo per guscio.
  *
- * Sotto la soglia la barra laterale **non e montata**: non e ridotta, non e
- * un'icona, non c'e. Una voce che sta solo li e quindi una pagina che da un
- * telefono si raggiunge solo digitandone l'indirizzo — cioe, in pratica, una
- * pagina che non esiste.
+ * | guscio | fonte unica | chi la legge |
+ * |--------|-------------|--------------|
+ * | club | `NAV_GROUPS` in `web/shell/navigation.ts` | `Sidebar` e `MobileTopBar` via `visibleNavGroups` |
+ * | allenatore | `trainerAreaNavGroups` in `web/shell/area-navigation.ts` | `AreaShell` (barra + menu) |
+ * | famiglia | `parentAreaNavGroups` | `AreaShell` |
+ * | atleta | `ATHLETE_AREA_NAV_GROUPS` | `AreaShell` |
  *
- * **E la terza volta.** La Wave 5 aveva dimenticato «Notifiche»
- * dell'allenatore; la Wave 6 ha dimenticato «Squadre» e «I miei compensi» da
- * quel lato e «Documenti», «Ruoli e accessi» e «Registro attivita» dal lato
- * club — e prima ancora erano rimaste indietro Calendario, Strutture,
- * Comunicazioni, Lavoro sportivo e Abbigliamento. Ogni volta la correzione e
- * stata la stessa: aggiungere la riga mancante. Ogni volta e mancata la
- * difesa.
- *
- * Questo file e la difesa. Non elenca le voci: le **ricava** dalle barre
- * larghe e pretende di ritrovarle nei menu stretti. Una voce nuova aggiunta
- * solo alla barra desktop fa fallire il test da sola, senza chiedere a nessuno
- * di ricordarsene.
+ * Questo file pretende che la struttura resti tale: nessun elenco di `href`
+ * scritto a mano nei menu stretti, ogni chiave di permesso dell'allenatore
+ * nella fonte unica, ogni voce verso una pagina che esiste.
  *
  * **Cosa questo test non e.** Non apre nessuna pagina e non misura niente a
- * 375 px: e un confronto fra due elenchi nel codice. Dice che la voce c'e in
- * entrambi, non che si legge — quello resta il collaudo su schermo.
+ * 375 px: legge il codice. Dice che la voce c'e, non che si legge — quello
+ * resta il collaudo su schermo.
  */
 
 const RADICE = process.cwd();
 const leggi = (relativo) =>
   readFileSync(path.join(RADICE, ...relativo.split("/")), "utf8");
 
-/**
- * I commenti di questo repository raccontano il difetto chiuso, e nominano
- * quindi rotte e chiavi di cui parlano. Cercarle nel testo intero troverebbe
- * la **spiegazione** invece del codice: si guarda il codice.
- */
 const senzaCommenti = (sorgente) =>
   sorgente.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-/** Il blocco di dichiarazione di un elenco di voci, isolato dal resto del file. */
 const blocco = (sorgente, apertura, nome) => {
   const trovato = senzaCommenti(sorgente).match(
     new RegExp(`${apertura}[\\s\\S]*?\\n\\];`),
@@ -61,204 +49,149 @@ const blocco = (sorgente, apertura, nome) => {
 const hrefDi = (testo) =>
   [...testo.matchAll(/href:\s*"([^"]+)"/g)].map((occorrenza) => occorrenza[1]);
 
+const paginaEsiste = (href) => {
+  const segmenti = href.split("?")[0].replace(/^\//, "").split("/");
+  return existsSync(path.join(RADICE, "src", "app", ...segmenti, "page.tsx"));
+};
+
 /* ======================================================================== */
 /*  Guscio del club — soglia 1024 px                                        */
 /* ======================================================================== */
 
-/* Dal Web V2 l'elenco delle voci del club vive in `web/shell/navigation.ts`. */
+const NAVIGAZIONE = leggi("src/components/web/shell/navigation.ts");
 const SIDEBAR_CLUB = blocco(
-  leggi("src/components/web/shell/navigation.ts"),
+  NAVIGAZIONE,
   "export const NAV_GROUPS: readonly NavGroup\\[\\] = \\[",
   "navigation.ts",
 );
-const MENU_CLUB = blocco(
-  leggi("src/components/layout/MobileTopBar.tsx"),
-  "const navSections = \\[",
-  "MobileTopBar.tsx",
-);
-
 const VOCI_DESKTOP_CLUB = hrefDi(SIDEBAR_CLUB);
-const VOCI_MOBILE_CLUB = hrefDi(MENU_CLUB);
+const BARRA_MOBILE = senzaCommenti(leggi("src/components/layout/MobileTopBar.tsx"));
+const SIDEBAR = senzaCommenti(leggi("src/components/web/shell/Sidebar.tsx"));
 
-/**
- * **Le eccezioni, e come si scrivono.**
- *
- * Una voce puo legittimamente restare solo sulla barra larga: una superficie
- * che a 375 px non si puo usare davvero — non «e stretta», ma **non si puo
- * usare** — e meglio assente che presente e inutilizzabile. In quel caso va
- * dichiarata qui **con il motivo**, e il motivo deve dire perche la pagina non
- * serve su un telefono, non che ci si e dimenticati di guardarla.
- *
- * L'elenco e vuoto, ed e la risposta giusta: nessuna delle trentatre voci del
- * club e stata pensata per il solo desktop. Chi ne aggiunge una si assume di
- * scrivere qui la frase che lo giustifica.
- */
-const SOLO_DESKTOP_CLUB = {
-  /* esempio: "/una-rotta": "motivo per cui a 375 px non ha senso" */
-  "/hub":
-    "sotto i 1024 px l'HUB ha gia il proprio collegamento dedicato nella barra mobile (`showHubLink`), fuori dall'elenco delle sezioni",
-};
-
-test("ogni voce della barra laterale del club esiste anche nel menu sotto i 1024 px", () => {
-  const mancanti = VOCI_DESKTOP_CLUB.filter(
-    (href) =>
-      !VOCI_MOBILE_CLUB.includes(href) &&
-      !Object.prototype.hasOwnProperty.call(SOLO_DESKTOP_CLUB, href),
+test("la barra mobile del club legge le voci dalla stessa fonte della barra laterale", () => {
+  assert.match(
+    BARRA_MOBILE,
+    /visibleNavGroups/,
+    "MobileTopBar deve derivare le voci da `visibleNavGroups`: un elenco copiato a mano e la terza Wave che dimentica una voce",
   );
-
+  assert.match(SIDEBAR, /visibleNavGroups/);
   assert.deepEqual(
-    mancanti,
+    hrefDi(BARRA_MOBILE),
     [],
-    `Voci raggiungibili solo sopra i 1024 px: ${mancanti.join(", ")}. Sotto quella soglia \`Sidebar\` non e montata: la pagina esiste solo per chi ne conosce l'indirizzo. Aggiungila a \`navSections\` in MobileTopBar.tsx, oppure dichiarala in SOLO_DESKTOP_CLUB spiegando perche su un telefono non serve.`,
+    "nessun `href` scritto a mano nella barra mobile: le voci arrivano da navigation.ts",
   );
+  assert.doesNotMatch(BARRA_MOBILE, /const navSections\s*=/, "l'elenco duplicato del club non deve tornare");
 });
 
-test("il menu stretto del club non inventa voci che la barra laterale non ha", () => {
-  const inventate = VOCI_MOBILE_CLUB.filter(
-    (href) => !VOCI_DESKTOP_CLUB.includes(href),
-  );
-
-  assert.deepEqual(
-    inventate,
-    [],
-    `Voci presenti solo sul telefono: ${inventate.join(", ")}. Due menu che divergono sono due prodotti diversi a seconda della larghezza dello schermo.`,
-  );
+test("la barra mobile applica lo stesso filtro per ruolo della barra laterale", () => {
+  /* `visibleNavGroups` porta con se `canAccessPath` e `canOpenAccounting`: un solo filtro, non due. */
+  assert.match(NAVIGAZIONE, /canAccessPath\(context\.role, item\.href/);
+  assert.match(NAVIGAZIONE, /canOpenAccounting\(role \|\| null\)/);
 });
 
-test("le eccezioni dichiarate sono ancora eccezioni", () => {
-  for (const [href, motivo] of Object.entries(SOLO_DESKTOP_CLUB)) {
+test("nessuna voce del club punta a una rotta che non esiste", () => {
+  for (const href of VOCI_DESKTOP_CLUB) {
     assert.equal(
-      VOCI_DESKTOP_CLUB.includes(href),
-      true,
-      `${href}: dichiarata solo-desktop ma non e piu nella barra laterale, l'eccezione e scaduta`,
-    );
-    assert.equal(
-      VOCI_MOBILE_CLUB.includes(href),
-      false,
-      `${href}: dichiarata solo-desktop ed e nel menu mobile, togli l'eccezione`,
-    );
-    assert.equal(
-      typeof motivo === "string" && motivo.trim().length > 20,
-      true,
-      `${href}: un'eccezione senza un motivo scritto e una dimenticanza con un nome piu bello`,
-    );
-  }
-});
-
-test("nessuna voce del menu del club punta a una rotta che non esiste", () => {
-  for (const href of VOCI_MOBILE_CLUB) {
-    const segmenti = href.replace(/^\//, "").split("/");
-    assert.equal(
-      existsSync(path.join(RADICE, "src", "app", ...segmenti, "page.tsx")),
+      paginaEsiste(href),
       true,
       `${href}: voce di menu verso una pagina che non c'e, cioe un 404 con l'aspetto di una funzione`,
     );
   }
 });
 
-/**
- * Le tre voci che la Wave 6 aveva lasciato fuori. I test qui sopra le coprono
- * gia — sono ricavate, non elencate — ma nominarle serve al prossimo che legga
- * un fallimento e voglia sapere di che difetto si tratta.
- */
-test("le tre voci della Wave 6 si raggiungono da un telefono", () => {
+test("le tre voci della Wave 6 stanno nella fonte unica", () => {
   for (const href of ["/documenti", "/dashboard/access-management", "/audit"]) {
-    assert.equal(
-      VOCI_MOBILE_CLUB.includes(href),
-      true,
-      `${href}: a 375 e 768 px non c'era nessun modo di arrivarci`,
-    );
+    assert.equal(VOCI_DESKTOP_CLUB.includes(href), true, `${href}: mancava da un telefono`);
   }
 });
 
 /* ======================================================================== */
-/*  Guscio dell'allenatore — soglia 768 px                                  */
+/*  Le aree: allenatore, famiglia, atleta                                   */
 /* ======================================================================== */
 
-/*
-  Qui il confronto non e sugli indirizzi ma sulle **chiavi di permesso**: i due
-  elenchi scrivono la rotta in due modi diversi — la barra laterale a mano, il
-  guscio via `TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY` — e la chiave e cio che
-  davvero deve coincidere. Una voce filtrata da un lato e libera dall'altro
-  sarebbe una porta che si apre o no a seconda della larghezza dello schermo.
-*/
-const chiaviNavigazione = (sorgente) =>
-  new Set(
-    [...senzaCommenti(sorgente).matchAll(/permissions\.navigation\.([A-Za-z]+)/g)].map(
-      (occorrenza) => occorrenza[1],
-    ),
+const AREE = senzaCommenti(leggi("src/components/web/shell/area-navigation.ts"));
+const PERMESSI_TRAINER = senzaCommenti(leggi("src/lib/trainer-dashboard-permissions.ts"));
+
+const chiaviMappaRotte = () => {
+  const mappa = PERMESSI_TRAINER.match(
+    /TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY[\s\S]*?= \{([\s\S]*?)\};/,
   );
-
-const CHIAVI_SIDEBAR_TRAINER = chiaviNavigazione(
-  leggi("src/components/trainer/TrainerSidebar.tsx"),
-);
-const GUSCIO_TRAINER = leggi(
-  "src/components/trainer/trainer-dashboard-club-shell.tsx",
-);
-const CHIAVI_MENU_TRAINER = chiaviNavigazione(GUSCIO_TRAINER);
-
-/** Stessa regola delle eccezioni del club: si dichiara con il motivo. */
-const SOLO_DESKTOP_TRAINER = {
-  /* esempio: "chiave": "motivo per cui a 375 px non ha senso" */
+  assert.ok(mappa, "la mappa delle rotte dell'allenatore non si trova piu");
+  return [...mappa[1].matchAll(/^\s*([a-z]+):/gm)].map((m) => m[1]);
 };
 
-test("ogni voce della barra dell'allenatore esiste anche nel menu sotto i 768 px", () => {
-  const mancanti = [...CHIAVI_SIDEBAR_TRAINER].filter(
-    (chiave) =>
-      !CHIAVI_MENU_TRAINER.has(chiave) &&
-      !Object.prototype.hasOwnProperty.call(SOLO_DESKTOP_TRAINER, chiave),
-  );
+const chiaviFonteUnica = () => {
+  const blocco = AREE.match(/const TRAINER_NAV[\s\S]*?\n\];/);
+  assert.ok(blocco, "TRAINER_NAV non si trova piu in area-navigation.ts");
+  return [...blocco[0].matchAll(/key:\s*"([a-z]+)"/g)].map((m) => m[1]);
+};
 
+test("ogni chiave di navigazione dell'allenatore e una voce della fonte unica", () => {
+  const mappa = chiaviMappaRotte();
+  const fonte = chiaviFonteUnica();
+  const mancanti = mappa.filter((chiave) => !fonte.includes(chiave));
   assert.deepEqual(
     mancanti,
     [],
-    `Voci raggiungibili solo sopra i 768 px: ${mancanti.join(", ")}. \`TrainerSidebar\` sta dentro un \`hidden md:block\`, e un allenatore apre queste pagine in palestra dal telefono.`,
+    `Chiavi con una rotta ma senza voce di menu: ${mancanti.join(", ")}. Una pagina senza voce esiste solo per chi ne conosce l'indirizzo.`,
+  );
+  const inventate = fonte.filter((chiave) => !mappa.includes(chiave));
+  assert.deepEqual(inventate, [], `Voci senza una rotta nella mappa: ${inventate.join(", ")}`);
+});
+
+test("le voci dell'allenatore prendono la rotta dalla mappa e si filtrano con il permesso di navigazione", () => {
+  assert.match(AREE, /TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY\[item\.key\]/);
+  assert.match(AREE, /permissions\.navigation\[item\.key\]/);
+  assert.deepEqual(
+    hrefDi(AREE.match(/const TRAINER_NAV[\s\S]*?\n\];/)[0]),
+    [],
+    "nessun indirizzo dell'allenatore scritto a mano",
   );
 });
 
-test("il menu stretto dell'allenatore non inventa voci che la barra non ha", () => {
-  const inventate = [...CHIAVI_MENU_TRAINER].filter(
-    (chiave) => !CHIAVI_SIDEBAR_TRAINER.has(chiave),
-  );
-
-  assert.deepEqual(inventate, [], `Voci presenti solo sul telefono: ${inventate.join(", ")}`);
+test("i tre gusci delle aree montano AreaShell, che disegna barra e menu dallo stesso elenco", () => {
+  const gusci = {
+    "src/components/trainer/trainer-dashboard-club-shell.tsx": "trainerAreaNavGroups",
+    "src/components/parent-dashboard/parent-dashboard-shell.tsx": "parentAreaNavGroups",
+    "src/components/athlete/athlete-area-shell.tsx": "ATHLETE_AREA_NAV_GROUPS",
+  };
+  for (const [file, fonte] of Object.entries(gusci)) {
+    const sorgente = senzaCommenti(leggi(file));
+    assert.match(sorgente, /<AreaShell/, `${file}: deve montare AreaShell`);
+    assert.match(sorgente, new RegExp(fonte), `${file}: deve leggere le voci da ${fonte}`);
+    assert.deepEqual(hrefDi(sorgente), [], `${file}: nessun elenco di voci scritto a mano nel guscio`);
+  }
+  const shell = senzaCommenti(leggi("src/components/web/shell/AreaShell.tsx"));
+  assert.match(shell, /<Sidebar groups=\{groups\}/);
+  assert.match(shell, /mobileNavSections=\{mobileNavSections\}/);
+  assert.match(shell, /toMobileNavSections\(groups\)/);
 });
 
-test("le eccezioni dell'allenatore sono ancora eccezioni", () => {
-  for (const [chiave, motivo] of Object.entries(SOLO_DESKTOP_TRAINER)) {
-    assert.equal(
-      CHIAVI_SIDEBAR_TRAINER.has(chiave),
-      true,
-      `${chiave}: dichiarata solo-desktop ma non e piu nella barra laterale`,
-    );
-    assert.equal(
-      typeof motivo === "string" && motivo.trim().length > 20,
-      true,
-      `${chiave}: un'eccezione senza motivo scritto non e un'eccezione`,
-    );
+test("le tre barre laterali legacy delle aree non esistono piu", () => {
+  for (const file of [
+    "src/components/parent-dashboard/ParentSidebar.tsx",
+    "src/components/trainer/TrainerSidebar.tsx",
+    "src/components/athlete/athlete-sidebar.tsx",
+  ]) {
+    assert.equal(existsSync(path.join(RADICE, ...file.split("/"))), false, `${file}: una seconda barra laterale`);
   }
 });
 
-test("le tre voci della Wave 6 dell'allenatore si raggiungono da un telefono", () => {
-  for (const chiave of ["categories", "notifications", "compensation"]) {
-    assert.equal(
-      CHIAVI_MENU_TRAINER.has(chiave),
-      true,
-      `${chiave}: manca dal menu mobile, quindi da un telefono la sezione non si raggiunge`,
-    );
+test("ogni voce dell'atleta e della famiglia punta a una pagina che esiste", () => {
+  const atleta = AREE.match(/ATHLETE_AREA_NAV_GROUPS[\s\S]*?\n\];/);
+  assert.ok(atleta);
+  for (const href of hrefDi(atleta[0])) {
+    assert.equal(paginaEsiste(href), true, `${href}: voce dell'atleta senza pagina`);
   }
-});
-
-test("le voci del menu dell'allenatore passano dalla mappa delle rotte, non da indirizzi scritti a mano", () => {
-  const senzaCommentiGuscio = senzaCommenti(GUSCIO_TRAINER);
-
-  for (const chiave of CHIAVI_MENU_TRAINER) {
+  const famiglia = AREE.match(/parentAreaNavGroups[\s\S]*?\n\};/);
+  assert.ok(famiglia);
+  const segmenti = [...famiglia[0].matchAll(/href:\s*`\$\{base\}(\/[a-z-]+)`/g)].map((m) => m[1]);
+  assert.ok(segmenti.length >= 12, "la famiglia ha almeno dodici voci oltre la home");
+  for (const segmento of segmenti) {
     assert.equal(
-      senzaCommentiGuscio.includes(
-        `TRAINER_DASHBOARD_ROUTE_BY_NAVIGATION_KEY.${chiave}`,
-      ),
+      existsSync(path.join(RADICE, "src", "app", "parent-view", "[id]", segmento.slice(1), "page.tsx")),
       true,
-      `${chiave}: la voce deve prendere la rotta dalla mappa, altrimenti un giorno la mappa cambia e il menu no`,
+      `${segmento}: voce della famiglia senza pagina`,
     );
   }
 });
@@ -266,23 +199,6 @@ test("le voci del menu dell'allenatore passano dalla mappa delle rotte, non da i
 /* ======================================================================== */
 /*  Una barra sola per pagina                                               */
 /* ======================================================================== */
-
-/**
- * **`Header` contiene gia `MobileTopBar`.**
- *
- * Sotto i 1024 px `Header` monta la barra mobile per conto proprio. Una pagina
- * che renderizza **entrambi** impila due intestazioni identiche, e su 812 px di
- * altezza sono due fasce rubate al contenuto.
- *
- * Le tre pagine in elenco hanno lo stesso difetto e sono di altre lane: il test
- * non le fotografa come corrette — pretende solo che il numero non **cresca**.
- * Chi ne corregge una toglie la propria riga da qui.
- */
-const DOPPIA_BARRA_NOTA = new Set([
-  /* `/modulistica` e passata al Web V2 (Wave E) e monta solo `Header`. */
-  /* `/soci` e passata al Web V2 (Wave D) e monta solo `Header`. */
-  /* `/structures` e passata al Web V2 (Wave D) e monta solo `Header`. */
-]);
 
 const paginePagina = () => {
   const radice = path.join(RADICE, "src", "app");
@@ -303,7 +219,7 @@ const paginePagina = () => {
   return trovate;
 };
 
-test("nessuna pagina nuova impila due barre mobili", () => {
+test("nessuna pagina impila due barre mobili", () => {
   const colpevoli = paginePagina()
     .filter((file) => {
       const sorgente = senzaCommenti(readFileSync(file, "utf8"));
@@ -313,12 +229,10 @@ test("nessuna pagina nuova impila due barre mobili", () => {
       path.relative(path.join(RADICE, "src"), file).split(path.sep).join("/"),
     );
 
-  const nuove = colpevoli.filter((file) => !DOPPIA_BARRA_NOTA.has(file));
-
   assert.deepEqual(
-    nuove,
+    colpevoli,
     [],
-    `${nuove.join(", ")}: \`Header\` monta gia \`MobileTopBar\` sotto i 1024 px, e la seconda barra e un doppione visibile solo da un telefono. Passa il titolo a \`Header\` e togli la barra.`,
+    `${colpevoli.join(", ")}: \`Header\` monta gia \`MobileTopBar\` sotto i 1024 px, e la seconda barra e un doppione visibile solo da un telefono.`,
   );
 });
 

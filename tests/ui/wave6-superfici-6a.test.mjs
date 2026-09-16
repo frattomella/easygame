@@ -164,22 +164,23 @@ test("W6-55 · un campo nuovo non nasce con due tariffe a zero", () => {
   `Tooltip` del sistema, montato intorno a ogni voce quando la barra e
   compressa. Le barre di allenatore e famiglia restano quelle di prima.
 */
-const SIDEBAR = [
-  "components/web/shell/Sidebar.tsx",
-  "components/trainer/TrainerSidebar.tsx",
-  "components/parent-dashboard/ParentSidebar.tsx",
-];
+/*
+  Redesign: la barra e **una** — `web/shell/Sidebar.tsx` — e la montano il club
+  e le tre aree (`AreaShell`). Le barre di allenatore e famiglia non esistono
+  piu, quindi il tooltip e uno per definizione.
+*/
+const SIDEBAR = ["components/web/shell/Sidebar.tsx"];
 
 test("§10 · compressa, ogni voce della barra dice il proprio nome", () => {
   for (const file of SIDEBAR) {
     const sorgente = leggi(file);
     assert.ok(
-      sorgente.includes("<SidebarItemTooltip") ||
-        sorgente.includes("<Tooltip content={item.label}"),
+      sorgente.includes("<Tooltip content={item.label}"),
       `${file}: la barra compressa mostra icone mute`,
     );
     assert.ok(
-      sorgente.includes("collapsed={collapsed}"),
+      sorgente.includes("collapsed ? (\n                <Tooltip content={item.label} side=\"right\">") ||
+        /collapsed \? \(\s*<Tooltip content=\{item\.label\}/.test(sorgente),
       `${file}: il tooltip deve esistere solo a barra compressa`,
     );
     assert.ok(
@@ -201,19 +202,24 @@ test("§10 · nessuna barra si affida al tooltip del browser", () => {
 });
 
 test("§10 · il tooltip della barra e uno solo per tutte e tre", () => {
-  const componente = leggi("components/navigation/sidebar-item-tooltip.tsx");
-  assert.ok(componente.includes('from "@/components/ui/tooltip"'));
-  assert.ok(
-    componente.includes("if (!collapsed) return children;"),
-    "a barra aperta il tooltip ripeterebbe un'etichetta gia scritta accanto",
-  );
-
+  /* Le tre aree montano la stessa barra: nessuna copia del tooltip. */
+  for (const file of [
+    "components/trainer/trainer-dashboard-club-shell.tsx",
+    "components/parent-dashboard/parent-dashboard-shell.tsx",
+    "components/athlete/athlete-area-shell.tsx",
+  ]) {
+    assert.ok(leggi(file).includes("<AreaShell"), `${file}: monta il guscio condiviso`);
+  }
   for (const file of SIDEBAR) {
     const sorgente = leggi(file);
+    assert.ok(
+      sorgente.includes('from "@/components/web/primitives/Overlays"'),
+      `${file}: il tooltip e quello del sistema`,
+    );
     assert.equal(
       sorgente.includes('from "@/components/ui/tooltip"'),
       false,
-      `${file}: la primitiva si usa dal componente condiviso, non da tre copie`,
+      `${file}: la primitiva legacy non si usa piu nel guscio`,
     );
   }
 });

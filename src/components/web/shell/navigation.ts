@@ -166,10 +166,13 @@ export const visibleNavGroups = (context: NavContext): NavGroup[] =>
   })).filter((group) => group.items.length > 0);
 
 /** `/athletes/abc` → la voce `athletes`; la corrispondenza piu lunga vince. */
-export const findNavItemForPath = (pathname: string | null | undefined): { group: NavGroup; item: NavItem } | null => {
+export const findNavItemForPath = (
+  pathname: string | null | undefined,
+  groups: readonly NavGroup[] = NAV_GROUPS,
+): { group: NavGroup; item: NavItem } | null => {
   if (!pathname) return null;
   let best: { group: NavGroup; item: NavItem } | null = null;
-  for (const group of NAV_GROUPS) {
+  for (const group of groups) {
     for (const item of group.items) {
       const matches = pathname === item.href || pathname.startsWith(`${item.href}/`);
       if (matches && (!best || item.href.length > best.item.href.length)) {
@@ -206,11 +209,12 @@ export type Crumb = { label: string; href?: string };
  */
 export const buildBreadcrumb = (
   pathname: string | null | undefined,
-  options: { clubName?: string | null; currentLabel?: string | null } = {},
+  options: { clubName?: string | null; currentLabel?: string | null; groups?: readonly NavGroup[] | null } = {},
 ): Crumb[] => {
   const crumbs: Crumb[] = [];
   if (options.clubName) crumbs.push({ label: options.clubName });
-  const hit = findNavItemForPath(pathname);
+  /* Un'area con i propri gruppi (famiglia, allenatore, atleta) risolve il percorso sui suoi. */
+  const hit = findNavItemForPath(pathname, options.groups || NAV_GROUPS);
   if (!hit || !pathname) {
     if (options.currentLabel) crumbs.push({ label: options.currentLabel });
     return crumbs;
