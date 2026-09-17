@@ -82,6 +82,59 @@ stagione attiva; cambio stagione senza F5.
   giorni): **solo su autorizzazione**, con un piano scritto — non in questo
   lotto.
 
-## UAT
+## UAT (deploy `43f2fe71` su `easygame-redesign-staging`, club QA UAT `ae3d545b`)
 
-Compilato a fine lotto (vedi rapporto finale).
+Deploy `dpl_DHZz7kr7moMVn6PKRmj6wiDNCdpM` (guardia EXPECTED = ACTUAL su
+progetto e database; migrazione della vista applicata; backup Neon
+`br-dawn-darkness-alxjp8qo` prima del deploy). Stagione A = `2026/2027`
+(`season-2026-09-01-2027-06-30-2pqcf`, 1 set 2026 → 30 giu 2027).
+
+- **A popolata**: allenatore «Coach UAT7 Rossi» (`trainer-uat7-rossi`)
+  assegnato dalla scheda a «Pulcini» della A (l'editor offre le sole tre
+  categorie della A, scrive l'identificativo); 2 voci del programma
+  (`uat7-a-1/2`); allenamento «UAT7 Allenamento A» 20 set 18:00 (nato con
+  `season_id` A dall'header).
+- **B creata dal wizard**: «UAT7 Stagione B» (`season-2026-09-15-2027-09-14-p3dfw`,
+  15 set 2026 → 14 set 2027, **sovrapposta**), riporto di categorie e gruppi,
+  0 tesserati; il riepilogo dichiara «Assegnazioni allenatori 0 riportati su
+  1», «Programma settimanale 0 su 2», «Movimenti economici 0 — lo storico
+  resta». Audit `season.rollover`: categorie 3, tesserati 0.
+- **Allenatori in B**: «Nessuna categoria assegnata nella stagione UAT7
+  Stagione B · Stagione precedente: 2026/2027: Pulcini»; colonna «Categorie
+  UAT7 Stagione B». In A (dopo l'attivazione): «Pulcini».
+- **Calendario §41**: allenamento B 20 set 19:00 nato con `season_id` B;
+  stesso giorno, B mostra solo le 19:00, A solo le 18:00, `all_seasons=1` 2.
+  La pagina dice «Stagione UAT7 Stagione B · 1 evento».
+- **Programma settimanale B**: 40 voci scritte con l'header B dal percorso
+  del pannello (`PATCH /clubs`): la colonna ha 40 B **e le 2 della A intatte**.
+  Pagina «Programma settimanale · Stagione UAT7 Stagione B (40)». Anteprima
+  una settimana (17 → 24 set): `totalRules 40, validRules 40, invalidRules
+  0`, 48 occorrenze, tutte B; esecuzione: 48 creati, 0 conflitti; seconda
+  esecuzione: 0 creati, 48 esistenti. Calendario B nella settimana: 49; A: 1.
+- **A → B → A → B senza F5**: attivata la A, la barra laterale passa a
+  «Stagione 2026/2027» subito; Allenatori mostra «Pulcini» come attuale;
+  Calendario «Stagione 2026/2027 · 1 evento»; riattivata la B (evento
+  `club-updated`), il Calendario passa a «49 eventi» senza ricaricare.
+- **Eliminazione**: «UAT7 Vuota» (futura, vuota) creata e **eliminata** dal
+  cassetto — impatto tutto a zero, CTA spenta finche il testo non e esatto,
+  toast «eliminata definitivamente», riga sparita; `season.delete.requested`
+  + `season.deleted` con impatto. Rifiuti: B attiva → «Prima di eliminare
+  questa stagione, imposta un'altra stagione come attiva»; A → «contiene
+  dati storici che non si cancellano (1 allenamenti e gare, 209 tesserati
+  nelle squadre, 2 movimenti contabili, 2 rate sui piani della stagione)»;
+  conferma sbagliata → «Per confermare scrivi esattamente: ELIMINA UAT7
+  Vuota». Ogni rifiuto ha la sua riga `season.delete.requested · denied`.
+- **Sonda DB** (`.codex-scratch/season/sonda-uat-0197.mjs`): appartenenze
+  209 A / 0 B; programma 2 A / 40 B; eventi 1 A / 49 B; movimenti 2 A / 0 B;
+  Rossi 1 riferimento in A. Invarianti categorie 0/0/0/0 su tre club.
+- **Pilota (sola lettura)**: anteprima della generazione con le 40 voci
+  reali, dal cron e dal percorso del pannello (override senza `seasonId`,
+  stagione dichiarata): 40 valide, 50 occorrenze nella settimana, tutte
+  nella stagione attiva; nessuna scrittura (colonna ancora 40).
+
+Residui UAT su QA UAT Club (cleanup su autorizzazione): stagione
+`season-2026-09-15-2027-09-14-p3dfw` «UAT7 Stagione B» (**attiva**: la
+precedente `2pqcf` e archiviata) con 3 categorie; allenatore
+`trainer-uat7-rossi`; struttura `structure-uat7`; 42 voci del programma
+(`uat7-a-*`, `uat7-b-*`); 50 eventi (`uat7-training-a`, `uat7-training-b`,
+48 `auto:…` in B).
