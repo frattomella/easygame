@@ -389,7 +389,9 @@ export default function MatchesPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeClub?.id, user, showToast]);
+    /* La stagione mostrata e una dipendenza: A → B → A senza F5 ricarica (ADR-0197 §26). */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeClub?.id, activeClub?.activeSeasonId, user, showToast]);
 
   useEffect(() => {
     void loadData();
@@ -1079,11 +1081,13 @@ export default function MatchesPage() {
   }, [duplicateSource, selectedMatch, showEditMatchModal, trainers]);
 
   const pageTitle = view === "day" ? `Gare · ${formatDayTitle(selectedDate)}` : "Gare · Vista elenco";
+  /* La stagione mostrata (ADR-0197 §15). */
+  const stagioneMostrata = activeClub?.activeSeasonLabel ? `Stagione ${activeClub.activeSeasonLabel} · ` : "";
   const pageDescription = loading
     ? "Caricamento delle gare…"
-    : view === "day"
+    : stagioneMostrata + (view === "day"
       ? `${formatInteger(dayMatches.length)} ${dayMatches.length === 1 ? "gara" : "gare"} · ${formatInteger(senzaConvocazioni)} senza convocazioni`
-      : `${formatInteger(contextMatches.length)} ${contextMatches.length === 1 ? "gara" : "gare"} · ${formatInteger(contextMatches.filter((match) => getEffectiveMatchStatus(match) === "upcoming").length)} in programma`;
+      : `${formatInteger(contextMatches.length)} ${contextMatches.length === 1 ? "gara" : "gare"} · ${formatInteger(contextMatches.filter((match) => getEffectiveMatchStatus(match) === "upcoming").length)} in programma`);
 
   return (
     <div className="flex h-[100dvh] bg-egw-page">

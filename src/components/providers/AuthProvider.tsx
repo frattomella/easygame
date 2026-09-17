@@ -312,6 +312,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user?.id, loading]);
 
+  /*
+    **La stagione cambia senza ricaricare la pagina** (ADR-0197 §26).
+
+    `rememberActiveSeason` (client.ts) aggiorna `localStorage` e manda
+    `club-updated` con il club com'e adesso: da li `apiRequest` porta gia la
+    stagione nuova nell'header, ma `activeClub` qui restava quello di prima
+    — la barra laterale diceva «Stagione 2025/26» sopra un calendario della
+    2026/27, e ogni schermata che legge `activeClub.activeSeasonId` dal
+    contesto restava indietro fino a un F5. Il commento del cruscotto
+    famiglia diceva «l'intestazione ascolta quell'evento»: non lo ascoltava
+    nessuno. Adesso lo ascolta il contesto, che e l'unica origine di
+    `activeClub` per tutti.
+  */
+  useEffect(() => {
+    if (typeof window === "undefined") return () => {};
+    const onClubUpdated = (event: Event) => {
+      const clubData = (event as CustomEvent).detail?.clubData;
+      if (!clubData?.id) return;
+      setActiveClub((current: any) =>
+        current && String(current.id) === String(clubData.id)
+          ? { ...current, ...clubData }
+          : current,
+      );
+    };
+    window.addEventListener("club-updated", onClubUpdated);
+    return () => window.removeEventListener("club-updated", onClubUpdated);
+  }, []);
+
   // Optimized authentication check with caching
   useEffect(() => {
     // Skip auth operations during SSR

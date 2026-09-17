@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/server/prisma";
+import { resolveSeasonContext } from "@/lib/server/season-context";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
@@ -143,11 +144,20 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const scope = await scopeFrom(request, session.db.user_id);
 
+    /*
+      **Il perimetro di stagione della lettura** (ADR-0197): la stagione che
+      il browser mostra (`x-active-season-id`), oppure `season_id` quando la
+      schermata ne chiede una precisa, oppure niente con `all_seasons=1` —
+      per chi vuole lo storico e lo dice.
+    */
+    const stagione = await resolveSeasonContext(scope.activeOrganizationId, request);
     const rows = await listClubEvents(scope, {
       kind: (url.searchParams.get("kind") as any) || "all",
       from: url.searchParams.get("from"),
       to: url.searchParams.get("to"),
       seasonId: url.searchParams.get("season_id"),
+      season: stagione,
+      allSeasons: url.searchParams.get("all_seasons") === "1",
       siteId: url.searchParams.get("site_id"),
       categoryId: url.searchParams.get("category_id"),
       groupId: url.searchParams.get("group_id"),
@@ -240,6 +250,8 @@ export async function POST(request: Request) {
       body && typeof body === "object" && body.data ? body.data : body;
     const kind = normalizeEventKind(payload?.kind || body?.kind);
     const batch = Array.isArray(payload?.events) ? payload.events : null;
+    /* La stagione che il browser mostra: e quella in cui l evento nasce (ADR-0197). */
+    const stagione = await resolveSeasonContext(scope.activeOrganizationId, request);
 
     try {
       if (batch) {
@@ -248,10 +260,13 @@ export async function POST(request: Request) {
           insieme: una richiesta sola, e **una** riproiezione alla fine invece
           di una per evento.
         */
-        const { righe, conflitti } = await createClubEventsBatch(scope, kind, batch, {
-          userId: session.db.user_id,
-          email: session.db.user.email,
-        });
+        const { righe, conflitti } = await createClubEventsBatch(
+          scope,
+          kind,
+          batch,
+          { userId: session.db.user_id, email: session.db.user.email },
+          { season: stagione },
+        );
         return NextResponse.json({
           data: righe.map((row) => ({ ...toEventLegacyShape(row), id: row.id })),
           /*
@@ -265,10 +280,13 @@ export async function POST(request: Request) {
         });
       }
 
-      const row = await createClubEvent(scope, kind, payload, {
-        userId: session.db.user_id,
-        email: session.db.user.email,
-      });
+      const row = await createClubEvent(
+        scope,
+        kind,
+        payload,
+        { userId: session.db.user_id, email: session.db.user.email },
+        { season: stagione },
+      );
 
       return NextResponse.json({
         data: { ...toEventLegacyShape(row), id: row.id, row },

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Archive, ArrowRightLeft, CalendarRange, Check, Plus, Search, Users } from "lucide-react";
+import { Archive, ArrowRightLeft, CalendarRange, Check, Plus, Search, Trash2, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast-notification";
 import { DataGrid } from "@/components/web/datagrid/DataGrid";
@@ -19,10 +19,13 @@ import { formatDateShort, formatInteger } from "@/lib/web/format";
 import { ATHLETE_MEMBERSHIP_ROLLOVER_TYPE, SEASON_STATUS_LABELS, type ClubSeason } from "@/lib/club-seasons";
 import {
   createSeason,
+  deleteSeason,
+  fetchSeasonDeleteImpact,
   fetchSeasonRoster,
   fetchSeasonsOverview,
   runSeasonRollover,
   updateSeasonStatus,
+  type SeasonDeleteImpact,
   type SeasonRoster,
   type SeasonRolloverSummary,
   type SeasonsOverview,
@@ -264,6 +267,11 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
   const [rolloverPreview, setRolloverPreview] = React.useState<SeasonRolloverSummary | null>(null);
   const [lastSummary, setLastSummary] = React.useState<SeasonRolloverSummary | null>(null);
   const [pendingArchive, setPendingArchive] = React.useState<ClubSeason | null>(null);
+  /* Eliminazione (ADR-0197 §32): la stagione, l'impatto letto dal server, il testo scritto. */
+  const [deleteTarget, setDeleteTarget] = React.useState<ClubSeason | null>(null);
+  const [deleteImpact, setDeleteImpact] = React.useState<SeasonDeleteImpact | null>(null);
+  const [deleteImpactError, setDeleteImpactError] = React.useState<string | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = React.useState("");
   const [pendingActivation, setPendingActivation] = React.useState<ClubSeason | null>(null);
 
   const load = React.useCallback(async () => {
@@ -462,6 +470,37 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
     }
   };
 
+  const openDelete = async (season: ClubSeason) => {
+    setDeleteTarget(season);
+    setDeleteImpact(null);
+    setDeleteImpactError(null);
+    setDeleteConfirmation("");
+    try {
+      setDeleteImpact(await fetchSeasonDeleteImpact(season.id));
+    } catch (error: any) {
+      setDeleteImpactError(error?.message || "Impossibile leggere il contenuto della stagione");
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget || !deleteImpact) return;
+    setBusy(true);
+    try {
+      const result = await deleteSeason(deleteTarget.id, deleteConfirmation.trim());
+      setDeleteTarget(null);
+      setDeleteImpact(null);
+      await load();
+      showToast(
+        "success",
+        `Stagione ${result.season.label} eliminata definitivamente${result.detachedTrainerAssignments ? ` · ${result.detachedTrainerAssignments} assegnazioni allenatori staccate` : ""}`,
+      );
+    } catch (error: any) {
+      showToast("error", error?.message || "Errore nell'eliminazione della stagione");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const openRollover = async (season: ClubSeason) => {
     setRolloverTarget(season);
     setRolloverPreview(null);
@@ -577,6 +616,8 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
     { id: "activate", label: "Attiva", icon: <Check />, primary: true, hidden: (season) => season.id === activeSeasonId, onClick: (season) => setPendingActivation(season) },
     { id: "rollover", label: "Riporta dati", icon: <ArrowRightLeft />, hidden: (season) => season.status === "archived", onClick: (season) => void openRollover(season) },
     { id: "archive", label: "Archivia", icon: <Archive />, hidden: (season) => season.status === "archived" || season.id === activeSeasonId, onClick: (season) => setPendingArchive(season) },
+    /* Eliminare non e archiviare: la stagione attiva non lo offre, e per le altre decide il server cosa e possibile (ADR-0197 §30). */
+    { id: "delete", label: "Elimina", icon: <Trash2 />, tone: "danger", hidden: (season) => season.id === activeSeasonId, onClick: (season) => void openDelete(season) },
   ];
 
   return (
@@ -860,6 +901,28 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
                 <p className="text-egw-ink-62">Non verra copiato nulla: la stagione nasce vuota.</p>
               )}
 
+              {/* Cio che NON viene riportato si dichiara, voce per voce: nessun riporto nascosto (ADR-0197 §29). */}
+              <DrawerSection title="Non viene riportato">
+                <ul className="flex flex-col" data-test="season-wizard-not-carried">
+                  {rolloverTypes
+                    .filter((type) => !selectedTypes.includes(type.key) && type.key !== ATHLETE_MEMBERSHIP_ROLLOVER_TYPE)
+                    .map((type) => (
+                      <li key={type.key} className="flex items-baseline justify-between gap-4 border-b border-dashed border-egw-hairline py-1.5 last:border-0 text-egw-ink-62">
+                        <span>{type.label}</span>
+                        <span className="egw-num">
+                          0 <span className="font-medium">riportat{type.label.endsWith("i") ? "i" : "e"} su {formatInteger(sourceCounts[type.key] ?? 0)}</span>
+                        </span>
+                      </li>
+                    ))}
+                  {(overview?.neverCopiedTypes ?? []).map((entry) => (
+                    <li key={entry.key} className="flex items-baseline justify-between gap-4 border-b border-dashed border-egw-hairline py-1.5 last:border-0 text-egw-ink-62">
+                      <span>{entry.label}</span>
+                      <span className="egw-num">0 <span className="font-medium">— lo storico resta nella stagione di origine</span></span>
+                    </li>
+                  ))}
+                </ul>
+              </DrawerSection>
+
               {/* I tesserati si dichiarano sempre, anche a zero. */}
               <InsetBlock>
                 <p className="flex items-center gap-2 font-semibold">
@@ -1025,6 +1088,105 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
         confirmLabel="Attiva stagione"
         loading={busy}
       />
+
+      {/* ── Eliminazione definitiva: zona pericolosa (ADR-0197 §32) ── */}
+      <Drawer
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open && !busy) {
+            setDeleteTarget(null);
+            setDeleteImpact(null);
+          }
+        }}
+        width="narrow"
+        eyebrow="Zona pericolosa"
+        title={`Eliminare la stagione ${deleteTarget?.label || ""}?`}
+        description="Questa operazione e irreversibile."
+        locked={busy}
+        data-test="season-delete-drawer"
+        footer={
+          <>
+            <Button
+              variant="danger"
+              onClick={() => void handleDelete()}
+              loading={busy}
+              disabled={!deleteImpact?.canDelete || deleteConfirmation.trim() !== (deleteImpact?.confirmationText || "")}
+              data-test="season-delete-confirm"
+            >
+              Elimina definitivamente
+            </Button>
+            <Button variant="secondary" onClick={() => setDeleteTarget(null)} disabled={busy}>
+              Annulla
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4 font-brand text-[13px] text-egw-ink">
+          <p>
+            Stai per eliminare <strong>definitivamente</strong> la stagione <strong>{deleteTarget?.label}</strong>
+            {deleteTarget ? (
+              <>
+                {" "}(dal <span className="egw-num">{formatDateShort(deleteTarget.startDate)}</span> al <span className="egw-num">{formatDateShort(deleteTarget.endDate)}</span>)
+              </>
+            ) : null}
+            .
+          </p>
+
+          {deleteImpactError ? (
+            <AlertBlock severity="danger" title="Impossibile leggere il contenuto della stagione">
+              {deleteImpactError}
+            </AlertBlock>
+          ) : null}
+
+          {!deleteImpact && !deleteImpactError ? <Skeleton className="h-24 w-full" /> : null}
+
+          {deleteImpact ? (
+            <>
+              <DrawerSection title="Cosa contiene">
+                <ul className="flex flex-col" data-test="season-delete-impact">
+                  {deleteImpact.entries
+                    .filter((entry) => entry.count > 0 || entry.classification === "cascade")
+                    .map((entry) => (
+                      <li key={entry.key} className="flex items-baseline justify-between gap-4 border-b border-dashed border-egw-hairline py-1.5 last:border-0">
+                        <span className={cn(entry.classification === "block" && entry.count > 0 ? "text-egw-red-ink font-semibold" : undefined)}>
+                          {entry.label}
+                          {entry.classification === "detach" && entry.count > 0 ? <span className="text-egw-ink-62"> · verranno staccate</span> : null}
+                          {entry.classification === "block" && entry.count > 0 ? <span> · impedisce l&apos;eliminazione</span> : null}
+                        </span>
+                        <span className="egw-num font-bold">{formatInteger(entry.count)}</span>
+                      </li>
+                    ))}
+                </ul>
+              </DrawerSection>
+
+              {deleteImpact.isActive ? (
+                <AlertBlock severity="warning" title="Questa stagione e attiva">
+                  Prima di eliminare questa stagione, imposta un&apos;altra stagione come attiva.
+                </AlertBlock>
+              ) : deleteImpact.blockers.length ? (
+                <AlertBlock severity="warning" title="Questa stagione ha una storia">
+                  Eventi, presenze, movimenti e tesserati non si cancellano: sono cio che il club ha fatto. Archivia la stagione invece di eliminarla.
+                </AlertBlock>
+              ) : (
+                <>
+                  <AlertBlock severity="warning" title="Questa operazione e irreversibile">
+                    La configurazione elencata sopra verra cancellata e la stagione sparira dall&apos;elenco. Per confermare scrivi <strong>{deleteImpact.confirmationText}</strong>.
+                  </AlertBlock>
+                  <Field label="Conferma" helper={`Scrivi esattamente: ${deleteImpact.confirmationText}`}>
+                    <TextInput
+                      value={deleteConfirmation}
+                      onChange={(event) => setDeleteConfirmation(event.target.value)}
+                      placeholder={deleteImpact.confirmationText}
+                      autoComplete="off"
+                      data-test="season-delete-confirmation"
+                    />
+                  </Field>
+                </>
+              )}
+            </>
+          ) : null}
+        </div>
+      </Drawer>
 
       <ConfirmDialog
         open={Boolean(pendingArchive)}

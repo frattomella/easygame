@@ -1306,3 +1306,27 @@ sul CRUD generico (`resolveRequestSeason` legge la stringa vuota come
 «nessuna stagione»): e il modo con cui una schermata legge il catalogo di
 tutte le stagioni per riconoscere un'appartenenza (ADR-0196 §7), e non e un
 confine di sicurezza — il confine resta `organization_id`.
+
+**La stagione di una richiesta ha un solo risolutore** (ADR-0197):
+`resolveSeasonContext(organizationId, request)` in
+`src/lib/server/season-context.ts` (puro: `src/lib/seasons/context.ts`).
+Header assente → stagione **attiva** del club; header con una stagione del
+club → quella (**dichiarata**); header vuoto → nessun perimetro; header con
+una stagione che il club non ha (stale) → l'attiva, non «tutto»; club senza
+stagioni salvate → nessun perimetro e nessuna marcatura. Le rotte nuove non
+leggono l'header a mano.
+
+- `GET /api/v1/events` applica il perimetro di stagione per **identita**
+  (`season_id` della riga; senza annata = stagione piu vecchia): la stagione
+  dichiarata dall'header, oppure `season_id=<id>` esplicito, oppure nessuna
+  con `all_seasons=1`. `POST /api/v1/events` scrive la stagione dichiarata
+  su ogni evento nuovo; una `PATCH` non la sposta.
+- `POST /api/v1/training-automation` genera nella stagione dichiarata e
+  risponde con `diagnostics` (`totalRules`, `validRules`, `invalidRules`,
+  `rulesWithoutOccurrence`, `outsideSeasonCount`, `reasons[]`) e
+  `reason: "no_valid_rules"` quando le voci ci sono ma nessuna e generabile.
+- `PATCH /api/v1/clubs/:id` con una colonna JSON di stagione **intera**
+  conserva i record delle altre stagioni che il chiamante non ha rimandato
+  (ADR-0197 §5).
+- `POST /api/v1/sport-work/obligations/:id/complete` marca il versamento
+  con la stagione dichiarata (D-RD-29).

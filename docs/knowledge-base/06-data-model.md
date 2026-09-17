@@ -1280,6 +1280,15 @@ La migrazione e additiva, e **le righe esistenti restano non classificate**. E
 corretto che sia cosi: inventare una causale per un movimento che nessuno ha
 classificato vorrebbe dire scrivere una scelta contabile al posto del club.
 
+### La stagione delle righe storiche (2026-09-17, ADR-0197 §11)
+
+`20260917120000_adr0197_stagione_dei_movimenti_storici` ricrea la vista
+identica salvo la sesta colonna delle due gambe storiche
+(`legacy-transaction`, `legacy-transfer`): `NULLIF(btrim(value->>'seasonId'), '')`
+al posto di `NULL::text`. Una riga del blob che porta `seasonId` (WP-32) esce
+con la sua stagione e la prima nota la filtra per identita; una riga senza
+resta senza e vale la regola dei record senza annata (D-RD-30, chiuso).
+
 ### Cosa e cambiato dentro `accounting_ledger_lines`
 
 Un `CREATE OR REPLACE VIEW` conserva nome, colonne, tipi e ordine: cambiano le

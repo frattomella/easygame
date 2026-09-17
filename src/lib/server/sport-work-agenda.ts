@@ -927,6 +927,15 @@ type VersamentoRichiesto =
       paidAt?: unknown;
       paymentMethod?: unknown;
       reference?: unknown;
+      /**
+       * **La stagione del versamento** (D-RD-29, ADR-0197 §24): quella che
+       * il browser mostra, letta dall'header dalla rotta. Senza, la riga di
+       * prima nota nasceva senza stagione e si attribuiva per data — cioe a
+       * due stagioni, quando si sovrappongono. Passa a
+       * `createAccountingEntry` come contesto, con le sue regole: vale solo
+       * se il club la ha, e senza stagioni salvate non si marca.
+       */
+      activeSeasonId?: unknown;
     }
   | undefined;
 
@@ -1034,6 +1043,7 @@ const registraVersamento = async (
         counterpartyKind: "ENTITY",
         counterpartyLabel: "Erario / Enti previdenziali",
         notes: asText(payment?.reference) || null,
+        activeSeasonId: payment?.activeSeasonId ?? null,
       },
       {
         userId: scope?.userId,

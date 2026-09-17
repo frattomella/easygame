@@ -43,6 +43,9 @@ export const AUDIT_ACTIONS = {
   seasonActivated: "season.activated",
   seasonArchived: "season.archived",
   seasonRollover: "season.rollover",
+  /* La richiesta e l'esito sono due righe (ADR-0197 §36): la prima resta anche quando la seconda non arriva. */
+  seasonDeleteRequested: "season.delete.requested",
+  seasonDeleted: "season.deleted",
   formSubmissionApproved: "form.submission.approved",
   formSubmissionRejected: "form.submission.rejected",
   /* Le pratiche di iscrizione (ADR-0189): ogni transizione e un fatto. */
@@ -159,6 +162,14 @@ export const AUDIT_ACTIONS = {
   paymentProviderConfigured: "admin.payment_provider.updated",
   /** Anagrafiche di persona: chi ha cambiato i dati di chi (ADR-0019). */
   anagraficaUpdated: "anagrafica.updated",
+  /*
+    **Cancellare non e modificare** (D-RD-27, ADR-0197 §37). Il `DELETE` di
+    una scheda dal registro generico usciva come `anagrafica.updated` con
+    metadata vuoto: trecento schede cancellate in blocco erano indistinguibili
+    da trecento modifiche. Un'azione propria, con l'etichetta di chi e stato
+    cancellato.
+  */
+  anagraficaDeleted: "anagrafica.deleted",
   /*
     Il giro automatico dei promemoria sui certificati medici. Non ha un attore:
     la registra il cron. Serve a rispondere a «il promemoria e partito?» quando
@@ -795,6 +806,24 @@ export const AUDIT_VISIBLE_METADATA_KEYS: readonly string[] = [
   "created",
   "skipped",
   "sourceSeasonId",
+  /*
+    L eliminazione di una stagione (ADR-0197 §36): cosa e stato tolto, cosa
+    staccato, e la conferma. Conteggi e un etichetta di stagione, nessuna
+    persona. `reason` e il motivo di un rifiuto, gia pubblico.
+  */
+  "removed",
+  "detachedTrainerAssignments",
+  "impact",
+  "confirmation",
+  "startDate",
+  "endDate",
+  /*
+    L'etichetta di cio che l'azione ha toccato: una stagione («2026/27») o,
+    su `anagrafica.deleted`, il nome della scheda cancellata — che e l'unico
+    modo di ricostruire chi e sparito da un archivio che non lo contiene piu
+    (D-RD-27). Nessun altro dato della persona.
+  */
+  "label",
   "targetSeasonId",
   "batchId",
   "sourceRowNumber",

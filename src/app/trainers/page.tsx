@@ -56,7 +56,12 @@ import {
   type ClubSite,
 } from "@/lib/club-sites";
 import { buildCategoryDisplayIndex } from "@/lib/categories/display";
-import { getTrainerCategoryIds, getTrainerGroupIds } from "@/lib/trainer-utils";
+import { getTrainerGroupIds } from "@/lib/trainer-utils";
+import { normalizeClubSeasons, type ClubSeason } from "@/lib/club-seasons";
+import {
+  mergeTrainerAssignmentsForSeason,
+  splitTrainerAssignmentsBySeason,
+} from "@/lib/trainers/season-assignments";
 import { supabase } from "@/lib/supabase";
 import { apiRequest } from "@/lib/api/client";
 import { deleteClubTrainer, getClubTrainers } from "@/lib/simplified-db";
@@ -98,7 +103,12 @@ type TrainerRow = Trainer & {
   access: TrainerAccessMeta;
   accessFilter: TrainerAccessFilter;
   startDate: string;
+  /** Le squadre **della stagione scelta** (ADR-0197): mai quelle dell'anno scorso come attuali. */
   assignmentLabels: string[];
+  /** Le categorie attuali, per il filtro. */
+  currentCategoryIds: string[];
+  /** Lo storico: «2025/26: U15 Gold», per stagione. */
+  historyLabels: string[];
   siteIds: string[];
 };
 
@@ -143,6 +153,26 @@ export default function TrainersPage() {
   const [categoryGroups, setCategoryGroups] = React.useState<CategoryGroup[]>(
     [],
   );
+  /**
+   * Le stagioni del club, per spaccare le assegnazioni (ADR-0197 §18): il
+   * catalogo letto qui sopra e di **tutte** le stagioni, e senza questo
+   * elenco la «Under 14 Gold» dell'anno scorso si mostrava come squadra di
+   * quest'anno. La stagione scelta e quella che il browser mostra.
+   */
+  const [seasonState, setSeasonState] = React.useState<{
+    seasons: ClubSeason[];
+    activeSeasonId: string | null;
+    legacySeasonId: string | null;
+  }>({ seasons: [], activeSeasonId: null, legacySeasonId: null });
+  const selectedSeasonId = React.useMemo(() => {
+    if (!seasonState.seasons.length) return null;
+    const dichiarata = String(activeClub?.activeSeasonId || "").trim();
+    return seasonState.seasons.some((season) => season.id === dichiarata)
+      ? dichiarata
+      : seasonState.activeSeasonId;
+  }, [activeClub?.activeSeasonId, seasonState]);
+  const selectedSeasonLabel =
+    seasonState.seasons.find((season) => season.id === selectedSeasonId)?.label || null;
   const [bulkBusy, setBulkBusy] = React.useState(false);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
 
@@ -195,7 +225,7 @@ export default function TrainersPage() {
         supabase
           .from("clubs")
           .select(
-            "categories, club_sites, category_groups, trainers, staff_members",
+            "categories, club_sites, category_groups, trainers, staff_members, settings",
           )
           .eq("id", clubId)
           .maybeSingle(),
@@ -213,6 +243,16 @@ export default function TrainersPage() {
         ? clubData.categories
         : [];
       setCategories(clubCategories);
+      const stagioni = normalizeClubSeasons(clubData?.settings || {});
+      setSeasonState(
+        stagioni.isFallback
+          ? { seasons: [], activeSeasonId: null, legacySeasonId: null }
+          : {
+              seasons: stagioni.seasons,
+              activeSeasonId: stagioni.activeSeasonId,
+              legacySeasonId: stagioni.legacySeasonId,
+            },
+      );
       const clubSites = normalizeClubSites(clubData?.club_sites);
       setSites(clubSites);
       setCategoryGroups(
@@ -285,22 +325,38 @@ export default function TrainersPage() {
     () => labelCategoryGroupOptions(categoryGroups),
     [categoryGroups],
   );
-  const trainerAssignmentLabels = React.useCallback(
-    (trainer: Trainer): string[] => {
-      const groupLabels = getTrainerGroupIds(trainer as any)
+  /**
+   * Le assegnazioni dell'allenatore spaccate per stagione, dal record grezzo:
+   * la vista normalizzata (`getClubTrainers`) risolve i nomi sul catalogo
+   * della sola stagione attiva e per gli identificativi dell'anno scorso
+   * restituisce l'id come nome — che l'indice delle etichette poi traduce
+   * nel nome dell'anno scorso. Si riparte dal grezzo.
+   */
+  const splitAssignments = React.useCallback(
+    (trainer: Trainer) => {
+      const raw = rawRecords.get(String(trainer.id)) || trainer;
+      return splitTrainerAssignmentsBySeason({
+        trainer: raw,
+        categories,
+        groups: categoryGroups.map((group) => ({ id: group.id, categoryId: group.categoryId })),
+        seasons: seasonState.seasons,
+        seasonId: selectedSeasonId,
+        legacySeasonId: seasonState.legacySeasonId,
+      });
+    },
+    [categories, categoryGroups, rawRecords, seasonState, selectedSeasonId],
+  );
+  const labelsOf = React.useCallback(
+    (entry: { categoryIds: string[]; groupIds: string[] }): string[] => {
+      const groupLabels = entry.groupIds
         .map((groupId) => categoryGroups.find((group) => String(group.id) === String(groupId)))
         .filter((group): group is CategoryGroup => Boolean(group))
         .map((group) => etichettaGruppo(group));
       if (groupLabels.length) return groupLabels;
-      return (Array.isArray(trainer.categories) ? trainer.categories : [])
-        .filter((category) => category?.id || category?.name)
-        .map((category) =>
-          categoryDisplay.label({ categoryId: String(category?.id || ""), categoryName: String(category?.name || "") }),
-        );
+      return entry.categoryIds.map((categoryId) => categoryDisplay.label(categoryId));
     },
     [categoryDisplay, categoryGroups, etichettaGruppo],
   );
-
   const rows = React.useMemo<TrainerRow[]>(() => {
     const groupById = new Map(
       categoryGroups.map((group) => [String(group.id), group]),
@@ -308,17 +364,14 @@ export default function TrainersPage() {
     return sortPeopleByLastName(trainers).map((trainer) => {
       const raw = rawRecords.get(String(trainer.id)) || {};
       const access = resolveTrainerAccess(raw);
-      const declaredGroups = getTrainerGroupIds(trainer as any);
+      const split = splitAssignments(trainer);
+      const declaredGroups = split.current.groupIds;
       const siteIds = declaredGroups.length
         ? declaredGroups
             .map((groupId) => groupById.get(groupId)?.siteId)
             .filter((siteId): siteId is string => Boolean(siteId))
         : categoryGroups
-            .filter((group) =>
-              trainer.categories.some(
-                (category) => category.id === group.categoryId,
-              ),
-            )
+            .filter((group) => split.current.categoryIds.includes(group.categoryId))
             .map((group) => group.siteId)
             .filter(Boolean);
       return {
@@ -326,11 +379,15 @@ export default function TrainersPage() {
         access,
         accessFilter: trainerAccessFilterOf(access),
         startDate: String(raw.startDate || raw.hireDate || raw.hire_date || ""),
-        assignmentLabels: trainerAssignmentLabels(trainer),
+        assignmentLabels: labelsOf(split.current),
+        currentCategoryIds: split.current.categoryIds,
+        historyLabels: split.history.map(
+          (entry) => `${entry.seasonLabel}: ${labelsOf(entry).join(", ")}`,
+        ),
         siteIds: Array.from(new Set(siteIds)),
       };
     });
-  }, [categoryGroups, rawRecords, trainerAssignmentLabels, trainers]);
+  }, [categoryGroups, labelsOf, rawRecords, splitAssignments, trainers]);
 
   const counts = React.useMemo(
     () => ({
@@ -356,9 +413,25 @@ export default function TrainersPage() {
     [categoryGroups],
   );
   const assignByGroup = assignableGroups.length > 0;
+  /** Le categorie della stagione scelta: cio che si puo assegnare e filtrare (ADR-0197 §20). */
+  const seasonCategories = React.useMemo(() => {
+    if (!selectedSeasonId) return categories;
+    const known = new Set(seasonState.seasons.map((season) => season.id));
+    return categories.filter((category: any) => {
+      const own = String(category?.seasonId || "").trim();
+      const season = own && known.has(own) ? own : seasonState.legacySeasonId;
+      return season === selectedSeasonId;
+    });
+  }, [categories, seasonState, selectedSeasonId]);
+  const seasonCategoryIds = React.useMemo(
+    () => new Set(seasonCategories.map((category) => String(category.id))),
+    [seasonCategories],
+  );
   const assignTargets: AssignTarget[] = assignByGroup
-    ? assignableGroups.map((group) => ({ id: group.id, name: group.name }))
-    : categories;
+    ? assignableGroups
+        .filter((group) => seasonCategoryIds.has(String(group.categoryId)))
+        .map((group) => ({ id: group.id, name: group.name }))
+    : seasonCategories;
 
   /* ── Scritture ───────────────────────────────────────────────────────── */
   /**
@@ -447,16 +520,28 @@ export default function TrainersPage() {
       );
       return;
     }
+    /*
+      Si scrive nella stagione scelta e lo storico delle altre resta intatto
+      (ADR-0197): la fusione tiene le categorie delle altre stagioni e
+      aggiunge la scelta a quelle di questa.
+    */
     await applyToRows(
       targets,
-      (trainer) => ({
-        categories: Array.from(
-          new Set([
-            ...getTrainerCategoryIds(trainer.categories, categories),
-            target.id,
-          ]),
-        ),
-      }),
+      (trainer) => {
+        const split = splitAssignments(trainer);
+        return {
+          categories: mergeTrainerAssignmentsForSeason({
+            trainer: rawRecords.get(String(trainer.id)) || trainer,
+            categories,
+            groups: categoryGroups.map((group) => ({ id: group.id, categoryId: group.categoryId })),
+            seasons: seasonState.seasons,
+            seasonId: selectedSeasonId,
+            legacySeasonId: seasonState.legacySeasonId,
+            categoryIds: [...split.current.categoryIds, target.id],
+            groupIds: split.current.groupIds,
+          }).categories,
+        };
+      },
       (count) => `${count} allenatori assegnati a ${target.name}`,
     );
   };
@@ -584,20 +669,37 @@ export default function TrainersPage() {
       },
       {
         id: "categories",
-        header: "Categorie",
+        header: selectedSeasonLabel ? `Categorie ${selectedSeasonLabel}` : "Categorie",
         kind: "chips",
         width: 1.4,
         minWidth: 160,
-        cell: (row) => (
-          <CellChips
-            items={row.assignmentLabels.map((label) => ({
-              label,
-              tone: "blue",
-            }))}
-          />
-        ),
+        cell: (row) =>
+          row.assignmentLabels.length ? (
+            <CellChips
+              items={row.assignmentLabels.map((label) => ({
+                label,
+                tone: "blue",
+              }))}
+            />
+          ) : (
+            /* Nessuna squadra in questa stagione: si dice, e lo storico resta storico (ADR-0197 §18). */
+            <span className="text-xs text-egw-ink-56" title={row.historyLabels.join(" · ") || undefined}>
+              {selectedSeasonLabel
+                ? `Nessuna categoria assegnata nella stagione ${selectedSeasonLabel}`
+                : "Nessuna categoria assegnata"}
+              {row.historyLabels.length ? (
+                <span className="block text-egw-ink-40">
+                  Stagione precedente: {row.historyLabels.join(" · ")}
+                </span>
+              ) : null}
+            </span>
+          ),
         sortValue: (row) => row.assignmentLabels.join(", "),
-        title: (row) => row.assignmentLabels.join(", ") || undefined,
+        exportValue: (row) => row.assignmentLabels.join(", "),
+        title: (row) =>
+          [row.assignmentLabels.join(", "), row.historyLabels.length ? `Storico — ${row.historyLabels.join(" · ")}` : ""]
+            .filter(Boolean)
+            .join(" · ") || undefined,
       },
       {
         id: "status",
@@ -655,7 +757,7 @@ export default function TrainersPage() {
         exportValue: (row) => formatDateShort(row.startDate),
       },
     ],
-    [clubId, router],
+    [clubId, router, selectedSeasonLabel],
   );
 
   /* ── Viste e filtri ──────────────────────────────────────────────────── */
@@ -697,7 +799,7 @@ export default function TrainersPage() {
         label: "Categoria",
         type: "multi",
         pinned: true,
-        options: categories.map((category) => ({
+        options: seasonCategories.map((category) => ({
           value: category.id,
           label: categoryDisplay.label(category.id),
         })),
@@ -708,9 +810,7 @@ export default function TrainersPage() {
               ? [String(value)]
               : [];
           if (!wanted.length) return true;
-          return row.categories.some((category) =>
-            wanted.includes(category.id),
-          );
+          return row.currentCategoryIds.some((categoryId) => wanted.includes(categoryId));
         },
       },
     ];
@@ -752,7 +852,7 @@ export default function TrainersPage() {
       },
     });
     return defs;
-  }, [categories, categoryDisplay, multiSite, sites]);
+  }, [categoryDisplay, multiSite, seasonCategories, sites]);
 
   /* ── Azioni di riga e di massa ───────────────────────────────────────── */
   const rowActions: RowActionDef<TrainerRow>[] = [

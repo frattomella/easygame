@@ -1884,6 +1884,22 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "seasons.deleteImpact",
+    method: "GET",
+    path: "/api/v1/seasons/:seasonId",
+    description:
+      "Cosa contiene una stagione e cosa ne blocca l'eliminazione (ADR-0197)",
+    mobile_ready: false,
+  },
+  {
+    name: "seasons.delete",
+    method: "DELETE",
+    path: "/api/v1/seasons/:seasonId",
+    description:
+      "Eliminazione definitiva di una stagione vuota; il corpo porta `confirmation` = «ELIMINA <nome>» (ADR-0197)",
+    mobile_ready: false,
+  },
+  {
     name: "seasons.rollover",
     method: "POST",
     path: "/api/v1/seasons/:seasonId/rollover",

@@ -150,7 +150,8 @@ test("l'elenco legge e scrive con le funzioni della V1", () => {
   assert.match(sources.list, /updateClubDataItem\(\s*clubId,\s*"trainers"/);
   assert.match(sources.list, /updateClubDataItem\(\s*clubId,\s*"staff_members"/, "ripiego sui membri staff con ruolo allenatore");
   assert.match(sources.list, /\/api\/v1\/trainer-accounts\//, "lo scollegamento passa dalla rotta dedicata (ADR-0110)");
-  assert.match(sources.list, /select\(\s*"categories, club_sites, category_groups, trainers, staff_members",?\s*\)/);
+  /* \`settings\` in piu dal lotto ADR-0197: le stagioni per spaccare le assegnazioni. */
+  assert.match(sources.list, /select\(\s*"categories, club_sites, category_groups, trainers, staff_members, settings",?\s*\)/);
   assert.equal(/fetch\(/.test(sources.list), false, "nessun fetch diretto");
 });
 
@@ -166,16 +167,19 @@ test("l'elenco e il pattern 1: intestazione con i contatori, un primario, il Dat
 });
 
 test("l'elenco ha le colonne della V1 piu l'accesso EasyGame, le viste per stato e i filtri", () => {
-  for (const header of ['header: "Allenatore"', 'header: "Email"', 'header: "Telefono"', 'header: "Categorie"', 'header: "Stato"', 'header: "Accesso EasyGame"', 'header: "Data inizio"']) {
+  for (const header of ['header: "Allenatore"', 'header: "Email"', 'header: "Telefono"', 'header: "Stato"', 'header: "Accesso EasyGame"', 'header: "Data inizio"']) {
     assert.ok(sources.list.includes(header), `manca la colonna ${header}`);
   }
+  /* La colonna delle categorie porta la stagione nell'intestazione (ADR-0197 §18). */
+  assert.ok(sources.list.includes("header: selectedSeasonLabel ? `Categorie ${selectedSeasonLabel}` : \"Categorie\""), "manca la colonna Categorie con la stagione");
   assert.match(sources.list, /id: "active",\s*label: "Attivi",\s*filters: \{ status: "active" \},\s*isDefault: true/, "la V1 partiva da «Attivi»");
   assert.match(sources.list, /id: "suspended",\s*label: "Sospesi"/);
   for (const filter of ['id: "status"', 'id: "category"', 'id: "site"', 'id: "access"']) {
     assert.ok(sources.list.includes(filter), `manca il filtro ${filter}`);
   }
   assert.match(sources.list, /search=\{\{/, "la ricerca in griglia sostituisce «Cerca allenatori…»");
-  assert.match(sources.list, /trainerAssignmentLabels/, "i gruppi vincono sulle categorie, come in V1");
+  assert.match(sources.list, /splitTrainerAssignmentsBySeason/, "le assegnazioni si spaccano per stagione (ADR-0197)");
+  assert.ok(sources.list.includes("if (groupLabels.length) return groupLabels;"), "i gruppi vincono sulle categorie, come in V1");
 });
 
 test("l'elenco ha le azioni di riga e di massa della V1, senza eliminazione di massa", () => {
@@ -249,7 +253,7 @@ test("il nuovo allenatore ha tutti i campi e le regole della V1", () => {
 /* ── `/trainers/[id]` ──────────────────────────────────────────────────── */
 
 test("la scheda legge e scrive come la V1", () => {
-  assert.match(sources.record, /select\("categories, trainers, staff_members, club_sites, category_groups"\)/);
+  assert.match(sources.record, /select\("categories, trainers, staff_members, club_sites, category_groups, settings"\)/);
   assert.match(sources.record, /staff\.role === "trainer" \|\| staff\.role === "allenatore"/);
   assert.match(sources.record, /updateClubDataItem\(clubId, "trainers", trainerId, updates\)/);
   assert.match(sources.record, /updateClubDataItem\(clubId, "staff_members", trainerId, updates\)/);

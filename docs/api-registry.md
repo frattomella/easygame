@@ -544,10 +544,20 @@ Configurazione di club: solo `owner` e `club_manager`
   configurazione. Con `athlete_memberships` fra i tipi `athleteIds` e
   **obbligatorio** (anche `[]` = nessuno): assente → 400 (ADR-0196)
 - `PATCH /api/v1/seasons/:seasonId` — `{ action: "activate" | "archive" }`
+- `GET /api/v1/seasons/:seasonId` — l'impatto dell'eliminazione: cosa la
+  stagione contiene con la classificazione (`cascade` / `block` / `detach`),
+  `blockers`, `canDelete`, `confirmationText` (ADR-0197 §9)
+- `DELETE /api/v1/seasons/:seasonId` — `{ confirmation }`, che deve essere
+  esattamente «ELIMINA <nome>»; permesso `seasons.delete`. La stagione attiva
+  e una stagione con storia si rifiutano (400) con il motivo; audit
+  `season.delete.requested` sempre e `season.deleted` sull'esito
 - `POST /api/v1/seasons/:seasonId/rollover` —
   `{ sourceSeasonId, types, athleteIds, preview }`; con `preview: true` non
   scrive nulla e restituisce lo stesso conteggio dell'esecuzione; stessa
-  regola su `athleteIds` della creazione (ADR-0196)
+  regola su `athleteIds` della creazione (ADR-0196). Il tipo
+  `trainer_assignments` (spento per scelta, richiede `categories`) porta le
+  assegnazioni degli allenatori per identificativo e risponde `trainers`
+  con `trainersUpdated`, `assignmentsCreated`, `unmapped` (ADR-0197 §7)
 
 ## Flusso auth applicativo
 

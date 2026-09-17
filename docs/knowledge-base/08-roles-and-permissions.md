@@ -859,6 +859,12 @@ la contabilita intera: sarebbe una regressione muta.
 > e stato adeguato** (ADR-0153): il quarto chiamante di `narrowDomainPermission`
 > esiste. Il quinto e `src/lib/funding/permissions.ts` (ADR-0159).
 
+`seasons.delete` (ADR-0197 §9): eliminare definitivamente una stagione
+**vuota**. Stessa matrice di base di `seasons.change` (`DIREZIONE`), ma una
+chiave a se: un ruolo personalizzato puo perderla senza perdere la gestione
+delle stagioni. La stagione attiva e una stagione con storia non si eliminano
+comunque, per nessun ruolo.
+
 ### `funding.manage`: la scrittura sui contributi, e i ruoli personalizzati
 
 Le rotte dei bandi chiedevano `canManageClubConfigurationAsActor`, che e

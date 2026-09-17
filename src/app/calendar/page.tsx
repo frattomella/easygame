@@ -174,7 +174,9 @@ export default function CalendarPage() {
     return () => {
       annullato = true;
     };
-  }, [activeClub?.id, tipo, intervallo.da, intervallo.a, showToast]);
+    /* La stagione mostrata e una dipendenza: A → B → A senza F5 ricarica (ADR-0197 §26). */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeClub?.id, activeClub?.activeSeasonId, tipo, intervallo.da, intervallo.a, showToast]);
 
   const visibili = useMemo(() => filtraEventi(eventi, { sede, categoria, gruppo }), [eventi, sede, categoria, gruppo]);
   const perGiorno = useMemo(() => raggruppaPerGiorno(visibili), [visibili]);
@@ -188,9 +190,16 @@ export default function CalendarPage() {
   );
 
   const gare = visibili.filter(isGara).length;
+  /* La stagione che il calendario mostra (ADR-0197 §13): solo quella, mai le altre mescolate. */
+  const stagione = activeClub?.activeSeasonLabel ? `Stagione ${activeClub.activeSeasonLabel}` : null;
   const descrizione = caricamento
     ? "Caricamento del calendario…"
-    : `${formatInteger(visibili.length)} ${visibili.length === 1 ? "evento" : "eventi"} · ${formatInteger(gare)} ${gare === 1 ? "gara" : "gare"} · ${formatInteger(visibili.length - gare)} ${visibili.length - gare === 1 ? "allenamento" : "allenamenti"}`;
+    : [
+        stagione,
+        `${formatInteger(visibili.length)} ${visibili.length === 1 ? "evento" : "eventi"} · ${formatInteger(gare)} ${gare === 1 ? "gara" : "gare"} · ${formatInteger(visibili.length - gare)} ${visibili.length - gare === 1 ? "allenamento" : "allenamenti"}`,
+      ]
+        .filter(Boolean)
+        .join(" · ");
 
   const filtriAttivi = Boolean(sede || categoria || gruppo || tipo !== "all");
 

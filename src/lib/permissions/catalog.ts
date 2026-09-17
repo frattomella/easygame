@@ -568,6 +568,13 @@ const ENTRIES: readonly PermissionEntry[] = [
     label: "Creare, attivare e archiviare una stagione sportiva",
     roles: DIREZIONE,
   },
+  {
+    /* Eliminare e irreversibile: una casella a se, che un ruolo puo perdere da sola (ADR-0197 §30). */
+    key: "seasons.delete",
+    domain: "seasons",
+    label: "Eliminare definitivamente una stagione vuota",
+    roles: DIREZIONE,
+  },
 
   /* ------------------------------------------- dati personali di una persona --- */
   /*

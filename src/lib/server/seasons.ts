@@ -16,6 +16,7 @@ import {
   planSeasonRollover,
   sortSeasonsByRecency,
   ATHLETE_MEMBERSHIP_ROLLOVER_TYPE,
+  TRAINER_ASSIGNMENT_ROLLOVER_TYPE,
   SEASON_ROLLOVER_TYPES,
   type ClubSeason,
   type SeasonInput,
@@ -29,6 +30,7 @@ import {
   type SeasonMembershipRolloverSummary,
   type SeasonRoster,
 } from "./season-memberships";
+import { splitTrainerAssignmentsBySeason } from "@/lib/trainers/season-assignments";
 
 /**
  * Gestione delle stagioni sportive di un club (Blocco 6).
@@ -105,6 +107,34 @@ const saveClubSeasons = async (
   return normalizeClubSeasons(nextSettings);
 };
 
+/**
+ * Toglie una stagione dalle impostazioni, senza toccare la stagione attiva
+ * (ADR-0197 §33): chi elimina l attiva riceve un rifiuto a monte, e qui non
+ * si sceglie mai un attiva al posto suo. Le difese sul contenuto stanno in
+ * `season-delete.ts`; questa funzione e l unica scrittura di
+ * `settings.seasons` per una rimozione, come vuole CLAUDE.md §2.
+ */
+export const removeClubSeason = async (
+  organizationId: string,
+  seasonId: string,
+): Promise<ClubSeasonState> => {
+  const state = await readClubSeasonState(organizationId);
+  const season = findSeason(state, seasonId);
+  if (!season) {
+    throw new Error("Stagione non trovata");
+  }
+  if (season.id === state.activeSeasonId) {
+    throw new Error(
+      "Prima di eliminare questa stagione, imposta un altra stagione come attiva",
+    );
+  }
+  return saveClubSeasons(
+    organizationId,
+    state.seasons.filter((entry) => entry.id !== season.id),
+    state.activeSeasonId,
+  );
+};
+
 const findSeason = (state: ClubSeasonState, seasonId: string) =>
   state.seasons.find((season) => season.id === String(seasonId || "").trim()) ||
   null;
@@ -128,10 +158,27 @@ export type SeasonRolloverRequest = {
  * `idMap` resta dentro il server: e la mappa fra id di categorie e serve a
  * portare i tesserati, non a chi legge il riepilogo.
  */
+export type SeasonTrainerRolloverSummary = {
+  /** Se il tipo era fra quelli chiesti. */
+  requested: boolean;
+  /** Allenatori con almeno un'assegnazione nella stagione di origine. */
+  trainersWithAssignments: number;
+  /** Allenatori a cui e stata aggiunta almeno un'assegnazione nuova. */
+  trainersUpdated: number;
+  /** Assegnazioni (categorie + gruppi) scritte nella stagione di destinazione. */
+  assignmentsCreated: number;
+  /** Assegnazioni gia presenti in destinazione. */
+  assignmentsExisting: number;
+  /** Riferimenti di origine senza corrispondenza in destinazione: si dicono, non si indovinano. */
+  unmapped: Array<{ trainerId: string; trainerName: string; reference: string }>;
+};
+
 export type SeasonRolloverResult = Omit<SeasonRolloverPlan, "idMap"> & {
   applied: boolean;
   sourceSeasonLabel: string;
   targetSeasonLabel: string;
+  /** Le assegnazioni degli allenatori, sempre dichiarate (ADR-0197 §19). */
+  trainers: SeasonTrainerRolloverSummary;
   /**
    * I tesserati, **sempre** dichiarati. Anche quando non se ne porta nessuno:
    * il difetto che la Wave 1 chiude non e solo che non venivano riportati, e
@@ -197,6 +244,138 @@ const readCategoryNames = (
     }
   }
   return names;
+};
+
+const trainerDisplayName = (trainer: any) =>
+  String(
+    trainer?.name ||
+      [trainer?.firstName || trainer?.first_name, trainer?.lastName || trainer?.last_name]
+        .filter(Boolean)
+        .join(" ") ||
+      trainer?.id ||
+      "",
+  ).trim();
+
+/**
+ * **Il riporto delle assegnazioni degli allenatori** (ADR-0197 §19).
+ *
+ * Per ogni allenatore si prendono le categorie e i gruppi **della stagione
+ * di origine** (spaccatura per stagione, la stessa che usa la pagina) e si
+ * cercano nella mappa del riporto: un'origine che ha una destinazione si
+ * aggiunge all'elenco, una che non ce l'ha si dichiara in `unmapped`. Le
+ * assegnazioni delle altre stagioni restano com'erano: storico.
+ *
+ * Nessun nome: la mappa e per identificativo, e viene dal piano che ha
+ * clonato le categorie — o le ha ritrovate, a un secondo riporto.
+ */
+const runTrainerAssignmentRollover = async (options: {
+  organizationId: string;
+  sourceSeasonId: string;
+  targetSeasonId: string;
+  idMap: Record<string, string>;
+  categoryCollection: any[];
+  groupCollection: any[];
+  seasons: ClubSeason[];
+  legacySeasonId: string | null;
+  requested: boolean;
+  preview: boolean;
+}): Promise<SeasonTrainerRolloverSummary> => {
+  const summary: SeasonTrainerRolloverSummary = {
+    requested: options.requested,
+    trainersWithAssignments: 0,
+    trainersUpdated: 0,
+    assignmentsCreated: 0,
+    assignmentsExisting: 0,
+    unmapped: [],
+  };
+
+  const trainers = await readClubResourceCollection(options.organizationId, "trainers");
+  const groups = options.groupCollection.map((group: any) => ({
+    id: String(group?.id || "").trim(),
+    categoryId: String(group?.categoryId || group?.category_id || "").trim(),
+    seasonId: group?.seasonId ?? null,
+  }));
+  const next: any[] = [];
+  let changed = false;
+
+  for (const trainer of trainers) {
+    const daOrigine = splitTrainerAssignmentsBySeason({
+      trainer,
+      categories: options.categoryCollection,
+      groups,
+      seasons: options.seasons,
+      seasonId: options.sourceSeasonId,
+      legacySeasonId: options.legacySeasonId,
+    }).current;
+    const haAssegnazioni = daOrigine.categoryIds.length + daOrigine.groupIds.length > 0;
+    if (haAssegnazioni) summary.trainersWithAssignments += 1;
+
+    if (!options.requested || !haAssegnazioni) {
+      next.push(trainer);
+      continue;
+    }
+
+    const categorieAttuali = new Set(
+      (Array.isArray(trainer?.categories) ? trainer.categories : []).map((entry: any) =>
+        String(typeof entry === "string" ? entry : entry?.id || "").trim(),
+      ),
+    );
+    const gruppiAttuali = new Set(
+      (Array.isArray(trainer?.groupIds) ? trainer.groupIds : []).map((id: any) => String(id || "").trim()),
+    );
+    const nuoveCategorie: string[] = [];
+    const nuoviGruppi: string[] = [];
+
+    for (const sourceId of daOrigine.categoryIds) {
+      const targetId = options.idMap[sourceId];
+      if (!targetId) {
+        summary.unmapped.push({ trainerId: String(trainer.id), trainerName: trainerDisplayName(trainer), reference: sourceId });
+        continue;
+      }
+      if (categorieAttuali.has(targetId)) {
+        summary.assignmentsExisting += 1;
+        continue;
+      }
+      categorieAttuali.add(targetId);
+      nuoveCategorie.push(targetId);
+    }
+    for (const sourceId of daOrigine.groupIds) {
+      const targetId = options.idMap[sourceId];
+      if (!targetId) {
+        summary.unmapped.push({ trainerId: String(trainer.id), trainerName: trainerDisplayName(trainer), reference: sourceId });
+        continue;
+      }
+      if (gruppiAttuali.has(targetId)) {
+        summary.assignmentsExisting += 1;
+        continue;
+      }
+      gruppiAttuali.add(targetId);
+      nuoviGruppi.push(targetId);
+    }
+
+    if (!nuoveCategorie.length && !nuoviGruppi.length) {
+      next.push(trainer);
+      continue;
+    }
+
+    summary.trainersUpdated += 1;
+    summary.assignmentsCreated += nuoveCategorie.length + nuoviGruppi.length;
+    changed = true;
+    const categorie = Array.isArray(trainer?.categories) ? trainer.categories : [];
+    next.push({
+      ...trainer,
+      categories: [...categorie, ...nuoveCategorie],
+      ...(nuoviGruppi.length
+        ? { groupIds: [...(Array.isArray(trainer?.groupIds) ? trainer.groupIds : []), ...nuoviGruppi] }
+        : {}),
+    });
+  }
+
+  if (changed && !options.preview) {
+    await replaceClubResourceCollection(options.organizationId, "trainers", next);
+  }
+
+  return summary;
 };
 
 /**
@@ -307,6 +486,29 @@ export const runClubSeasonRollover = async (options: {
     preview,
   });
 
+  /*
+    Gli allenatori si contano sempre e si portano solo se chiesto: la mappa
+    e quella del piano (categorie e gruppi), che a un secondo riporto ritrova
+    le destinazioni gia create.
+  */
+  const carriesTrainers = types.includes(TRAINER_ASSIGNMENT_ROLLOVER_TYPE);
+  const groupCollection =
+    plan.collections.category_groups ||
+    collections.category_groups ||
+    (await readClubResourceCollection(organizationId, "category_groups"));
+  const trainers = await runTrainerAssignmentRollover({
+    organizationId,
+    sourceSeasonId: source.id,
+    targetSeasonId: target.id,
+    idMap: plan.idMap,
+    categoryCollection,
+    groupCollection,
+    seasons: state.seasons,
+    legacySeasonId: state.legacySeasonId,
+    requested: carriesTrainers,
+    preview,
+  });
+
   const { idMap: _idMap, ...publicPlan } = plan;
 
   return {
@@ -330,15 +532,29 @@ export const runClubSeasonRollover = async (options: {
         created: athletes.created,
         skipped: Math.max(0, athletes.sourceMemberships - athletes.created),
       },
+      ...(carriesTrainers
+        ? [
+            {
+              type: TRAINER_ASSIGNMENT_ROLLOVER_TYPE,
+              label: getSeasonRolloverTypeLabel(TRAINER_ASSIGNMENT_ROLLOVER_TYPE),
+              available: trainers.trainersWithAssignments,
+              created: trainers.trainersUpdated,
+              skipped: Math.max(0, trainers.trainersWithAssignments - trainers.trainersUpdated),
+            },
+          ]
+        : []),
     ],
-    createdTotal: publicPlan.createdTotal + athletes.created,
+    createdTotal:
+      publicPlan.createdTotal + athletes.created + (carriesTrainers ? trainers.trainersUpdated : 0),
     skippedTotal:
       publicPlan.skippedTotal +
-      Math.max(0, athletes.sourceMemberships - athletes.created),
+      Math.max(0, athletes.sourceMemberships - athletes.created) +
+      (carriesTrainers ? Math.max(0, trainers.trainersWithAssignments - trainers.trainersUpdated) : 0),
     applied: !preview,
     sourceSeasonLabel: source.label,
     targetSeasonLabel: target.label,
     athletes,
+    trainers,
   };
 };
 
@@ -646,6 +862,27 @@ export const summarizeSeasonContents = async (organizationId: string) => {
   for (const season of state.seasons) {
     counts[season.id][ATHLETE_MEMBERSHIP_ROLLOVER_TYPE] =
       membershipCounts.bySeason[season.id] || 0;
+  }
+
+  /* Quanti allenatori hanno una squadra in ogni stagione (ADR-0197 §19). */
+  const trainerCollection = await readClubResourceCollection(organizationId, "trainers");
+  const groupCollection = await readClubResourceCollection(organizationId, "category_groups");
+  for (const season of state.seasons) {
+    counts[season.id][TRAINER_ASSIGNMENT_ROLLOVER_TYPE] = trainerCollection.filter((trainer: any) => {
+      const current = splitTrainerAssignmentsBySeason({
+        trainer,
+        categories: categoryCollection,
+        groups: groupCollection.map((group: any) => ({
+          id: String(group?.id || ""),
+          categoryId: String(group?.categoryId || group?.category_id || ""),
+          seasonId: group?.seasonId ?? null,
+        })),
+        seasons: state.seasons,
+        seasonId: season.id,
+        legacySeasonId: state.legacySeasonId,
+      }).current;
+      return current.categoryIds.length + current.groupIds.length > 0;
+    }).length;
   }
 
   const activeCategoryIds = readCategoryIds(

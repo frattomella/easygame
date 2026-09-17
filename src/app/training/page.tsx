@@ -818,7 +818,9 @@ const versioneSalvata = (risposta: any): number | null => {
       setLoading(false);
     }
     return risultato;
-  }, [activeClub?.id, showToast]);
+    /* La stagione mostrata e una dipendenza: A → B → A senza F5 ricarica (ADR-0197 §26). */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeClub?.id, activeClub?.activeSeasonId, showToast]);
 
   // Load data from database
   useEffect(() => {
@@ -1858,9 +1860,16 @@ const versioneSalvata = (risposta: any): number | null => {
       ? `Allenamenti · ${formatDayTitle(selectedDate)}`
       : `Allenamenti · ${formatWeekTitle(selectedDate)}`;
   const sedute = visibleTrainings.length;
+  /* La stagione mostrata (ADR-0197 §9, §15): sedute e programma settimanale sono i suoi. */
+  const stagioneMostrata = activeClub?.activeSeasonLabel ? `Stagione ${activeClub.activeSeasonLabel}` : null;
   const pageDescription = loading
     ? "Caricamento delle sedute…"
-    : `${formatInteger(sedute)} ${sedute === 1 ? "seduta" : "sedute"}${view === "week" ? " nella settimana" : ""} · ${formatInteger(senzaPresenze)} senza presenze registrate`;
+    : [
+        stagioneMostrata,
+        `${formatInteger(sedute)} ${sedute === 1 ? "seduta" : "sedute"}${view === "week" ? " nella settimana" : ""} · ${formatInteger(senzaPresenze)} senza presenze registrate`,
+      ]
+        .filter(Boolean)
+        .join(" · ");
 
   return (
     <div className="flex h-[100dvh] bg-egw-page">
@@ -2033,8 +2042,8 @@ const versioneSalvata = (risposta: any): number | null => {
               <CollapsedSection
                 id="programma-settimanale"
                 recordType={TRAINING_GRID_MODULE}
-                title="Programma settimanale"
-                summary="Le regole ricorrenti della settimana e la generazione automatica delle sedute."
+                title={stagioneMostrata ? `Programma settimanale · ${stagioneMostrata}` : "Programma settimanale"}
+                summary={`Le regole ricorrenti della settimana e la generazione automatica delle sedute${activeClub?.activeSeasonLabel ? ` della stagione ${activeClub.activeSeasonLabel}` : ""}.`}
                 count={weeklySchedule.length}
               >
                 <WeeklyTrainingSchedule

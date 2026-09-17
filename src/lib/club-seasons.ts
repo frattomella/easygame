@@ -538,7 +538,28 @@ export const SEASON_ROLLOVER_TYPES: SeasonRolloverTypeDescriptor[] = [
     storage: "model",
     requires: ["categories"],
   },
+  {
+    /*
+      **L'allenatore e del club, la sua squadra e della stagione** (ADR-0197
+      §19). L'assegnazione vive in `clubs.trainers` — un dato globale — come
+      elenco di identificativi di categorie e gruppi, che sono di una
+      stagione. Riportarla vuol dire aggiungere all'allenatore le categorie
+      **nuove** che corrispondono alle sue, con la mappa del riporto: mai un
+      identificativo vecchio scritto come nuovo, mai un nome. Spenta per
+      scelta: chi allena cosa e una decisione di ogni stagione.
+    */
+    key: "trainer_assignments",
+    label: "Assegnazioni allenatori",
+    description:
+      "Chi allena quali squadre, sulle categorie e i gruppi riportati",
+    defaultSelected: false,
+    storage: "model",
+    requires: ["categories"],
+  },
 ];
+
+/** Il tipo che porta le assegnazioni degli allenatori: sta in `clubs.trainers`, non in una collezione di stagione. */
+export const TRAINER_ASSIGNMENT_ROLLOVER_TYPE = "trainer_assignments";
 
 const ROLLOVER_TYPE_KEYS = new Set(
   SEASON_ROLLOVER_TYPES.map((entry) => entry.key),

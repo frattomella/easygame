@@ -340,3 +340,44 @@ test("il riquadro allenamenti non aspetta 300 ms prima di partire", () => {
   );
   assert.match(widget, /getClubAthletes\(clubId, \{ view: "summary" \}\)/);
 });
+
+// --- la stagione (ADR-0197 §21) ------------------------------------------------
+
+test("la Dashboard mostra la stagione attiva: gare, sedute, categorie e note delle altre stagioni restano fuori", async () => {
+  const fetchDiPrima = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const [percorso] = String(url).split("?");
+    const data =
+      percorso === "/api/v1/clubs"
+        ? [
+            {
+              id: CLUB,
+              name: "ASD Misura",
+              settings: {
+                activeSeasonId: "s-b",
+                seasons: [
+                  { id: "s-a", label: "2025/26", startDate: "2025-07-01", endDate: "2026-06-30", status: "archived", createdAt: "2025-01-01T00:00:00.000Z" },
+                  { id: "s-b", label: "2026/27", startDate: "2026-09-01", endDate: "2027-08-31", status: "active", createdAt: "2026-09-01T00:00:00.000Z" },
+                ],
+              },
+              logo_url: null,
+              appointments: [],
+              secretariat_notes: [{ id: "n-a", seasonId: "s-a" }, { id: "n-b", seasonId: "s-b" }],
+              matches: [{ id: "m-a", seasonId: "s-a", date: "2026-09-20" }, { id: "m-b", seasonId: "s-b", date: "2026-09-20" }],
+              categories: [{ id: "c-a", seasonId: "s-a" }, { id: "c-b", seasonId: "s-b" }, { id: "c-legacy" }],
+              trainings: [{ id: "t-a", seasonId: "s-a" }, { id: "t-b", seasonId: "s-b" }],
+            },
+          ]
+        : [];
+    return { ok: true, status: 200, statusText: "OK", headers: { get: () => "application/json" }, json: async () => ({ data, error: null }) };
+  };
+  try {
+    const riga = await overview.readDashboardClubRow(CLUB);
+    assert.deepEqual(riga.matches.map((m) => m.id), ["m-b"], "la gara della stagione scorsa, stessa data, non e la prossima gara");
+    assert.deepEqual(riga.trainings.map((t) => t.id), ["t-b"]);
+    assert.deepEqual(riga.categories.map((c) => c.id), ["c-b"], "la categoria senza annata e della stagione piu vecchia");
+    assert.deepEqual(riga.notes.map((n) => n.id), ["n-b"]);
+  } finally {
+    globalThis.fetch = fetchDiPrima;
+  }
+});

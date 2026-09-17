@@ -1,4 +1,11 @@
 import { prisma } from "./prisma";
+import {
+  buildSeasonContext,
+  resolveSeasonContext,
+  seasonIdForNewRecord,
+  seasonWhere,
+  type SeasonContext,
+} from "./season-context";
 import { getAthleteCategoryRelationship } from "@/lib/athlete-category-memberships";
 import {
   athleteIdsWithinAccessScope,
@@ -245,7 +252,21 @@ export type ListEventsFilters = {
   kind?: EventKind | "all";
   from?: Date | string | null;
   to?: Date | string | null;
+  /**
+   * **La stagione scelta esplicitamente** (un parametro): vince sul contesto.
+   * Per la stagione piu vecchia del club comprende le righe senza annata,
+   * come ogni altro lettore (WP-32).
+   */
   seasonId?: string | null;
+  /**
+   * **Il perimetro della richiesta** (ADR-0197): la stagione che il browser
+   * mostra, letta dall'header con `resolveSeasonContext`. Senza, il
+   * calendario della stagione nuova mostrava quella vecchia — le righe di
+   * `club_events` portano `season_id` da WP-13 e nessuna lettura lo usava.
+   */
+  season?: SeasonContext | null;
+  /** Nessun perimetro di stagione, per chi lo chiede sapendolo (storico di un atleta, deep link). */
+  allSeasons?: boolean;
   siteId?: string | null;
   categoryId?: string | null;
   groupId?: string | null;
@@ -894,7 +915,27 @@ export const listClubEvents = async (
   if (filters.kind && filters.kind !== "all") {
     where.kind = normalizeEventKind(filters.kind);
   }
-  if (filters.seasonId) where.season_id = asText(filters.seasonId);
+  /*
+    **Il perimetro di stagione e identita, non data** (ADR-0197 §14). Due
+    stagioni possono sovrapporsi — e successo in UAT — e un allenamento del
+    20 settembre non si classifica con «inizio ≤ data ≤ fine». Si legge
+    `season_id`; le righe senza annata appartengono alla stagione piu vecchia
+    del club, e a nessun'altra.
+  */
+  const perimetroDiStagione = filters.allSeasons
+    ? null
+    : filters.seasonId
+      ? seasonWhere({
+          seasonId: asText(filters.seasonId),
+          legacySeasonId: filters.season?.legacySeasonId ?? null,
+          knownSeasonIds: filters.season?.knownSeasonIds ?? [],
+        })
+      : filters.season
+        ? seasonWhere(filters.season)
+        : null;
+  if (perimetroDiStagione) {
+    where.AND = [...((where.AND as unknown[]) ?? []), perimetroDiStagione];
+  }
   if (filters.siteId) where.site_id = asText(filters.siteId);
   /*
     **La categoria chiesta puo essere la seconda** (PP-01 §A). Un allenamento
@@ -1672,11 +1713,22 @@ export const createClubEvent = async (
   kind: EventKind,
   input: unknown,
   attore: Attore = {},
-  options: { allowOverlap?: boolean } = {},
+  options: { allowOverlap?: boolean; season?: SeasonContext | null } = {},
 ) => {
   await assertEventsPermission(scope, "events.manage");
   const organizationId = requireActiveOrganization(scope);
   const colonne = toEventColumns(normalizeEventKind(kind), input);
+  /*
+    **Un evento nasce nella stagione che chi lo crea sta guardando** (ADR-0197).
+    Prima `season_id` restava `null` su ogni evento manuale: solo il
+    generatore lo scriveva, e la riga senza annata finiva nella stagione piu
+    vecchia del club. Il contesto lo porta la rotta (dall'header); chi chiama
+    senza contesto riceve la stagione attiva del club.
+  */
+  colonne.season_id = seasonIdForNewRecord(
+    options.season ?? (await resolveSeasonContext(organizationId)),
+    colonne.season_id,
+  );
   const consenteSovrapposizione = Boolean(
     options.allowOverlap ??
       (input && typeof input === "object"
@@ -1811,6 +1863,13 @@ export const updateClubEvent = async (
   };
 
   const colonne = toEventColumns(existing.kind as EventKind, merged);
+  /*
+    **La stagione di un evento non si sposta con una PATCH** (ADR-0197): la
+    riga ha la sua autorita e la tiene. Spostare un allenamento di stagione
+    non e un'operazione che il prodotto offre; una PATCH che portasse un
+    `seasonId` diverso riscriverebbe lo storico di un'annata chiusa.
+  */
+  colonne.season_id = existing.season_id ?? null;
   assertEventTransition(existing.status, colonne.status);
   assertSoloRiapertura(
     existing.status,
@@ -3046,14 +3105,36 @@ export const createClubEventsBatch = async (
     campoChiuso?: "rifiuta" | "salta";
     /** Calcola e torna il risultato senza scrivere niente (WP-17). */
     soloAnteprima?: boolean;
+    /** La stagione della richiesta (ADR-0197): assente, vale l'attiva del club. */
+    season?: SeasonContext | null;
   } = {},
 ) => {
   await assertEventsPermission(scope, "events.manage");
   const organizationId = requireActiveOrganization(scope);
 
+  /*
+    **Le strutture e le impostazioni si leggono una volta per il blocco, non
+    una per riga** (WP-20): `assertFieldIsOpen` interrogava il club a ogni
+    iterazione — 414 letture identiche su un blocco di 414 candidati. La
+    stessa lettura porta `settings`, da cui la stagione del blocco quando
+    chi chiama non la dichiara (ADR-0197): nessuna query in piu.
+  */
+  const clubPerIlBlocco = await prisma.club.findUnique({
+    where: { id: organizationId },
+    select: { structures: true, settings: true },
+  });
+  const struttureDelClub = Array.isArray(clubPerIlBlocco?.structures)
+    ? (clubPerIlBlocco.structures as unknown[])
+    : [];
+  const stagioneDelBlocco: SeasonContext =
+    opzioni.season ?? buildSeasonContext(clubPerIlBlocco?.settings ?? {});
+
   const righe = [] as any[];
   for (const input of inputs) {
     const colonne = toEventColumns(normalizeEventKind(kind), input);
+    if (!colonne.season_id) {
+      colonne.season_id = seasonIdForNewRecord(stagioneDelBlocco, null);
+    }
     righe.push({
       organization_id: organizationId,
       ...colonne,
@@ -3120,19 +3201,6 @@ export const createClubEventsBatch = async (
     persona dietro «Genera fino a...» o il pannello che legge il risultato
     del cron — decide cosa farne; il posto resta quello che era.
   */
-  /*
-    **Le strutture si leggono una volta per il blocco, non una per riga**
-    (WP-20): `assertFieldIsOpen` interrogava il club a ogni iterazione — 414
-    letture identiche su un blocco di 414 candidati, la stessa forma di
-    query evitabile trovata su `riconciliaGrafiaDellaCategoria` qui sopra.
-  */
-  const clubPerLeStrutture = await prisma.club.findUnique({
-    where: { id: organizationId },
-    select: { structures: true },
-  });
-  const struttureDelClub = Array.isArray(clubPerLeStrutture?.structures)
-    ? (clubPerLeStrutture.structures as unknown[])
-    : [];
 
   const saltate: Array<{ riga: any; motivo: string }> = [];
 

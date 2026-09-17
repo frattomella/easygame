@@ -32,18 +32,25 @@ import { narrowDomainPermission } from "@/lib/permissions/catalog";
  * nuovo, diniego tracciato.
  */
 
-export type SeasonPermission = "seasons.change";
+/**
+ * `seasons.delete` e una chiave a parte (ADR-0197 §30): eliminare una
+ * stagione e irreversibile e un ruolo personalizzato deve poterla perdere
+ * senza perdere il resto. Stesso perimetro di base della configurazione.
+ */
+export type SeasonPermission = "seasons.change" | "seasons.delete";
 
 export const SEASON_PERMISSIONS: readonly SeasonPermission[] = [
   "seasons.change",
+  "seasons.delete",
 ] as const;
 
 export const SEASON_PERMISSION_LABELS: Record<SeasonPermission, string> = {
   "seasons.change":
     "Creare, attivare, archiviare una stagione e riportarne i dati",
+  "seasons.delete": "Eliminare definitivamente una stagione vuota",
 };
 
-const FULL_ACCESS: readonly SeasonPermission[] = ["seasons.change"];
+const FULL_ACCESS: readonly SeasonPermission[] = ["seasons.change", "seasons.delete"];
 
 /**
  * `collaborator` e `staff` appartengono all'area gestionale ma non a quella

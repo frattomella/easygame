@@ -32,10 +32,12 @@ import {
   shouldRunTrainingAutomation,
   type TrainingAutomationSettings,
 } from "@/lib/training-automation-utils";
+import { filterCollectionBySeason } from "@/lib/club-seasons";
 import {
-  filterCollectionBySeason,
-  normalizeClubSeasons,
-} from "@/lib/club-seasons";
+  buildSeasonContext,
+  recordBelongsToSeason,
+  type SeasonContext,
+} from "@/lib/seasons/context";
 import { toEventDay, toEventTime } from "@/lib/events/model";
 import { resolveCategoryReference } from "@/lib/categories/identity";
 
@@ -66,6 +68,15 @@ type AutomationRunOptions = {
    * risponderle «non ancora dovuta».
    */
   untilDate?: Date | string | null;
+  /**
+   * **La stagione dichiarata da chi chiede** (ADR-0197).
+   *
+   * Il pulsante «Genera» passa la stagione che il browser mostra
+   * (`x-active-season-id`); il cron non passa niente e riceve la stagione
+   * attiva del club. `undefined` = nessuna dichiarazione; una stringa e una
+   * dichiarazione, che vale solo se il club ha quella stagione.
+   */
+  seasonId?: string | null;
   /**
    * **Anteprima** (WP-17): calcola cosa la generazione creerebbe — creati,
    * gia esistenti, conflitti, esclusi per campo chiuso — senza scrivere
@@ -119,7 +130,17 @@ type AutomationRunResult = {
   generatedTrainings: Record<string, any>[];
   lastRunAt: string | null;
   settings: TrainingAutomationSettings;
-  reason?: "not_due" | "missing_schedule" | "until_out_of_range";
+  reason?: "not_due" | "missing_schedule" | "no_valid_rules" | "until_out_of_range";
+  /**
+   * **Il programma, contato voce per voce** (ADR-0197, bug A del pilota).
+   *
+   * «Il programma settimanale non contiene sessioni valide da generare» era
+   * l'unica risposta a quattro difetti diversi: voci di un'altra stagione,
+   * voci disattivate, categorie che la stagione non ha, giorni fuori dalla
+   * finestra. Qui ogni voce ha un esito e ogni esito un conteggio, con
+   * qualche esempio: chi legge sa **quante** e **perche**, e cosa toccare.
+   */
+  diagnostics: WeeklyProgramDiagnostics;
   /**
    * Le fasce che il programma settimanale avrebbe generato e che occupano un
    * posto gia occupato: non create, «da verificare» (WP-07).
@@ -147,6 +168,73 @@ type AutomationRunResult = {
    */
   unresolvedCategorySlots?: string[];
 };
+
+export type WeeklyProgramDiagnosticCode =
+  | "other_season"
+  | "inactive"
+  | "unknown_category"
+  | "ambiguous_category"
+  | "no_occurrence";
+
+export type WeeklyProgramDiagnostics = {
+  /** La stagione per cui si e generato: `null` su un club senza stagioni salvate. */
+  seasonId: string | null;
+  seasonLabel: string | null;
+  /** Quante voci ha il programma, prima di ogni filtro. */
+  totalRules: number;
+  /** Quante sono generabili: della stagione, attive, con una categoria che la stagione ha. */
+  validRules: number;
+  invalidRules: number;
+  /** Voci valide che nel periodo richiesto non hanno nessuna occorrenza (giorno passato, fuori finestra, escluse). */
+  rulesWithoutOccurrence: number;
+  /** Occorrenze cadute fuori dal periodo della stagione (prima dell'inizio o dopo la fine). */
+  outsideSeasonCount: number;
+  reasons: Array<{
+    code: WeeklyProgramDiagnosticCode;
+    count: number;
+    label: string;
+    examples: string[];
+  }>;
+};
+
+const WEEKLY_PROGRAM_DIAGNOSTIC_LABELS: Record<
+  WeeklyProgramDiagnosticCode,
+  (seasonLabel: string | null) => string
+> = {
+  other_season: (seasonLabel) =>
+    seasonLabel
+      ? `appartengono a un'altra stagione, non alla ${seasonLabel}`
+      : "appartengono a un'altra stagione",
+  inactive: () => "sono disattivate",
+  unknown_category: (seasonLabel) =>
+    seasonLabel
+      ? `fanno riferimento a una categoria non disponibile nella stagione ${seasonLabel}`
+      : "fanno riferimento a una categoria non presente nel catalogo",
+  ambiguous_category: () =>
+    "nominano una categoria che corrisponde a piu squadre: serve l'identificativo",
+  no_occurrence: () =>
+    "non cadono nel periodo richiesto (giorno gia passato, fuori finestra o sospeso)",
+};
+
+const emptyWeeklyProgramDiagnostics = (): WeeklyProgramDiagnostics => ({
+  seasonId: null,
+  seasonLabel: null,
+  totalRules: 0,
+  validRules: 0,
+  invalidRules: 0,
+  rulesWithoutOccurrence: 0,
+  outsideSeasonCount: 0,
+  reasons: [],
+});
+
+const describeRuleForDiagnostics = (item: Record<string, any>) =>
+  [
+    getNonEmptyString(item.day, item.weekday),
+    getNonEmptyString(item.startTime, item.start_time),
+    getNonEmptyString(item.categoryName, item.category_name, item.categoryId),
+  ]
+    .filter(Boolean)
+    .join(" · ") || String(item.id || "voce");
 
 const isMissingCategoryMembershipTableError = (error: unknown) =>
   String((error as any)?.message || error || "")
@@ -401,6 +489,11 @@ const normalizeWeeklyScheduleSourceItem = (item: Record<string, any>) => {
     */
     groupId: getNonEmptyString(item.groupId, item.group_id) || null,
     /*
+      La stagione della voce, com'e in archivio (ADR-0197): serve a dire
+      «e di un'altra stagione» invece di farla sparire prima del conteggio.
+    */
+    seasonId: getNonEmptyString(item.seasonId, item.season_id) || null,
+    /*
       **Assente vale attivo** (WP-14). Ogni voce salvata prima che questo
       flag esistesse non ha `active` nel proprio JSON: leggerla come
       disattivata spegnerebbe in silenzio l'intero programma settimanale di
@@ -411,27 +504,30 @@ const normalizeWeeklyScheduleSourceItem = (item: Record<string, any>) => {
 };
 
 /**
- * **La stagione si filtra sulla voce grezza, non su quella normalizzata**
- * (chiude parte di WP-13).
+ * **La stagione non si filtra piu qui: si conta** (ADR-0197, chiude WP-13
+ * nella forma in cui era stato chiuso).
  *
- * `normalizeWeeklyScheduleSourceItem` ricostruisce l'oggetto e non porta
- * `seasonId` nel risultato: filtrare dopo di li significherebbe non poter
- * piu distinguere una voce della stagione scorsa da una di quella attiva.
- * Il filtro entra quindi qui, sulle voci come arrivano dalle due fonti
- * (`clubs.weekly_schedule` e `club_resource_items`), con la stessa regola
- * gia in uso nel resto del prodotto (`resources.ts`,
- * `filterCollectionBySeason`): una voce senza `seasonId` e una voce
- * precedente all'esistenza delle stagioni e resta visibile finche la
- * stagione «legacy» e quella attiva.
+ * La prima stesura filtrava le voci grezze per stagione prima del merge, con
+ * la regola dei record senza annata: e la regola giusta per una collezione
+ * letta dall'archivio, ed e stata la causa del bug A del pilota — il
+ * pannello manda il proprio stato come override, senza `seasonId`, e con
+ * due stagioni tutte e quaranta le voci diventavano «legacy» di una stagione
+ * che non era l'attiva. Adesso la voce normalizzata porta la sua stagione, e
+ * chi genera decide voce per voce e **lo dice** nella diagnostica.
+ *
+ * `stampSeasonId` e per l'override: una voce che arriva dal pannello senza
+ * stagione e una voce della stagione che il pannello mostra, non un record
+ * del 2019.
  */
 const mergeWeeklyScheduleSources = ({
   clubWeeklySchedule,
   resourceWeeklySchedule,
-  seasonFilter,
+  stampSeasonId,
 }: {
   clubWeeklySchedule: unknown;
   resourceWeeklySchedule: unknown;
-  seasonFilter?: (entries: Record<string, any>[]) => Record<string, any>[];
+  /** Stagione da scrivere sulle voci dell'override che non ne portano una. */
+  stampSeasonId?: string | null;
 }) => {
   const scheduleSources = [clubWeeklySchedule, resourceWeeklySchedule];
   const merged: Record<string, any>[] = [];
@@ -439,7 +535,13 @@ const mergeWeeklyScheduleSources = ({
 
   scheduleSources.forEach((source) => {
     const rawEntries = toWeeklyScheduleEntries(source);
-    const scopedEntries = seasonFilter ? seasonFilter(rawEntries) : rawEntries;
+    const scopedEntries = stampSeasonId
+      ? rawEntries.map((item) =>
+          getNonEmptyString(item?.seasonId, item?.season_id)
+            ? item
+            : { ...item, seasonId: stampSeasonId },
+        )
+      : rawEntries;
     scopedEntries.forEach((item) => {
       const normalizedItem = normalizeWeeklyScheduleSourceItem(item);
       if (!normalizedItem) {
@@ -1331,6 +1433,7 @@ export async function runTrainingAutomationForClub(
       lastRunAt: effectiveSettings.lastRunAt,
       settings: effectiveSettings,
       reason: "not_due",
+      diagnostics: emptyWeeklyProgramDiagnostics(),
       conflicts: [],
       existingCount: 0,
       excludedCount: 0,
@@ -1362,6 +1465,7 @@ export async function runTrainingAutomationForClub(
         lastRunAt: effectiveSettings.lastRunAt,
         settings: effectiveSettings,
         reason: "until_out_of_range",
+        diagnostics: emptyWeeklyProgramDiagnostics(),
         conflicts: [],
         existingCount: 0,
         excludedCount: 0,
@@ -1373,28 +1477,30 @@ export async function runTrainingAutomationForClub(
   }
 
   /*
-    **La stagione attiva, letta dal `club.settings` gia in mano** (WP-13).
+    **La stagione della generazione, dal risolutore canonico** (ADR-0197).
 
-    Nessuna query in piu: `normalizeClubSeasons` e la stessa primitiva pura
-    che usa `readClubSeasonState`, e qui il club e gia stato caricato per
-    intero. Un club che non ha ancora salvato nessuna stagione (`isFallback`)
-    non filtra e non marca — la stagione sintetizzata non e un dato del club,
-    e marcarci sopra un evento lo legherebbe a un identificativo che sparisce
-    alla prima stagione vera (stessa regola di `resolveRequestSeason` in
-    `resources.ts`).
+    Nessuna query in piu: `buildSeasonContext` e la primitiva pura sul
+    `club.settings` gia in mano. Chi preme il pulsante dichiara la stagione
+    che sta guardando (`options.seasonId`, da `x-active-season-id`); il cron
+    non dichiara niente e riceve l'attiva. Un club senza stagioni salvate non
+    filtra e non marca — la stagione sintetizzata non e un dato del club, e
+    marcarci sopra un evento lo legherebbe a un identificativo che sparisce
+    alla prima stagione vera.
+
+    Attivare la stagione B non fa generare in B le regole di A: una regola
+    di un'altra stagione si conta e si dice, non si genera.
   */
-  const seasonState = normalizeClubSeasons(club.settings);
-  const activeSeasonId = seasonState.isFallback ? null : seasonState.activeSeasonId;
-  const seasonFilter = activeSeasonId
-    ? (entries: Record<string, any>[]) =>
-        filterCollectionBySeason("weekly_schedule", entries, activeSeasonId, {
-          legacySeasonId: seasonState.legacySeasonId,
-          knownSeasonIds: seasonState.seasons.map((season) => season.id),
-        })
-    : undefined;
+  const seasonContext: SeasonContext = buildSeasonContext(
+    club.settings,
+    options.seasonId === undefined
+      ? { value: null, declared: false }
+      : { value: String(options.seasonId || "").trim() || null, declared: true },
+  );
+  const generationSeasonId = seasonContext.seasonId;
+  const generationSeasonLabel = seasonContext.season?.label ?? null;
 
   const hasWeeklyScheduleOverride = options.weeklyScheduleOverride !== undefined;
-  const weeklySchedule = mergeWeeklyScheduleSources({
+  const weeklyScheduleTutte = mergeWeeklyScheduleSources({
     clubWeeklySchedule:
       hasWeeklyScheduleOverride
         ? options.weeklyScheduleOverride
@@ -1402,10 +1508,70 @@ export async function runTrainingAutomationForClub(
     resourceWeeklySchedule: hasWeeklyScheduleOverride
       ? []
       : resourcePayloadsByType.weekly_schedule || [],
-    seasonFilter,
+    stampSeasonId: hasWeeklyScheduleOverride ? generationSeasonId : null,
   });
 
-  if (!weeklySchedule.length) {
+  /* Gli esiti per voce: si riempiono qui e nel ciclo, e alla fine si contano. */
+  const ruleOutcome = new Map<string, WeeklyProgramDiagnosticCode | "valid">();
+  const ruleExamples = new Map<WeeklyProgramDiagnosticCode, string[]>();
+  const ruleKey = (item: Record<string, any>) =>
+    String(item.id || "").trim() || buildWeeklyScheduleIdentityKey(item) || describeRuleForDiagnostics(item);
+  const segnaVoce = (item: Record<string, any>, code: WeeklyProgramDiagnosticCode) => {
+    ruleOutcome.set(ruleKey(item), code);
+    const examples = ruleExamples.get(code) || [];
+    if (examples.length < 3) examples.push(describeRuleForDiagnostics(item));
+    ruleExamples.set(code, examples);
+  };
+
+  const weeklySchedule = weeklyScheduleTutte.filter((item) => {
+    if (!recordBelongsToSeason(item.seasonId, seasonContext)) {
+      segnaVoce(item, "other_season");
+      return false;
+    }
+    if (item.active === false) {
+      segnaVoce(item, "inactive");
+      return false;
+    }
+    ruleOutcome.set(ruleKey(item), "valid");
+    return true;
+  });
+
+  const buildDiagnostics = (): WeeklyProgramDiagnostics => {
+    const counts = new Map<WeeklyProgramDiagnosticCode, number>();
+    let valid = 0;
+    for (const outcome of ruleOutcome.values()) {
+      if (outcome === "valid") {
+        valid += 1;
+        continue;
+      }
+      counts.set(outcome, (counts.get(outcome) || 0) + 1);
+    }
+    const noOccurrence = counts.get("no_occurrence") || 0;
+    const reasons = (
+      ["other_season", "inactive", "unknown_category", "ambiguous_category", "no_occurrence"] as const
+    )
+      .filter((code) => (counts.get(code) || 0) > 0)
+      .map((code) => ({
+        code,
+        count: counts.get(code) || 0,
+        label: WEEKLY_PROGRAM_DIAGNOSTIC_LABELS[code](generationSeasonLabel),
+        examples: ruleExamples.get(code) || [],
+      }));
+    return {
+      seasonId: generationSeasonId,
+      seasonLabel: generationSeasonLabel,
+      totalRules: ruleOutcome.size,
+      /* Una voce senza occorrenze nel periodo e valida: e il periodo che non la contiene. */
+      validRules: valid + noOccurrence,
+      invalidRules: ruleOutcome.size - valid - noOccurrence,
+      rulesWithoutOccurrence: noOccurrence,
+      outsideSeasonCount,
+      reasons,
+    };
+  };
+  let outsideSeasonCount = 0;
+
+  if (!weeklyScheduleTutte.length) {
     return {
       ran: true,
       due: true,
@@ -1414,6 +1580,7 @@ export async function runTrainingAutomationForClub(
       lastRunAt: effectiveSettings.lastRunAt,
       settings: effectiveSettings,
       reason: "missing_schedule",
+      diagnostics: buildDiagnostics(),
       conflicts: [],
       existingCount: 0,
       excludedCount: 0,
@@ -1423,11 +1590,68 @@ export async function runTrainingAutomationForClub(
     };
   }
 
-  const categoryList = buildClubCategoryOptions({
+  /*
+    **Il catalogo della stagione, non quello del club** (ADR-0197).
+
+    Con il catalogo intero una voce che nomina la «Under 15» dell'anno scorso
+    risolveva sull'identificativo dell'anno scorso, e l'allenamento nasceva
+    nella stagione nuova con la squadra vecchia — invisibile ai suoi atleti,
+    che stanno nella squadra nuova. Una categoria che la stagione non ha e
+    una voce da dire, non da generare.
+  */
+  const categoryListTutte = buildClubCategoryOptions({
     clubCategories: club.categories,
     resourceCategories: resourcePayloadsByType.categories || [],
     athletes,
   });
+  const categoryList = generationSeasonId
+    ? filterCollectionBySeason("categories", categoryListTutte, generationSeasonId, {
+        legacySeasonId: seasonContext.legacySeasonId,
+        knownSeasonIds: seasonContext.knownSeasonIds,
+      })
+    : categoryListTutte;
+
+  /*
+    Voci senza categoria nella stagione: si dicono **prima** del ciclo sui
+    giorni, cosi contano anche quando il periodo non contiene il loro giorno.
+  */
+  for (const item of weeklySchedule) {
+    const riferimento = getNonEmptyString(
+      item.categoryId,
+      item.category_name,
+      item.categoryName,
+      item.category,
+    );
+    if (!categoryList.length || !riferimento) continue;
+    const risolto = resolveCategoryReference(
+      riferimento,
+      getNonEmptyString(item.categoryName, item.category_name),
+      categoryList,
+    );
+    if (!risolto?.known) {
+      segnaVoce(item, risolto?.ambiguous ? "ambiguous_category" : "unknown_category");
+    }
+  }
+
+  const validRulesCount = Array.from(ruleOutcome.values()).filter((o) => o === "valid").length;
+  if (!validRulesCount) {
+    return {
+      ran: true,
+      due: true,
+      generatedCount: 0,
+      generatedTrainings: [],
+      lastRunAt: effectiveSettings.lastRunAt,
+      settings: effectiveSettings,
+      reason: "no_valid_rules",
+      diagnostics: buildDiagnostics(),
+      conflicts: [],
+      existingCount: 0,
+      excludedCount: 0,
+      excludedSlots: [],
+      preview: Boolean(options.preview),
+      generatedUntil: null,
+    };
+  }
   const trainerList = normalizeTrainerList(
     [club.trainers, ...(resourcePayloadsByType.trainers || [])],
     categoryList,
@@ -1470,6 +1694,10 @@ export async function runTrainingAutomationForClub(
   let existingCount = 0;
   /* Le voci del programma la cui categoria non risolve sul catalogo (ADR-0186): saltate, e dette. */
   const unresolvedCategorySlots: string[] = [];
+  /* Le voci che nel periodo hanno prodotto almeno un'occorrenza (creata, esistente o esclusa). */
+  const ruleWithOccurrence = new Set<string>();
+  const seasonStart = seasonContext.season?.startDate || null;
+  const seasonEnd = seasonContext.season?.endDate || null;
 
   for (
     const currentDate = new Date(startDate);
@@ -1485,7 +1713,10 @@ export async function runTrainingAutomationForClub(
       // Una regola disattivata smette di generare nuove occorrenze, e non
       // tocca quelle gia create (WP-14): il filtro sta qui, non a monte —
       // gli eventi gia esistenti restano leggibili da existingKeys.
-      (item) => resolveTrainingWeekday(item) === currentWeekday && item.active !== false,
+      (item) =>
+        resolveTrainingWeekday(item) === currentWeekday &&
+        item.active !== false &&
+        ruleOutcome.get(ruleKey(item)) === "valid",
     );
 
     for (const scheduleItem of daySchedule) {
@@ -1498,6 +1729,18 @@ export async function runTrainingAutomationForClub(
       if (!trainingStart || trainingStart <= now) {
         continue;
       }
+
+      /*
+        **Un'occorrenza fuori dal periodo della stagione non nasce** (ADR-0197
+        §10): la stagione B che finisce il 31 agosto non genera settembre, e
+        una stagione futura non genera prima del suo inizio. Si conta, cosi
+        «0 generati» ha una spiegazione.
+      */
+      if ((seasonStart && trainingDate < seasonStart) || (seasonEnd && trainingDate > seasonEnd)) {
+        outsideSeasonCount += 1;
+        continue;
+      }
+      ruleWithOccurrence.add(ruleKey(scheduleItem));
 
       /*
         **Una sospensione salta la data, non la regola** (WP-15): la
@@ -1628,9 +1871,11 @@ export async function runTrainingAutomationForClub(
 
       generatedTrainings.push({
         id: trainingId,
-        // La stagione dell'evento e quella attiva al momento della
-        // generazione: un club senza stagioni salvate non ne marca nessuna.
-        seasonId: activeSeasonId || null,
+        // La stagione dell'evento e **quella della regola** (ADR-0197 §11):
+        // coincide con quella della generazione perche le regole di altre
+        // stagioni sono state contate e scartate prima. Un club senza
+        // stagioni salvate non ne marca nessuna.
+        seasonId: scheduleItem.seasonId || generationSeasonId || null,
         title: formatTrainingTitle(trainingDate),
         date: trainingDate,
         time: scheduleItem.startTime,
@@ -1688,6 +1933,13 @@ export async function runTrainingAutomationForClub(
         updated_at: now.toISOString(),
       });
       existingKeys.add(duplicateKey);
+    }
+  }
+
+  for (const item of weeklySchedule) {
+    const key = ruleKey(item);
+    if (ruleOutcome.get(key) === "valid" && !ruleWithOccurrence.has(key)) {
+      segnaVoce(item, "no_occurrence");
     }
   }
 
@@ -1808,6 +2060,7 @@ export async function runTrainingAutomationForClub(
     due: true,
     generatedCount: createdCount,
     unresolvedCategorySlots,
+    diagnostics: buildDiagnostics(),
     generatedTrainings,
     lastRunAt: options.preview ? effectiveSettings.lastRunAt : lastRunAt,
     settings: options.preview

@@ -4,6 +4,7 @@ import {
   sportWorkRoute,
 } from "@/lib/server/sport-work-route";
 import { completeObligation } from "@/lib/server/sport-work-agenda";
+import { readRequestedSeason } from "@/lib/seasons/context";
 
 /**
  * Marca un adempimento come assolto.
@@ -18,9 +19,19 @@ export const runtime = "nodejs";
 
 export const POST = sportWorkRoute(
   "sport_work.manage",
-  async ({ params, request, scope }) =>
-    ok(
-      await completeObligation(params.id, (await readBody(request)) as any, scope),
-    ),
+  async ({ params, request, scope }) => {
+    const body = (await readBody(request)) as any;
+    /*
+      La stagione che il browser mostra viaggia con il versamento (D-RD-29):
+      la riga di prima nota del versamento nasce nella stagione giusta, non
+      per data.
+    */
+    const stagione = readRequestedSeason(request);
+    const input =
+      body && typeof body === "object" && body.payment && typeof body.payment === "object"
+        ? { ...body, payment: { ...body.payment, activeSeasonId: stagione.value } }
+        : body;
+    return ok(await completeObligation(params.id, input, scope));
+  },
   "Aggiornamento dell'adempimento non riuscito",
 );

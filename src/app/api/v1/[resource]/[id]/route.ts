@@ -29,6 +29,22 @@ import {
  * Traccia le scritture sulle risorse sensibili (dati economici, fiscali e di
  * accesso) e **tutti** i dinieghi, su qualunque risorsa. Vedi ADR-0019.
  */
+/**
+ * L'etichetta di una scheda cancellata, per l'audit (D-RD-27): nome e
+ * cognome se ci sono, altrimenti il nome, altrimenti niente. Nessun altro
+ * dato della persona esce da qui.
+ */
+const deletedRecordLabel = (record: unknown) => {
+  if (!record || typeof record !== "object") return null;
+  const row = record as Record<string, any>;
+  const nested = row.data && typeof row.data === "object" ? (row.data as Record<string, any>) : {};
+  const nome = [row.first_name ?? nested.first_name ?? nested.firstName, row.last_name ?? nested.last_name ?? nested.lastName]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .join(" ");
+  return nome || String(row.name ?? nested.name ?? "").trim() || null;
+};
+
 const auditResourceWrite = async (
   action: string,
   request: Request,
@@ -37,6 +53,7 @@ const auditResourceWrite = async (
   resource: string,
   id: string,
   outcome: "success" | "denied" = "success",
+  metadata?: Record<string, unknown>,
 ) => {
   if (outcome === "success" && !isAuditedResource(resource)) return;
 
@@ -46,10 +63,17 @@ const auditResourceWrite = async (
       `resource.updated`: la domanda a cui il log deve rispondere e «chi ha
       cambiato i dati di questa persona», e cercarla fra tutte le scritture di
       risorsa non la trova (R-07, ADR-0019).
+
+      **E una cancellazione e `anagrafica.deleted`** (D-RD-27): la stessa
+      rimappatura faceva uscire il `DELETE` come una modifica, con metadata
+      vuoto. Chi legge il registro deve poter distinguere una scheda
+      cancellata da una corretta, e sapere di chi era.
     */
     action:
       outcome === "success" && AUDITED_ANAGRAFICA_RESOURCES.has(resource)
-        ? AUDIT_ACTIONS.anagraficaUpdated
+        ? action === AUDIT_ACTIONS.resourceDeleted
+          ? AUDIT_ACTIONS.anagraficaDeleted
+          : AUDIT_ACTIONS.anagraficaUpdated
         : action,
     outcome,
     actorUserId: session?.db?.user_id,
@@ -59,6 +83,7 @@ const auditResourceWrite = async (
     resource,
     resourceId: id,
     request,
+    ...(metadata ? { metadata } : {}),
   });
 };
 
@@ -266,6 +291,7 @@ export async function DELETE(request: Request, context: Context) {
     }
 
     const data = await deleteResource(resource, id, scope);
+    const label = deletedRecordLabel(data);
     await auditResourceWrite(
       AUDIT_ACTIONS.resourceDeleted,
       request,
@@ -273,6 +299,8 @@ export async function DELETE(request: Request, context: Context) {
       scope,
       resource,
       id,
+      "success",
+      { operation: "delete", resource, ...(label ? { label } : {}) },
     );
     return NextResponse.json({
       data,

@@ -10,6 +10,7 @@ import {
   runDueTrainingAutomationForAllClubs,
   runTrainingAutomationForClub,
 } from "@/lib/server/training-automation";
+import { readRequestedSeason } from "@/lib/seasons/context";
 
 const buildUnauthorizedResponse = () =>
   NextResponse.json(
@@ -75,6 +76,15 @@ export async function POST(request: NextRequest) {
           actor: { userId: session.db.user_id, email: session.db.user?.email ?? null },
         },
         force: Boolean(body?.force ?? true),
+        /*
+          **La stagione che il browser mostra** (ADR-0197): il pannello
+          genera nella stagione che sta guardando, non in quella che il
+          server ritiene attiva. Assente = attiva del club.
+        */
+        ...(() => {
+          const stagione = readRequestedSeason(request);
+          return stagione.declared ? { seasonId: stagione.value } : {};
+        })(),
         weeklyScheduleOverride: body?.weeklySchedule,
         settingsOverride: body?.settings,
         /*

@@ -13144,3 +13144,217 @@ filtrato (D-RD-28).
 ### Migrazioni
 
 Nessuna.
+
+
+## ADR-0197 — Il confine di stagione: la stagione attiva e il perimetro operativo, lo storico resta con la sua stagione, e «di quale stagione parliamo?» ha un solo risolutore
+
+**Data:** 2026-09-17 · **Stato:** accettata · **Ambito:** Web (stagioni, programma settimanale, calendario, allenatori, atleti, prima nota, eliminazione di una stagione) · **Branch:** `feat/web-redesign`. Consolida ADR-0196, non lo contraddice.
+
+### Contesto
+
+Il club pilota (Fortitudo Scauri sul redesign, 4139ddd1) ha creato la
+stagione «2026/27» (1 set 2026 → 31 ago 2027, **sovrapposta** alla
+«2026/2027»: 1 lug 2026 → 30 giu 2027), l'ha attivata e ha salvato 40 voci nel
+programma settimanale. Ricostruzione in sola lettura (2026-09-17):
+
+- **A · generazione.** «Genera allenamenti → una settimana» rispondeva «Il
+  programma settimanale non contiene sessioni valide da generare». In
+  archivio le 40 voci erano **tutte** marcate con la stagione nuova e tutte su
+  categorie del suo catalogo. Il pannello manda al server il proprio stato
+  come `weeklySchedule`, e `normalizeScheduleItem` non porta `seasonId`; il
+  server filtrava l'override con la regola dei record senza annata — «sono
+  della stagione piu vecchia» — che con una stagione sola era innocua e con
+  due scartava tutte e 40 le voci. Un messaggio generico per un difetto
+  preciso, e nessun numero (riprodotto con il doppio di Prisma prima della
+  correzione: `tests/server/programma-settimanale-stagione-adr-0197.test.mjs`).
+  In piu il riporto aveva copiato 36 voci dalla stagione vecchia, e la
+  colonna ne aveva 40 tutte nuove: il pannello legge filtrato e riscrive la
+  colonna **intera** con `PATCH /api/v1/clubs`, e il primo autosave nella
+  stagione nuova ha **cancellato il programma della stagione vecchia**, senza
+  errore e senza audit.
+- **B · calendario.** 21 allenamenti generati e 2 gare con `season_id` della
+  stagione vecchia, 3 allenamenti e 1 gara **senza** stagione (creati a mano:
+  nessuna rotta la scriveva), e il calendario della stagione nuova li
+  mostrava tutti. `GET /api/v1/events` filtrava per stagione solo con un
+  parametro che nessuna schermata passava e non leggeva
+  `x-active-season-id`; le righe portavano `season_id` da WP-13 e nessuna
+  lettura lo usava.
+- **C · allenatori.** `clubs.trainers[].categories` porta gli identificativi
+  delle categorie della stagione vecchia (l'assegnazione non e stata
+  riportata: giusto). La pagina Allenatori risolveva quegli id sul catalogo
+  di **tutte** le stagioni e mostrava «Under 14 Gold» dell'anno scorso come
+  squadra di quest'anno.
+- **D.** Non c'era modo di eliminare una stagione creata per sbaglio.
+
+Sotto ai quattro sintomi una causa sola: «di quale stagione parliamo?» aveva
+cinque risposte sparse (`settings.activeSeasonId` letto a mano, l'header
+letto in quattro rotte con quattro regole sullo stale, la finestra di date
+nella prima nota, la stagione piu vecchia per i record senza annata, nessuna
+stagione sugli eventi manuali) e nessun lettore la faceva a un punto solo.
+
+### Decisione
+
+**1. Il modello: club → stagione → dati operativi correnti.** La stagione non
+e un filtro dell'interfaccia: e il perimetro operativo. Quando la stagione B
+diventa attiva l'applicazione lavora sulla B; la A non si cancella e si
+consulta con la sua stagione. Non tutto e di una stagione: ogni dominio e
+classificato (tabella sotto), e nessuna tabella riceve `season_id` per
+inerzia.
+
+**2. Un solo risolutore.** `src/lib/seasons/context.ts` (puro) e
+`src/lib/server/season-context.ts` (con la lettura del club) distinguono
+cinque modi di rispondere, che **non si mescolano**:
+
+| Modo | Origine | Quando vale |
+|------|---------|-------------|
+| **attiva** | `settings.activeSeasonId` | il perimetro di default e quello dei lavori di sfondo (cron), che non hanno un browser davanti |
+| **dichiarata** (`selected`) | `x-active-season-id`, o un parametro esplicito (`season_id`) | cio che l'interfaccia mostra: e il perimetro di **lettura e di scrittura** di quel browser — cio che si vede e dove si scrive. Vale solo se il club ha quella stagione; uno stale ricade sull'**attiva**, non su «tutto» |
+| **della riga** | `season_id` / `seasonId` scritto sul record | l'autorita per lo storico. **Non si sostituisce mai** con l'attiva, e una `PATCH` non la sposta (eventi: `updateClubEvent`; risorse: `applySeasonStamp` con `existingSeasonId`) |
+| **per data** | `resolveSeasonWindow` (prima nota) | solo per righe **senza** stagione scritta e solo se la finestra e unica. Due stagioni sovrapposte non decidono niente |
+| **nessuna** | club senza stagioni salvate, o header vuoto per scelta (`""`) | niente perimetro e niente marcatura; l'header vuoto e il modo di chiedere «tutto il catalogo» (ADR-0196 §7) |
+
+I record **senza** annata appartengono alla stagione piu vecchia del club
+(WP-32): `filterCollectionBySeason` per le collezioni JSON,
+`recordBelongsToSeason` / `seasonWhere` per le tabelle. Oggi la stagione
+dichiarata coincide con l'attiva — la si cambia solo attivando — ma il server
+la tratta come una dichiarazione, cosi un selettore di consultazione futuro
+non cambia nessuna regola lato server.
+
+**3. Attiva e selezionata non si confondono, e si scrive dove si guarda.** La
+stagione che il browser mostra e quella in cui nascono gli eventi
+(`createClubEvent`/`createClubEventsBatch` con `season`), i movimenti
+(ADR-0196), il versamento F24 (D-RD-29), le voci del programma e ogni
+collezione di stagione. Attivare la A per consultarla e attivarla anche per
+scrivere: la barra laterale lo dice («Stagione 2025/26»), e cambiando
+stagione le pagine ricaricano senza F5 (`AuthProvider` ascolta
+`club-updated`, che nessuno ascoltava; Calendario, Allenamenti e Gare hanno
+`activeSeasonId` fra le dipendenze).
+
+**4. Programma settimanale.** Appartiene a una stagione e genera nella sua.
+`runTrainingAutomationForClub` riceve `seasonId` dalla rotta (dichiarata) o
+usa l'attiva (cron); una voce dell'override senza stagione e della stagione
+che il pannello mostra; le voci di **altre** stagioni, disattivate, con
+categoria assente nel catalogo **della stagione** (non del club) o ambigua
+si **contano e si dicono** (`diagnostics`: `totalRules`, `validRules`,
+`invalidRules`, `rulesWithoutOccurrence`, `outsideSeasonCount`, `reasons[]`
+con esempi) e `reason: "no_valid_rules"` sostituisce il generico
+`missing_schedule` quando le voci ci sono ma nessuna e generabile.
+Un'occorrenza fuori dal periodo della stagione non nasce. L'evento generato
+porta la stagione **della regola**. Il pannello mostra «Stagione X» e la
+diagnostica per esteso («40 sessioni trovate per la stagione 2026/27: 32
+valide, 8 non generabili perche fanno riferimento a una categoria non
+disponibile nella stagione 2026/27»).
+
+**5. Una colonna di stagione riscritta per intero conserva le altre
+stagioni.** In `updateResource` su `clubs`, per ogni colonna JSON di stagione
+che arriva intera e con un perimetro risolvibile: i record **fuori dal
+perimetro** che il chiamante non ha rimandato restano, cio che arriva senza
+stagione la prende. La regola sta dove il dato viene scritto, non nel
+client: protegge autosave, gruppi operativi, note di segreteria e qualunque
+altra porta.
+
+**6. Calendario, allenamenti e gare.** `listClubEvents` applica il perimetro
+per **identita** (`seasonWhere`), mai per data: `season_id` esplicito vince,
+`all_seasons=1` lo toglie per chi vuole lo storico e lo dice, il deep link a
+un evento di un'altra stagione resta leggibile (nessun 404 di storico). Gli
+eventi senza stagione in archivio (i 3+1 del pilota) appartengono alla
+stagione piu vecchia per regola: **nessuna riscrittura** e nessun backfill.
+
+**7. Allenatori.** L'identita e del club (`clubs.trainers`); l'assegnazione
+e di una stagione **per costruzione**, perche nomina categorie e gruppi che
+sono di una stagione. `src/lib/trainers/season-assignments.ts` spacca
+l'elenco: **attuali** le assegnazioni della stagione scelta, **storico** le
+altre con la loro etichetta, **irrisolti** i riferimenti che nessun catalogo
+riconosce (un nome che oggi nomina una squadra per stagione non dice quale,
+ADR-0155). Pagina e scheda mostrano solo le attuali («Nessuna categoria
+assegnata nella stagione 2026/27» quando non ce ne sono; lo storico sotto,
+come storico); l'editor offre solo le categorie e i gruppi della stagione e
+salva con `mergeTrainerAssignmentsForSeason`, che tiene lo storico e rifiuta
+una categoria di un'altra stagione. Il riporto ha un tipo nuovo,
+**«Assegnazioni allenatori»** (`trainer_assignments`, spento per scelta,
+richiede le categorie): mappa per identificativo con l'`idMap` del piano —
+mai un id vecchio scritto come nuovo, mai un nome — e dichiara `unmapped`.
+Nessuna migrazione: cambia chi legge, non la forma.
+
+**8. Creazione di una stagione.** Il riepilogo dichiara voce per voce cio
+che **non** viene riportato («Assegnazioni allenatori: 0 riportate su 2»,
+«Programma settimanale: 0 su 36», «Movimenti economici: 0 — lo storico resta
+nella stagione di origine»): nessun riporto nascosto, e nessun riporto per
+ripiego (ADR-0196).
+
+**9. Eliminare una stagione** (`src/lib/server/season-delete.ts`,
+`DELETE /api/v1/seasons/:id` con `confirmation`, `GET` per l'impatto,
+permesso `seasons.delete`). Non e un `DELETE FROM seasons`: cio che una
+stagione ha si classifica —
+
+| Classe | Cosa | Cosa succede |
+|--------|------|--------------|
+| configurazione (**cascade**) | categorie, gruppi operativi, sconti, piani, gruppi numerazione, voci del programma, budget previsto | si cancella con la stagione |
+| storia (**block**) | eventi e presenze/convocazioni, movimenti contabili, tesserati nelle squadre, rate sui piani, pratiche, appuntamenti, rapporti di lavoro sportivo, documenti generati, movimenti/trasferimenti/note/procure/numeri/kit storici in colonna | la stagione **non si elimina**: si archivia. Il messaggio elenca cosa blocca |
+| riferimenti (**detach**) | assegnazioni degli allenatori alle categorie/gruppi della stagione | si staccano; la scheda resta |
+| audit | `audit_logs` | non si tocca mai |
+
+La stagione **attiva** non si elimina («Prima di eliminare questa stagione,
+imposta un'altra stagione come attiva»: nessuna scelta silenziosa); la
+stagione **piu vecchia** non si elimina finche esistono record senza annata,
+che le appartengono per regola. La conferma e il testo `ELIMINA <nome>`,
+verificato dal server. Audit: `season.delete.requested` (sempre, anche su
+rifiuto, con `outcome: denied` e il motivo) e `season.deleted` (etichetta,
+periodo, conteggi tolti e staccati, impatto).
+
+**10. D-RD-27.** Il `DELETE` di un'anagrafica dal registro generico si audita
+come `anagrafica.deleted` con `operation`, `resource` e `label` (nome della
+scheda), non piu come `anagrafica.updated` con metadata vuoto.
+
+**11. D-RD-29 / D-RD-30.** Il versamento F24 porta la stagione dichiarata
+(`payment.activeSeasonId` dalla rotta, con le regole di `createAccountingEntry`);
+la vista `accounting_ledger_lines` proietta `NULLIF(btrim(value->>'seasonId'),'')`
+sulle due gambe storiche (migrazione `20260917120000_adr0197_stagione_dei_movimenti_storici`,
+provata in transazione annullata sul database del redesign: la riga storica
+del club ef5317db esce con `season-2025-2026`).
+
+### La matrice dei domini
+
+| Dominio | Classe | Autorita | Come si risolve la stagione | Storico | Riporto | Eliminazione |
+|---------|--------|----------|-----------------------------|---------|---------|--------------|
+| Club, sedi, strutture, conti, sponsor, modulistica, orari, magazzino | globale | `clubs.*` | nessuna | — | non si copia | non si tocca |
+| Atleta (identita) | globale | `athletes` | nessuna | — | non si copia | non si tocca |
+| Appartenenza atleta ↔ categoria | di stagione **via categoria** | `athlete_category_memberships` (writer ADR-0194) | stagione della categoria | intatto, etichettato «· stagione X» (ADR-0196) | esplicito, elenco = autorita (ADR-0196) | **block** |
+| Allenatore (identita) | globale | `clubs.trainers` | nessuna | — | non si copia | non si tocca |
+| Allenatore ↔ categoria/gruppo | di stagione via categoria | `clubs.trainers[].categories/groupIds` | `splitTrainerAssignmentsBySeason` | storico etichettato | tipo `trainer_assignments`, spento, per id | **detach** |
+| Categorie, gruppi operativi, piani, sconti, gruppi numerazione, budget | di stagione | `clubs.<col>` + `club_resource_items` (registro) | `seasonId` della riga; legacy → piu vecchia | leggibili con la loro stagione | tipi del riporto | **cascade** |
+| Programma settimanale | di stagione | `clubs.weekly_schedule` | `seasonId` della riga; override → dichiarata | leggibile con la sua stagione | tipo `weekly_schedule`, spento | **cascade** |
+| Allenamenti, gare, eventi | di stagione | `club_events.season_id` (ADR-0098) | riga; nuovo = dichiarata/attiva | intatto, deep link sempre leggibile | mai | **block** |
+| Presenze, convocazioni, RSVP | storico **via evento** | `club_event_participants` | stagione dell'evento | intatto | mai | **block** |
+| Prima nota, giroconti | di stagione | `accounting_entries.season_id` (ADR-0196) | riga; nuovo = dichiarata; senza → finestra unica | intatto | mai | **block** |
+| Incassi e rate | riferimento incrociato | `payment_transactions`, `athlete_payments` | via piano/atleta (D-RD-31: nessun `season_id`) | intatto | mai | **block** (rate sui piani della stagione) |
+| Documenti del club, certificati | dipende | `document_templates` (globale), `medical_certificates` (validita per date, non stagione) | nessuna | — | non si copia | non si tocca |
+| Richieste documentali, documenti generati, pratiche, appuntamenti, lavoro sportivo | di stagione (riga) | tabelle con `season_id` | riga | intatto | mai | **block** |
+| Comunicazioni | riferimento (pubblico = eventi/categorie della stagione) | `announcements` | nessuna propria | — | mai | non si tocca |
+| Persone in prova | storico via evento | `trial_athletes`, `trial_attendances` | stagione dell'evento | intatto | mai | non si tocca |
+| Import atleti | scrittura nella dichiarata | ADR-0195 | header | — | — | — |
+| Audit | globale | `audit_logs` | nessuna | intatto | mai | mai |
+
+### Conseguenze
+
+- Il cambio di stagione della barra laterale e della prima nota si vede
+  subito; le pagine Calendario, Allenamenti, Gare, Allenatori mostrano la
+  stagione nell'intestazione.
+- Le voci del programma di altre stagioni **non spariscono** dal conteggio:
+  si leggono nella diagnostica come «appartengono a un'altra stagione».
+- Un evento manuale nato prima di questo lotto senza stagione resta senza:
+  appartiene alla stagione piu vecchia per regola. Chi vuole spostarlo lo
+  ricrea nella stagione giusta; nessun backfill automatico su dati reali.
+- `updateClubDataItem` di un record di un'altra stagione dalla stagione
+  attiva non lo trova: si modifica nella stagione in cui si sta guardando.
+- La categoria sul filtro Allenatori e sull'editor e della sola stagione
+  scelta; una categoria di un'altra stagione spuntata per errore viene
+  rifiutata e detta.
+- `seasons.delete` entra in catalogo con `DIREZIONE`; un ruolo personalizzato
+  puo perderla da sola.
+
+### Migrazioni
+
+`20260917120000_adr0197_stagione_dei_movimenti_storici`: `CREATE OR REPLACE
+VIEW accounting_ledger_lines`, identica alla precedente salvo la proiezione
+di `seasonId` sulle due gambe storiche. Nessuna tabella, nessun dato.

@@ -143,3 +143,31 @@ export const fetchSeasonRoster = async (seasonId: string) =>
       `/api/v1/seasons/${encodeURIComponent(seasonId)}/roster`,
     ),
   );
+
+/** Cosa contiene una stagione e cosa ne blocca l'eliminazione (ADR-0197 §31). */
+export type SeasonDeleteImpact = {
+  season: ClubSeason;
+  entries: Array<{ key: string; label: string; count: number; classification: "cascade" | "block" | "detach" }>;
+  blockers: Array<{ key: string; label: string; count: number; classification: "cascade" | "block" | "detach" }>;
+  canDelete: boolean;
+  isActive: boolean;
+  isLegacy: boolean;
+  confirmationText: string;
+};
+
+export const fetchSeasonDeleteImpact = async (seasonId: string) =>
+  unwrap(
+    await apiRequest<SeasonDeleteImpact>(`/api/v1/seasons/${encodeURIComponent(seasonId)}`),
+  );
+
+/**
+ * Eliminazione definitiva (ADR-0197 §30): `confirmation` e il testo scritto
+ * dall'utente, che il server confronta con «ELIMINA <nome>».
+ */
+export const deleteSeason = async (seasonId: string, confirmation: string) =>
+  unwrap(
+    await apiRequest<{ season: ClubSeason; removed: Record<string, number>; detachedTrainerAssignments: number }>(
+      `/api/v1/seasons/${encodeURIComponent(seasonId)}`,
+      { method: "DELETE", body: { confirmation } },
+    ),
+  );

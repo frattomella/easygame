@@ -70,6 +70,22 @@ type GenerateUntilExclusion = {
   reason: string;
 };
 
+/**
+ * La diagnostica del programma (ADR-0197): quante voci, quante generabili e
+ * — per quelle che non lo sono — quante e perche. E cio che sostituisce il
+ * generico «non contiene sessioni valide».
+ */
+type WeeklyProgramDiagnostics = {
+  seasonId: string | null;
+  seasonLabel: string | null;
+  totalRules: number;
+  validRules: number;
+  invalidRules: number;
+  rulesWithoutOccurrence: number;
+  outsideSeasonCount: number;
+  reasons: Array<{ code: string; count: number; label: string; examples: string[] }>;
+};
+
 type GenerateUntilResponse = {
   ran: boolean;
   due: boolean;
@@ -81,7 +97,67 @@ type GenerateUntilResponse = {
   preview: boolean;
   generatedUntil: string | null;
   reason?: string;
+  diagnostics?: WeeklyProgramDiagnostics;
 };
+
+/**
+ * «40 sessioni trovate: 32 valide, 8 non generabili perche…». Una frase
+ * per la diagnostica, con i motivi in coda: mai un numero senza il perche.
+ */
+const describeDiagnostics = (diagnostics: WeeklyProgramDiagnostics | undefined) => {
+  if (!diagnostics || !diagnostics.totalRules) {
+    return "Il programma settimanale non contiene nessuna sessione: aggiungine una prima di generare";
+  }
+  const motivi = diagnostics.reasons
+    .filter((reason) => reason.code !== "no_occurrence")
+    .map((reason) => `${reason.count} ${reason.label}`);
+  const senzaOccorrenza = diagnostics.rulesWithoutOccurrence
+    ? `${diagnostics.rulesWithoutOccurrence} valid${diagnostics.rulesWithoutOccurrence === 1 ? "a" : "e"} ma senza occorrenze nel periodo richiesto`
+    : "";
+  return [
+    `${diagnostics.totalRules} session${diagnostics.totalRules === 1 ? "e" : "i"} trovat${diagnostics.totalRules === 1 ? "a" : "e"}${diagnostics.seasonLabel ? ` per la stagione ${diagnostics.seasonLabel}` : ""}: ${diagnostics.validRules} valid${diagnostics.validRules === 1 ? "a" : "e"}`,
+    diagnostics.invalidRules
+      ? `${diagnostics.invalidRules} non generabil${diagnostics.invalidRules === 1 ? "e" : "i"} perche ${motivi.join("; ")}`
+      : "",
+    senzaOccorrenza,
+    diagnostics.outsideSeasonCount
+      ? `${diagnostics.outsideSeasonCount} occorrenz${diagnostics.outsideSeasonCount === 1 ? "a" : "e"} fuori dal periodo della stagione`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(", ") + ".";
+};
+
+/**
+ * La diagnostica del programma, a schermo (ADR-0197 §45): conteggi e, per
+ * ogni motivo, quante voci e qualche esempio. Compare anche a esito buono —
+ * «40 valide» e un'informazione — e resta quando non si e generato niente.
+ */
+function DiagnosticaProgramma({ diagnostics }: { diagnostics: WeeklyProgramDiagnostics }) {
+  const motivi = diagnostics.reasons;
+  return (
+    <div className="mt-2 text-sm text-egw-ink-72" data-testid="diagnostica-programma">
+      <p>
+        {diagnostics.totalRules} session{diagnostics.totalRules === 1 ? "e" : "i"} nel programma
+        {diagnostics.seasonLabel ? ` della stagione ${diagnostics.seasonLabel}` : ""}:{" "}
+        {diagnostics.validRules} valid{diagnostics.validRules === 1 ? "a" : "e"}
+        {diagnostics.invalidRules ? `, ${diagnostics.invalidRules} non generabil${diagnostics.invalidRules === 1 ? "e" : "i"}` : ""}
+        {diagnostics.outsideSeasonCount ? `, ${diagnostics.outsideSeasonCount} occorrenze fuori dal periodo della stagione` : ""}
+        .
+      </p>
+      {motivi.length > 0 ? (
+        <ul className="mt-1 list-disc space-y-0.5 pl-5">
+          {motivi.map((reason) => (
+            <li key={reason.code}>
+              {reason.count} {reason.label}
+              {reason.examples.length ? ` (es. ${reason.examples.join("; ")})` : ""}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
 
 const formatItTime = (value: string) => {
   const date = new Date(value);
@@ -259,11 +335,12 @@ export function TrainingScheduleAutomationPanel({
         throw new Error(response.error.message || "Generazione fallita");
       }
 
-      if (response.data?.reason === "missing_schedule") {
-        showToast(
-          "error",
-          "Il programma settimanale non contiene sessioni valide da generare",
-        );
+      if (
+        response.data?.reason === "missing_schedule" ||
+        response.data?.reason === "no_valid_rules"
+      ) {
+        showToast("error", describeDiagnostics(response.data?.diagnostics));
+        if (response.data) setLastGenerationResult(response.data);
         return;
       }
 
@@ -381,11 +458,10 @@ export function TrainingScheduleAutomationPanel({
           return;
         }
 
-        if (data.reason === "missing_schedule") {
-          showToast(
-            "error",
-            "Il programma settimanale non contiene sessioni valide da generare",
-          );
+        if (data.reason === "missing_schedule" || data.reason === "no_valid_rules") {
+          showToast("error", describeDiagnostics(data.diagnostics));
+          if (mode === "preview") setPreview(data);
+          else setLastGenerationResult(data);
           return;
         }
 
@@ -562,7 +638,13 @@ export function TrainingScheduleAutomationPanel({
             {lastGenerationResult.existingCount} · Conflitti:{" "}
             {lastGenerationResult.conflicts.length} · Non disponibili:{" "}
             {lastGenerationResult.excludedCount}
+            {lastGenerationResult.diagnostics?.seasonLabel
+              ? ` · Stagione ${lastGenerationResult.diagnostics.seasonLabel}`
+              : ""}
           </p>
+          {lastGenerationResult.diagnostics ? (
+            <DiagnosticaProgramma diagnostics={lastGenerationResult.diagnostics} />
+          ) : null}
 
           {lastGenerationResult.excludedSlots.length > 0 ? (
             <div className="mt-3">
@@ -919,7 +1001,9 @@ export function TrainingScheduleAutomationPanel({
                 Da creare: {preview.generatedCount} · Già esistenti:{" "}
                 {preview.existingCount} · Conflitti: {preview.conflicts.length}{" "}
                 · Esclusi: {preview.excludedCount}
+                {preview.diagnostics?.seasonLabel ? ` · Stagione ${preview.diagnostics.seasonLabel}` : ""}
               </p>
+              {preview.diagnostics ? <DiagnosticaProgramma diagnostics={preview.diagnostics} /> : null}
               {preview.conflicts.length > 0 ? (
                 <p className="mt-1 text-egw-amber-ink">
                   {preview.conflicts.length} fascia

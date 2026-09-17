@@ -63,6 +63,8 @@ type CategoryOption = { id: string; name: string };
 type TrainerOption = { id: string; name: string; categories?: any[] };
 
 export interface WeeklyTrainingItem {
+  /** La stagione a cui la voce appartiene, com'e in archivio (ADR-0197). */
+  seasonId?: string;
   id: string;
   day: string;
   startTime: string;
@@ -352,6 +354,14 @@ export function WeeklyTrainingSchedule({
 
       return {
         id: String(item?.id || createScheduleId()),
+        /*
+          La stagione della voce viaggia con la voce (ADR-0197): il pannello
+          la manda al server come override, e senza questo campo il server
+          non poteva sapere di quale stagione fossero le 40 righe.
+        */
+        ...(String(item?.seasonId || item?.season_id || "").trim()
+          ? { seasonId: String(item?.seasonId || item?.season_id).trim() }
+          : {}),
         day: resolvedDay,
         startTime: String(
           item?.startTime || item?.start_time || item?.time || "18:00",

@@ -1,5 +1,6 @@
 import { apiRequest } from "@/lib/api/client";
 import { getClubAthletes } from "@/lib/simplified-db";
+import { filterCollectionBySeason, normalizeClubSeasons } from "@/lib/club-seasons";
 
 /**
  * I dati che la Dashboard Club mostra **sopra la piega**, in un colpo solo.
@@ -103,16 +104,35 @@ export const readDashboardClubRow = async (
   const record = Array.isArray(response.data) ? response.data[0] : response.data;
   if (!record) return null;
 
+  /*
+    **La Dashboard mostra la stagione attiva, non tutte** (ADR-0197 §21).
+
+    Le cinque collezioni arrivano dalla riga del club **intere**, e la
+    prossima gara, le sedute di oggi, il conteggio delle categorie e le note
+    mescolavano la stagione scorsa a questa. La stessa regola di `getClubData`
+    (`filterCollectionBySeason` sulle impostazioni del club): un club senza
+    stagioni salvate non filtra.
+  */
+  const settings = asRecord(record.settings);
+  const stagioni = normalizeClubSeasons(settings);
+  const dellaStagione = (dataType: string, collection: unknown[]) =>
+    stagioni.isFallback
+      ? collection
+      : filterCollectionBySeason(dataType, collection, stagioni.activeSeasonId, {
+          legacySeasonId: stagioni.legacySeasonId,
+          knownSeasonIds: stagioni.seasons.map((season) => season.id),
+        });
+
   return {
     id: String(record.id || clubId),
     name: String(record.name || "Club"),
     logoUrl: record.logo_url || null,
     appointments: asArray(record.appointments),
-    notes: asArray(record.secretariat_notes),
-    matches: asArray(record.matches),
-    categories: asArray(record.categories),
-    trainings: asArray(record.trainings),
-    settings: asRecord(record.settings),
+    notes: dellaStagione("secretariat_notes", asArray(record.secretariat_notes)),
+    matches: dellaStagione("matches", asArray(record.matches)),
+    categories: dellaStagione("categories", asArray(record.categories)),
+    trainings: dellaStagione("trainings", asArray(record.trainings)),
+    settings,
   };
 };
 

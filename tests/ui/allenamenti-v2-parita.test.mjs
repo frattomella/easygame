@@ -41,7 +41,8 @@ test("la pagina e la «giornata sportiva» del Web V2: intestazione, rail, sedut
   assert.match(page, /<DataGrid<TrainingSession>/);
   assert.match(grid, /TRAINING_GRID_MODULE = "allenamenti"/);
   assert.match(page, /<AttendanceDrawer/);
-  assert.match(page, /<CollapsedSection[\s\S]{0,200}title="Programma settimanale"/);
+  /* Il titolo porta la stagione mostrata (ADR-0197 §9). */
+  assert.ok(page.includes('title={stagioneMostrata ? `Programma settimanale · ${stagioneMostrata}` : "Programma settimanale"}'), "il programma settimanale dice la stagione");
   assert.match(page, /<WeeklyTrainingSchedule/, "il programma settimanale e la sua automazione restano raggiungibili");
   assert.doesNotMatch(senzaCommenti(page), /window\.confirm/);
   assert.doesNotMatch(page, /bg-gradient-to-r|from-blue-600/);

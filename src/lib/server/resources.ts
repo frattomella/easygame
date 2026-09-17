@@ -75,6 +75,7 @@ import {
   resolveCategoryLabel,
 } from "../category-utils";
 import {
+  applySeasonIdToCollection,
   filterCollectionBySeason,
   isSeasonScopedDataType,
   normalizeClubSeasons,
@@ -4944,6 +4945,60 @@ const applySeasonStamp = async (
   return { ...payload, seasonId: season.activeSeasonId };
 };
 
+/**
+ * **Una colonna di stagione riscritta per intero conserva le altre stagioni**
+ * (ADR-0197, bug del pilota: il programma settimanale della stagione
+ * precedente e sparito).
+ *
+ * Il browser legge una collezione **filtrata** sulla stagione che mostra
+ * (`getClubData`, `getClubWeeklySchedule`) e la riscrive **intera** con
+ * `PATCH /api/v1/clubs/:id` — l'autosave del programma settimanale, i gruppi
+ * operativi, le note di segreteria. Con una stagione sola era innocuo; con
+ * due, salvare le 40 voci della stagione B ha cancellato le 36 della A: un
+ * salvataggio riuscito, senza errore e senza audit. Misurato sul pilota il
+ * 2026-09-17 (`season.rollover` dice `weekly_schedule created 36`, la
+ * colonna ne ha 40, tutte B).
+ *
+ * La regola sta dove il dato viene scritto: i record della colonna che sono
+ * **fuori dal perimetro** della richiesta e che il chiamante non ha
+ * rimandato restano. Cio che arriva senza stagione prende quella della
+ * richiesta. Senza un perimetro (club senza stagioni salvate, header vuoto o
+ * sconosciuto) la colonna si scrive com'e arrivata, come prima.
+ */
+const preserveOtherSeasonRecords = async (
+  field: string,
+  existingCollection: unknown,
+  incoming: unknown,
+  organizationId: string | null | undefined,
+  options: ResourceRequestOptions | undefined,
+) => {
+  if (!Array.isArray(incoming) || !isSeasonScopedDataType(field)) {
+    return incoming;
+  }
+  const season = await resolveRequestSeason(field, organizationId, options);
+  if (!season) {
+    return incoming;
+  }
+
+  const current = Array.isArray(existingCollection) ? existingCollection : [];
+  const stamped = applySeasonIdToCollection(incoming, season.activeSeasonId);
+  const inPerimeter = new Set(
+    filterCollectionBySeason(field, current, season.activeSeasonId, {
+      legacySeasonId: season.legacySeasonId,
+      knownSeasonIds: season.knownSeasonIds,
+    }).map((record: any) => String(record?.id || "")),
+  );
+  const incomingIds = new Set(
+    stamped.map((record: any) => String(record?.id || "")).filter(Boolean),
+  );
+  const altreStagioni = current.filter((record: any) => {
+    const id = String(record?.id || "");
+    return !inPerimeter.has(id) && !(id && incomingIds.has(id));
+  });
+
+  return [...altreStagioni, ...stamped];
+};
+
 const CLUB_RESOURCES = new Set(["clubs", "organizations"]);
 
 /**
@@ -8380,6 +8435,21 @@ export const updateResource = async (
     options,
     existing?.id || id,
   );
+  if ((resource === "clubs" || resource === "organizations") && existing) {
+    for (const field of CLUB_RESOURCE_TYPES) {
+      if (normalized[field] === undefined) continue;
+      const fuso = await preserveOtherSeasonRecords(
+        field,
+        (existing as any)[field],
+        normalized[field],
+        String(existing.id || id),
+        options,
+      );
+      normalized[field] = fuso;
+      /* La proiezione su `club_resource_items` legge `input`: le due devono dire la stessa cosa. */
+      if (input[field] !== undefined) input[field] = fuso;
+    }
+  }
   await guardLedgerOwnedPaymentState(resource, normalized, existing, scope, id);
   const importi = await guardLedgerOwnedPaymentAmounts(resource, normalized, existing);
   guardFiscalDocumentIntegrity(resource, normalized, existing);

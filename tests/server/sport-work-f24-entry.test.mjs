@@ -321,3 +321,44 @@ test("dopo lo storno, l'importo corretto si registra davvero", async () => {
     "l'originale stornato resta nei libri: il denaro non si cancella",
   );
 });
+
+/* ============================================ la stagione del versamento (D-RD-29) */
+
+test("D-RD-29 · il versamento porta la stagione dichiarata dal browser, e su due stagioni sovrapposte non si attribuisce per data", async () => {
+  fake = createFakePrisma({
+    ...seed(),
+    club: [
+      {
+        id: CLUB,
+        slug: "club-a",
+        name: "Club A",
+        settings: {
+          activeSeasonId: "s-b",
+          seasons: [
+            { id: "s-a", label: "2026/2027", startDate: "2026-07-01", endDate: "2027-06-30", status: "archived", createdAt: "2026-01-01T00:00:00.000Z" },
+            { id: "s-b", label: "2026/27", startDate: "2026-09-01", endDate: "2027-08-31", status: "active", createdAt: "2026-09-01T00:00:00.000Z" },
+          ],
+        },
+      },
+    ],
+  });
+  setPrismaClientForTests(fake.client);
+
+  await agenda.completeObligation(
+    "obl-1",
+    { payment: versamento({ activeSeasonId: "s-b" }) },
+    scope(),
+  );
+
+  assert.equal(movimenti().length, 1);
+  assert.equal(movimenti()[0].season_id, "s-b", "la stagione del browser, non la finestra della data (che e in entrambe)");
+});
+
+test("D-RD-29 · senza stagioni salvate il versamento non si marca", async () => {
+  await agenda.completeObligation(
+    "obl-1",
+    { payment: versamento({ activeSeasonId: "s-qualunque" }) },
+    scope(),
+  );
+  assert.equal(movimenti()[0].season_id ?? null, null);
+});

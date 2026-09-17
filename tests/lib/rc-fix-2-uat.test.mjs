@@ -272,9 +272,10 @@ test("le pagine non riscrivono a mano l'intestazione del PDF", () => {
 test("l'elenco Allenatori mostra i gruppi assegnati, non solo le categorie", () => {
   const source = read("src/app/trainers/page.tsx");
 
+  /* Da ADR-0197 le assegnazioni si spaccano per stagione e la colonna legge `labelsOf(split.current)`: i gruppi vincono ancora. */
   assert.match(
     source,
-    /trainerAssignmentLabels/,
+    /if \(groupLabels\.length\) return groupLabels;/,
     "la colonna deve risolvere i gruppi prima delle categorie",
   );
   /*
