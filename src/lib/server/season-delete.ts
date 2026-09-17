@@ -1,7 +1,7 @@
 import { prisma } from "./prisma";
 import {
   readClubResourceCollection,
-  replaceClubResourceCollection,
+  replaceClubResourceCollections,
 } from "./resources";
 import { readClubSeasonState, removeClubSeason } from "./seasons";
 import {
@@ -84,8 +84,66 @@ const recordSeasonId = (record: any) =>
 const countBySeason = (collection: any[], seasonId: string) =>
   collection.filter((record) => recordSeasonId(record) === seasonId).length;
 
-const countWithoutSeason = (collection: any[]) =>
-  collection.filter((record) => !recordSeasonId(record)).length;
+/** Senza annata **o con un'annata che il club non ha**: e della stagione piu vecchia per regola (revisione E5/A-L5). */
+const countWithoutSeason = (collection: any[], knownSeasonIds: ReadonlySet<string>) =>
+  collection.filter((record) => {
+    const id = recordSeasonId(record);
+    return !id || !knownSeasonIds.has(id);
+  }).length;
+
+const recordDate = (record: any) =>
+  String(record?.date || record?.entryDate || record?.entry_date || record?.created_at || "").slice(0, 10);
+
+/** «Nella finestra» inclusiva sulle date ISO (`YYYY-MM-DD`). */
+const inWindow = (date: string, season: Pick<ClubSeason, "startDate" | "endDate">) =>
+  Boolean(date) && date >= season.startDate && date <= season.endDate;
+
+/**
+ * Quante righe senza stagione la prima nota **mostra** sotto questa stagione
+ * (revisione E1): la stessa regola di lettura di `accounting.ts` — la finestra
+ * delle date, e solo se nessun'altra stagione la contiene.
+ */
+const conteggioPerFinestra = (
+  collection: any[],
+  season: ClubSeason,
+  seasons: readonly ClubSeason[],
+  knownSeasonIds: ReadonlySet<string>,
+) =>
+  collection.filter((record) => {
+    const id = recordSeasonId(record);
+    if (id && knownSeasonIds.has(id)) return false;
+    const date = recordDate(record);
+    if (!inWindow(date, season)) return false;
+    return !seasons.some((other) => other.id !== season.id && inWindow(date, other));
+  }).length;
+
+/**
+ * Tutti i record senza annata del club, per la guardia sulla stagione piu
+ * vecchia e per quella sulla creazione di una stagione precedente (ADR-0197
+ * §9, revisione A-H2): un record senza stagione cambia stagione ogni volta
+ * che cambia la piu vecchia, e questo non deve succedere in silenzio.
+ */
+export const countRecordsWithoutSeason = async (options: {
+  organizationId: string;
+  knownSeasonIds: readonly string[];
+}) => {
+  const known = new Set(options.knownSeasonIds);
+  let total = 0;
+  for (const descriptor of [...CONFIG_COLLECTIONS, ...HISTORY_COLLECTIONS]) {
+    if (!SEASON_SCOPED_DATA_TYPES.has(descriptor.key)) continue;
+    const collection = await readClubResourceCollection(options.organizationId, descriptor.key);
+    total += countWithoutSeason(collection, known);
+  }
+  const senzaStagione = { OR: [{ season_id: null }, { season_id: "" }, ...(known.size ? [{ season_id: { notIn: Array.from(known) } }] : [])] };
+  total += await prisma.clubEvent.count({ where: { organization_id: options.organizationId, ...senzaStagione } });
+  total += await prisma.accountingEntry.count({ where: { organization_id: options.organizationId, ...senzaStagione } });
+  total += await prisma.documentRequest.count({ where: { organization_id: options.organizationId, ...senzaStagione } });
+  total += await prisma.appointment.count({ where: { organization_id: options.organizationId, ...senzaStagione } });
+  total += await prisma.formSubmission.count({ where: { organization_id: options.organizationId, ...senzaStagione } });
+  total += await prisma.sportWorkRelationship.count({ where: { organization_id: options.organizationId, ...senzaStagione } });
+  total += await prisma.generatedDocument.count({ where: { organization_id: options.organizationId, ...senzaStagione } });
+  return total;
+};
 
 export const confirmationTextFor = (season: Pick<ClubSeason, "label">) =>
   `ELIMINA ${season.label}`;
@@ -108,7 +166,7 @@ export const summarizeSeasonDeleteImpact = async (options: {
 
   const entries: SeasonDeleteImpactEntry[] = [];
   const isLegacy = state.legacySeasonId === season.id;
-  let recordsWithoutSeason = 0;
+  const knownSeasonIds = new Set(state.seasons.map((entry) => entry.id));
 
   const categoryCollection = await readClubResourceCollection(organizationId, "categories");
   const categoryIds = new Set(
@@ -123,7 +181,6 @@ export const summarizeSeasonDeleteImpact = async (options: {
       descriptor.key === "categories"
         ? categoryCollection
         : await readClubResourceCollection(organizationId, descriptor.key);
-    recordsWithoutSeason += countWithoutSeason(collection);
     entries.push({
       key: descriptor.key,
       label: descriptor.label,
@@ -135,11 +192,15 @@ export const summarizeSeasonDeleteImpact = async (options: {
   for (const descriptor of HISTORY_COLLECTIONS) {
     if (!SEASON_SCOPED_DATA_TYPES.has(descriptor.key)) continue;
     const collection = await readClubResourceCollection(organizationId, descriptor.key);
-    recordsWithoutSeason += countWithoutSeason(collection);
+    /* Anche le righe senza stagione che la prima nota mostra qui per finestra (revisione E1). */
+    const perFinestra =
+      descriptor.key === "transactions" || descriptor.key === "transfers"
+        ? conteggioPerFinestra(collection, season, state.seasons, knownSeasonIds)
+        : 0;
     entries.push({
       key: descriptor.key,
       label: descriptor.label,
-      count: countBySeason(collection, season.id),
+      count: countBySeason(collection, season.id) + perFinestra,
       classification: "block",
     });
   }
@@ -148,10 +209,6 @@ export const summarizeSeasonDeleteImpact = async (options: {
   const eventi = await prisma.clubEvent.count({
     where: { organization_id: organizationId, season_id: season.id },
   });
-  const eventiSenzaStagione = await prisma.clubEvent.count({
-    where: { organization_id: organizationId, OR: [{ season_id: null }, { season_id: "" }] },
-  });
-  recordsWithoutSeason += eventiSenzaStagione;
   entries.push({ key: "events", label: "Allenamenti e gare", count: eventi, classification: "block" });
 
   const presenze = eventi
@@ -178,8 +235,32 @@ export const summarizeSeasonDeleteImpact = async (options: {
     : 0;
   entries.push({ key: "memberships", label: "Tesserati nelle squadre", count: appartenenze, classification: "block" });
 
+  /*
+    I movimenti si contano con la regola con cui la prima nota li **mostra**
+    (revisione E1): la stagione della riga, oppure — per una riga senza
+    stagione — la finestra delle date, quando nessun'altra stagione la
+    contiene. Contare solo `season_id` diceva «0 movimenti» a una stagione
+    sotto cui il registro ne elencava, e dopo l'eliminazione quelle righe non
+    sarebbero comparse piu sotto nessuna.
+  */
+  const finestra = { gte: new Date(`${season.startDate}T00:00:00.000Z`), lte: new Date(`${season.endDate}T23:59:59.999Z`) };
+  const altreFinestre = state.seasons
+    .filter((other) => other.id !== season.id)
+    .map((other) => ({ gte: new Date(`${other.startDate}T00:00:00.000Z`), lte: new Date(`${other.endDate}T23:59:59.999Z`) }));
   const movimenti = await prisma.accountingEntry.count({
-    where: { organization_id: organizationId, season_id: season.id },
+    where: {
+      organization_id: organizationId,
+      OR: [
+        { season_id: season.id },
+        {
+          AND: [
+            { OR: [{ season_id: null }, { season_id: "" }, ...(knownSeasonIds.size ? [{ season_id: { notIn: Array.from(knownSeasonIds) } }] : [])] },
+            { entry_date: finestra },
+            ...altreFinestre.map((other) => ({ NOT: { entry_date: other } })),
+          ],
+        },
+      ],
+    },
   });
   entries.push({ key: "accounting_entries", label: "Movimenti contabili", count: movimenti, classification: "block" });
 
@@ -235,6 +316,9 @@ export const summarizeSeasonDeleteImpact = async (options: {
   }, 0);
   entries.push({ key: "trainer_assignments", label: "Assegnazioni allenatori", count: assegnazioni, classification: "detach" });
 
+  const recordsWithoutSeason = isLegacy
+    ? await countRecordsWithoutSeason({ organizationId, knownSeasonIds: Array.from(knownSeasonIds) })
+    : 0;
   if (isLegacy && recordsWithoutSeason > 0) {
     entries.push({
       key: "legacy_records",
@@ -326,31 +410,59 @@ export const deleteClubSeason = async (options: {
       seasonId: season.id,
       legacySeasonId: state.legacySeasonId,
     }).current;
-    const toDrop = new Set([...current.categoryIds, ...current.groupIds]);
-    if (!toDrop.size) return trainer;
-    detached += toDrop.size;
-    trainersChanged = true;
+    /*
+      Si toglie **il riferimento com'era in archivio** (revisione E4/D-L2): un
+      nome che risolveva sulla categoria della stagione, un id, un gruppo in
+      `groupIds` o `group_ids`. Cio che si conta e cio che si toglie davvero.
+    */
+    const dropRefs = new Set(current.rawCategoryRefs);
+    const dropGroups = new Set(current.rawGroupRefs);
+    if (!dropRefs.size && !dropGroups.size) return trainer;
     const categories = (Array.isArray(trainer?.categories) ? trainer.categories : []).filter(
-      (entry: any) => !toDrop.has(String(typeof entry === "string" ? entry : entry?.id || "").trim()),
+      (entry: any) => !dropRefs.has(entry),
     );
     const groupIds = (Array.isArray(trainer?.groupIds) ? trainer.groupIds : []).filter(
-      (id: any) => !toDrop.has(String(id || "").trim()),
+      (id: any) => !dropGroups.has(String(id || "").trim()),
     );
-    return { ...trainer, categories, ...(Array.isArray(trainer?.groupIds) ? { groupIds } : {}) };
+    const groupIdsSnake = (Array.isArray(trainer?.group_ids) ? trainer.group_ids : []).filter(
+      (id: any) => !dropGroups.has(String(id || "").trim()),
+    );
+    const tolte =
+      ((Array.isArray(trainer?.categories) ? trainer.categories.length : 0) - categories.length) +
+      ((Array.isArray(trainer?.groupIds) ? trainer.groupIds.length : 0) - groupIds.length) +
+      ((Array.isArray(trainer?.group_ids) ? trainer.group_ids.length : 0) - groupIdsSnake.length);
+    if (!tolte) return trainer;
+    detached += tolte;
+    trainersChanged = true;
+    return {
+      ...trainer,
+      categories,
+      ...(Array.isArray(trainer?.groupIds) ? { groupIds } : {}),
+      ...(Array.isArray(trainer?.group_ids) ? { group_ids: groupIdsSnake } : {}),
+    };
   });
 
+  /*
+    **Una transazione per le collezioni** (revisione E3): categorie, gruppi,
+    piani, sconti, programma e allenatori si riscrivono insieme o non si
+    riscrivono. La stagione si toglie dalle impostazioni subito dopo; se
+    quella scrittura fallisce la stagione resta, vuota, e si puo rieliminare.
+  */
   const removed: Record<string, number> = {};
+  const daScrivere: Array<{ resource_type: string; items: any[] }> = [];
   for (const descriptor of CONFIG_COLLECTIONS) {
     const collection = await readClubResourceCollection(organizationId, descriptor.key);
     const next = collection.filter((record: any) => recordSeasonId(record) !== season.id);
     removed[descriptor.key] = collection.length - next.length;
     if (removed[descriptor.key] > 0) {
-      await replaceClubResourceCollection(organizationId, descriptor.key, next);
+      daScrivere.push({ resource_type: descriptor.key, items: next });
     }
   }
-
   if (trainersChanged) {
-    await replaceClubResourceCollection(organizationId, "trainers", nextTrainers);
+    daScrivere.push({ resource_type: "trainers", items: nextTrainers });
+  }
+  if (daScrivere.length) {
+    await replaceClubResourceCollections(organizationId, daScrivere);
   }
 
   await removeClubSeason(organizationId, season.id);

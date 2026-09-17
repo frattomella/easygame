@@ -104,8 +104,13 @@ test("una stagione dichiarata che il club non ha si rifiuta", async () => {
   assert.equal(fake.rows("accountingEntry").length, 0);
 });
 
-test("una stagione di contesto sconosciuta non marca niente: la riga resta attribuibile per data", async () => {
+test("una stagione di contesto sconosciuta (segnalibro vecchio) ricade sull'attiva, come il risolutore canonico (ADR-0197 §2)", async () => {
   const riga = await accounting.createAccountingEntry(movimento({ activeSeasonId: "segnalibro-vecchio" }), scope());
+  assert.equal(riga.season_id, "s-nuova");
+});
+
+test("senza nessun contesto (chiamante interno) la riga resta senza stagione", async () => {
+  const riga = await accounting.createAccountingEntry(movimento({}), scope());
   assert.equal(riga.season_id, null);
 });
 

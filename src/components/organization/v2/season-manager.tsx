@@ -691,6 +691,13 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
             ...(lastSummary.athletes.notConfirmed ? [{ label: "Non riconfermati", value: formatInteger(lastSummary.athletes.notConfirmed), tone: "muted" as const }] : []),
             ...(lastSummary.athletes.alreadyPresent ? [{ label: "Gia presenti", value: formatInteger(lastSummary.athletes.alreadyPresent), tone: "muted" as const }] : []),
             ...(lastSummary.athletes.unmappable ? [{ label: "Senza squadra di destinazione", value: formatInteger(lastSummary.athletes.unmappable), tone: "amber" as const }] : []),
+            /* Le assegnazioni degli allenatori, e cio che non ha trovato una destinazione (ADR-0197 §7, revisione D-M4). */
+            ...(lastSummary.trainers?.requested
+              ? [{ label: "Allenatori con squadre riportate", value: `${formatInteger(lastSummary.trainers.trainersUpdated)} su ${formatInteger(lastSummary.trainers.trainersWithAssignments)}` }]
+              : []),
+            ...(lastSummary.trainers?.unmapped?.length
+              ? [{ label: "Assegnazioni senza destinazione", value: `${formatInteger(lastSummary.trainers.unmapped.length)} (${Array.from(new Set(lastSummary.trainers.unmapped.map((entry) => entry.trainerName))).join(", ")})`, tone: "amber" as const }]
+              : []),
           ]}
           /* «non creati» e non «gia presenti»: fra i saltati c'e anche chi l'operatore ha deliberatamente escluso. */
           total={{ label: "Elementi creati · non creati", value: `${formatInteger(lastSummary.createdTotal)} · ${formatInteger(lastSummary.skippedTotal)}` }}

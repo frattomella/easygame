@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { resolveSeasonContext } from "./season-context";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { isTrainerAccessRole, normalizeAccessRole } from "@/lib/access-roles";
 import {
@@ -195,7 +196,7 @@ const readTrainerPerimeter = async (
  */
 export const computeTrainerOperationalAlerts = async (
   scope: TrainerAreaScope,
-  options: { now?: Date } = {},
+  options: { now?: Date; seasonId?: string | null } = {},
 ): Promise<TrainerOperationalAlert[]> => {
   const organizationId = assertTrainerArea(scope);
   const now = options.now ?? new Date();
@@ -205,9 +206,11 @@ export const computeTrainerOperationalAlerts = async (
     asText(scope.userId),
   );
 
+  /* Gli avvisi sono della stagione in corso, non di tutte (ADR-0197, revisione C4). */
+  const stagione = await resolveSeasonContext(organizationId, options.seasonId ?? undefined);
   const [allenamenti, gare] = await Promise.all([
-    listClubEvents(scope as any, { kind: "training" }),
-    listClubEvents(scope as any, { kind: "match" }),
+    listClubEvents(scope as any, { kind: "training", season: stagione }),
+    listClubEvents(scope as any, { kind: "match", season: stagione }),
   ]);
 
   const righe = [...allenamenti, ...gare];

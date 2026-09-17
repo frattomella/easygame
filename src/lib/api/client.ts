@@ -198,17 +198,29 @@ export const rememberActiveSeason = (
 const withContextHeaders = (init?: HeadersInit) => {
   const headers = new Headers(init || {});
 
-  if (typeof window !== "undefined" && !headers.has("x-active-club-id")) {
+  if (typeof window !== "undefined") {
     const activeClub = readStoredActiveClub();
-    if (activeClub?.id) {
+    if (activeClub?.id && !headers.has("x-active-club-id")) {
       headers.set("x-active-club-id", String(activeClub.id));
     }
 
-    if (activeClub?.role && !headers.has("x-active-access-role")) {
+    /*
+      Ruolo e stagione viaggiano anche quando il chiamante ha gia messo il
+      club (revisione C5): prima stavano dentro la guardia del club, e ogni
+      chiamata con `x-active-club-id` esplicito partiva **senza** stagione —
+      il cruscotto dell'allenatore leggeva le categorie di tutte le stagioni
+      e gli eventi della sola attiva, nella stessa pagina. Valgono solo per
+      il club che il browser ha attivo: un header di un altro club non prende
+      la stagione di questo.
+    */
+    const stessoClub =
+      !headers.has("x-active-club-id") ||
+      String(headers.get("x-active-club-id") || "") === String(activeClub?.id || "");
+    if (stessoClub && activeClub?.role && !headers.has("x-active-access-role")) {
       headers.set("x-active-access-role", String(activeClub.role));
     }
 
-    if (activeClub?.activeSeasonId && !headers.has("x-active-season-id")) {
+    if (stessoClub && activeClub?.activeSeasonId && !headers.has("x-active-season-id")) {
       headers.set("x-active-season-id", String(activeClub.activeSeasonId));
     }
   }

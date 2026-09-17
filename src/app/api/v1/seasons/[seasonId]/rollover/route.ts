@@ -52,6 +52,10 @@ export async function POST(request: Request, context: Context) {
           athletesNotConfirmed: result.athletes.notConfirmed,
           athleteMembershipsCreated: result.athletes.created,
           athletesCarried: result.athletes.carried,
+          trainersRequested: result.trainers.requested,
+          trainersUpdated: result.trainers.trainersUpdated,
+          trainerAssignmentsCreated: result.trainers.assignmentsCreated,
+          trainerAssignmentsUnmapped: result.trainers.unmapped.length,
         },
       });
     }

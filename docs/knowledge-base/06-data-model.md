@@ -1284,8 +1284,11 @@ classificato vorrebbe dire scrivere una scelta contabile al posto del club.
 
 `20260917120000_adr0197_stagione_dei_movimenti_storici` ricrea la vista
 identica salvo la sesta colonna delle due gambe storiche
-(`legacy-transaction`, `legacy-transfer`): `NULLIF(btrim(value->>'seasonId'), '')`
-al posto di `NULL::text`. Una riga del blob che porta `seasonId` (WP-32) esce
+(`legacy-transaction`, `legacy-transfer`):
+`COALESCE(NULLIF(btrim(value->>'seasonId'), ''), NULLIF(btrim(value->>'season_id'), ''))`
+al posto di `NULL::text`. In lettura una riga con una stagione che il club
+non ha vale «senza», e una riga senza stagione si attribuisce per data solo
+se la finestra e unica (ADR-0197 §2). Una riga del blob che porta `seasonId` (WP-32) esce
 con la sua stagione e la prima nota la filtra per identita; una riga senza
 resta senza e vale la regola dei record senza annata (D-RD-30, chiuso).
 

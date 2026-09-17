@@ -137,3 +137,67 @@ test("riproduzione · la stessa generazione senza override (cron) trova le 40 vo
   assert.ok(risultato.generatedTrainings.length > 0);
   assert.ok(risultato.generatedTrainings.every((t) => t.seasonId === B));
 });
+
+/* ============================================ il catalogo della stagione (revisione B1/A-C1) */
+
+test("una voce di B che nomina la categoria della A, una ambigua e una sconosciuta: contate, dette, non generate", async () => {
+  const fake = createFakePrisma({
+    ...seedDueStagioniSovrapposte(),
+    club: [
+      {
+        ...seedDueStagioniSovrapposte().club[0],
+        categories: [
+          { id: "cat-a-u15", name: "Under 15 Eccellenza", seasonId: A },
+          { id: "cat-b-u15", name: "Under 15 Eccellenza", seasonId: B },
+          { id: "cat-b-u15-sud", name: "Under 15 Eccellenza", seasonId: B, siteId: "sud" },
+          { id: "cat-b-u17", name: "Under 17 Regionale", seasonId: B },
+        ],
+        weekly_schedule: [
+          { id: "v-ok", seasonId: B, day: "Lunedì", startTime: "18:00", endTime: "19:00", categoryId: "cat-b-u17", structureId: "structure-1", locationId: "field-1", trainerIds: ["trainer-1"], active: true },
+          { id: "v-vecchia", seasonId: B, day: "Lunedì", startTime: "19:00", endTime: "20:00", categoryId: "cat-a-u15", structureId: "structure-1", locationId: "field-1", trainerIds: ["trainer-1"], active: true },
+          { id: "v-ambigua", seasonId: B, day: "Lunedì", startTime: "20:00", endTime: "21:00", categoryId: "Under 15 Eccellenza", structureId: "structure-1", locationId: "field-1", trainerIds: ["trainer-1"], active: true },
+          { id: "v-inesistente", seasonId: B, day: "Lunedì", startTime: "21:00", endTime: "22:00", categoryId: "cat-mai", structureId: "structure-1", locationId: "field-1", trainerIds: ["trainer-1"], active: true },
+          { id: "v-spenta", seasonId: B, day: "Lunedì", startTime: "22:00", endTime: "23:00", categoryId: "cat-b-u17", structureId: "structure-1", locationId: "field-1", trainerIds: ["trainer-1"], active: false },
+          { id: "v-della-a", seasonId: A, day: "Lunedì", startTime: "17:00", endTime: "18:00", categoryId: "cat-a-u15", structureId: "structure-1", locationId: "field-1", trainerIds: ["trainer-1"], active: true },
+        ],
+      },
+    ],
+  });
+  setPrismaClientForTests(fake.client);
+
+  const risultato = await automazione.runTrainingAutomationForClub(CLUB, {
+    force: true,
+    now: NOW,
+    untilDate: "2026-09-24",
+    preview: true,
+  });
+
+  assert.equal(risultato.diagnostics.totalRules, 6);
+  assert.equal(risultato.diagnostics.validRules, 1, "solo la voce sulla U17 della B");
+  assert.equal(risultato.diagnostics.invalidRules, 5);
+  const motivi = Object.fromEntries(risultato.diagnostics.reasons.map((r) => [r.code, r.count]));
+  assert.deepEqual(motivi, { other_season: 1, inactive: 1, unknown_category: 2, ambiguous_category: 1 });
+  assert.equal(risultato.generatedTrainings.length, 1);
+  assert.equal(risultato.generatedTrainings[0].categoryId, "cat-b-u17");
+  assert.ok(
+    risultato.generatedTrainings.every((t) => t.categoryId !== "cat-a-u15" && t.categoryId !== "cat-mai" && t.categoryId !== "Under 15 Eccellenza"),
+    "nessun allenamento con la squadra dell'anno scorso, un nome o un id inventato",
+  );
+});
+
+test("40 voci senza allenatore ne campo: «incomplete», non «nessuna sessione»", async () => {
+  const fake = createFakePrisma({
+    ...seedDueStagioniSovrapposte(),
+    club: [
+      {
+        ...seedDueStagioniSovrapposte().club[0],
+        weekly_schedule: quarantaVoci(B).map((v) => ({ ...v, trainerIds: [], structureId: "", locationId: "" })),
+      },
+    ],
+  });
+  setPrismaClientForTests(fake.client);
+  const risultato = await automazione.runTrainingAutomationForClub(CLUB, { force: true, now: NOW, untilDate: "2026-09-24", preview: true });
+  assert.equal(risultato.reason, "no_valid_rules");
+  assert.equal(risultato.diagnostics.totalRules, 40);
+  assert.equal(risultato.diagnostics.reasons.find((r) => r.code === "incomplete")?.count, 40);
+});

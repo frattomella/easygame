@@ -130,7 +130,7 @@ type AutomationRunResult = {
   generatedTrainings: Record<string, any>[];
   lastRunAt: string | null;
   settings: TrainingAutomationSettings;
-  reason?: "not_due" | "missing_schedule" | "no_valid_rules" | "until_out_of_range";
+  reason?: "not_due" | "missing_schedule" | "no_valid_rules" | "outside_season" | "until_out_of_range";
   /**
    * **Il programma, contato voce per voce** (ADR-0197, bug A del pilota).
    *
@@ -172,6 +172,7 @@ type AutomationRunResult = {
 export type WeeklyProgramDiagnosticCode =
   | "other_season"
   | "inactive"
+  | "incomplete"
   | "unknown_category"
   | "ambiguous_category"
   | "no_occurrence";
@@ -206,6 +207,7 @@ const WEEKLY_PROGRAM_DIAGNOSTIC_LABELS: Record<
       ? `appartengono a un'altra stagione, non alla ${seasonLabel}`
       : "appartengono a un'altra stagione",
   inactive: () => "sono disattivate",
+  incomplete: () => "sono incomplete (manca l'allenatore, il campo o l'orario)",
   unknown_category: (seasonLabel) =>
     seasonLabel
       ? `fanno riferimento a una categoria non disponibile nella stagione ${seasonLabel}`
@@ -364,6 +366,8 @@ const toWeeklyScheduleEntries = (source: unknown): Record<string, any>[] => {
  */
 const buildWeeklyScheduleIdentityKey = (item: Record<string, any>) =>
   [
+    /* Due voci uguali in due stagioni sono due voci (revisione B5). */
+    item.seasonId || item.season_id || "",
     item.day || "",
     item.startTime || item.start_time || item.time || "",
     item.endTime || item.end_time || "",
@@ -523,11 +527,14 @@ const mergeWeeklyScheduleSources = ({
   clubWeeklySchedule,
   resourceWeeklySchedule,
   stampSeasonId,
+  onIncomplete,
 }: {
   clubWeeklySchedule: unknown;
   resourceWeeklySchedule: unknown;
   /** Stagione da scrivere sulle voci dell'override che non ne portano una. */
   stampSeasonId?: string | null;
+  /** Una voce che la normalizzazione scarta (senza allenatore, senza campo, orario non valido): si conta, non sparisce (revisione B6). */
+  onIncomplete?: (item: Record<string, any>) => void;
 }) => {
   const scheduleSources = [clubWeeklySchedule, resourceWeeklySchedule];
   const merged: Record<string, any>[] = [];
@@ -545,6 +552,7 @@ const mergeWeeklyScheduleSources = ({
     scopedEntries.forEach((item) => {
       const normalizedItem = normalizeWeeklyScheduleSourceItem(item);
       if (!normalizedItem) {
+        onIncomplete?.(item);
         return;
       }
 
@@ -1500,6 +1508,7 @@ export async function runTrainingAutomationForClub(
   const generationSeasonLabel = seasonContext.season?.label ?? null;
 
   const hasWeeklyScheduleOverride = options.weeklyScheduleOverride !== undefined;
+  const incomplete: Record<string, any>[] = [];
   const weeklyScheduleTutte = mergeWeeklyScheduleSources({
     clubWeeklySchedule:
       hasWeeklyScheduleOverride
@@ -1509,11 +1518,21 @@ export async function runTrainingAutomationForClub(
       ? []
       : resourcePayloadsByType.weekly_schedule || [],
     stampSeasonId: hasWeeklyScheduleOverride ? generationSeasonId : null,
+    onIncomplete: (item) => incomplete.push(item),
   });
 
   /* Gli esiti per voce: si riempiono qui e nel ciclo, e alla fine si contano. */
   const ruleOutcome = new Map<string, WeeklyProgramDiagnosticCode | "valid">();
   const ruleExamples = new Map<WeeklyProgramDiagnosticCode, string[]>();
+  for (const item of incomplete) {
+    ruleOutcome.set(
+      String(item?.id || "").trim() || describeRuleForDiagnostics(item),
+      "incomplete",
+    );
+    const examples = ruleExamples.get("incomplete") || [];
+    if (examples.length < 3) examples.push(describeRuleForDiagnostics(item));
+    ruleExamples.set("incomplete", examples);
+  }
   const ruleKey = (item: Record<string, any>) =>
     String(item.id || "").trim() || buildWeeklyScheduleIdentityKey(item) || describeRuleForDiagnostics(item);
   const segnaVoce = (item: Record<string, any>, code: WeeklyProgramDiagnosticCode) => {
@@ -1548,7 +1567,7 @@ export async function runTrainingAutomationForClub(
     }
     const noOccurrence = counts.get("no_occurrence") || 0;
     const reasons = (
-      ["other_season", "inactive", "unknown_category", "ambiguous_category", "no_occurrence"] as const
+      ["other_season", "inactive", "incomplete", "unknown_category", "ambiguous_category", "no_occurrence"] as const
     )
       .filter((code) => (counts.get(code) || 0) > 0)
       .map((code) => ({
@@ -1571,7 +1590,7 @@ export async function runTrainingAutomationForClub(
   };
   let outsideSeasonCount = 0;
 
-  if (!weeklyScheduleTutte.length) {
+  if (!weeklyScheduleTutte.length && !incomplete.length) {
     return {
       ran: true,
       due: true,
@@ -1599,17 +1618,25 @@ export async function runTrainingAutomationForClub(
     che stanno nella squadra nuova. Una categoria che la stagione non ha e
     una voce da dire, non da generare.
   */
-  const categoryListTutte = buildClubCategoryOptions({
-    clubCategories: club.categories,
-    resourceCategories: resourcePayloadsByType.categories || [],
+  /*
+    Il filtro sta sui **grezzi**: `buildClubCategoryOptions` restituisce
+    opzioni senza `seasonId`, e filtrarle dopo svuotava il catalogo di ogni
+    stagione che non fosse la piu vecchia (revisione B1: con il catalogo vuoto
+    ogni riferimento passava com'era, e l'allenamento nasceva con la categoria
+    dell'anno scorso — il contrario di cio che la regola dice).
+  */
+  const dellaStagione = (records: unknown[]) =>
+    generationSeasonId
+      ? filterCollectionBySeason("categories", records, generationSeasonId, {
+          legacySeasonId: seasonContext.legacySeasonId,
+          knownSeasonIds: seasonContext.knownSeasonIds,
+        })
+      : records;
+  const categoryList = buildClubCategoryOptions({
+    clubCategories: dellaStagione(Array.isArray(club.categories) ? (club.categories as unknown[]) : []),
+    resourceCategories: dellaStagione(resourcePayloadsByType.categories || []),
     athletes,
   });
-  const categoryList = generationSeasonId
-    ? filterCollectionBySeason("categories", categoryListTutte, generationSeasonId, {
-        legacySeasonId: seasonContext.legacySeasonId,
-        knownSeasonIds: seasonContext.knownSeasonIds,
-      })
-    : categoryListTutte;
 
   /*
     Voci senza categoria nella stagione: si dicono **prima** del ciclo sui
@@ -1740,7 +1767,6 @@ export async function runTrainingAutomationForClub(
         outsideSeasonCount += 1;
         continue;
       }
-      ruleWithOccurrence.add(ruleKey(scheduleItem));
 
       /*
         **Una sospensione salta la data, non la regola** (WP-15): la
@@ -1758,6 +1784,8 @@ export async function runTrainingAutomationForClub(
       ) {
         continue;
       }
+      /* Un'occorrenza sospesa non e un'occorrenza (revisione B9). */
+      ruleWithOccurrence.add(ruleKey(scheduleItem));
 
       const rawCategoryReference = getNonEmptyString(
         scheduleItem.categoryId,
@@ -2028,6 +2056,7 @@ export async function runTrainingAutomationForClub(
       {
         campoChiuso: "salta",
         soloAnteprima: options.preview,
+        season: seasonContext,
       },
     );
     conflicts = esito.conflitti;
@@ -2059,6 +2088,8 @@ export async function runTrainingAutomationForClub(
     ran: true,
     due: true,
     generatedCount: createdCount,
+    /* Zero generati perche tutto cade fuori dal periodo della stagione: si dice (revisione B8). */
+    ...(generatedTrainings.length === 0 && outsideSeasonCount > 0 ? { reason: "outside_season" as const } : {}),
     unresolvedCategorySlots,
     diagnostics: buildDiagnostics(),
     generatedTrainings,

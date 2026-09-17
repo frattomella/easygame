@@ -554,7 +554,8 @@ export const SEASON_ROLLOVER_TYPES: SeasonRolloverTypeDescriptor[] = [
       "Chi allena quali squadre, sulle categorie e i gruppi riportati",
     defaultSelected: false,
     storage: "model",
-    requires: ["categories"],
+    /* Anche i gruppi: un allenatore con un gruppo di sede senza la sua copia nuova non vedrebbe nessun evento (revisione D-M4). */
+    requires: ["categories", "category_groups"],
   },
 ];
 
@@ -811,6 +812,8 @@ export const planSeasonRollover = (options: {
   types: string[];
   collections: Record<string, any[]>;
   legacySeasonId?: string | null;
+  /** Le stagioni del club: un record che ne nomina una sconosciuta e della piu vecchia, come per ogni lettore (revisione A-M6). */
+  knownSeasonIds?: string[];
   generateId?: (type: string, index: number) => string;
   now?: string;
 }): SeasonRolloverPlan => {
@@ -819,6 +822,7 @@ export const planSeasonRollover = (options: {
     targetSeasonId,
     collections,
     legacySeasonId = null,
+    knownSeasonIds,
     generateId = (type: string) => defaultRolloverId(type),
     now = new Date().toISOString(),
   } = options;
@@ -833,9 +837,11 @@ export const planSeasonRollover = (options: {
     const collection = Array.isArray(collections[type]) ? collections[type] : [];
     const sourceItems = filterCollectionBySeason(type, collection, sourceSeasonId, {
       legacySeasonId,
+      knownSeasonIds,
     });
     const targetItems = filterCollectionBySeason(type, collection, targetSeasonId, {
       legacySeasonId,
+      knownSeasonIds,
     });
 
     // Da id d'origine (e da nome) all'elemento gia presente in destinazione:

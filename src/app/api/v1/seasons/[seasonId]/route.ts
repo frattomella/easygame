@@ -7,6 +7,7 @@ import {
 } from "@/lib/server/season-delete";
 import { hasSeasonPermission } from "@/lib/seasons/permissions";
 import { recordPermissionDenied } from "@/lib/server/audit";
+import { publicErrorMessage } from "@/lib/server/api-errors";
 import {
   isSeasonRequestFailure,
   resolveSeasonRequestContext,
@@ -117,13 +118,6 @@ export async function DELETE(request: Request, context: Context) {
   const confirmation = String(body?.confirmation || "").trim();
   const seasonId = context.params.seasonId;
 
-  await requestContext.audit({
-    action: AUDIT_ACTIONS.seasonDeleteRequested,
-    resource: "seasons",
-    resourceId: seasonId,
-    metadata: { confirmation: Boolean(confirmation) },
-  });
-
   try {
     const result = await deleteClubSeason({
       organizationId: requestContext.organizationId,
@@ -131,6 +125,13 @@ export async function DELETE(request: Request, context: Context) {
       confirmation,
     });
 
+    /* La richiesta e l'esito: due righe, una volta ciascuna (revisione E6). */
+    await requestContext.audit({
+      action: AUDIT_ACTIONS.seasonDeleteRequested,
+      resource: "seasons",
+      resourceId: seasonId,
+      metadata: { confirmation: true },
+    });
     await requestContext.audit({
       action: AUDIT_ACTIONS.seasonDeleted,
       resource: "seasons",
@@ -148,12 +149,13 @@ export async function DELETE(request: Request, context: Context) {
 
     return NextResponse.json({ data: result, error: null });
   } catch (error: any) {
+    /* Una richiesta rifiutata lascia una riga sola, con il motivo pubblico (mai il messaggio del driver). */
     await requestContext.audit({
       action: AUDIT_ACTIONS.seasonDeleteRequested,
       outcome: "denied",
       resource: "seasons",
       resourceId: seasonId,
-      metadata: { reason: String(error?.message || "").slice(0, 200) },
+      metadata: { confirmation: Boolean(confirmation), reason: publicErrorMessage(error, "Eliminazione rifiutata").slice(0, 200) },
     });
     return seasonErrorResponse(error);
   }

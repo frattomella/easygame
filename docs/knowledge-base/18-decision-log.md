@@ -13345,16 +13345,112 @@ del club ef5317db esce con `season-2025-2026`).
 - Un evento manuale nato prima di questo lotto senza stagione resta senza:
   appartiene alla stagione piu vecchia per regola. Chi vuole spostarlo lo
   ricrea nella stagione giusta; nessun backfill automatico su dati reali.
-- `updateClubDataItem` di un record di un'altra stagione dalla stagione
-  attiva non lo trova: si modifica nella stagione in cui si sta guardando.
+- `updateClubDataItem`/`deleteClubDataItem` leggono la colonna intera e la
+  rimandano: il server tiene ai record esistenti la stagione che avevano
+  (anche «nessuna»), e marca solo i record nuovi. Un record di un'altra
+  stagione tolto da un client che non la mostra viene conservato dal server
+  (D-RD-34): si toglie nella stagione in cui si sta guardando.
 - La categoria sul filtro Allenatori e sull'editor e della sola stagione
   scelta; una categoria di un'altra stagione spuntata per errore viene
   rifiutata e detta.
 - `seasons.delete` entra in catalogo con `DIREZIONE`; un ruolo personalizzato
   puo perderla da sola.
 
+### Revisione ostile: cinque revisori in sola lettura, un solo scrittore
+
+Trovati (somma dei cinque rapporti): **Critical 5, High 15, Medium 21, Low
+21** — con tre difetti Critical distinti (due segnalati da piu revisori). Alla
+chiusura: **Critical 0, High 0**, Medium 4 dichiarati, Low 9 dichiarati.
+
+Chiusure che hanno cambiato la decisione:
+
+- **il catalogo della stagione si filtra sui grezzi** (A-C1/B1): le opzioni
+  di `buildClubCategoryOptions` non portano `seasonId`, e il filtro a valle
+  svuotava il catalogo di ogni stagione non baseline — la diagnostica
+  «categoria non disponibile» era codice morto e l'allenamento nasceva con
+  la squadra dell'anno scorso. Ora si filtra prima, e la prova lo misura
+  (`unknown_category` 2, `ambiguous_category` 1, nessun evento con l'id
+  vecchio);
+- **si marca solo cio che nasce** (A-C2/B2/C2): un record esistente tiene
+  la stagione che aveva, anche «nessuna» — prima ogni riscrittura della
+  colonna intera da un client che legge senza filtro spostava i record senza
+  annata nella stagione corrente; e la stagione della riga e immutabile in
+  aggiornamento anche da questa porta;
+- **la stagione attiva la dice il server a ogni caricamento** (C-C1): la
+  copia in `localStorage` sovrascriveva quella del server e un secondo
+  dispositivo leggeva ieri e scriveva in ieri; `AuthProvider` ascolta anche
+  `storage` (C10). `x-active-season-id` viaggia anche quando il chiamante ha
+  gia messo il club nell'header (C5);
+- **il perimetro di una scrittura intera e la stagione delle righe che il
+  client ha in mano** (B3/A-H3): `updateClubData` marca e dichiara con la
+  stagione delle righe lette (o l'attiva in archivio per chi legge la
+  colonna intera), non con la stagione che `localStorage` ricorda; la
+  voce del programma porta `seasonId`, `groupId` e `active` anche dal
+  client (B4), e l'identita di una voce comprende la stagione (B5);
+- `resolveRequestSeason` passa dal risolutore canonico: uno stale ricade
+  sull'attiva (B11/C6/A-H1 per la parte dichiarata); il registro generico
+  continua a filtrare **solo su dichiarazione** — una chiamata senza header
+  (mobile, script) non ha perimetro (D-RD-35);
+- **una stagione che comincia prima della piu vecchia si rifiuta** finche
+  esistono record senza annata (A-H2): cambierebbero stagione in silenzio;
+- **le voci scartate dalla normalizzazione si contano** (`incomplete`, B6),
+  un'occorrenza sospesa non e un'occorrenza (B9), zero generati per finestra
+  di stagione ha una ragione (`outside_season`, B8), il batch riceve la
+  stagione della generazione e un `seasonId` nel corpo vale solo se e del
+  club (B10/C9/A-L2);
+- **un nome non sceglie fra due stagioni** (D-H2/A-M1): un riferimento per
+  nome vale solo se in tutto il club lo porta una categoria sola; cio che
+  non risolve **si conserva com'era** nel salvataggio (D-M1) e nel distacco
+  si toglie il riferimento grezzo (E4/D-L2); `findMatchingCategory` non
+  abbina per nome un riferimento che porta un id (D-M3); la pagina
+  Categorie tocca solo la categoria salvata e non rinormalizza gli altri
+  allenatori (D-H3); il perimetro atleti dell'allenatore usa l'etichetta
+  solo se nomina una categoria sola (D-H4); l'elenco rilegge i record grezzi
+  dopo ogni scrittura (D-H1); la bacheca dell'allenatore non allarga il
+  catalogo con la scheda (D-M2); `trainers/new` offre la sola stagione
+  (A-M2); il riporto delle assegnazioni richiede anche i gruppi e dichiara
+  `unmapped` a schermo e nell'audit (D-M4);
+- **la prima nota decide per data solo se la finestra e unica** (A-M3), e una
+  riga con una stagione che il club non ha vale «senza» anche nel database
+  (E2); una scrittura con contesto stale ricade sull'attiva; la vista legge
+  `seasonId` e `season_id` (E8);
+- **l'impatto dell'eliminazione conta con la regola con cui la prima nota
+  mostra** (E1), i record con annata sconosciuta contano come senza annata
+  (E5/A-L5) e la guardia sulla stagione piu vecchia conta anche le tabelle
+  (A-M4); le collezioni si riscrivono in **una** transazione (E3); l'audit
+  della richiesta e una riga sola con il motivo pubblico (E6); il F24 passa
+  dal risolutore (E7); appuntamenti, richieste documentali e documenti
+  generati nascono nella stagione dichiarata (A-M4); le pratiche e il
+  browser non scrivono mai la stagione sintetizzata (A-M5); il piano di
+  riporto conosce le stagioni del club (A-M6);
+- **l'area famiglia e gli avvisi dell'allenatore leggono la stagione**
+  (C3/C4); la Dashboard si rilegge al cambio di stagione e la cache degli
+  allenamenti di oggi porta la stagione (C7); la pulizia dei programmati
+  lavora sulla stagione attiva (C8); i payload di registro seguono il
+  perimetro della colonna (C11).
+
+Aperti e dichiarati — Medium: «Rimuovi programmati» vede solo la stagione
+mostrata mentre il conflitto di campo e trasversale (B7, D-RD-36); una
+chiamata senza header al registro generico non ha perimetro (A-H1 per la
+parte «assente», D-RD-35: cambiare la risposta a chi non dichiara e un cambio
+di contratto per il mobile); l'import atleti risolve gli omonimi sul catalogo
+di tutte le stagioni (A-M7, D-RD-37); il distacco/riporto non copre i
+`staff_members` con ruolo allenatore (D-L1, D-RD-38). Low: un record di
+un'altra stagione tolto da un client che non la mostra viene conservato
+(A-L3, D-RD-34); l'impatto e l'eliminazione non sono una transazione sola
+con la rimozione dalle impostazioni (E3 residuo); `generatedUntil` avanza
+anche oltre la fine della stagione (B8 residuo); l'elenco delle ultime
+presenze dell'area famiglia resta storico (C3, voluto); l'attestazione dei
+pagamenti nei documenti usa la finestra senza unicita (A-L7); il perimetro
+degli atleti per gettone resta una seconda stesura (D-H4 residuo); la
+bacheca dell'allenatore non mostra lo storico (D-M2 residuo); una categoria
+con `season_id` in grafia snake e letta da tutti i lettori ma non scritta
+da nessuno (D-L4); l'audit mostra l'etichetta della scheda cancellata a chi
+ha `audit.read` (E nota, voluto).
+
 ### Migrazioni
 
 `20260917120000_adr0197_stagione_dei_movimenti_storici`: `CREATE OR REPLACE
 VIEW accounting_ledger_lines`, identica alla precedente salvo la proiezione
-di `seasonId` sulle due gambe storiche. Nessuna tabella, nessun dato.
+di `seasonId`/`season_id` sulle due gambe storiche. Nessuna tabella, nessun
+dato.

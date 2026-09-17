@@ -224,16 +224,14 @@ test("senza l'elenco delle stagioni note il filtro si comporta come prima", asyn
  * li che nascono i record orfani.
  */
 test("su un club senza stagioni salvate non si marca e non si filtra", () => {
+  /* Da ADR-0197 la regola vive nel risolutore canonico e il registro la eredita. */
   const source = read("src/lib/server/resources.ts");
+  const contesto = read("src/lib/seasons/context.ts");
 
-  assert.match(
-    source,
-    /if \(seasonState\.isFallback\) \{\s*\n\s*return null;/,
-  );
-  assert.match(
-    source,
-    /knownSeasonIds: seasonState\.seasons\.map\(\(season\) => season\.id\),/,
-  );
+  assert.match(source, /buildSeasonContext\(club\.settings \?\? \{\}, \{ value: requested, declared: true \}\)/);
+  assert.match(source, /if \(!contesto\.seasonId\) \{\s*\n\s*return null;/);
+  assert.match(contesto, /if \(state\.isFallback\) \{\s*\n\s*return \{ \.\.\.base, kind: "none", seasonId: null, season: null \};/);
+  assert.match(source, /knownSeasonIds: contesto\.knownSeasonIds,/);
   assert.match(source, /knownSeasonIds: season\.knownSeasonIds,/);
 });
 

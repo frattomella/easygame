@@ -175,21 +175,44 @@ const normalizeTrainerStatus = (value: unknown): "active" | "suspended" => {
   return "active";
 };
 
+/*
+  **Un riferimento che porta un identificativo si riconosce solo per
+  identificativo** (ADR-0155, ADR-0197 revisione D-M3). `{ id: "a-u15", name:
+  "Under 15" }` contro il catalogo della stagione nuova — che ha la sua
+  «Under 15» con un altro id — si abbinava **per nome**, e l'allenatore
+  dell'anno scorso diventava l'allenatore di quest'anno. Il nome vale solo
+  quando e tutto cio che il riferimento ha (le stringhe storiche), e un
+  identificativo che il catalogo non conosce resta irrisolto.
+*/
 const findMatchingCategory = (
   rawId: string,
   rawName: string,
   clubCategories: ClubCategoryLike[],
-) =>
-  clubCategories.find((category) => {
-    const categoryId = normalizeValue(category?.id);
-    const categoryName = normalizeValue(category?.name);
+) => {
+  const wantedId = normalizeValue(rawId);
+  const wantedName = normalizeValue(rawName);
 
-    return (
-      (!!rawId && (categoryId === normalizeValue(rawId) || categoryName === normalizeValue(rawId))) ||
-      (!!rawName &&
-        (categoryId === normalizeValue(rawName) || categoryName === normalizeValue(rawName)))
+  if (wantedId) {
+    const perId = clubCategories.find((category) => normalizeValue(category?.id) === wantedId);
+    if (perId) return perId;
+    /* Una stringa storica puo essere un nome: vale solo se nomina una categoria sola. */
+    if (!wantedName) {
+      const perNome = clubCategories.filter((category) => normalizeValue(category?.name) === wantedId);
+      return perNome.length === 1 ? perNome[0] : undefined;
+    }
+    return undefined;
+  }
+
+  if (wantedName) {
+    const perNome = clubCategories.filter(
+      (category) =>
+        normalizeValue(category?.id) === wantedName || normalizeValue(category?.name) === wantedName,
     );
-  });
+    return perNome.length === 1 ? perNome[0] : undefined;
+  }
+
+  return undefined;
+};
 
 export const normalizeTrainerCategories = (
   rawCategories: TrainerCategoryLike[] | unknown,

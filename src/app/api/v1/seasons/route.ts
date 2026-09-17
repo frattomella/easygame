@@ -106,6 +106,10 @@ export async function POST(request: Request) {
           athletesNotConfirmed: result.rollover.athletes.notConfirmed,
           athleteMembershipsCreated: result.rollover.athletes.created,
           athletesCarried: result.rollover.athletes.carried,
+          trainersRequested: result.rollover.trainers.requested,
+          trainersUpdated: result.rollover.trainers.trainersUpdated,
+          trainerAssignmentsCreated: result.rollover.trainers.assignmentsCreated,
+          trainerAssignmentsUnmapped: result.rollover.trainers.unmapped.length,
         },
       });
     }

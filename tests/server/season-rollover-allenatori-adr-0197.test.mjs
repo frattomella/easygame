@@ -91,7 +91,7 @@ test("creare la B con le sole categorie: nessuna assegnazione implicita, e il ri
 });
 
 test("riporto esplicito: ogni allenatore riceve le categorie nuove corrispondenti; le vecchie restano", async () => {
-  const result = await creaStagioneB({ sourceSeasonId: "s-a", types: ["categories", "trainer_assignments"] });
+  const result = await creaStagioneB({ sourceSeasonId: "s-a", types: ["categories", "category_groups", "trainer_assignments"] });
   const nuove = categorieDellaStagione(result.season.id);
   const b15 = nuove.find((c) => c.rolloverSourceId === CAT_A_U15)?.id;
   const b17 = nuove.find((c) => c.rolloverSourceId === CAT_A_U17)?.id;
@@ -110,12 +110,12 @@ test("riporto esplicito: ogni allenatore riceve le categorie nuove corrispondent
 });
 
 test("un secondo riporto non duplica: le destinazioni esistono gia", async () => {
-  const prima = await creaStagioneB({ sourceSeasonId: "s-a", types: ["categories", "trainer_assignments"] });
+  const prima = await creaStagioneB({ sourceSeasonId: "s-a", types: ["categories", "category_groups", "trainer_assignments"] });
   const secondo = await seasons.runClubSeasonRollover({
     organizationId: CLUB,
     sourceSeasonId: "s-a",
     targetSeasonId: prima.season.id,
-    types: ["categories", "trainer_assignments"],
+    types: ["categories", "category_groups", "trainer_assignments"],
   });
   assert.equal(secondo.trainers.trainersUpdated, 0);
   assert.equal(secondo.trainers.assignmentsExisting, 3);
@@ -128,7 +128,7 @@ test("l'anteprima non scrive niente", async () => {
     organizationId: CLUB,
     sourceSeasonId: "s-a",
     targetSeasonId: prima.season.id,
-    types: ["categories", "trainer_assignments"],
+    types: ["categories", "category_groups", "trainer_assignments"],
     preview: true,
   });
   assert.equal(anteprima.trainers.trainersUpdated, 2);
@@ -138,7 +138,7 @@ test("l'anteprima non scrive niente", async () => {
 test("le assegnazioni allenatori richiedono le categorie", async () => {
   await assert.rejects(
     () => creaStagioneB({ sourceSeasonId: "s-a", types: ["trainer_assignments"] }),
-    /Per riportare «Assegnazioni allenatori» devi riportare anche: Categorie/,
+    /Per riportare «Assegnazioni allenatori» devi riportare anche: Categorie, Gruppi operativi/,
   );
 });
 

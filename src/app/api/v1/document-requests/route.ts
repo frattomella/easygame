@@ -3,6 +3,7 @@ import {
   listDocumentRequests,
 } from "@/lib/server/document-requests";
 import { failure, ok, resolveDossierScope } from "./http";
+import { resolveSeasonContext, seasonIdForNewRecord } from "@/lib/server/season-context";
 
 /**
  * Le richieste di documento (Wave 5, lane 5D, §17).
@@ -50,6 +51,11 @@ export async function POST(request: Request) {
     const organizationId = body?.organization_id || body?.organizationId || null;
     const resolved = await resolveDossierScope(request, organizationId);
     if (resolved.response) return resolved.response;
+    /* Una richiesta documentale nasce nella stagione che il browser mostra (ADR-0197, revisione A-M4). */
+    const stagione = await resolveSeasonContext(
+      resolved.scope?.activeOrganizationId || organizationId,
+      request,
+    );
 
     const data = await createDocumentRequest(
       resolved.scope,
@@ -62,7 +68,7 @@ export async function POST(request: Request) {
         description: body?.description,
         required: body?.required,
         dueDate: body?.due_date ?? body?.dueDate ?? null,
-        seasonId: body?.season_id ?? body?.seasonId ?? null,
+        seasonId: seasonIdForNewRecord(stagione, body?.season_id ?? body?.seasonId ?? null),
       },
       request,
     );

@@ -35,10 +35,13 @@ const base = { categories, groups, seasons, legacySeasonId: A };
 test("stagione B, nessun riporto: nessuna squadra attuale, la U15 Gold e storico della A", () => {
   const rossi = { categories: ["a-u15"], groupIds: ["g-a-u15-nord"] };
   const split = splitTrainerAssignmentsBySeason({ ...base, trainer: rossi, seasonId: B });
-  assert.deepEqual(split.current, { categoryIds: [], groupIds: [] });
-  assert.deepEqual(split.history, [
-    { seasonId: A, seasonLabel: "2025/26", categoryIds: ["a-u15"], groupIds: ["g-a-u15-nord"] },
-  ]);
+  assert.deepEqual(split.current.categoryIds, []);
+  assert.deepEqual(split.current.groupIds, []);
+  assert.equal(split.history.length, 1);
+  assert.equal(split.history[0].seasonId, A);
+  assert.equal(split.history[0].seasonLabel, "2025/26");
+  assert.deepEqual(split.history[0].categoryIds, ["a-u15"]);
+  assert.deepEqual(split.history[0].groupIds, ["g-a-u15-nord"]);
   assert.deepEqual(split.unresolved, []);
 });
 
@@ -82,16 +85,26 @@ test("l'editor della B non puo scrivere una categoria della A: rifiutata e detta
   assert.deepEqual(merged.rejectedGroupIds, ["g-a-u15-nord"]);
 });
 
-test("un nome senza id non sceglie fra due stagioni che lo portano entrambe", () => {
+test("un nome senza id non sceglie fra due stagioni che lo portano entrambe: resta irrisolto e si conserva", () => {
   const perNome = { categories: [{ name: "U15 Gold" }] };
+  // «U15 Gold» esiste nella A e nella B: il nome non dice quale (ADR-0155).
   const inB = splitTrainerAssignmentsBySeason({ ...base, trainer: perNome, seasonId: B });
-  // Nella B «U15 Gold» e una sola: si riconosce.
-  assert.deepEqual(inB.current.categoryIds, ["b-u15"]);
-  // Con due omonime nella stessa stagione resta irrisolto.
-  const doppia = [...categories, { id: "b-u15-sud", name: "U15 Gold", seasonId: B }];
-  const ambiguo = splitTrainerAssignmentsBySeason({ ...base, categories: doppia, trainer: perNome, seasonId: B });
-  assert.deepEqual(ambiguo.current.categoryIds, []);
-  assert.deepEqual(ambiguo.unresolved, ["U15 Gold"]);
+  assert.deepEqual(inB.current.categoryIds, []);
+  assert.deepEqual(inB.unresolved, ["U15 Gold"]);
+  // Salvare nella B non lo butta e non lo trasforma in un id della B.
+  const merged = mergeTrainerAssignmentsForSeason({ ...base, trainer: perNome, seasonId: B, categoryIds: ["b-u17"] });
+  assert.deepEqual(merged.categories, [{ name: "U15 Gold" }, "b-u17"]);
+  assert.deepEqual(merged.unresolved, ["U15 Gold"]);
+  // Un nome che in tutto il club nomina una categoria sola si riconosce.
+  const unica = [...categories, { id: "b-u13", name: "U13", seasonId: B }];
+  const inBUnica = splitTrainerAssignmentsBySeason({ ...base, categories: unica, trainer: { categories: ["U13"] }, seasonId: B });
+  assert.deepEqual(inBUnica.current.categoryIds, ["b-u13"]);
+  assert.deepEqual(inBUnica.current.rawCategoryRefs, ["U13"], "il riferimento com'era, per toglierlo");
+});
+
+test("un id sparito resta com'era: salvare un'altra sezione non lo cancella", () => {
+  const merged = mergeTrainerAssignmentsForSeason({ ...base, trainer: { categories: ["cat-cancellata", "a-u15"] }, seasonId: B, categoryIds: [] });
+  assert.deepEqual(merged.categories, ["a-u15", "cat-cancellata"]);
 });
 
 test("una categoria senza stagione, o di una stagione che il club non ha, e della piu vecchia", () => {

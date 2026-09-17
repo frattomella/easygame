@@ -1326,7 +1326,15 @@ leggono l'header a mano.
   `rulesWithoutOccurrence`, `outsideSeasonCount`, `reasons[]`) e
   `reason: "no_valid_rules"` quando le voci ci sono ma nessuna e generabile.
 - `PATCH /api/v1/clubs/:id` con una colonna JSON di stagione **intera**
-  conserva i record delle altre stagioni che il chiamante non ha rimandato
-  (ADR-0197 §5).
+  conserva i record delle altre stagioni che il chiamante non ha rimandato,
+  tiene ai record esistenti la stagione che avevano (anche nessuna) e marca
+  solo i record nuovi con la stagione dichiarata (ADR-0197 §5). Il registro
+  generico filtra e marca **solo su dichiarazione**: una chiamata senza
+  header non ha perimetro (D-RD-35); una dichiarazione stale ricade
+  sull'attiva.
+- `POST /api/v1/appointments`, `POST /api/v1/document-requests`,
+  `POST /api/v1/documents/generated` scrivono la stagione dichiarata (o
+  l'attiva) quando il corpo non la porta; un `seasonId` nel corpo vale solo
+  se e una stagione del club.
 - `POST /api/v1/sport-work/obligations/:id/complete` marca il versamento
   con la stagione dichiarata (D-RD-29).

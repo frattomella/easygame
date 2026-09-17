@@ -4,7 +4,7 @@
 -- momento in cui le stagioni esistono (WP-32), e la vista le proiettava con
 -- `season_id = NULL`: la prima nota le attribuiva per data, ignorando la
 -- stagione scritta — e su due stagioni sovrapposte le contava in tutte e due.
--- Le due gambe storiche proiettano adesso `NULLIF(btrim(value->>'seasonId'), '')`;
+-- Le due gambe storiche proiettano adesso `COALESCE(NULLIF(btrim(value->>'seasonId'), ''), NULLIF(btrim(value->>'season_id'), ''))`;
 -- una riga senza stagione resta senza, e vale la regola dei record senza
 -- annata. Il resto della vista e identico alla migrazione
 -- 20260909170000_n15_liquidazione_periodo_voucher.
@@ -378,7 +378,7 @@ SELECT
   EXTRACT(YEAR FROM COALESCE(
     easygame_blob_timestamp(t.value ->> 'date'),
     easygame_blob_timestamp(t.value ->> 'created_at')))::int,
-  NULLIF(btrim(t.value ->> 'seasonId'), ''),
+  COALESCE(NULLIF(btrim(t.value ->> 'seasonId'), ''), NULLIF(btrim(t.value ->> 'season_id'), '')),
   CASE WHEN lower(COALESCE(t.value ->> 'type', t.value ->> 'direction', 'income'))
             IN ('expense', 'uscita', 'out') THEN 'OUT' ELSE 'IN' END,
   easygame_centesimi(easygame_blob_number(t.value ->> 'amount')),
@@ -439,7 +439,7 @@ SELECT
   EXTRACT(YEAR FROM COALESCE(
     easygame_blob_timestamp(t.value ->> 'date'),
     easygame_blob_timestamp(t.value ->> 'created_at')))::int,
-  NULLIF(btrim(t.value ->> 'seasonId'), ''),
+  COALESCE(NULLIF(btrim(t.value ->> 'seasonId'), ''), NULLIF(btrim(t.value ->> 'season_id'), '')),
   'OUT'::text,
   easygame_centesimi(easygame_blob_number(t.value ->> 'amount')),
   'EUR'::text,

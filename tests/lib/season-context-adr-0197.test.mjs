@@ -93,7 +93,7 @@ test("seasonIdForNewRecord: la riga tiene la sua; altrimenti la dichiarata; senz
   assert.equal(seasonIdForNewRecord(inA, "s-b"), "s-b", "una riga che porta gia la sua stagione la tiene");
   assert.equal(seasonIdForNewRecord(inA), "s-a");
   assert.equal(seasonIdForNewRecord(buildSeasonContext(settings)), "s-b");
-  assert.equal(seasonIdForNewRecord(buildSeasonContext(settings, readRequestedSeason(""))), "s-b", "header vuoto: si legge tutto, si scrive nell'attiva");
+  assert.equal(seasonIdForNewRecord(buildSeasonContext(settings, readRequestedSeason(""))), null, "header vuoto: nessun perimetro e nessuna marcatura, come il registro generico");
 });
 
 test("seasonLabelOf: etichetta del club, «altra stagione» per un id sparito, baseline per il vuoto", () => {

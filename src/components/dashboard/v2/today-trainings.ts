@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { supabase, cachedQuery } from "@/lib/supabase";
+import { supabase, cachedQuery, clearCache } from "@/lib/supabase";
 import {
   getClubAthletes,
   getClubCategories,
@@ -159,10 +159,14 @@ export const normalizeTodayTraining = (
 };
 
 /** La lettura: quattro risorse in parallelo, una cache per club. */
-export const loadTodayTrainings = async (clubId: string | null): Promise<TodayTraining[]> => {
+export const loadTodayTrainings = async (
+  clubId: string | null,
+  seasonId: string | null = null,
+): Promise<TodayTraining[]> => {
   if (!clubId) return [];
 
-  const result = await cachedQuery(`trainings-${clubId}`, async () => {
+  /* La chiave porta la stagione (revisione C7): B attivata, la cache di A non risponde piu. */
+  const result = await cachedQuery(`trainings-${clubId}:${seasonId || ""}`, async () => {
     const [trainingsData, categoriesData, trainersData, athletesData] = await Promise.all([
       getClubTrainings(clubId),
       getClubCategories(clubId),
@@ -202,7 +206,10 @@ export type TodayTrainingsState = {
   Nessun debounce: alla prima apertura non c'e niente da accorpare, ed erano
   300 ms aggiunti al primo disegno della dashboard.
 */
-export const useTodayTrainings = (clubId: string | null): TodayTrainingsState => {
+export const useTodayTrainings = (
+  clubId: string | null,
+  seasonId: string | null = null,
+): TodayTrainingsState => {
   const [trainings, setTrainings] = useState<TodayTraining[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -217,7 +224,8 @@ export const useTodayTrainings = (clubId: string | null): TodayTrainingsState =>
     }
     setLoading(true);
     setError(false);
-    loadTodayTrainings(clubId)
+    if (attempt > 0) clearCache(`trainings-${clubId}`);
+    loadTodayTrainings(clubId, seasonId)
       .then((rows) => {
         if (!cancelled) setTrainings(rows);
       })
@@ -231,7 +239,7 @@ export const useTodayTrainings = (clubId: string | null): TodayTrainingsState =>
     return () => {
       cancelled = true;
     };
-  }, [clubId, attempt]);
+  }, [clubId, seasonId, attempt]);
 
   const reload = useCallback(() => setAttempt((value) => value + 1), []);
 

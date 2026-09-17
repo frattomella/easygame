@@ -132,7 +132,13 @@ const buildActiveClubFromMembership = (membership: MembershipRecord) => {
       accessKind === "ownership"
         ? `ownership:${membership.organization_id}`
         : `membership:${membership.id || `${membership.organization_id}:${role}`}`,
-    activeSeasonId: seasonState.activeSeasonId,
+    /*
+      La stagione sintetizzata di un club senza stagioni salvate **non e un
+      dato** (revisione A-M5): messa in `localStorage` finiva nell'header e
+      sulle righe nuove, che alla prima stagione vera diventavano orfane.
+      L'etichetta resta, per l'intestazione.
+    */
+    activeSeasonId: seasonState.isFallback ? null : seasonState.activeSeasonId,
     activeSeasonLabel: seasonState.activeSeason?.label || null,
     /*
       **Il legame famiglia lo dichiara il server, a ogni caricamento.**
@@ -294,6 +300,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           linkedAthleteIds: buildActiveClubFromMembership(
             matchingStoredMembership || nextMembership,
           ).linkedAthleteIds,
+          /*
+            **La stagione attiva la dice il server, a ogni caricamento**
+            (ADR-0197 §3, revisione C1). La copia in `localStorage` la
+            scrive solo il browser che ha fatto l'attivazione: un secondo
+            dispositivo restava sulla stagione vecchia — nota come «dichiarata»
+            perche il club la ha — e leggeva il calendario di ieri mentre le
+            collezioni si filtravano sull'attiva di oggi, e scriveva in ieri.
+          */
+          activeSeasonId: buildActiveClubFromMembership(
+            matchingStoredMembership || nextMembership,
+          ).activeSeasonId,
+          activeSeasonLabel: buildActiveClubFromMembership(
+            matchingStoredMembership || nextMembership,
+          ).activeSeasonLabel,
         };
 
         storeActiveClubForUser(user.id, nextClub);
@@ -336,8 +356,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           : current,
       );
     };
+    /* Un altro scheda ha cambiato stagione o club: si rilegge la copia (revisione C10). */
+    const onStorage = (event: StorageEvent) => {
+      if (!event.key || !event.key.startsWith("activeClub")) return;
+      try {
+        const parsed = event.newValue ? JSON.parse(event.newValue) : null;
+        if (!parsed?.id) return;
+        setActiveClub((current: any) =>
+          current && String(current.id) === String(parsed.id) ? { ...current, ...parsed } : current,
+        );
+      } catch {
+        /* una copia illeggibile non cambia lo stato */
+      }
+    };
     window.addEventListener("club-updated", onClubUpdated);
-    return () => window.removeEventListener("club-updated", onClubUpdated);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("club-updated", onClubUpdated);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   // Optimized authentication check with caching

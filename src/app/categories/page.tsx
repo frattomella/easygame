@@ -69,7 +69,6 @@ import {
   normalizeAthleteCategoryMemberships,
 } from "@/lib/athlete-category-memberships";
 import {
-  getTrainerCategoryIds,
   getTrainerDisplayName,
   trainerHasCategory,
 } from "@/lib/trainer-utils";
@@ -687,20 +686,27 @@ export default function CategoriesPage() {
 
       if (clubTrainers.length > 0) {
         const assignedTrainerIdSet = new Set(assignedTrainerIds);
+        /*
+          **Si tocca solo questa categoria** (ADR-0197, revisione D-H3): prima
+          ogni allenatore veniva rinormalizzato sul catalogo della stagione
+          attiva, e un riferimento dell'anno scorso `{ id, name }` si
+          riscriveva come l'id omonimo di quest'anno — un'assegnazione che
+          nessuno aveva fatto, e lo storico sparito. Adesso si aggiunge o si
+          toglie l'identificativo di questa categoria e il resto resta com'e.
+        */
+        const stessaCategoria = (entry: unknown) => {
+          const id = String(typeof entry === "string" ? entry : (entry as any)?.id || "").trim();
+          return id === savedCategoryId;
+        };
         const updatedTrainers = clubTrainers.map((trainer) => {
-          const currentCategoryIds = getTrainerCategoryIds(
-            trainer.categories,
-            categories,
-          ).filter(
-            (categoryId) =>
-              categoryId !== savedCategoryId && categoryId !== payload.name,
-          );
-
+          const attuali = Array.isArray(trainer.categories) ? trainer.categories : [];
+          const senzaQuesta = attuali.filter((entry: unknown) => !stessaCategoria(entry));
+          const assegnato = assignedTrainerIdSet.has(trainer.id);
+          const cambia = assegnato ? senzaQuesta.length === attuali.length : senzaQuesta.length !== attuali.length;
+          if (!cambia) return trainer;
           return {
             ...trainer,
-            categories: assignedTrainerIdSet.has(trainer.id)
-              ? Array.from(new Set([...currentCategoryIds, savedCategoryId]))
-              : currentCategoryIds,
+            categories: assegnato ? [...senzaQuesta, savedCategoryId] : senzaQuesta,
           };
         });
 

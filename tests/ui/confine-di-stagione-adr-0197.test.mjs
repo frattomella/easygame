@@ -52,7 +52,9 @@ test("§4 · la generazione riceve la stagione dichiarata e produce la diagnosti
   assert.match(automation, /reason: "no_valid_rules"/);
   assert.match(automation, /diagnostics: buildDiagnostics\(\)/);
   assert.match(automation, /seasonId: scheduleItem\.seasonId \|\| generationSeasonId \|\| null/, "l'evento porta la stagione della regola");
-  assert.match(automation, /filterCollectionBySeason\("categories", categoryListTutte, generationSeasonId/, "il catalogo e della stagione, non del club");
+  assert.match(automation, /clubCategories: dellaStagione\(/, "il catalogo e della stagione, non del club: si filtrano i grezzi");
+  assert.match(automation, /onIncomplete: \(item\) => incomplete\.push\(item\)/, "le voci scartate dalla normalizzazione si contano");
+  assert.match(automation, /reason: "outside_season" as const/);
   assert.match(automation, /outsideSeasonCount \+= 1;/);
 });
 
@@ -88,7 +90,7 @@ test("§7 · le pagine Allenatori spaccano le assegnazioni per stagione e l'edit
 });
 
 test("§7 · il riporto ha il tipo «Assegnazioni allenatori», spento per scelta e legato alle categorie", () => {
-  assert.match(seasonsModel, /key: "trainer_assignments",[\s\S]{0,400}defaultSelected: false,[\s\S]{0,100}storage: "model",[\s\S]{0,50}requires: \["categories"\]/);
+  assert.match(seasonsModel, /key: "trainer_assignments",[\s\S]{0,400}defaultSelected: false,[\s\S]{0,100}storage: "model",[\s\S]{0,300}requires: \["categories", "category_groups"\]/);
 });
 
 test("§8 · il riepilogo del wizard dichiara cio che non viene riportato", () => {

@@ -250,7 +250,22 @@ const resolveSeasonWindow = async (organizationId: string, seasonId: string) => 
     cadrebbe fuori da entrambe le stagioni.
   */
   fine.setUTCHours(23, 59, 59, 999);
-  return { inizio, fine };
+  const altreFinestre = stagioni
+    .filter((altra: any) => String(altra.id) !== seasonId)
+    .map((altra: any) => {
+      const altroInizio = toDateOrNull(altra.startDate);
+      const altraFine = toDateOrNull(altra.endDate);
+      if (!altroInizio || !altraFine) return null;
+      altraFine.setUTCHours(23, 59, 59, 999);
+      return { inizio: altroInizio, fine: altraFine };
+    })
+    .filter((finestra): finestra is { inizio: Date; fine: Date } => Boolean(finestra));
+  return {
+    inizio,
+    fine,
+    stagioniNote: configurate.length ? stagioni.map((riga: any) => String(riga.id)) : [],
+    altreFinestre,
+  };
 };
 
 /* ========================================================================== */
@@ -339,7 +354,14 @@ const ledgerWhere = (
     reconciliation: string | null;
     search: string | null;
     seasonId: string | null;
-    finestraStagione: { inizio: Date; fine: Date } | null;
+    finestraStagione: {
+      inizio: Date;
+      fine: Date;
+      /** Le stagioni del club: una riga che ne nomina una sconosciuta vale «senza» (revisione E2). */
+      stagioniNote: string[];
+      /** Le finestre delle **altre** stagioni: una data che cade anche li non decide (revisione A-M3). */
+      altreFinestre: Array<{ inizio: Date; fine: Date }>;
+    } | null;
     rowKinds: readonly string[] | null;
   },
 ) => ({
@@ -417,6 +439,15 @@ const ledgerWhere = (
     }
 
     if (f.seasonId) {
+      /*
+        **La finestra vale solo per chi non ha stagione, e solo se e unica**
+        (ADR-0197 §2, revisione A-M3/E2): una riga senza `season_id` — o con
+        uno che il club non ha, che dalla migrazione D-RD-30 puo arrivare dal
+        blob storico — si attribuisce per data alla stagione nel cui periodo
+        cade, **purche** nessun'altra stagione contenga quella data. Due
+        stagioni sovrapposte non decidono niente: la riga resta fuori da
+        entrambe finche qualcuno non la marca, invece di contare due volte.
+      */
       clausole.push(
         f.finestraStagione
           ? {
@@ -424,13 +455,24 @@ const ledgerWhere = (
                 { season_id: f.seasonId },
                 {
                   AND: [
-                    { season_id: null },
+                    {
+                      OR: [
+                        { season_id: null },
+                        { season_id: "" },
+                        ...(f.finestraStagione.stagioniNote.length
+                          ? [{ season_id: { notIn: f.finestraStagione.stagioniNote } }]
+                          : []),
+                      ],
+                    },
                     {
                       entry_date: {
                         gte: f.finestraStagione.inizio,
                         lte: f.finestraStagione.fine,
                       },
                     },
+                    ...f.finestraStagione.altreFinestre.map((altra) => ({
+                      NOT: { entry_date: { gte: altra.inizio, lte: altra.fine } },
+                    })),
                   ],
                 },
               ],
@@ -982,7 +1024,7 @@ const risolviStagioneDelMovimento = async (
 ) => {
   const wanted = asText(dichiarata);
   const contesto = asText(diContesto);
-  if (!wanted && !contesto) return null;
+  if (!wanted && !contesto && diContesto === undefined) return null;
 
   const club = await client.club.findUnique({
     where: { id: organizationId },
@@ -1011,7 +1053,13 @@ const risolviStagioneDelMovimento = async (
     return wanted;
   }
 
-  return conosce(contesto) ? contesto : null;
+  /*
+    Un contesto che nomina una stagione che il club non ha (segnalibro
+    vecchio) ricade sull'**attiva**, come ogni altra scrittura del risolutore
+    canonico (ADR-0197 §2, revisione A-M3): una riga senza stagione conterebbe
+    per data, cioe in due stagioni sovrapposte.
+  */
+  return conosce(contesto) ? contesto : stato.activeSeasonId;
 };
 
 /**

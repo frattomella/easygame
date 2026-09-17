@@ -1356,7 +1356,8 @@ export const submitRenewalForm = async (
     submittedBy: asText(userId) || null,
     requireNarrowMimeTypes: true,
     kind: iscrizione ? "renewal" : "submission",
-    seasonId: seasons?.activeSeasonId || null,
+    /* Una stagione sintetizzata non si scrive (revisione A-M5): senza stagioni salvate la pratica resta senza. */
+    seasonId: seasons && !seasons.isFallback ? seasons.activeSeasonId : null,
   });
 };
 

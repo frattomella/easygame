@@ -31,6 +31,7 @@ import {
   type SeasonRoster,
 } from "./season-memberships";
 import { splitTrainerAssignmentsBySeason } from "@/lib/trainers/season-assignments";
+import { countRecordsWithoutSeason } from "./season-delete";
 
 /**
  * Gestione delle stagioni sportive di un club (Blocco 6).
@@ -219,9 +220,11 @@ const readCategoryIds = (
   collection: any[],
   seasonId: string,
   legacySeasonId: string | null,
+  knownSeasonIds?: string[],
 ) =>
   filterCollectionBySeason("categories", collection, seasonId, {
     legacySeasonId,
+    knownSeasonIds,
   })
     .map((category: any) => String(category?.id || "").trim())
     .filter(Boolean);
@@ -230,13 +233,14 @@ const readCategoryNames = (
   collection: any[],
   seasonId: string,
   legacySeasonId: string | null,
+  knownSeasonIds?: string[],
 ) => {
   const names: Record<string, string> = {};
   for (const category of filterCollectionBySeason(
     "categories",
     collection,
     seasonId,
-    { legacySeasonId },
+    { legacySeasonId, knownSeasonIds },
   )) {
     const id = String((category as any)?.id || "").trim();
     if (id) {
@@ -436,12 +440,14 @@ export const runClubSeasonRollover = async (options: {
     collections[type] = await readClubResourceCollection(organizationId, type);
   }
 
+  const knownSeasonIds = state.seasons.map((season) => season.id);
   const plan = planSeasonRollover({
     sourceSeasonId: source.id,
     targetSeasonId: target.id,
     types,
     collections,
     legacySeasonId: state.legacySeasonId,
+    knownSeasonIds,
   });
 
   if (!preview) {
@@ -462,11 +468,13 @@ export const runClubSeasonRollover = async (options: {
     categoryCollection,
     source.id,
     state.legacySeasonId,
+    knownSeasonIds,
   );
   const targetCategoryNameById = readCategoryNames(
     categoryCollection,
     target.id,
     state.legacySeasonId,
+    knownSeasonIds,
   );
   const categoryIdMap: Record<string, string> = {};
   for (const sourceCategoryId of sourceCategoryIds) {
@@ -583,11 +591,13 @@ export const readSeasonRoster = async (options: {
     categoryCollection,
     season.id,
     state.legacySeasonId,
+    state.seasons.map((entry) => entry.id),
   );
   const categoryNameById = readCategoryNames(
     categoryCollection,
     season.id,
     state.legacySeasonId,
+    state.seasons.map((entry) => entry.id),
   );
 
   // Ogni categoria della stagione di origine avra una destinazione: riportare i
@@ -695,6 +705,30 @@ export const createClubSeason = async (options: {
     { ...input, status: shouldActivate ? "active" : "upcoming" },
     previousSeasons,
   );
+
+  /*
+    **Una stagione che comincia prima della piu vecchia sposta i record senza
+    annata** (ADR-0197, revisione A-H2): appartengono alla piu vecchia per
+    regola, e la piu vecchia cambierebbe in silenzio. Si rifiuta finche quei
+    record esistono; chi vuole archiviare un anno passato lo fa dopo aver
+    marcato cio che oggi non ha stagione.
+  */
+  if (previousSeasons.length) {
+    const piuVecchia = previousSeasons.reduce((oldest, entry) =>
+      entry.startDate < oldest.startDate ? entry : oldest,
+    );
+    if (season.startDate < piuVecchia.startDate) {
+      const senzaAnnata = await countRecordsWithoutSeason({
+        organizationId,
+        knownSeasonIds: previousSeasons.map((entry) => entry.id),
+      });
+      if (senzaAnnata > 0) {
+        throw new Error(
+          `La stagione ${season.label} comincerebbe prima della ${piuVecchia.label}, che oggi contiene ${senzaAnnata} record senza stagione: quei record cambierebbero stagione in silenzio. Scegli un periodo successivo, o marca prima quei record`,
+        );
+      }
+    }
+  }
 
   const nextActiveSeasonId = shouldActivate ? season.id : state.activeSeasonId;
   const savedState = await saveClubSeasons(
@@ -855,6 +889,7 @@ export const summarizeSeasonContents = async (organizationId: string) => {
         categoryCollection,
         season.id,
         state.legacySeasonId,
+        state.seasons.map((entry) => entry.id),
       ),
     })),
   });
@@ -889,6 +924,7 @@ export const summarizeSeasonContents = async (organizationId: string) => {
     categoryCollection,
     state.activeSeasonId,
     state.legacySeasonId,
+    state.seasons.map((entry) => entry.id),
   );
   const athletesWithoutTeam = await countAthletesWithoutTeam({
     organizationId,

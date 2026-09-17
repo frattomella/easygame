@@ -4,7 +4,7 @@ import {
   sportWorkRoute,
 } from "@/lib/server/sport-work-route";
 import { completeObligation } from "@/lib/server/sport-work-agenda";
-import { readRequestedSeason } from "@/lib/seasons/context";
+import { resolveSeasonContext, seasonIdForNewRecord } from "@/lib/server/season-context";
 
 /**
  * Marca un adempimento come assolto.
@@ -26,10 +26,10 @@ export const POST = sportWorkRoute(
       la riga di prima nota del versamento nasce nella stagione giusta, non
       per data.
     */
-    const stagione = readRequestedSeason(request);
+    const stagione = await resolveSeasonContext(scope.activeOrganizationId, request);
     const input =
       body && typeof body === "object" && body.payment && typeof body.payment === "object"
-        ? { ...body, payment: { ...body.payment, activeSeasonId: stagione.value } }
+        ? { ...body, payment: { ...body.payment, activeSeasonId: seasonIdForNewRecord(stagione) } }
         : body;
     return ok(await completeObligation(params.id, input, scope));
   },

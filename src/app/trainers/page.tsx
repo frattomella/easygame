@@ -293,13 +293,29 @@ export default function TrainersPage() {
 
   const reloadTrainers = React.useCallback(async () => {
     if (!clubId) return;
-    // Si rilegge dal server invece di filtrare lo stato locale: e la lettura
-    // a unire le tre origini dell'allenatore, e solo lei sa cosa resta.
-    const trainersData = await getClubTrainers(clubId);
+    /*
+      Si rilegge dal server invece di filtrare lo stato locale: e la lettura
+      a unire le tre origini dell'allenatore, e solo lei sa cosa resta. E si
+      rileggono **anche i record grezzi** (revisione D-H1): le assegnazioni
+      per stagione si spaccano da quelli, e con una copia vecchia la seconda
+      assegnazione di massa cancellava la prima.
+    */
+    const [trainersData, clubResponse] = await Promise.all([
+      getClubTrainers(clubId),
+      supabase.from("clubs").select("trainers, staff_members").eq("id", clubId).maybeSingle(),
+    ]);
     const nextTrainers = Array.isArray(trainersData) ? trainersData : [];
     setTrainers(nextTrainers);
     const known = new Set(nextTrainers.map((trainer) => String(trainer.id)));
     setSelectedIds((current) => new Set(Array.from(current).filter((id) => known.has(id))));
+    const raw = new Map<string, any>();
+    for (const record of [
+      ...(Array.isArray(clubResponse?.data?.trainers) ? clubResponse.data.trainers : []),
+      ...(Array.isArray(clubResponse?.data?.staff_members) ? clubResponse.data.staff_members : []),
+    ]) {
+      if (record?.id && !raw.has(String(record.id))) raw.set(String(record.id), record);
+    }
+    if (raw.size) setRawRecords(raw);
   }, [clubId]);
 
   /* ── Derivazioni ─────────────────────────────────────────────────────── */

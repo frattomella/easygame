@@ -332,18 +332,25 @@ test("senza header stagione il comportamento e invariato", async () => {
   assert.equal(categorie.length, 3);
 });
 
-test("una stagione che il club non ha non filtra nulla", async () => {
-  const categorie = await resources.listResource(
+test("una stagione che il club non ha ricade sull'attiva, non su «tutto» (ADR-0197 §2)", async () => {
+  const stale = await resources.listResource(
     "categories",
     new URLSearchParams({ club_id: CLUB }),
     scope(),
     { activeSeasonId: "season-inesistente" },
   );
+  const attiva = await resources.listResource(
+    "categories",
+    new URLSearchParams({ club_id: CLUB }),
+    scope(),
+    { activeSeasonId: fake.rows("club")[0].settings.activeSeasonId },
+  );
 
-  assert.equal(
-    categorie.length,
-    3,
-    "un id stagione stale non deve svuotare la lista",
+  assert.ok(stale.length > 0, "un id stagione stale non svuota la lista");
+  assert.deepEqual(
+    stale.map((c) => c.id).sort(),
+    attiva.map((c) => c.id).sort(),
+    "e la stessa lista della stagione attiva: non si mescolano le annate",
   );
 });
 

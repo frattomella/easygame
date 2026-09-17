@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { isTrainerAccessRole } from "@/lib/access-roles";
+import { readRequestedSeason } from "@/lib/seasons/context";
 import {
   computeTrainerOperationalAlerts,
   syncTrainerOperationalAlerts,
@@ -70,7 +71,8 @@ export async function GET(request: Request) {
       );
     }
 
-    const alerts = await computeTrainerOperationalAlerts(scope);
+    /* La stagione che il browser mostra (ADR-0197): assente, vale l attiva del club. */
+    const alerts = await computeTrainerOperationalAlerts(scope, { seasonId: readRequestedSeason(request).value });
 
     return NextResponse.json({
       data: { alerts, synced: 0 },

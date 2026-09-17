@@ -166,3 +166,63 @@ test("la proiezione su club_resource_items dice la stessa cosa della colonna", a
     .sort();
   assert.deepEqual(items, ["a-1", "a-2", "b-1", "b-2"]);
 });
+
+/* ============================================ i record senza annata restano senza (revisione A-C2/B2/C2) */
+
+test("un client che rimanda la colonna intera con i record senza annata non li sposta nella stagione della richiesta", async () => {
+  fake = createFakePrisma({
+    ...seed(),
+    club: [
+      {
+        ...seed().club[0],
+        discounts: [
+          { id: "legacy-1", name: "Fratelli" },
+          { id: "legacy-2", name: "Famiglia" },
+          { id: "b-1", name: "Promo", seasonId: B },
+          { id: "b-2", name: "Estate", seasonId: B },
+        ],
+      },
+    ],
+  });
+  setPrismaClientForTests(fake.client);
+
+  // `deleteClubDataItem` di b-2: legge la colonna grezza (tutte le stagioni) e la rimanda senza b-2.
+  await resources.updateResource(
+    "clubs",
+    CLUB,
+    { discounts: [{ id: "legacy-1", name: "Fratelli" }, { id: "legacy-2", name: "Famiglia" }, { id: "b-1", name: "Promo", seasonId: B }] },
+    scope(),
+    { activeSeasonId: B },
+  );
+
+  const dopo = colonna("discounts");
+  assert.deepEqual(dopo.map((r) => r.id).sort(), ["b-1", "legacy-1", "legacy-2"], "b-2 tolto");
+  assert.equal(dopo.find((r) => r.id === "legacy-1").seasonId, undefined, "il record senza annata resta senza: e della stagione piu vecchia per regola");
+  assert.equal(dopo.find((r) => r.id === "legacy-2").seasonId, undefined);
+});
+
+test("un record esistente non cambia stagione anche se il client lo rimanda con un'altra", async () => {
+  await resources.updateResource(
+    "clubs",
+    CLUB,
+    { weekly_schedule: [voce("a-1", B, { startTime: "17:00" }), voce("b-1", B)] },
+    scope(),
+    { activeSeasonId: B },
+  );
+  const dopo = colonna("weekly_schedule");
+  assert.equal(dopo.find((r) => r.id === "a-1").seasonId, A, "la stagione della riga e immutabile in aggiornamento");
+  assert.equal(dopo.find((r) => r.id === "a-1").startTime, "17:00", "la modifica passa");
+});
+
+test("una dichiarazione stale (stagione che il club non ha) ricade sull'attiva e conserva le altre stagioni", async () => {
+  await resources.updateResource(
+    "clubs",
+    CLUB,
+    { weekly_schedule: [voce("b-1", B), voce("b-3", null)] },
+    scope(),
+    { activeSeasonId: "season-di-un-altro-club" },
+  );
+  const dopo = colonna("weekly_schedule");
+  assert.deepEqual(dopo.map((r) => r.id).sort(), ["a-1", "a-2", "b-1", "b-3"]);
+  assert.equal(dopo.find((r) => r.id === "b-3").seasonId, B);
+});

@@ -74,7 +74,7 @@ import {
   normalizeTrainerCategories,
 } from "@/lib/trainer-utils";
 import { normalizeClubSeasons, type ClubSeason } from "@/lib/club-seasons";
-import { readStoredActiveClub } from "@/lib/api/client";
+import { useAuth } from "@/components/providers/AuthProvider";
 import {
   mergeTrainerAssignmentsForSeason,
   splitTrainerAssignmentsBySeason,
@@ -131,13 +131,15 @@ export default function TrainerDetailsPage() {
     activeSeasonId: string | null;
     legacySeasonId: string | null;
   }>({ seasons: [], activeSeasonId: null, legacySeasonId: null });
+  const { activeClub } = useAuth();
   const selectedSeasonId = React.useMemo(() => {
     if (!seasonState.seasons.length) return null;
-    const dichiarata = String(readStoredActiveClub()?.activeSeasonId || "").trim();
+    /* Dal contesto, come l'elenco: un cambio di stagione arriva anche alla scheda aperta (revisione D-L3). */
+    const dichiarata = String(activeClub?.activeSeasonId || "").trim();
     return seasonState.seasons.some((season) => season.id === dichiarata)
       ? dichiarata
       : seasonState.activeSeasonId;
-  }, [seasonState]);
+  }, [activeClub?.activeSeasonId, seasonState]);
   const selectedSeasonLabel =
     seasonState.seasons.find((season) => season.id === selectedSeasonId)?.label || null;
   const seasonInput = React.useMemo(

@@ -233,7 +233,8 @@ export const seasonIdForNewRecord = (
   const own = String(declaredOnRecord || "").trim();
   if (own) return own;
   if (context.isFallback) return null;
-  if (context.perimeterDisabled) return context.activeSeasonId;
+  /* Header vuoto per scelta: niente perimetro e niente marcatura, come il registro generico (revisione A-L1). */
+  if (context.perimeterDisabled) return null;
   return context.seasonId || context.activeSeasonId;
 };
 

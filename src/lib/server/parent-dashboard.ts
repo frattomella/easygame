@@ -9,9 +9,11 @@ import {
 } from "@/lib/category-utils";
 import { getAthleteDisplayName } from "@/lib/athlete-name-utils";
 import {
+  filterCollectionBySeason,
   normalizeActiveClubSeason,
   normalizeClubSeasons,
 } from "@/lib/club-seasons";
+import { recordBelongsToSeason } from "@/lib/seasons/context";
 import {
   buildCategoryGroupLabel,
   buildCategoryGroups,
@@ -1507,12 +1509,36 @@ export const getParentDashboardData = async (
     }),
   ]);
 
+  /*
+    **L'area famiglia mostra la stagione attiva del club** (ADR-0197 §21,
+    revisione C3): allenamenti, gare, categorie, piani, sconti e previsionale
+    arrivano dalla riga del club interi, e con due stagioni sovrapposte le
+    sedute dell'anno scorso comparivano negli stessi giorni di quest'anno.
+    Un club senza stagioni salvate non filtra.
+  */
+  const stagioniDelClub = normalizeClubSeasons(
+    typeof club?.settings === "object" && club.settings ? club.settings : {},
+  );
+  const perimetroFamiglia = stagioniDelClub.isFallback
+    ? null
+    : {
+        seasonId: stagioniDelClub.activeSeasonId,
+        legacySeasonId: stagioniDelClub.legacySeasonId,
+        knownSeasonIds: stagioniDelClub.seasons.map((season) => season.id),
+      };
+  const dellaStagioneAttiva = (dataType: string, records: unknown[]) =>
+    perimetroFamiglia
+      ? filterCollectionBySeason(dataType, records, perimetroFamiglia.seasonId, {
+          legacySeasonId: perimetroFamiglia.legacySeasonId,
+          knownSeasonIds: perimetroFamiglia.knownSeasonIds,
+        })
+      : records;
   const categoryOptions = buildClubCategoryOptions({
-    clubCategories: club.categories,
+    clubCategories: dellaStagioneAttiva("categories", asArray(club.categories)),
     athletes: linkedAthletes,
   });
-  const rawTrainings = asArray(club.trainings);
-  const rawMatches = asArray(club.matches);
+  const rawTrainings = dellaStagioneAttiva("trainings", asArray(club.trainings));
+  const rawMatches = dellaStagioneAttiva("matches", asArray(club.matches));
   /*
     L'identificativo **storico** dell'evento e quello con cui le collezioni JSON
     incrociano le presenze. Si legge dalle righe degli eventi con una query in
@@ -1525,9 +1551,18 @@ export const getParentDashboardData = async (
           organization_id: organizationId,
           id: { in: Array.from(new Set(attendance.map((item) => item.event_id))) },
         },
-        select: { id: true, legacy_id: true },
+        select: { id: true, legacy_id: true, season_id: true },
       })
     : [];
+  /*
+    I **conteggi** di presenze e assenze sono della stagione attiva: la
+    presenza segue la stagione del suo evento (ADR-0197 §16). L'elenco delle
+    ultime presenze resta storico, con la data che dice l'anno.
+  */
+  const stagionePerEvento = new Map(eventiDellaPresenza.map((evento) => [evento.id, evento.season_id]));
+  const attendanceDellaStagione = perimetroFamiglia
+    ? attendance.filter((item) => recordBelongsToSeason(stagionePerEvento.get(item.event_id) ?? null, perimetroFamiglia))
+    : attendance;
   const legacyIdPerEvento = new Map(
     eventiDellaPresenza.map((evento) => [
       evento.id,
@@ -1608,12 +1643,12 @@ export const getParentDashboardData = async (
       match.status === "completed" ||
       (match.startsAt && new Date(match.startsAt).getTime() < now),
   );
-  const presentCount = attendance.filter((item) =>
+  const presentCount = attendanceDellaStagione.filter((item) =>
     ["present", "presente", "late", "ritardo"].includes(
       normalizeToken(item.status),
     ),
   ).length;
-  const absentCount = attendance.filter((item) =>
+  const absentCount = attendanceDellaStagione.filter((item) =>
     ["absent", "assente", "justified", "giustificato"].includes(
       normalizeToken(item.status),
     ),
@@ -1725,11 +1760,11 @@ export const getParentDashboardData = async (
   const enrollmentSummary = getAthleteEnrollmentSummary({
     athlete: selectedAthlete,
     athleteId: selectedAthlete.id,
-    paymentPlans: asArray(club.payment_plans),
-    discounts: asArray(club.discounts),
+    paymentPlans: dellaStagioneAttiva("payment_plans", asArray(club.payment_plans)),
+    discounts: dellaStagioneAttiva("discounts", asArray(club.discounts)),
     payments: asArray(athleteData.payments),
     athletePayments: payments,
-    expectedIncomeEntries: asArray(club.expected_income),
+    expectedIncomeEntries: dellaStagioneAttiva("expected_income", asArray(club.expected_income)),
     seasonPeriod: periodoStagione,
   });
   const normalizedPayments = enrollmentSummary.payments.map((payment) => ({

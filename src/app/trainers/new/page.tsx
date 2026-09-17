@@ -31,6 +31,7 @@ import {
   normalizeClubSites,
   type CategoryGroup,
 } from "@/lib/club-sites";
+import { filterCollectionBySeason, normalizeClubSeasons } from "@/lib/club-seasons";
 import { addClubData } from "@/lib/simplified-db";
 import { PersonResidenceFields } from "@/components/forms/assisted-anagrafica";
 import { PersonIdentityFields } from "@/components/forms/person-identity-fields";
@@ -150,12 +151,20 @@ function NewTrainerPageContent() {
       try {
         const { data: clubData, error } = await supabase
           .from("clubs")
-          .select("categories, club_sites, category_groups")
+          .select("categories, club_sites, category_groups, settings")
           .eq("id", clubId)
           .single();
         if (error) throw error;
-        const nextCategories = Array.isArray(clubData?.categories)
-          ? clubData.categories
+        /* Solo le categorie della stagione attiva: un allenatore nuovo non si assegna alle squadre dell'anno scorso (ADR-0197, revisione A-M2). */
+        const stagioni = normalizeClubSeasons(clubData?.settings || {});
+        const dellaStagione = stagioni.isFallback
+          ? (Array.isArray(clubData?.categories) ? clubData.categories : [])
+          : filterCollectionBySeason("categories", Array.isArray(clubData?.categories) ? clubData.categories : [], stagioni.activeSeasonId, {
+              legacySeasonId: stagioni.legacySeasonId,
+              knownSeasonIds: stagioni.seasons.map((season: { id: string }) => season.id),
+            });
+        const nextCategories = Array.isArray(dellaStagione)
+          ? dellaStagione
               .map((category: any) => ({
                 id: String(category?.id || "").trim(),
                 name: String(category?.name || "").trim(),

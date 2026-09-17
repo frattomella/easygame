@@ -31,6 +31,15 @@ export type SeasonRolloverSummary = {
   skippedTotal: number;
   applied: boolean;
   athletes: SeasonRolloverAthletes;
+  /** Le assegnazioni degli allenatori, sempre dichiarate (ADR-0197 §7). */
+  trainers?: {
+    requested: boolean;
+    trainersWithAssignments: number;
+    trainersUpdated: number;
+    assignmentsCreated: number;
+    assignmentsExisting: number;
+    unmapped: Array<{ trainerId: string; trainerName: string; reference: string }>;
+  };
 };
 
 export type SeasonRosterMembership = {

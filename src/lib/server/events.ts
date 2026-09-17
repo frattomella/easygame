@@ -1725,10 +1725,19 @@ export const createClubEvent = async (
     vecchia del club. Il contesto lo porta la rotta (dall'header); chi chiama
     senza contesto riceve la stagione attiva del club.
   */
-  colonne.season_id = seasonIdForNewRecord(
-    options.season ?? (await resolveSeasonContext(organizationId)),
-    colonne.season_id,
-  );
+  {
+    const contesto = options.season ?? (await resolveSeasonContext(organizationId));
+    /*
+      Un `seasonId` nel corpo vale solo se e una stagione del club (revisione
+      B10/C9): uno sconosciuto farebbe un orfano, che la regola dei record
+      senza annata mostrerebbe nella stagione piu vecchia.
+    */
+    const dichiarata = String(colonne.season_id || "").trim();
+    colonne.season_id = seasonIdForNewRecord(
+      contesto,
+      dichiarata && contesto.knownSeasonIds.includes(dichiarata) ? dichiarata : null,
+    );
+  }
   const consenteSovrapposizione = Boolean(
     options.allowOverlap ??
       (input && typeof input === "object"
@@ -3132,9 +3141,11 @@ export const createClubEventsBatch = async (
   const righe = [] as any[];
   for (const input of inputs) {
     const colonne = toEventColumns(normalizeEventKind(kind), input);
-    if (!colonne.season_id) {
-      colonne.season_id = seasonIdForNewRecord(stagioneDelBlocco, null);
-    }
+    const dichiarata = String(colonne.season_id || "").trim();
+    colonne.season_id = seasonIdForNewRecord(
+      stagioneDelBlocco,
+      dichiarata && stagioneDelBlocco.knownSeasonIds.includes(dichiarata) ? dichiarata : null,
+    );
     righe.push({
       organization_id: organizationId,
       ...colonne,

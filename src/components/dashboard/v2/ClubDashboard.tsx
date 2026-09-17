@@ -139,7 +139,9 @@ export function ClubDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+    /* La stagione mostrata e una dipendenza: B attivata, la Dashboard si rilegge (ADR-0197, revisione C7). */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt, activeClub?.activeSeasonId]);
 
   const retry = React.useCallback(() => setAttempt((value) => value + 1), []);
 
@@ -173,7 +175,7 @@ export function ClubDashboard() {
     [overview],
   );
 
-  const loadedTrainings = useTodayTrainings(clubId);
+  const loadedTrainings = useTodayTrainings(clubId, activeClub?.activeSeasonId ?? null);
   /*
     Il club si risolve nel primo effetto, un giro dopo il primo disegno: senza
     questo, il riquadro mostrava per un fotogramma «nessun allenamento» prima

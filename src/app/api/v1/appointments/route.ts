@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { createAppointment, listAppointments } from "@/lib/server/appointments";
+import { resolveSeasonContext, seasonIdForNewRecord } from "@/lib/server/season-context";
 import { toClubAppointment } from "@/lib/appointments/projection";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 
@@ -88,6 +89,8 @@ export async function POST(request: Request) {
     const scope = await scopeFrom(request, session.db.user_id);
     const body = await request.json().catch(() => ({}));
     const payload = body && typeof body === "object" && body.data ? body.data : body;
+    /* Un appuntamento nasce nella stagione che il browser mostra (ADR-0197, revisione A-M4). */
+    const stagione = await resolveSeasonContext(scope.activeOrganizationId, request);
 
     try {
       const row = await createAppointment(
@@ -95,7 +98,7 @@ export async function POST(request: Request) {
         {
           athleteId: payload?.athlete_id ?? payload?.athleteId,
           siteId: payload?.site_id ?? payload?.siteId,
-          seasonId: payload?.season_id ?? payload?.seasonId,
+          seasonId: seasonIdForNewRecord(stagione, payload?.season_id ?? payload?.seasonId),
           slotId: payload?.slot_id ?? payload?.slotId,
           assignedToUserId: payload?.assigned_to ?? payload?.assignedToUserId,
           startsAt: payload?.starts_at ?? payload?.startsAt,

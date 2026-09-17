@@ -273,29 +273,18 @@ const findCategoryIdsFromRecord = (record: any, categories: any[]) => {
   return Array.from(new Set(ids));
 };
 
-const mergeCategories = (clubCategories: any[], trainerCategories: any[]) => {
-  const merged = [...clubCategories];
-  const seen = new Set(
-    clubCategories.map((category: any) =>
-      normalizeValue(category?.id || category?.name),
-    ),
-  );
-
-  for (const category of trainerCategories) {
-    const key = normalizeValue(category?.id || category?.name);
-    if (!key || seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    merged.push({
-      ...category,
-      id: String(category?.id || category?.name || "").trim(),
-      name: String(category?.name || category?.id || "").trim(),
-    });
-  }
-
-  return merged.filter((category: any) => category.id || category.name);
-};
+/*
+  **Il catalogo e quello della stagione, e non si allarga con la scheda**
+  (ADR-0197 §7, revisione D-M2). Prima un riferimento dell allenatore che il
+  catalogo non conosceva — la categoria dell anno scorso, non riportata —
+  veniva **aggiunto** al catalogo con l identificativo come nome: la
+  bacheca mostrava un chip illeggibile e l editor offriva quella voce per un
+  allenamento nuovo, che nasceva nella stagione nuova con la squadra
+  vecchia. Cio che non e nel catalogo della stagione non e una squadra di
+  questa stagione.
+*/
+const mergeCategories = (clubCategories: any[], _trainerCategories: any[]) =>
+  clubCategories.filter((category: any) => category.id || category.name);
 
 const isActiveAthleteRecord = (athlete: any) => {
   const status = normalizeValue(athlete?.status || athlete?.data?.status || "active");
@@ -950,14 +939,10 @@ export function TrainerDashboardProvider({
       ),
     );
 
-    const categoryEntries = categories.filter((category) =>
+    /* Solo le squadre della stagione: un riferimento che il catalogo non conosce non e un chip (revisione D-M2). */
+    return categories.filter((category) =>
       categoryIds.has(normalizeValue(category?.id)),
     );
-    if (categoryEntries.length > 0) {
-      return categoryEntries;
-    }
-
-    return normalizeTrainerCategories(trainerProfile?.categories, categories);
   }, [categories, trainerProfile?.categories]);
 
   const contextValue = useMemo(

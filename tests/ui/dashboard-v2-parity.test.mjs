@@ -46,7 +46,8 @@ test("i dati arrivano dalle stesse funzioni della V1", () => {
   assert.match(sources.trainingsData, /getClubTrainings\(clubId\)/);
   assert.match(sources.trainingsData, /getClubCategories\(clubId\)/);
   assert.match(sources.trainingsData, /getClubTrainers\(clubId\)/);
-  assert.match(sources.trainingsData, /cachedQuery\(`trainings-\$\{clubId\}`/);
+  /* La chiave porta la stagione (ADR-0197, revisione C7). */
+  assert.match(sources.trainingsData, /cachedQuery\(`trainings-\$\{clubId\}:\$\{seasonId \|\| ""\}`/);
   assert.match(sources.trainingsData, /\.from\("training_attendance"\)/, "l'elenco presenze salvate resta a richiesta");
   assert.match(sources.onboarding, /fields: "settings"/);
   assert.match(sources.onboarding, /normalizeOnboardingState\(/);

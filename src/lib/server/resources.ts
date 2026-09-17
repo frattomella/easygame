@@ -83,6 +83,7 @@ import {
 import { toBirthDateIso } from "../birth-date";
 import { withPlatformOwnedSettings } from "../entitlements/ownership";
 import { hasSeasonPermission } from "@/lib/seasons/permissions";
+import { buildSeasonContext } from "@/lib/seasons/context";
 import { hasTrainingAutomationPermission } from "@/lib/training-automation-permissions";
 import { assertPersonalDataDisposed } from "./data-subject";
 import {
@@ -4863,9 +4864,13 @@ const loadClubSeasonState = async (organizationId: string | null) => {
 };
 
 /**
- * Stagione da applicare alla richiesta, se e una stagione che il club ha
- * davvero. Un id stale (stagione eliminata, club cambiato) non filtra nulla:
- * meglio mostrare tutto che una lista vuota inspiegabile.
+ * Stagione da applicare alla richiesta, dal risolutore canonico (ADR-0197
+ * §2, revisione B11/C6). Il registro filtra e marca solo su **dichiarazione**
+ * (`x-active-season-id`): una chiamata interna senza header non ha perimetro.
+ * Una dichiarazione **stale** (stagione eliminata, altro club) ricade
+ * sull'attiva — prima non filtrava niente, e il salvataggio di una colonna
+ * intera da un browser con una stagione vecchia in `localStorage` riscriveva
+ * le altre stagioni. Un club senza stagioni salvate non ha perimetro.
  */
 const resolveRequestSeason = async (
   resource: string,
@@ -4877,28 +4882,22 @@ const resolveRequestSeason = async (
     return null;
   }
 
-  const seasonState = await loadClubSeasonState(organizationId || null);
-
-  if (!seasonState?.seasons.some((season) => season.id === requested)) {
+  const club = organizationId
+    ? await prisma.club.findUnique({ where: { id: organizationId }, select: { settings: true } })
+    : null;
+  if (!club) {
     return null;
   }
 
-  /*
-    Un club che non ha ancora salvato nessuna stagione ne riceve **una in
-    lettura**, sintetizzata per non lasciare l'interfaccia senza perimetro.
-    Non e un dato del club: marcarci sopra i record li lega a una stagione che
-    scompare nel momento in cui il club ne crea una vera, e allora i record non
-    appartengono piu a niente. Finche non c'e una stagione salvata non si filtra
-    e non si marca.
-  */
-  if (seasonState.isFallback) {
+  const contesto = buildSeasonContext(club.settings ?? {}, { value: requested, declared: true });
+  if (!contesto.seasonId) {
     return null;
   }
 
   return {
-    activeSeasonId: requested,
-    legacySeasonId: seasonState.legacySeasonId,
-    knownSeasonIds: seasonState.seasons.map((season) => season.id),
+    activeSeasonId: contesto.seasonId,
+    legacySeasonId: contesto.legacySeasonId,
+    knownSeasonIds: contesto.knownSeasonIds,
   };
 };
 
@@ -4981,7 +4980,30 @@ const preserveOtherSeasonRecords = async (
   }
 
   const current = Array.isArray(existingCollection) ? existingCollection : [];
-  const stamped = applySeasonIdToCollection(incoming, season.activeSeasonId);
+  /*
+    **Si marca solo cio che nasce adesso** (revisione B2/C2): un record che la
+    colonna ha gia — anche senza annata, cioe della stagione piu vecchia per
+    regola — tiene la stagione che aveva. Marcarlo con quella della richiesta
+    spostava lo storico nella stagione corrente al primo salvataggio di una
+    riga qualunque.
+  */
+  const idsEsistenti = new Set(current.map((record: any) => String(record?.id || "")).filter(Boolean));
+  const stamped = incoming.map((record: any) => {
+    const id = String(record?.id || "");
+    if (id && idsEsistenti.has(id)) {
+      const stored = current.find((entry: any) => String(entry?.id || "") === id);
+      const storedSeason = String(stored?.seasonId || stored?.season_id || "").trim();
+      const own = String(record?.seasonId || record?.season_id || "").trim();
+      /* La stagione della riga e immutabile in aggiornamento, come in `applySeasonStamp`. */
+      if (storedSeason && own !== storedSeason) return { ...record, seasonId: storedSeason };
+      if (!storedSeason && own) {
+        const { seasonId: _s, season_id: _t, ...senza } = record;
+        return senza;
+      }
+      return record;
+    }
+    return applySeasonIdToCollection([record], season.activeSeasonId)[0];
+  });
   const inPerimeter = new Set(
     filterCollectionBySeason(field, current, season.activeSeasonId, {
       legacySeasonId: season.legacySeasonId,
@@ -5384,9 +5406,22 @@ const buildCategoryTokenSet = (
       tokens.add(normalizeTrainerToken(resolvedId));
     }
 
+    /*
+      **L'etichetta entra fra i gettoni solo se nomina una categoria sola**
+      (ADR-0197, revisione D-H4). Con due stagioni che hanno entrambe una
+      «Under 15», l'allenatore assegnato a quella dell'anno scorso vedeva —
+      per etichetta — gli atleti di quella di quest'anno: dati personali di
+      una squadra che non e la sua. La stessa regola del perimetro degli
+      eventi (`readTrainerEventPerimeter`).
+    */
     const resolvedLabel = resolveCategoryLabel(raw, categories);
     if (resolvedLabel) {
-      tokens.add(normalizeTrainerToken(resolvedLabel));
+      const omonime = categories.filter(
+        (category) => normalizeTrainerToken(String(category?.name || "")) === normalizeTrainerToken(resolvedLabel),
+      );
+      if (omonime.length <= 1) {
+        tokens.add(normalizeTrainerToken(resolvedLabel));
+      }
     }
   }
 

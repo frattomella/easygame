@@ -6,6 +6,7 @@ import {
 } from "@/lib/server/auth";
 import { canReadDocumentTemplates } from "@/lib/documents/permissions";
 import { resolveDocumentForSubject } from "@/lib/server/document-placeholders";
+import { resolveSeasonContext, seasonIdForNewRecord } from "@/lib/server/season-context";
 import {
   listGeneratedDocuments,
   loadPublishableVersion,
@@ -152,7 +153,12 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const templateId = String(body?.template_id || body?.templateId || "").trim();
-    const seasonId = String(body?.season_id || body?.seasonId || "").trim();
+    /* Un documento generato nasce nella stagione che il browser mostra (ADR-0197, revisione A-M4). */
+    const seasonId =
+      seasonIdForNewRecord(
+        await resolveSeasonContext(organizationId, request),
+        String(body?.season_id || body?.seasonId || "").trim(),
+      ) || "";
     const batchId = String(body?.batch_id || body?.batchId || "").trim();
     const subjects = readSubjects(body);
 

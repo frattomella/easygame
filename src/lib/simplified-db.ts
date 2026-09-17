@@ -965,15 +965,46 @@ const readClubFields = async (clubId: string, fields: string[]) => {
 const writeClubFields = async (
   clubId: string,
   updates: Record<string, any>,
+  options: { seasonId?: string | null } = {},
 ) => {
   // `fields=id` restituisce le sole colonne di servizio: non ha senso farsi
   // rimandare indietro la collezione appena inviata.
+  /*
+    **La stagione del perimetro viaggia con la scrittura** (ADR-0197 §5,
+    revisione B3/C1). Chi riscrive una colonna intera dichiara la stagione
+    su cui ha letto — quella del club in archivio, o quella delle righe che
+    manda — e non quella che un altro scheda ha lasciato in `localStorage`:
+    il server conserva le altre stagioni rispetto a **quel** perimetro.
+  */
   const response = await apiRequest<any>(
     `/api/v1/clubs/${encodeURIComponent(clubId)}?fields=id`,
-    { method: "PATCH", body: { data: updates } },
+    {
+      method: "PATCH",
+      body: { data: updates },
+      ...(options.seasonId ? { headers: { "x-active-season-id": options.seasonId } } : {}),
+    },
   );
 
   return { data: response.data ?? null, error: response.error };
+};
+
+/** La stagione attiva **in archivio** dalle impostazioni gia lette, o `null` senza stagioni salvate. */
+const stagioneAttivaDaSettings = (settings: unknown) => {
+  const state = normalizeClubSeasons(
+    typeof settings === "object" && settings ? settings : {},
+  );
+  return state.isFallback ? null : state.activeSeasonId;
+};
+
+/** La stagione che un elenco di righe dichiara, se tutte la dichiarano uguale. */
+const stagioneDelleRighe = (records: unknown) => {
+  const list = Array.isArray(records) ? records : [];
+  const seasons = new Set(
+    list.map((record: any) => String(record?.seasonId || record?.season_id || "").trim()),
+  );
+  if (seasons.size !== 1) return null;
+  const [only] = Array.from(seasons);
+  return only || null;
 };
 
 /**
@@ -2696,6 +2727,7 @@ export async function addClubData(
         const { data: updateResult, error: updateError } = await writeClubFields(
           clubId,
           { [dataType]: updatedData },
+          { seasonId: isSeasonScopedDataType(dataType) ? stagioneAttivaDaSettings(clubData?.settings) : null },
         );
 
         if (updateError) {
@@ -3051,6 +3083,7 @@ const buildWeeklyScheduleIdentityKey = (item: Record<string, any>) => {
   }
 
   return [
+    item?.seasonId || item?.season_id || "",
     item?.day || "",
     item?.startTime || item?.start_time || item?.time || "",
     item?.endTime || item?.end_time || "",
@@ -3060,6 +3093,30 @@ const buildWeeklyScheduleIdentityKey = (item: Record<string, any>) => {
   ]
     .map((value) => String(value || "").trim())
     .join("|");
+};
+
+/**
+ * I payload di `club_resource_items` di un tipo di stagione, filtrati come
+ * la colonna: il registro generico non filtra `club_resource_items` (e una
+ * risorsa di modello), e senza questo una riga seme di un'altra stagione
+ * compariva in ogni stagione (ADR-0197, revisione C11).
+ */
+const getClubResourcePayloadsForActiveSeason = async (
+  clubId: string,
+  dataType: "trainings" | "weekly_schedule",
+) => {
+  const [payloads, club] = await Promise.all([
+    getClubResourcePayloads(clubId, dataType),
+    readClubFields(clubId, ["settings"]),
+  ]);
+  const settings =
+    typeof club.data?.settings === "object" && club.data?.settings ? club.data.settings : {};
+  const { activeSeasonId, legacySeasonId, seasons, isFallback } = normalizeClubSeasons(settings);
+  if (isFallback || !Array.isArray(payloads)) return payloads;
+  return filterCollectionBySeason(dataType, payloads, activeSeasonId, {
+    legacySeasonId,
+    knownSeasonIds: seasons.map((season) => season.id),
+  });
 };
 
 const getClubDirectCollectionWithLegacySeasonFallback = async (
@@ -3231,6 +3288,19 @@ const normalizeWeeklyScheduleSourceItem = (item: Record<string, any>) => {
       item?.field_id,
     ),
     location: getNonEmptyString(item?.location, item?.fieldName, item?.field_name),
+    /*
+      Stagione, gruppo e stato viaggiano con la voce (ADR-0197, revisione
+      B4): senza, una voce disattivata tornava attiva al ricaricamento e
+      «Genera ora» la generava; senza stagione il server non sapeva di quale
+      stagione fossero le righe che il pannello gli mandava.
+    */
+    ...(getNonEmptyString(item?.seasonId, item?.season_id)
+      ? { seasonId: getNonEmptyString(item?.seasonId, item?.season_id) }
+      : {}),
+    ...(getNonEmptyString(item?.groupId, item?.group_id)
+      ? { groupId: getNonEmptyString(item?.groupId, item?.group_id) }
+      : {}),
+    active: item?.active === false ? false : true,
   };
 };
 
@@ -3282,7 +3352,8 @@ export async function getClubWeeklySchedule(clubId: string) {
   try {
     const [clubWeeklySchedule, resourceWeeklySchedule] = await Promise.all([
       getClubDirectCollectionWithLegacySeasonFallback(clubId, "weekly_schedule"),
-      getClubResourcePayloads(clubId, "weekly_schedule"),
+      /* I payload del registro seguono lo stesso perimetro della colonna (revisione C11). */
+      getClubResourcePayloadsForActiveSeason(clubId, "weekly_schedule"),
     ]);
 
     const scheduleSources = [clubWeeklySchedule, resourceWeeklySchedule];
@@ -3359,7 +3430,7 @@ export async function cleanupOrphanScheduledTrainings(
 
   const { data: clubData, error } = await supabase
     .from("clubs")
-    .select("weekly_schedule, trainings")
+    .select("weekly_schedule, trainings, settings")
     .eq("id", clubId)
     .single();
 
@@ -3367,12 +3438,32 @@ export async function cleanupOrphanScheduledTrainings(
     throw error;
   }
 
-  const currentWeeklySchedule = Array.isArray(clubData?.weekly_schedule)
-    ? clubData.weekly_schedule
-    : [];
-  const currentTrainings = Array.isArray(clubData?.trainings)
-    ? clubData.trainings
-    : [];
+  /*
+    **Si pulisce la stagione attiva, non il club** (ADR-0197, revisione C8):
+    i riferimenti mancanti sono calcolati sul catalogo della stagione, e
+    togliere per nome anche le voci e gli allenamenti delle altre stagioni
+    cancellava la storia di un'annata che non c'entrava. La colonna si
+    riscrive con la stagione del perimetro e il server conserva le altre.
+  */
+  const stagioni = normalizeClubSeasons(
+    typeof clubData?.settings === "object" && clubData?.settings ? clubData.settings : {},
+  );
+  const perimetro = stagioni.isFallback ? null : stagioni.activeSeasonId;
+  const dellaStagione = (dataType: string, records: unknown[]) =>
+    perimetro
+      ? filterCollectionBySeason(dataType, records, perimetro, {
+          legacySeasonId: stagioni.legacySeasonId,
+          knownSeasonIds: stagioni.seasons.map((season) => season.id),
+        })
+      : records;
+  const currentWeeklySchedule = dellaStagione(
+    "weekly_schedule",
+    Array.isArray(clubData?.weekly_schedule) ? clubData.weekly_schedule : [],
+  );
+  const currentTrainings = dellaStagione(
+    "trainings",
+    Array.isArray(clubData?.trainings) ? clubData.trainings : [],
+  );
 
   const matchesMissingCategory = (record: any) =>
     getTrainingCategoryReferences(record).some((reference) =>
@@ -3399,10 +3490,11 @@ export async function cleanupOrphanScheduledTrainings(
     motore delle automazioni puo ricreare cio che si sta cancellando.
   */
   if (removedWeeklyScheduleItems.length) {
-    const { error: updateError } = await supabase
-      .from("clubs")
-      .update({ weekly_schedule: nextWeeklySchedule })
-      .eq("id", clubId);
+    const { error: updateError } = await writeClubFields(
+      clubId,
+      { weekly_schedule: nextWeeklySchedule },
+      { seasonId: perimetro },
+    );
 
     if (updateError) {
       throw updateError;
@@ -3457,14 +3549,32 @@ export async function updateClubData(
         const seasonState = isSeasonScopedDataType(dataType)
           ? await getClubSeasonState(clubId)
           : null;
+        /*
+          **Il perimetro e quello delle righe che si hanno in mano** (ADR-0197
+          §5, revisione B3): le righe lette portano la loro stagione, e le
+          righe nuove prendono quella — non la stagione che `localStorage`
+          ricorda, che in un secondo scheda puo essere gia cambiata. Senza
+          righe con stagione (elenco vuoto, club appena nato) vale la
+          stagione nota al browser.
+        */
+        const perimetro =
+          isSeasonScopedDataType(dataType)
+            ? stagioneDelleRighe(
+                (Array.isArray(updatedData) ? updatedData : []).filter(
+                  (record: any) => String(record?.seasonId || record?.season_id || "").trim(),
+                ),
+              ) || seasonState?.activeSeasonId || null
+            : null;
         const seasonAwareData =
-          seasonState?.activeSeasonId && isSeasonScopedDataType(dataType)
-            ? applySeasonIdToCollection(updatedData, seasonState.activeSeasonId)
+          perimetro && isSeasonScopedDataType(dataType)
+            ? applySeasonIdToCollection(updatedData, perimetro)
             : updatedData;
 
-        const { error } = await writeClubFields(clubId, {
-          [dataType]: seasonAwareData,
-        });
+        const { error } = await writeClubFields(
+          clubId,
+          { [dataType]: seasonAwareData },
+          { seasonId: perimetro },
+        );
 
         if (error) {
           if (retryCount === maxRetries - 1) {
@@ -3514,9 +3624,11 @@ export async function deleteClubDataItem(
     const currentData = clubData?.[dataType] || [];
     const updatedData = currentData.filter((item: any) => item.id !== itemId);
 
-    const { error: updateError } = await writeClubFields(clubId, {
-      [dataType]: updatedData,
-    });
+    const { error: updateError } = await writeClubFields(
+      clubId,
+      { [dataType]: updatedData },
+      { seasonId: isSeasonScopedDataType(dataType) ? stagioneAttivaDaSettings(clubData?.settings) : null },
+    );
 
     if (updateError) throw updateError;
 
@@ -3635,9 +3747,11 @@ export async function updateClubDataItem(
         : item,
     );
 
-    const { error: updateError } = await writeClubFields(clubId, {
-      [dataType]: updatedData,
-    });
+    const { error: updateError } = await writeClubFields(
+      clubId,
+      { [dataType]: updatedData },
+      { seasonId: seasonState && !seasonState.isFallback ? seasonState.activeSeasonId : null },
+    );
 
     if (updateError) throw updateError;
 
