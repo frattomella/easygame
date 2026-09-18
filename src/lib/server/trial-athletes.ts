@@ -1418,15 +1418,7 @@ export const findAthleteCandidates = async (
   const nome = normalizeForMatch(trial.first_name);
   const cognome = normalizeForMatch(trial.last_name);
   /* Lo stesso prefiltro degli omonimi (ADR-0198 §5): ogni parola, senza l'ultima lettera. */
-  const gambi = Array.from(
-    new Set(
-      [...trial.first_name.split(" "), ...trial.last_name.split(" ")]
-        .flatMap((parola) => [parola, nameMatchKey(parola)])
-        .map((parola) => parola.trim())
-        .filter((parola) => parola.length >= 2)
-        .map((parola) => (parola.length >= 4 ? parola.slice(0, -1) : parola)),
-    ),
-  );
+  const gambi = gambiDelNome(trial.first_name, trial.last_name);
   const atleti = await prisma.athlete.findMany({
     where: {
       organization_id: organizationId,
@@ -1445,7 +1437,7 @@ export const findAthleteCandidates = async (
       category_id: true,
       category_name: true,
     },
-    take: 200,
+    take: 500,
   });
   const display = await loadDisplay(organizationId);
   const nascita = toDateOnly(trial.birth_date);
@@ -1481,6 +1473,30 @@ export const findAthleteCandidates = async (
 };
 
 /* ── Omonimi ──────────────────────────────────────────────────────────────── */
+
+/**
+ * I gambi con cui prefiltrare in archivio: la parola **piu lunga** del nome
+ * e quella del cognome, com'e scritta e senza accenti, senza l'ultima lettera
+ * quando e lunga almeno quattro (l'accento italiano cade in coda). Una
+ * parola corta e comune («Qa», «De», «Di») non entra: su un club dove ogni
+ * cognome la porta il tetto delle righe la lascerebbe fuori.
+ */
+const gambiDelNome = (firstName: string, lastName: string) => {
+  const piuLunga = (testo: string) =>
+    testo
+      .split(" ")
+      .map((parola) => parola.trim())
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length)[0] || "";
+  return Array.from(
+    new Set(
+      [piuLunga(firstName), piuLunga(lastName)]
+        .flatMap((parola) => [parola, nameMatchKey(parola)])
+        .filter((parola) => parola.length >= 2)
+        .map((parola) => (parola.length >= 4 ? parola.slice(0, -1) : parola)),
+    ),
+  );
+};
 
 export type TrialHomonym = {
   kind: "trial" | "athlete";
@@ -1535,15 +1551,7 @@ export const findTrialHomonyms = async (
     italiano cade in coda: Nicolò, Bianchì); poi decide `sameNameInAnyOrder`,
     l'unica chiave. Un accento in mezzo alla parola resta un limite dichiarato.
   */
-  const gambi = Array.from(
-    new Set(
-      [...firstName.split(" "), ...lastName.split(" ")]
-        .flatMap((parola) => [parola, nameMatchKey(parola)])
-        .map((parola) => parola.trim())
-        .filter((parola) => parola.length >= 2)
-        .map((parola) => (parola.length >= 4 ? parola.slice(0, -1) : parola)),
-    ),
-  );
+  const gambi = gambiDelNome(firstName, lastName);
   const prefiltroNomi = {
     OR: gambi.flatMap((gambo) => [
       { last_name: { contains: gambo, mode: "insensitive" as const } },
@@ -1560,7 +1568,7 @@ export const findTrialHomonyms = async (
     where: { organization_id: organizationId, ...prefiltroNomi },
     select: { id: true, first_name: true, last_name: true, birth_date: true, status: true, category_id: true, category_name: true, group_id: true, site_id: true, created_by: true, athlete_id: true },
     orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
-    take: 200,
+    take: 500,
   });
   const proveOmonime = prove
     .filter((riga) => trialWithinPerimeter(perimetro, scope, riga))
@@ -1592,7 +1600,7 @@ export const findTrialHomonyms = async (
     where: { organization_id: organizationId, anonymized_at: null, ...prefiltroNomi },
     select: { id: true, first_name: true, last_name: true, birth_date: true, status: true, category_id: true, category_name: true },
     orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
-    take: 200,
+    take: 500,
   });
   const athletes: TrialHomonym[] = atleti
     .filter((riga) => sameNameInAnyOrder({ firstName, lastName }, { firstName: riga.first_name, lastName: riga.last_name }))

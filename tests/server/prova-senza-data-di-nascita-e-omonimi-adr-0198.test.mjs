@@ -226,3 +226,17 @@ test("due date mancanti non sono la stessa data: il candidato della conversione 
   assert.equal(candidati.length, 1);
   assert.equal(candidati[0].match, "name");
 });
+
+test("UAT · una parola corta e comune in ogni cognome («Qa») non nasconde l'omonimo dietro il tetto delle righe", async () => {
+  const seed = seme();
+  /* 300 atleti «… Qa» prima di «Viola Qa» in ordine alfabetico. */
+  for (let i = 0; i < 300; i += 1) {
+    seed.athlete.push({ id: `a-${String(i).padStart(4, "0")}-0198-4000-8000-000000000000`.slice(0, 36), organization_id: MS_CLUB, first_name: "Atleta", last_name: `Aaa${String(i).padStart(3, "0")} Qa`, birth_date: null, status: "active", category_id: null, category_name: null, data: {}, anonymized_at: null });
+  }
+  seed.athlete.push({ id: "a7a7a7a7-0198-4000-8000-000000000777", organization_id: MS_CLUB, first_name: "Andrea", last_name: "Viola Qa", birth_date: null, status: "active", category_id: null, category_name: null, data: {}, anonymized_at: null });
+  fake = createFakePrisma(seed);
+  setPrismaClientForTests(fake.client);
+  const esito = await dominio.findTrialHomonyms(scopeDirezione, { firstName: "Andrea", lastName: "Viola Qa" });
+  assert.equal(esito.athletes.length, 1);
+  assert.equal(esito.athletes[0].name, "Andrea Viola Qa");
+});
