@@ -202,3 +202,17 @@ test("16 · le superfici usano il presentatore: Allenamenti, Dashboard, Calendar
   assert.doesNotMatch(leggi("src/lib/server/training-automation.ts"), /formatTrainingTitle\(trainingDate\)/);
   assert.match(leggi("src/components/training/v2/DaySessions.tsx"), /data-test="training-note"/);
 });
+
+test("37 · il denominatore e l'organico della squadra per identificativo: i «Pulcini» dell'anno scorso non contano nei Pulcini di quest'anno", async () => {
+  const appartenenze = await import("../../src/lib/athlete-category-memberships.ts");
+  const dellaB = { id: "a1", category_id: "cat-b-pulcini", data: { categoryMemberships: [{ category_id: "cat-b-pulcini", is_primary: true }] } };
+  const dellaA = { id: "a2", category_id: "cat-a-pulcini", category_name: "Pulcini", data: { category: "cat-a-pulcini", categoryName: "Pulcini", categoryMemberships: [{ category_id: "cat-a-pulcini", category_name: "Pulcini", is_primary: true }] } };
+  assert.equal(appartenenze.athleteHasCategoryId(dellaB, "cat-b-pulcini"), true);
+  assert.equal(appartenenze.athleteHasCategoryId(dellaA, "cat-b-pulcini"), false, "il nome «Pulcini» non attraversa le stagioni");
+  const riga = dashboard.normalizeTodayTraining(
+    { ...evento(), category: "Pulcini", categoryId: "cat-b-pulcini", attendance_recorded: 15, attendance_present: 15 },
+    { categories: [{ id: "cat-b-pulcini", name: "Pulcini" }], athletes: [dellaB, dellaA, { ...dellaB, id: "a3" }] },
+  );
+  assert.equal(riga.expectedAttendees, 2, "due atleti della B, non tre");
+  assert.equal(riga.attendees, 15);
+});

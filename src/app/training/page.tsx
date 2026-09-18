@@ -1,5 +1,6 @@
 "use client";
 
+import { athleteCarriesCategoryIds, athleteHasCategoryId } from "@/lib/athlete-category-memberships";
 import { sameCategory } from "@/lib/categories/identity";
 import { apiRequest } from "@/lib/api/client";
 import { listEventParticipants } from "@/lib/events/client";
@@ -274,7 +275,10 @@ const formatTrainingSession = ({
         ),
       ).length
     : athletes.filter((athlete: any) =>
-        athleteMatchesAnyCategory(athlete, matchedCategories, categories),
+        /* Per identificativo quando l'atleta ne porta (ADR-0198 §6): un nome non attraversa le stagioni. */
+        matchedCategories.length && athleteCarriesCategoryIds(athlete)
+          ? matchedCategories.some((category: any) => athleteHasCategoryId(athlete, category?.id))
+          : athleteMatchesAnyCategory(athlete, matchedCategories, categories),
       ).length;
 
   const attesiSalvati =

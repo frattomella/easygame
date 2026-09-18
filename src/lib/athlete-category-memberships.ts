@@ -996,3 +996,48 @@ export const getParticipationCategoryBadgeLabel = (
 
   return "Primaria";
 };
+
+/**
+ * **L'organico atteso si conta per identificativo** (ADR-0198 §6, UAT sul
+ * QA UAT Club): con il catalogo della stagione in mano, «Pulcini» dell'anno
+ * scorso nella proiezione di un atleta risolveva **per nome** sui Pulcini di
+ * quest'anno, e il denominatore diceva 107 dove la squadra ne ha 13. Qui si
+ * leggono i soli identificativi che l'atleta porta — righe, proiezione,
+ * colonna — e un nome non entra. Chi non ha un identificativo da confrontare
+ * ricade sul confronto per nome, come prima.
+ */
+export const athleteHasCategoryId = (athlete: unknown, categoryId: unknown) => {
+  const target = String(categoryId ?? "").trim();
+  if (!target || !isRecord(athlete)) return false;
+  const data = isRecord(athlete.data) ? athlete.data : {};
+  const rows = [
+    ...(Array.isArray(athlete.category_memberships) ? athlete.category_memberships : []),
+    ...(Array.isArray(athlete.categoryMemberships) ? athlete.categoryMemberships : []),
+    ...(Array.isArray(data.categoryMemberships) ? data.categoryMemberships : []),
+    ...(Array.isArray(data.category_memberships) ? data.category_memberships : []),
+  ];
+  const ids = new Set<string>();
+  for (const row of rows) {
+    if (!isRecord(row)) continue;
+    const id = String(row.category_id ?? row.categoryId ?? "").trim();
+    if (id) ids.add(id);
+  }
+  for (const value of [athlete.category_id, athlete.categoryId, data.category, data.categoryId]) {
+    const id = String(value ?? "").trim();
+    if (id) ids.add(id);
+  }
+  return ids.has(target);
+};
+
+/** Vero se l'atleta porta almeno un identificativo di categoria: allora il confronto per nome non serve. */
+export const athleteCarriesCategoryIds = (athlete: unknown) => {
+  if (!isRecord(athlete)) return false;
+  const data = isRecord(athlete.data) ? athlete.data : {};
+  const rows = [
+    ...(Array.isArray(athlete.category_memberships) ? athlete.category_memberships : []),
+    ...(Array.isArray(athlete.categoryMemberships) ? athlete.categoryMemberships : []),
+    ...(Array.isArray(data.categoryMemberships) ? data.categoryMemberships : []),
+  ];
+  return rows.some((row) => isRecord(row) && String(row.category_id ?? row.categoryId ?? "").trim()) ||
+    Boolean(String(athlete.category_id ?? athlete.categoryId ?? "").trim());
+};

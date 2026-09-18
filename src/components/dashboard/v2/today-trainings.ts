@@ -10,6 +10,7 @@ import {
 import { listEventParticipants, listEvents } from "@/lib/events/client";
 import { listEventTrialAttendance } from "@/lib/trials/client";
 import { attendanceStateOf, isRecordedAttendanceStatus } from "@/lib/events/attendance-count";
+import { athleteCarriesCategoryIds, athleteHasCategoryId } from "@/lib/athlete-category-memberships";
 import { isPresentAttendance } from "@/lib/funding/attendance-measure";
 import { readRecordedAttendance } from "@/lib/trainer-operational-alerts";
 import { trainingDisplayTitle } from "@/lib/events/training-presenter";
@@ -125,9 +126,12 @@ export const normalizeTodayTraining = (
       : categoryReferences.length > 0
         ? categoryReferences
         : [getTrainingCategoryLabel(training, categories)];
+  /* Per identificativo quando l'atleta ne porta (ADR-0198 §6): un nome non attraversa le stagioni. */
   const categoryAthleteCount = Array.isArray(options.athletes)
     ? options.athletes.filter((athlete) =>
-        athleteMatchesAnyCategory(athlete, categoryCandidates, categories),
+        matchedCategoryOptions.length && athleteCarriesCategoryIds(athlete)
+          ? matchedCategoryOptions.some((category) => athleteHasCategoryId(athlete, category.id))
+          : athleteMatchesAnyCategory(athlete, categoryCandidates, categories),
       ).length
     : 0;
 
