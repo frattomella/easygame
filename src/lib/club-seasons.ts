@@ -479,6 +479,33 @@ export type SeasonRolloverTypeDescriptor = {
  * riferimenti avviene dopo la clonazione di tutti i tipi, quindi non dipende
  * da questo ordine.
  */
+/**
+ * **Una voce riportata non porta gli allenatori dell'anno scorso** (ADR-0198
+ * §1). `trainerIds` su una voce del programma e un riferimento a
+ * un'assegnazione, e l'assegnazione e della stagione: copiarli faceva nascere
+ * in B allenamenti con gli allenatori di A mentre la pagina Allenatori diceva
+ * «nessuna categoria assegnata». La voce riportata nasce senza, e il
+ * generatore li deriva dalle assegnazioni della stagione nuova.
+ */
+export const TRAINER_REFERENCE_KEYS = [
+  "trainerIds",
+  "trainer_ids",
+  "trainerId",
+  "trainer_id",
+  "trainers",
+  "trainer",
+  "coachId",
+  "coach_id",
+  "coach",
+] as const;
+
+export const stripTrainerReferences = <T extends Record<string, any>>(record: T): T => {
+  const copia: Record<string, any> = { ...record };
+  for (const key of TRAINER_REFERENCE_KEYS) delete copia[key];
+  copia.trainerIds = [];
+  return copia as T;
+};
+
 export const SEASON_ROLLOVER_TYPES: SeasonRolloverTypeDescriptor[] = [
   {
     key: "categories",
@@ -514,7 +541,7 @@ export const SEASON_ROLLOVER_TYPES: SeasonRolloverTypeDescriptor[] = [
     key: "weekly_schedule",
     label: "Programma settimanale",
     description:
-      "Struttura ricorrente degli allenamenti, senza le sedute gia generate",
+      "Giorni, orari, squadre e campi, senza le sedute gia generate e senza gli allenatori, che seguono le assegnazioni della stagione nuova",
     defaultSelected: false,
   },
   {
@@ -961,7 +988,7 @@ export const planSeasonRollover = (options: {
       } = item || {};
 
       cloned.push({
-        ...rest,
+        ...(type === "weekly_schedule" ? stripTrainerReferences(rest) : rest),
         id: newId,
         seasonId: targetSeasonId,
         rolloverSourceId: sourceId || null,

@@ -1,3 +1,4 @@
+import { sameNameInAnyOrder } from "@/lib/athlete-name-utils";
 import { randomUUID } from "crypto";
 import { reportServerError } from "./observability";
 import { athleteWithinAccessScope } from "./access-scope-query";
@@ -1487,7 +1488,8 @@ export type SubmissionReview = {
 export type TrialMatchCandidate = {
   id: string;
   name: string;
-  birthDate: string;
+  /** `null` se la persona in prova non l'ha lasciata (ADR-0198 §4). */
+  birthDate: string | null;
   sameBirthDate: boolean;
   categoryLabel: string | null;
   trialsCount: number;
@@ -1501,7 +1503,6 @@ const findTrialCandidates = async (
 ): Promise<TrialMatchCandidate[]> => {
   if (!probe.firstName || !probe.lastName) return [];
   if (!roleHasPermission(scope.activeRole, "trials.read")) return [];
-  const normal = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
   try {
     const rows = await listTrialAthletes(
       {
@@ -1515,13 +1516,14 @@ const findTrialCandidates = async (
     );
     return rows
       .filter(
-        (row) => normal(row.firstName) === normal(probe.firstName) && normal(row.lastName) === normal(probe.lastName),
+        /* Una chiave sola per gli omonimi (ADR-0198 §5): accenti, spazi, ordine. */
+        (row) => sameNameInAnyOrder({ firstName: row.firstName, lastName: row.lastName }, { firstName: probe.firstName, lastName: probe.lastName }),
       )
       .map((row) => ({
         id: row.id,
         name: row.name,
         birthDate: row.birthDate,
-        sameBirthDate: Boolean(probe.birthDate) && row.birthDate === probe.birthDate.slice(0, 10),
+        sameBirthDate: Boolean(probe.birthDate) && Boolean(row.birthDate) && row.birthDate === probe.birthDate.slice(0, 10),
         categoryLabel: row.categoryLabel,
         trialsCount: row.trialsCount,
         lastTrialAt: row.lastTrialAt,
@@ -2639,6 +2641,8 @@ const eseguiDecisione = async (
             status: "active",
             categoryId: placement.category?.id || null,
             siteId: placement.siteId || null,
+            /* La pratica porta la data di nascita: una prova senza data si iscrive con questa (ADR-0198 §4). */
+            birthDate: patch.columns.birth_date ? String(patch.columns.birth_date).slice(0, 10) : null,
           },
         },
         { userId: scope.userId },

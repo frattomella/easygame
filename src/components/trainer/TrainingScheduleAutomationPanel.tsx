@@ -84,6 +84,8 @@ type WeeklyProgramDiagnostics = {
   rulesWithoutOccurrence: number;
   outsideSeasonCount: number;
   reasons: Array<{ code: string; count: number; label: string; examples: string[] }>;
+  /** Allenatori scritti sulle voci ma non assegnati alla squadra nella stagione (ADR-0198 §1): la voce genera senza di loro. */
+  trainersNotAssigned?: { rules: number; trainers: number; examples: string[] };
 };
 
 type GenerateUntilResponse = {
@@ -154,6 +156,14 @@ function DiagnosticaProgramma({ diagnostics }: { diagnostics: WeeklyProgramDiagn
             </li>
           ))}
         </ul>
+      ) : null}
+      {diagnostics.trainersNotAssigned?.rules ? (
+        <p className="mt-1 text-egw-amber-ink" data-testid="diagnostica-allenatori-non-assegnati">
+          {diagnostics.trainersNotAssigned.rules} session{diagnostics.trainersNotAssigned.rules === 1 ? "e nomina" : "i nominano"}{" "}
+          allenatori non assegnati alla squadra in questa stagione: gli allenamenti nascono senza di loro
+          {diagnostics.trainersNotAssigned.examples.length ? ` (es. ${diagnostics.trainersNotAssigned.examples.join("; ")})` : ""}
+          . Le assegnazioni si fanno dalla pagina Allenatori.
+        </p>
       ) : null}
     </div>
   );
@@ -838,7 +848,7 @@ export function TrainingScheduleAutomationPanel({
                 ))}
               </select>
               <p className="text-xs text-egw-ink-62">
-                Per disattivare la generazione automatica, usa
+                N giorni da adesso: ogni sessione settimanale nasce N/7 volte, e una sessione di oggi gia passata nasce la settimana prossima. Per disattivare la generazione automatica, usa
                 l&apos;interruttore &quot;Automazione attiva&quot;.
               </p>
             </div>

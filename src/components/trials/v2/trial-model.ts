@@ -1,5 +1,6 @@
 import type { TrialAthlete, TrialAthleteInput, TrialStatus } from "@/lib/trials/client";
 import { TRIAL_STATUS } from "@/lib/web/status";
+import { nameMatchKey } from "@/lib/athlete-name-utils";
 
 /**
  * Il modello puro delle persone in prova (ADR-0188): nessun React, nessuna
@@ -68,7 +69,7 @@ export const trialFormFrom = (trial: TrialAthlete | null | undefined, defaults: 
     ? {
         firstName: trial.firstName,
         lastName: trial.lastName,
-        birthDate: trial.birthDate,
+        birthDate: trial.birthDate || "",
         categoryId: trial.categoryId || "",
         groupId: trial.groupId || "",
         siteId: trial.siteId || "",
@@ -84,19 +85,22 @@ export const trialFormFrom = (trial: TrialAthlete | null | undefined, defaults: 
 export type TrialFormError = { field: keyof TrialFormState; message: string };
 
 /**
- * Nome, cognome e data di nascita sono il minimo affidabile: nel settore
- * giovanile la data distingue due omonimi e dice la categoria.
+ * Nome e cognome sono il minimo; la data di nascita distingue due omonimi e
+ * dice la categoria, ma **non e obbligatoria** per una prova (ADR-0198 §4).
  */
 export const validateTrialForm = (form: TrialFormState, now = new Date()): TrialFormError[] => {
   const errors: TrialFormError[] = [];
   if (!form.firstName.trim()) errors.push({ field: "firstName", message: "Il nome e obbligatorio" });
   if (!form.lastName.trim()) errors.push({ field: "lastName", message: "Il cognome e obbligatorio" });
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(form.birthDate)) {
-    errors.push({ field: "birthDate", message: "La data di nascita e obbligatoria" });
-  } else {
-    const age = ageFromBirthDate(form.birthDate, now);
-    if (age === null || new Date(form.birthDate).getTime() > now.getTime()) {
+  /* Facoltativa (ADR-0198 §4): si vaglia solo se c'e. La chiede l'iscrizione, non la prova. */
+  if (form.birthDate.trim()) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(form.birthDate)) {
       errors.push({ field: "birthDate", message: "La data di nascita non e valida" });
+    } else {
+      const age = ageFromBirthDate(form.birthDate, now);
+      if (age === null || new Date(form.birthDate).getTime() > now.getTime()) {
+        errors.push({ field: "birthDate", message: "La data di nascita non e valida" });
+      }
     }
   }
   if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
@@ -109,7 +113,7 @@ export const validateTrialForm = (form: TrialFormState, now = new Date()): Trial
 export const trialFormToInput = (form: TrialFormState): TrialAthleteInput => ({
   firstName: form.firstName.trim(),
   lastName: form.lastName.trim(),
-  birthDate: form.birthDate,
+  birthDate: form.birthDate.trim() || null,
   categoryId: form.categoryId || null,
   groupId: form.groupId || null,
   siteId: form.siteId || null,
@@ -136,13 +140,7 @@ export const trialFormDiff = (form: TrialFormState, trial: TrialAthlete): TrialA
  * stesso nome (in qualunque ordine) e una corrispondenza da proporre; la
  * stessa data di nascita la rende «probabilmente la stessa persona».
  */
-const normalize = (value: string) =>
-  value
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+const normalize = (value: string) => nameMatchKey(value);
 
 export const findTrialMatches = (form: Pick<TrialFormState, "firstName" | "lastName" | "birthDate">, existing: readonly TrialAthlete[]) => {
   const nome = normalize(form.firstName);
@@ -156,7 +154,7 @@ export const findTrialMatches = (form: Pick<TrialFormState, "firstName" | "lastN
       const solo = nome || cognome;
       return a === solo || b === solo;
     })
-    .map((trial) => ({ trial, exact: Boolean(form.birthDate) && trial.birthDate === form.birthDate }))
+    .map((trial) => ({ trial, exact: Boolean(form.birthDate) && Boolean(trial.birthDate) && trial.birthDate === form.birthDate }))
     .sort((x, y) => Number(y.exact) - Number(x.exact));
 };
 

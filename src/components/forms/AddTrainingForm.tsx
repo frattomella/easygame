@@ -1,5 +1,6 @@
 "use client";
 
+import { defaultTrainingTitle } from "@/lib/events/training-presenter";
 import React, { useState } from "react";
 import { Drawer, DrawerSection } from "@/components/web/overlays/Drawer";
 import { Button } from "@/components/web/primitives/Button";
@@ -366,7 +367,6 @@ export function AddTrainingForm({
   /** Le stesse regole della V1, campo per campo invece che in un toast solo. */
   const validate = (): FormErrors => {
     const next: FormErrors = {};
-    if (!formData.title.trim()) next.title = "Il titolo è obbligatorio";
     if (!formData.date) next.date = "La data è obbligatoria";
     if (!formData.time) next.time = "L'ora di inizio è obbligatoria";
     if (formData.groupIds.length === 0) next.groupIds = "Seleziona almeno un gruppo";
@@ -421,6 +421,7 @@ export function AddTrainingForm({
     */
     const saved = await onSubmit({
       ...formData,
+      title: formData.title.trim() || defaultTrainingTitle(),
       ...toEventRsvpPayload(rsvp),
       trainers: formData.trainerIds,
       status: "upcoming",
@@ -467,13 +468,14 @@ export function AddTrainingForm({
           <ValidationSummary errors={summaryErrors} className="mb-5" />
 
           <DrawerSection eyebrow="Seduta">
-            <Field label="Titolo" htmlFor="add-training-title" required error={errors.title}>
+            {/* Il titolo a schermo e il tipo, «Allenamento», con la categoria nel badge (ADR-0198 §3): qui si scrive solo una nota. */}
+            <Field label="Nota (facoltativa)" htmlFor="add-training-title" error={errors.title} helper="Compare sotto «Allenamento». La data e l'ora restano campi a parte.">
               <TextInput
                 id="add-training-title"
                 name="title"
                 value={formData.title}
                 onChange={(event) => setValue("title", event.target.value)}
-                placeholder="Es. Allenamento settimanale"
+                placeholder="Es. Tecnica portieri"
               />
             </Field>
             <FormGrid className="mt-5">

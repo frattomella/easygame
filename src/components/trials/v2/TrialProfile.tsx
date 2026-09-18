@@ -87,7 +87,7 @@ export function TrialProfile({
         onEdit={onEdit}
         actions={<StatusPill status={trialStatusSpec(trial.status)} />}
         fields={[
-          { label: "Data di nascita", value: joinMeta(formatDateShort(trial.birthDate), eta !== null ? `${eta} anni` : null) },
+          { label: "Data di nascita", value: trial.birthDate ? joinMeta(formatDateShort(trial.birthDate), eta !== null ? `${eta} anni` : null) : "Non nota · si chiede all'iscrizione" },
           { label: "Categoria", value: trial.categoryLabel ? <DataChip>{trial.categoryLabel}</DataChip> : null },
           { label: "Sede", value: trial.siteName },
           ...(canReadContacts

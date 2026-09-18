@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/api/client";
+import { clearCache } from "@/lib/supabase";
 
 /**
  * Il trasporto client delle persone in prova (ADR-0188): le rotte
@@ -13,7 +14,8 @@ export type TrialAthlete = {
   firstName: string;
   lastName: string;
   name: string;
-  birthDate: string;
+  /** `null` se la persona non l'ha lasciata (ADR-0198 §4). */
+  birthDate: string | null;
   status: TrialStatus;
   categoryId: string | null;
   categoryName: string | null;
@@ -62,7 +64,7 @@ export type TrialAttendanceRow = {
 export type TrialAthleteInput = {
   firstName?: string;
   lastName?: string;
-  birthDate?: string;
+  birthDate?: string | null;
   categoryId?: string | null;
   categoryName?: string | null;
   groupId?: string | null;
@@ -145,13 +147,36 @@ export const findAthleteCandidates = async (id: string) => {
 
 export const convertTrialAthlete = async (
   id: string,
-  input: { athleteId?: string; create?: { status?: string; categoryId?: string | null; siteId?: string | null } },
+  input: { athleteId?: string; create?: { status?: string; categoryId?: string | null; siteId?: string | null; birthDate?: string | null } },
 ) => {
   const response = await apiRequest<{ trial: TrialAthlete; athleteId: string; created: boolean }>(
     `/api/v1/trial-athletes/${encodeURIComponent(id)}/convert`,
     { method: "POST", body: { data: input } },
   );
   return unwrap(response, "Impossibile convertire in atleta");
+};
+
+export type TrialHomonym = {
+  kind: "trial" | "athlete";
+  id: string;
+  name: string;
+  birthDate: string | null;
+  status: string;
+  categoryLabel: string | null;
+  match: "exact" | "name";
+};
+
+export type TrialHomonymsResult = { trials: TrialHomonym[]; athletes: TrialHomonym[]; athletesSearched: boolean };
+
+/**
+ * Gli omonimi in tutto il club — persone in prova e schede atleta di ogni
+ * stagione (ADR-0198 §5). Si mostrano, non si fondono.
+ */
+export const findTrialHomonyms = async (query: { firstName: string; lastName: string; birthDate?: string | null }) => {
+  const params = new URLSearchParams({ firstName: query.firstName, lastName: query.lastName });
+  if (query.birthDate) params.set("birthDate", query.birthDate);
+  const response = await apiRequest<TrialHomonymsResult>(`/api/v1/trial-athletes/homonyms?${params.toString()}`);
+  return unwrap(response, "Impossibile cercare gli omonimi") || { trials: [], athletes: [], athletesSearched: false };
 };
 
 export const listEventTrialAttendance = async (eventId: string) => {
@@ -169,5 +194,7 @@ export const saveEventTrialAttendance = async (
     `/api/v1/events/${encodeURIComponent(eventId)}/trial-attendance`,
     { method: "POST", body: { data: { entries } } },
   );
+  /* Le persone in prova contano nel numeratore della Dashboard (ADR-0198 §6): la cache di oggi non vale piu. */
+  clearCache("trainings-");
   return unwrap(response, "Impossibile salvare le presenze di prova") || [];
 };

@@ -1072,7 +1072,7 @@ wizard: il server **rivaglia** ogni riga prima di scrivere.
 
 ### Persone in prova (ADR-0188, 2026-09-16)
 
-Quattro rotte, un writer (`src/lib/server/trial-athletes.ts`), nessuna risorsa
+Cinque rotte, un writer (`src/lib/server/trial-athletes.ts`), nessuna risorsa
 del registro generico: `trial_athletes` e `trial_attendances` non si scrivono da
 `POST /api/v1/<resource>`. Il permesso lo verifica il dominio sul catalogo
 (`trials.*`), il perimetro dell'allenatore lo applica il dominio (evento e
@@ -1081,7 +1081,8 @@ categoria), il club e sempre quello dello scope risolto.
 - `GET|POST /api/v1/trial-athletes` — l'elenco delle persone in prova (filtri
   `status`, `q`, `categoryId`; con `firstName`, `lastName`, `birthDate` la
   ricerca degli omonimi prima di creare, che **mostra** e non fonde) e la
-  registrazione (`trials.manage`): nome, cognome, data di nascita obbligatori;
+  registrazione (`trials.manage`): nome e cognome obbligatori, **data di
+  nascita facoltativa** (ADR-0198 §4: vuota = `null`, mai un segnaposto);
   categoria per identificativo (ADR-0186), sede e gruppo solo se nel catalogo;
   telefono, email, tutore e note facoltativi come testo — nessun account,
   nessun tutore in `athlete_guardians`. I recapiti tornano solo con
@@ -1090,11 +1091,21 @@ categoria), il club e sempre quello dello scope risolto.
   dalle presenze (conteggio, prima, ultima, elenco, categorie/gruppi/sedi
   toccati); la modifica dei dati; con `{status: "in_trial" | "declined"}` il
   cambio di stato. `enrolled` **non si scrive** da qui: e la conversione.
+- `GET /api/v1/trial-athletes/homonyms?firstName=&lastName=&birthDate=` —
+  `trials.manage`. Gli omonimi in **tutto il club** (ADR-0198 §5): le persone
+  in prova (perimetro dell'allenatore applicato) e le schede atleta di ogni
+  stagione — queste solo a chi puo convertire (`trials.convert`), e la
+  risposta dice se le ha cercate (`athletesSearched`). Risposta
+  `{trials: [...], athletes: [...]}` con `kind`, `match` (`exact` solo con
+  due date note e uguali), `categoryLabel`. Mostra, non fonde. Schermata
+  interna: nessuna rotta pubblica la chiama.
 - `GET|POST /api/v1/trial-athletes/:id/convert` — `trials.convert` (GESTIONE).
   GET propone le schede atleta con lo stesso nome e cognome, segnando la
   corrispondenza esatta di data di nascita; POST con `{create: {...}}` crea la
   scheda dal registro generico (`createResource("simplified_athletes")` piu
-  `athlete_category_memberships`), con `{athleteId}` collega quella scelta. La
+  `athlete_category_memberships`), con `{athleteId}` collega quella scelta.
+  Se la prova non ha la data di nascita, `create.birthDate` e **obbligatoria**
+  e si vaglia prima della transazione (ADR-0198 §4). La
   riga di prova diventa `enrolled` con `athlete_id` e `converted_at`; presenze
   e audit restano; un `athlete_id` gia collegato a un'altra prova e rifiutato
   dall'indice unico.

@@ -1,3 +1,4 @@
+import { trainingDisplayNote, trainingDisplayTitle } from "@/lib/events/training-presenter";
 import {
   getParticipationCategoryBadgeLabel,
   getParticipationCategoryContext,
@@ -337,7 +338,8 @@ export const buildAthleteParticipationAnalytics = ({
     events.push({
       id: `training-${training.id}-${athleteId}`,
       type: "training",
-      title: String(training?.title || "Allenamento"),
+      /* Il titolo e il tipo; una nota scritta a mano lo segue (ADR-0198 §3). */
+      title: [trainingDisplayTitle(training), trainingDisplayNote(training)].filter(Boolean).join(" · "),
       date: getEventDate(training),
       categoryLabel: resolveCategoryLabel(training, categories),
       statusLabel: attendanceEntry.present ? "Presente" : "Assente",

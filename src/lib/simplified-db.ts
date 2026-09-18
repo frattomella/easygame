@@ -3266,11 +3266,11 @@ const normalizeWeeklyScheduleSourceItem = (item: Record<string, any>) => {
     !endTime ||
     !isValidTimeRange(startTime, endTime) ||
     !categoryReference ||
-    !locationReference ||
-    trainerIds.length === 0
+    !locationReference
   ) {
     return null;
   }
+  /* L'allenatore non rende incompleta una voce (ADR-0198 §1): una voce riportata nasce senza, e restare in lista e cio che la salva dall'autosave. */
 
   return {
     id: String(item?.id || buildWeeklyScheduleIdentityKey(item)),

@@ -1,5 +1,6 @@
 "use client";
 
+import { natoIl } from "@/components/trials/v2/TrialHomonymsNotice";
 import * as React from "react";
 import { Suspense } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -115,7 +116,7 @@ function TrialAthleteRecordContent() {
     }
   };
 
-  const submitConvert = async (input: { athleteId?: string; create?: { categoryId?: string | null; siteId?: string | null } }) => {
+  const submitConvert = async (input: { athleteId?: string; create?: { categoryId?: string | null; siteId?: string | null; birthDate?: string | null } }) => {
     if (!trial) return;
     setConvertSaving(true);
     try {
@@ -167,7 +168,7 @@ function TrialAthleteRecordContent() {
                 identity={{ name: trial.name, round: true }}
                 chips={trial.categoryLabel ? <DataChip>{trial.categoryLabel}</DataChip> : null}
                 status={<StatusPill status={trialStatusSpec(trial.status)} />}
-                meta={joinMeta(`nato il ${formatDateShort(trial.birthDate)}`, eta !== null ? `${eta} anni` : null, trial.siteName, TRIAL_STATUS_LABEL[trial.status])}
+                meta={joinMeta(natoIl(trial.birthDate), eta !== null ? `${eta} anni` : null, trial.siteName, TRIAL_STATUS_LABEL[trial.status])}
                 actions={actions}
               />
             ) : null}

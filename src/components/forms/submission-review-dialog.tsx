@@ -340,7 +340,7 @@ export function SubmissionReviewDialog({
                         Atleta in prova · {trial.trialsCount} {trial.trialsCount === 1 ? "presenza" : "presenze"}
                         {trial.lastTrialAt ? ` · ultima prova ${new Date(trial.lastTrialAt).toLocaleDateString("it-IT")}` : ""}
                         {" · "}
-                        {trial.sameBirthDate ? "stessa data di nascita" : "data di nascita diversa"}
+                        {trial.sameBirthDate ? "stessa data di nascita" : trial.birthDate ? "data di nascita diversa" : "data di nascita non nota"}
                         {trial.categoryLabel ? ` · ${trial.categoryLabel}` : ""}
                       </p>
                     </div>

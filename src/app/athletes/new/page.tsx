@@ -223,6 +223,8 @@ function NewAthletePageContent() {
             status: "active",
             categoryId: linkedCategory?.id || null,
             siteId: primaria ? primaria.siteId || null : trialToUse.siteId || null,
+            /* Il modulo ha la data di nascita: una prova senza data si iscrive con questa (ADR-0198 §4). */
+            birthDate: draft.birthDate || null,
           },
         });
         saved = { id: esito.athleteId };

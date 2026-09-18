@@ -4,6 +4,7 @@ import { sameCategory } from "@/lib/categories/identity";
 import { apiRequest } from "@/lib/api/client";
 import { listEventParticipants } from "@/lib/events/client";
 import { readRecordedAttendance } from "@/lib/trainer-operational-alerts";
+import { trainingDisplayNote, trainingDisplayTitle } from "@/lib/events/training-presenter";
 import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
@@ -298,7 +299,11 @@ const formatTrainingSession = ({
     id: String(
       training?.id || globalThis.crypto?.randomUUID?.() || Math.random(),
     ),
-    title: String(training?.title || source?.title || "Allenamento"),
+    /* Il titolo e il tipo; un titolo scritto a mano che non e una data e la nota (ADR-0198 §3). */
+    title: trainingDisplayTitle(training),
+    note: trainingDisplayNote(training),
+    /* Il titolo com'e in archivio: cio che il modulo di modifica riscrive. */
+    storedTitle: String(training?.title || source?.title || ""),
     date: trainingDate,
     time: getTrainingStartTime(training) || getTrainingTimeLabel(training),
     endTime: getTrainingEndTime(training),
@@ -1130,7 +1135,9 @@ const versioneSalvata = (risposta: any): number | null => {
       // Update local state
       const formattedTraining: TrainingSession = {
         id: newTraining.id,
-        title: newTraining.title,
+        title: trainingDisplayTitle(newTraining),
+        note: trainingDisplayNote(newTraining),
+        storedTitle: newTraining.title,
         date: getTrainingDate(newTraining) || new Date(),
         time: newTraining.time,
         endTime: newTraining.endTime,
@@ -1160,7 +1167,7 @@ const versioneSalvata = (risposta: any): number | null => {
       setShowAddTrainingModal(false);
       showToast(
         "success",
-        `Allenamento ${formattedTraining.title} aggiunto e salvato con successo`,
+        `Allenamento aggiunto e salvato con successo`,
       );
       return true;
     } catch (error: any) {
@@ -1379,6 +1386,10 @@ const versioneSalvata = (risposta: any): number | null => {
               ? {
                   ...training,
                   attendance: data.attendance,
+                  /* I numeri che il server contera: rosa piu prove (ADR-0198 §6), senza rileggere. */
+                  attendanceRecorded: data.attendance.length + data.trial.recorded,
+                  attendancePresent:
+                    data.attendance.filter((entry) => entry.present).length + data.trial.present,
                   attendees: data.attendance.filter((entry) => entry.present)
                     .length,
                 }
@@ -1538,7 +1549,9 @@ const versioneSalvata = (risposta: any): number | null => {
                   ? {
                       ...t,
                       version: versioneNuova ?? t.version,
-                      title: updatedTraining.title,
+                      title: trainingDisplayTitle(updatedTraining),
+                      note: trainingDisplayNote(updatedTraining),
+                      storedTitle: updatedTraining.title,
                       date: new Date(updatedTraining.date),
                       time: updatedTraining.time,
                       endTime: updatedTraining.endTime || null,
@@ -1565,7 +1578,7 @@ const versioneSalvata = (risposta: any): number | null => {
               );
               showToast(
                 "success",
-                `Allenamento ${updatedTraining.title} modificato e salvato con successo`,
+                `Allenamento modificato e salvato con successo`,
               );
               return true;
             } catch (error: any) {
@@ -2000,14 +2013,14 @@ const versioneSalvata = (risposta: any): number | null => {
                     aria-label="Allenamenti della settimana"
                     rows={weekTrainings}
                     getRowId={trainingRowKey}
-                    rowLabel={(row) => row.title}
+                    rowLabel={(row) => [row.title, row.note].filter(Boolean).join(" · ")}
                     columns={gridColumns}
                     filters={gridFilters}
                     views={TRAINING_VIEWS}
                     search={{
-                      placeholder: "Cerca per titolo, categoria, allenatore",
+                      placeholder: "Cerca per nota, categoria, allenatore",
                       match: (row, query) =>
-                        [row.title, row.category, row.trainer, row.location]
+                        [row.title, row.note, row.category, row.trainer, row.location]
                           .join(" ")
                           .toLowerCase()
                           .includes(query),
@@ -2106,7 +2119,7 @@ const versioneSalvata = (risposta: any): number | null => {
           saving={modificaInCorso}
           training={{
             id: editingTraining.id,
-            title: editingTraining.title,
+            title: editingTraining.storedTitle ?? editingTraining.title,
             date: editingTraining.date.toISOString().split("T")[0],
             time: editingTraining.time,
             endTime: editingTraining.endTime || "",

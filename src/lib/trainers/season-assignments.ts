@@ -258,3 +258,126 @@ export const mergeTrainerAssignmentsForSeason = (
     unresolved: split.unresolved,
   };
 };
+
+/* ── Gli allenatori di una voce del programma ─────────────────────────────── */
+
+export type TrainerAssignmentIndexInput = {
+  /** Le schede allenatore com'erano lette (`clubs.trainers` piu il registro). */
+  trainers: ReadonlyArray<{ id?: unknown; categories?: unknown; groupIds?: unknown; group_ids?: unknown } | null | undefined>;
+  categories: readonly SeasonAssignmentCategory[];
+  groups?: readonly SeasonAssignmentGroup[];
+  seasons: readonly Pick<ClubSeason, "id" | "label">[];
+  seasonId: string | null;
+  legacySeasonId: string | null;
+};
+
+export type TrainerAssignmentIndex = {
+  seasonId: string | null;
+  /** Vero se l'identificativo e di un allenatore del club (colonna, registro o staff). */
+  knows: (trainerId: unknown) => boolean;
+  /** Gli allenatori che nella stagione seguono la squadra della voce: categoria, gruppo, o un gruppo di quella categoria. Chi e sospeso non si deriva. */
+  assignedTo: (target: { categoryId?: string | null; groupId?: string | null }) => string[];
+  /**
+   * Spacca gli identificativi scritti su una voce: `valid` chi e assegnato
+   * nella stagione, `dropped` chi e del club ma non lo e, `unknown` cio che
+   * non e un allenatore del club (un nome, un id sparito) e si ignora.
+   */
+  split: (
+    trainerIds: readonly unknown[],
+    target: { categoryId?: string | null; groupId?: string | null },
+  ) => { valid: string[]; dropped: string[]; unknown: string[] };
+};
+
+/**
+ * **L'assegnazione della stagione e l'autorita sugli allenatori di un
+ * allenamento nuovo** (ADR-0198 §1).
+ *
+ * Una voce del programma settimanale porta `trainerIds`: erano l'unica cosa
+ * che il generatore leggeva, e con il riporto di stagione arrivavano copiati
+ * dalla stagione precedente. La pagina Allenatori diceva «nessuna categoria
+ * assegnata nella stagione» e gli allenamenti generati portavano lo stesso
+ * allenatore dell'anno scorso (pilota, 2026-09-18). Qui si costruisce, una
+ * volta per generazione, l'indice per stagione con `splitTrainerAssignmentsBySeason`
+ * — per identificativo, un nome solo se unico nel club — e ogni voce ne
+ * chiede la squadra: chi non e assegnato nella stagione non entra
+ * nell'allenamento, e si dice. Nessun ripiego sulla stagione precedente.
+ */
+export const buildTrainerAssignmentIndex = (
+  input: TrainerAssignmentIndexInput,
+): TrainerAssignmentIndex => {
+  const groupById = new Map((input.groups || []).map((group) => [text(group.id), group] as const));
+  /*
+    Il catalogo arriva spesso doppio — colonna piu registro, le stesse
+    categorie — e un nome «unico nel club» lo sarebbe due volte: si conta per
+    identificativo (revisione A3).
+  */
+  const categorieUniche = Array.from(
+    new Map(input.categories.map((category) => [text(category.id), category] as const)).values(),
+  );
+  const perTrainer = new Map<string, TrainerAssignmentsForSeason["current"]>();
+  const sospesi = new Set<string>();
+  for (const trainer of input.trainers) {
+    const id = text(trainer?.id);
+    if (!id || perTrainer.has(id)) continue;
+    const status = text((trainer as any)?.status).toLowerCase();
+    if (["suspended", "sospeso", "inactive", "archived"].includes(status)) sospesi.add(id);
+    perTrainer.set(
+      id,
+      splitTrainerAssignmentsBySeason({
+        trainer,
+        categories: categorieUniche,
+        groups: input.groups,
+        seasons: input.seasons,
+        seasonId: input.seasonId,
+        legacySeasonId: input.legacySeasonId,
+      }).current,
+    );
+  }
+
+  /*
+    **Se dichiara dei gruppi, vale l'elenco** (ADR-0055, revisione A7): un
+    allenatore con la categoria e un gruppo di quella categoria segue **quel**
+    gruppo, non l'altra sede. Senza gruppi dichiarati per la categoria, la
+    categoria basta. Senza un gruppo sulla voce, chi segue un gruppo di quella
+    categoria la segue.
+  */
+  const follows = (current: TrainerAssignmentsForSeason["current"], target: { categoryId?: string | null; groupId?: string | null }) => {
+    const categoryId = text(target.categoryId);
+    const groupId = text(target.groupId);
+    const gruppiDellaCategoria = categoryId
+      ? current.groupIds.filter((id) => text(groupById.get(id)?.categoryId) === categoryId)
+      : [];
+    if (groupId) {
+      if (current.groupIds.includes(groupId)) return true;
+      const categoriaDelGruppo = categoryId || text(groupById.get(groupId)?.categoryId);
+      const dichiaraGruppi = current.groupIds.some((id) => text(groupById.get(id)?.categoryId) === categoriaDelGruppo);
+      if (dichiaraGruppi) return false;
+      return Boolean(categoriaDelGruppo) && current.categoryIds.includes(categoriaDelGruppo);
+    }
+    if (categoryId && current.categoryIds.includes(categoryId)) return true;
+    return gruppiDellaCategoria.length > 0;
+  };
+
+  return {
+    seasonId: input.seasonId,
+    knows: (trainerId) => perTrainer.has(text(trainerId)),
+    assignedTo: (target) =>
+      Array.from(perTrainer.entries())
+        .filter(([id, current]) => !sospesi.has(id) && follows(current, target))
+        .map(([id]) => id),
+    split: (trainerIds, target) => {
+      const valid: string[] = [];
+      const dropped: string[] = [];
+      const unknown: string[] = [];
+      for (const raw of trainerIds) {
+        const id = text(raw);
+        if (!id || valid.includes(id) || dropped.includes(id) || unknown.includes(id)) continue;
+        const current = perTrainer.get(id);
+        if (!current) unknown.push(id);
+        else if (follows(current, target)) valid.push(id);
+        else dropped.push(id);
+      }
+      return { valid, dropped, unknown };
+    },
+  };
+};

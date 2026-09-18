@@ -1,3 +1,4 @@
+import { trainingDisplayNote, trainingDisplayTitle } from "@/lib/events/training-presenter";
 import {
   normalizeAthleteCategoryMemberships,
   type AthleteCategoryMembership,
@@ -497,7 +498,7 @@ export function calculateAthleteCategoryAnalytics({
 
           return {
             id: `training-${getEventId(training, `${membership.categoryId}-${index}`)}`,
-            title: getEventTitle(training, "Allenamento"),
+            title: [trainingDisplayTitle(training), trainingDisplayNote(training)].filter(Boolean).join(" · "),
             date: getEventDate(training),
             statusLabel: toAttendanceStatusLabel(attendanceEntry),
             notes: firstNonEmptyString(attendanceEntry?.notes) || undefined,
@@ -574,7 +575,7 @@ export function calculateAthleteCategoryAnalytics({
             {
               id: `unclassified-training-${getEventId(training, String(index))}`,
               type: "training" as const,
-              title: getEventTitle(training, "Allenamento"),
+              title: [trainingDisplayTitle(training), trainingDisplayNote(training)].filter(Boolean).join(" · "),
               date: getEventDate(training),
               statusLabel: toAttendanceStatusLabel(attendanceEntry),
               notes: firstNonEmptyString(attendanceEntry?.notes) || undefined,

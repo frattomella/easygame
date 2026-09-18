@@ -1,5 +1,6 @@
 "use client";
 
+import { trainingDisplayNote, trainingDisplayTitle } from "@/lib/events/training-presenter";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -550,10 +551,9 @@ export function ParentCalendarPage() {
                   </div>
                   <div className="min-w-0">
                     <p className="truncate font-medium text-egw-ink">
-                      {evento.title ||
-                        (evento.kind === "match"
-                          ? `Gara contro ${evento.opponent || "avversario"}`
-                          : "Allenamento")}
+                      {evento.kind === "match"
+                        ? evento.title || `Gara contro ${evento.opponent || "avversario"}`
+                        : [trainingDisplayTitle(evento), trainingDisplayNote(evento)].filter(Boolean).join(" · ")}
                     </p>
                     <p className="mt-1 text-sm text-egw-ink-62">
                       {formatDate(evento.date)}

@@ -23,6 +23,34 @@ export const cleanNamePart = (value: unknown) =>
 
 export const normalizeNamePart = cleanNamePart;
 
+/**
+ * **La chiave con cui due nomi si confrontano** (ADR-0198 §5): minuscolo,
+ * senza accenti, spazi e segni ridotti a uno spazio. «Sara Bianchì» e
+ * «sara bianchi» sono la stessa chiave; e l'unica funzione con cui prove,
+ * atleti e conversione decidono «e un omonimo?». Prima ne esistevano tre
+ * copie identiche (server delle prove, modello client, conversione).
+ */
+export const nameMatchKey = (value: unknown) =>
+  String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+/** Vero se nome e cognome coincidono, in qualunque ordine. */
+export const sameNameInAnyOrder = (
+  left: { firstName: unknown; lastName: unknown },
+  right: { firstName: unknown; lastName: unknown },
+) => {
+  const a = nameMatchKey(left.firstName);
+  const b = nameMatchKey(left.lastName);
+  const c = nameMatchKey(right.firstName);
+  const d = nameMatchKey(right.lastName);
+  if (!a || !b || !c || !d) return false;
+  return (a === c && b === d) || (a === d && b === c);
+};
+
 const getRecordValue = (athlete: unknown, keys: string[]) => {
   if (!athlete || typeof athlete !== "object") {
     return "";

@@ -145,7 +145,7 @@ export function TrialMatchNotice({
                         ultima {formatDateShort(trial.lastTrialAt)}
                       </DataChip>
                     ) : null}
-                    {birthDate ? (
+                    {birthDate && trial.birthDate ? (
                       <DataChip size="sm" tone={stessaData ? "green" : "red"}>
                         {stessaData ? "stessa data di nascita" : "data di nascita diversa"}
                       </DataChip>

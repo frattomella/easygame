@@ -121,7 +121,15 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "GET|POST",
     path: "/api/v1/trial-athletes",
     description:
-      "Le persone in prova del club (ADR-0188): chi viene ad allenarsi prima di iscriversi, con identita stabile e storico delle prove. Non sono atleti: non stanno in athletes e non entrano in rose, quote, tesseramenti, documenti. GET elenca (filtri status, q, categoryId; con birthDate cerca le corrispondenze per il riscontro degli omonimi, senza fondere nessuno); POST registra una persona nuova (nome, cognome, data di nascita obbligatori; categoria canonica ADR-0186). Perimetro dell'allenatore e recapiti (trials.contacts_read) applicati dal dominio",
+      "Le persone in prova del club (ADR-0188): chi viene ad allenarsi prima di iscriversi, con identita stabile e storico delle prove. Non sono atleti: non stanno in athletes e non entrano in rose, quote, tesseramenti, documenti. GET elenca (filtri status, q, categoryId; con birthDate cerca le corrispondenze per il riscontro degli omonimi, senza fondere nessuno); POST registra una persona nuova (nome e cognome obbligatori, data di nascita facoltativa ADR-0198; categoria canonica ADR-0186). Perimetro dell'allenatore e recapiti (trials.contacts_read) applicati dal dominio",
+    mobile_ready: false,
+  },
+  {
+    name: "trial_athletes.homonyms",
+    method: "GET",
+    path: "/api/v1/trial-athletes/homonyms",
+    description:
+      "Gli omonimi in tutto il club prima di registrare una persona in prova (ADR-0198): persone in prova (perimetro applicato) e schede atleta di ogni stagione, queste ultime solo a chi puo convertire. Query firstName, lastName, birthDate. Mostra e non fonde: nessun merge, link o conversione automatici. Schermata interna, mai pubblica",
     mobile_ready: false,
   },
   {
@@ -137,7 +145,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     method: "GET|POST",
     path: "/api/v1/trial-athletes/:id/convert",
     description:
-      "La conversione in atleta (trials.convert, direzione e segreteria). GET propone le schede esistenti con lo stesso nome (la data di nascita distingue la corrispondenza esatta); POST crea la scheda dal registro generico ({create}) o collega quella scelta ({athleteId}). La riga di prova resta con athlete_id e converted_at: nessuna presenza duplicata, nessun tutore ne accesso creati",
+      "La conversione in atleta (trials.convert, direzione e segreteria). GET propone le schede esistenti con lo stesso nome (la data di nascita distingue la corrispondenza esatta); POST crea la scheda dal registro generico ({create}, con create.birthDate obbligatoria se la prova non la porta — ADR-0198) o collega quella scelta ({athleteId}). La riga di prova resta con athlete_id e converted_at: nessuna presenza duplicata, nessun tutore ne accesso creati",
     mobile_ready: false,
   },
   {

@@ -1,5 +1,7 @@
 "use client";
 
+import { natoIl } from "@/components/trials/v2/TrialHomonymsNotice";
+import { EMPTY_TRIAL_FORM, validateTrialForm } from "@/components/trials/v2/trial-model";
 import * as React from "react";
 import { UserCheck, UserPlus } from "lucide-react";
 import { Drawer, DrawerSection } from "@/components/web/overlays/Drawer";
@@ -7,7 +9,8 @@ import { Button } from "@/components/web/primitives/Button";
 import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
 import { InsetBlock } from "@/components/web/primitives/Surface";
 import { Skeleton } from "@/components/web/primitives/Controls";
-import { Field, FieldSizeProvider, SearchableSelect } from "@/components/web/forms/Field";
+import { DateInput, Field, FieldSizeProvider, SearchableSelect } from "@/components/web/forms/Field";
+import { todayLocalDateOnly } from "@/lib/date-only";
 import { AlertBlock } from "@/components/web/page/Alerts";
 import { formatDateShort } from "@/lib/web/format";
 import { findAthleteCandidates, type AthleteCandidate, type TrialAthlete } from "@/lib/trials/client";
@@ -34,19 +37,29 @@ export function TrialConvertDrawer({
   /** Le squadre scegliibili (ADR-0194 §16): la sede della scheda e quella della squadra. */
   targetOptions: readonly TrialTargetOption[];
   saving: boolean;
-  onConvert: (input: { athleteId?: string; create?: { categoryId?: string | null; siteId?: string | null } }) => void | Promise<void>;
+  onConvert: (input: { athleteId?: string; create?: { categoryId?: string | null; siteId?: string | null; birthDate?: string | null } }) => void | Promise<void>;
 }) {
   const [candidates, setCandidates] = React.useState<AthleteCandidate[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [mode, setMode] = React.useState<"link" | "create">("create");
   const [athleteId, setAthleteId] = React.useState<string>("");
   const [targetId, setTargetId] = React.useState<string>("");
+  /*
+    **La data di nascita si chiede qui se la prova non la porta** (ADR-0198
+    §4): la scheda atleta la vuole, la persona in prova poteva non averla
+    lasciata. Non si inventa e non si blocca la prova: si chiede all'iscrizione.
+  */
+  const [birthDate, setBirthDate] = React.useState<string>("");
+  const [birthDateError, setBirthDateError] = React.useState<string | null>(null);
+  const chiedeLaData = Boolean(trial) && !trial?.birthDate;
 
   React.useEffect(() => {
     if (!open || !trial) return;
     setCandidates(null);
     setError(null);
     setAthleteId("");
+    setBirthDate("");
+    setBirthDateError(null);
     /* La squadra della prova: il gruppo, o la categoria se ha una squadra sola. */
     const dellaProva =
       (trial.groupId && targetOptions.find((t) => t.groupId === trial.groupId)) ||
@@ -82,7 +95,21 @@ export function TrialConvertDrawer({
       return;
     }
     const target = targetOptions.find((t) => t.id === targetId) || null;
-    await onConvert({ create: { categoryId: target?.categoryId || null, siteId: target ? target.siteId || null : null } });
+    if (chiedeLaData) {
+      /* Lo stesso vaglio del modulo della prova (`validateTrialForm`), non un secondo. */
+      if (validateTrialForm({ ...EMPTY_TRIAL_FORM, firstName: "x", lastName: "x", birthDate }).length || !birthDate) {
+        setBirthDateError("La data di nascita e obbligatoria per iscrivere l'atleta");
+        return;
+      }
+      setBirthDateError(null);
+    }
+    await onConvert({
+      create: {
+        categoryId: target?.categoryId || null,
+        siteId: target ? target.siteId || null : null,
+        ...(chiedeLaData ? { birthDate } : {}),
+      },
+    });
   };
 
   return (
@@ -111,7 +138,7 @@ export function TrialConvertDrawer({
           {trial ? (
             <InsetBlock className="flex flex-wrap items-center gap-2">
               <span className="font-brand text-[13px] font-semibold text-egw-ink">{trial.name}</span>
-              <span className="egw-num font-brand text-[12px] text-egw-ink-62">nato il {formatDateShort(trial.birthDate)}</span>
+              <span className="egw-num font-brand text-[12px] text-egw-ink-62">{natoIl(trial.birthDate)}</span>
               {trial.categoryLabel ? <DataChip>{trial.categoryLabel}</DataChip> : null}
               <span className="egw-num font-brand text-[12px] text-egw-ink-62">
                 {trial.trialsCount} {trial.trialsCount === 1 ? "prova" : "prove"}
@@ -191,6 +218,24 @@ export function TrialConvertDrawer({
 
           {mode === "create" ? (
             <DrawerSection eyebrow="La scheda nuova" title="Squadra primaria">
+              {chiedeLaData ? (
+                <Field
+                  label="Data di nascita"
+                  htmlFor="trial-convert-birthDate"
+                  required
+                  error={birthDateError || undefined}
+                  helper="La prova non la porta; la scheda atleta la richiede."
+                  className="mb-5"
+                  width="20ch"
+                >
+                  <DateInput
+                    id="trial-convert-birthDate"
+                    value={birthDate}
+                    max={todayLocalDateOnly()}
+                    onChange={(event) => setBirthDate(event.target.value)}
+                  />
+                </Field>
+              ) : null}
               <Field label="Squadra" htmlFor="trial-convert-category" optional helper="Diventa la squadra primaria della scheda, con la sua sede. Vuota: la assegni dopo.">
                 <SearchableSelect
                   id="trial-convert-category"

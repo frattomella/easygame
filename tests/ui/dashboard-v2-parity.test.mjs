@@ -43,12 +43,18 @@ test("i dati arrivano dalle stesse funzioni della V1", () => {
   assert.match(sources.page, /selectUpcomingMatches\(/);
   assert.match(sources.page, /selectUpcomingAppointments\(/);
   assert.match(sources.page, /selectActiveNotes\(/);
-  assert.match(sources.trainingsData, /getClubTrainings\(clubId\)/);
+  /* Gli allenamenti di oggi dalla rotta canonica, con l'appello (ADR-0198 §2). */
+  assert.match(sources.trainingsData, /listEvents\(\{\s*kind: "training"/);
+  assert.doesNotMatch(sources.trainingsData, /getClubTrainings\(clubId\)/);
   assert.match(sources.trainingsData, /getClubCategories\(clubId\)/);
   assert.match(sources.trainingsData, /getClubTrainers\(clubId\)/);
   /* La chiave porta la stagione (ADR-0197, revisione C7). */
-  assert.match(sources.trainingsData, /cachedQuery\(`trainings-\$\{clubId\}:\$\{seasonId \|\| ""\}`/);
-  assert.match(sources.trainingsData, /\.from\("training_attendance"\)/, "l'elenco presenze salvate resta a richiesta");
+  /* …e il giorno (ADR-0198, revisione B7): a mezzanotte la lista di ieri non risponde piu. */
+  assert.match(sources.trainingsData, /cachedQuery\(`trainings-\$\{clubId\}:\$\{seasonId \|\| ""\}:\$\{oggi\}`/);
+  /* L'elenco presenze salvate resta a richiesta, dalle righe vere (ADR-0198 §6, revisione B5). */
+  assert.match(sources.trainingsData, /listEventParticipants\(trainingId\)/);
+  assert.match(sources.trainingsData, /listEventTrialAttendance\(trainingId\)/);
+  assert.doesNotMatch(sources.trainingsData, /\.from\("training_attendance"\)/);
   assert.match(sources.onboarding, /fields: "settings"/);
   assert.match(sources.onboarding, /normalizeOnboardingState\(/);
   assert.equal(/fetch\(/.test(everything), false, "nessun fetch diretto: apiRequest o simplified-db");

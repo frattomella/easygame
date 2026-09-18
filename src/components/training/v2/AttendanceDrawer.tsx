@@ -72,6 +72,8 @@ export type AttendanceDrawerTraining = Pick<TrainingSession, "id" | "title"> &
 
 export type AttendanceSavePayload = {
   trainingId: string;
+  /** Le persone in prova con appello scritto e presenti: contano nel numeratore della scheda (ADR-0198 §6). */
+  trial: { recorded: number; present: number };
   attendance: Array<{
     athleteId: string;
     present: boolean;
@@ -204,6 +206,7 @@ export function AttendanceDrawer({
     }
     await onSave({
       trainingId: training.id,
+      trial: trialSection.current?.counts() || { recorded: 0, present: 0 },
       attendance: rows.map((row) => ({
         athleteId: row.athlete.id,
         present: row.mark === "present",

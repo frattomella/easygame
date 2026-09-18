@@ -13,16 +13,18 @@ import { Eyebrow, InsetBlock } from "@/components/web/primitives/Surface";
 import { Skeleton } from "@/components/web/primitives/Controls";
 import { DateInput, Field, SearchableSelect, TextInput } from "@/components/web/forms/Field";
 import { AlertBlock } from "@/components/web/page/Alerts";
-import { formatDateShort, joinMeta } from "@/lib/web/format";
+import { joinMeta } from "@/lib/web/format";
 import {
   createTrialAthlete,
   listEventTrialAttendance,
+  readTrialAthlete,
   saveEventTrialAttendance,
   searchTrialAthletes,
   type EventTrialAttendanceRow,
   type TrialAthlete,
 } from "@/lib/trials/client";
-import { ageFromBirthDate, findTrialMatches, trialStatusSpec, validateTrialForm, type TrialFormError } from "@/components/trials/v2/trial-model";
+import { TrialHomonymsNotice, natoIl, useTrialHomonyms } from "@/components/trials/v2/TrialHomonymsNotice";
+import { ageFromBirthDate, trialStatusSpec, validateTrialForm, type TrialFormError } from "@/components/trials/v2/trial-model";
 import type { TrialCategoryOption } from "@/components/trials/v2/use-trial-catalog";
 
 /**
@@ -51,6 +53,8 @@ export type TrialAttendanceOptions = {
 export type TrialAttendanceSectionHandle = {
   hasChanges: () => boolean;
   save: () => Promise<void>;
+  /** Le prove con un appello scritto e quelle presenti, per aggiornare la scheda senza rileggere (revisione B4). */
+  counts: () => { recorded: number; present: number };
 };
 
 
@@ -181,6 +185,10 @@ export const TrialAttendanceSection = React.forwardRef<
 
   React.useImperativeHandle(ref, () => ({
     hasChanges: () => changed.current,
+    counts: () => ({
+      recorded: (rows || []).filter((row) => row.mark === "present" || row.mark === "absent").length,
+      present: (rows || []).filter((row) => row.mark === "present").length,
+    }),
     save: async () => {
       /*
         Tutte le righe della sezione, comprese quelle tornate a «da segnare»:
@@ -201,10 +209,21 @@ export const TrialAttendanceSection = React.forwardRef<
   }));
 
   const known = React.useMemo(() => (rows || []).map((row) => row.trial), [rows]);
-  const matches = React.useMemo(
-    () => (creating ? findTrialMatches(form, [...known, ...(results || [])].filter((trial, index, all) => all.findIndex((other) => other.id === trial.id) === index)) : []),
-    [creating, form, known, results],
-  );
+  /* Gli omonimi in tutto il club — prove e schede atleta di ogni stagione (ADR-0198 §5). */
+  const omonimi = useTrialHomonyms(form, creating);
+  const scegliOmonimo = async (id: string) => {
+    const nota = [...known, ...(results || [])].find((trial) => trial.id === id);
+    if (nota) {
+      addTrial(nota);
+      return;
+    }
+    try {
+      const riga = await readTrialAthlete(id);
+      if (riga) addTrial(riga.trial);
+    } catch {
+      showToast("error", "Persona in prova non trovata");
+    }
+  };
   const present = (rows || []).filter((row) => row.mark === "present").length;
 
   return (
@@ -293,7 +312,7 @@ export const TrialAttendanceSection = React.forwardRef<
                             <span className="min-w-0">
                               <span className="egw-ellipsis block font-brand text-[12.5px] font-semibold text-egw-ink">{trial.name}</span>
                               <span className="egw-num egw-ellipsis block font-brand text-[11px] text-egw-ink-62">
-                                {joinMeta(`nato il ${formatDateShort(trial.birthDate)}`, trial.categoryLabel, `${trial.trialsCount} ${trial.trialsCount === 1 ? "prova" : "prove"}`)}
+                                {joinMeta(natoIl(trial.birthDate), trial.categoryLabel, `${trial.trialsCount} ${trial.trialsCount === 1 ? "prova" : "prove"}`)}
                               </span>
                             </span>
                             <DataChip size="sm" tone={giaInElenco ? "blue" : "green"}>
@@ -319,7 +338,7 @@ export const TrialAttendanceSection = React.forwardRef<
           ) : (
             <>
               <p className="font-brand text-[12.5px] font-semibold text-egw-ink">Registrazione rapida</p>
-              <p className="mt-0.5 font-brand text-[11.5px] text-egw-ink-62">Tre campi, e la persona e registrata in prova e segnata presente. Il resto si completa dopo dalla sua scheda.</p>
+              <p className="mt-0.5 font-brand text-[11.5px] text-egw-ink-62">Nome e cognome, e la persona e registrata in prova e segnata presente. La data di nascita e il resto si completano dopo dalla sua scheda.</p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <Field label="Nome" htmlFor="trial-quick-firstName" required error={formErrors.find((e) => e.field === "firstName")?.message}>
                   <TextInput id="trial-quick-firstName" autoComplete="off" value={form.firstName} onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))} autoFocus />
@@ -327,7 +346,7 @@ export const TrialAttendanceSection = React.forwardRef<
                 <Field label="Cognome" htmlFor="trial-quick-lastName" required error={formErrors.find((e) => e.field === "lastName")?.message}>
                   <TextInput id="trial-quick-lastName" autoComplete="off" value={form.lastName} onChange={(event) => setForm((current) => ({ ...current, lastName: event.target.value }))} />
                 </Field>
-                <Field label="Data di nascita" htmlFor="trial-quick-birthDate" required error={formErrors.find((e) => e.field === "birthDate")?.message}>
+                <Field label="Data di nascita" htmlFor="trial-quick-birthDate" optional error={formErrors.find((e) => e.field === "birthDate")?.message}>
                   <DateInput id="trial-quick-birthDate" value={form.birthDate} max={todayLocalDateOnly()} onChange={(event) => setForm((current) => ({ ...current, birthDate: event.target.value }))} />
                 </Field>
                 <Field label="Categoria" htmlFor="trial-quick-category" optional>
@@ -341,25 +360,9 @@ export const TrialAttendanceSection = React.forwardRef<
                   />
                 </Field>
               </div>
-              {matches.length ? (
-                <AlertBlock severity="warning" title="C'e gia una persona in prova con questo nome" className="mt-3">
-                  <ul className="mt-1 flex flex-col gap-1.5">
-                    {matches.slice(0, 3).map(({ trial, exact }) => (
-                      <li key={trial.id} className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="egw-num font-brand text-[12px] text-egw-ink">
-                          {trial.name} · nato il {formatDateShort(trial.birthDate)}
-                          {exact ? " · stessa data di nascita" : ""}
-                        </span>
-                        {trial.status === "in_trial" ? (
-                          <Button variant="secondary" size="xs" onClick={() => addTrial(trial)}>
-                            E lei
-                          </Button>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                </AlertBlock>
-              ) : null}
+              <div className="mt-3">
+                <TrialHomonymsNotice result={omonimi} onPickTrial={(id) => void scegliOmonimo(id)} />
+              </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button variant="primary" size="sm" loading={creatingSaving} onClick={() => void quickCreate()}>
                   Registra e segna presente

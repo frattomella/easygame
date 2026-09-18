@@ -1,5 +1,6 @@
 "use client";
 
+import { trainingDisplayTitle } from "@/lib/events/training-presenter";
 import {
   AlertTriangle,
   CalendarDays,
@@ -377,7 +378,7 @@ export default function TrainerDashboardHomeV2Page() {
                 return (
                   <CompactEntityCard
                     key={getTrainingStableKey(training)}
-                    title={training.title || "Allenamento"}
+                    title={trainingDisplayTitle(training)}
                     className={
                       missingAttendance
                         ? "border-egw-tint-red-bd bg-egw-tint-red"
@@ -515,10 +516,9 @@ export default function TrainerDashboardHomeV2Page() {
                 <CompactEntityCard
                   key={`${eGara ? "gara" : "allenamento"}:${getTrainingStableKey(impegno)}`}
                   title={
-                    impegno.title ||
-                    (eGara
-                      ? `vs ${impegno.opponent || "Gara"}`
-                      : "Allenamento")
+                    eGara
+                      ? impegno.title || `vs ${impegno.opponent || "Gara"}`
+                      : trainingDisplayTitle(impegno)
                   }
                   badge={
                     <StatusPill

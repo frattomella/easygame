@@ -166,13 +166,16 @@ const conPresenze = async (scope = scopeDirezione) => {
 };
 
 /* 1 */
-test("1 · una persona in prova si registra con nome, cognome e data di nascita, e nasce «in prova»", async () => {
+test("1 · una persona in prova si registra con nome e cognome (la data di nascita e facoltativa), e nasce «in prova»", async () => {
   const trial = await dominio.createTrialAthlete(scopeDirezione, mario());
   assert.ok(trial.id);
   assert.equal(trial.status, "in_trial");
   assert.equal(trial.birthDate, "2012-05-04");
   assert.equal(trial.trialsCount, 0);
-  await assert.rejects(() => dominio.createTrialAthlete(scopeDirezione, { firstName: "Solo", lastName: "Nome" }), /data di nascita/i);
+  /* Da ADR-0198 §4 la data di nascita e facoltativa: senza, la prova nasce con `null`. */
+  const senzaData = await dominio.createTrialAthlete(scopeDirezione, { firstName: "Solo", lastName: "Nome" });
+  assert.equal(senzaData.birthDate, null);
+  await assert.rejects(() => dominio.createTrialAthlete(scopeDirezione, { firstName: "Data", lastName: "Storta", birthDate: "ieri" }), /non e valida/i);
 });
 
 /* 2 */

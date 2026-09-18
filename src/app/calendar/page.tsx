@@ -44,6 +44,7 @@ import {
   raggruppaPerGiorno,
   statoDi,
   titoloDi,
+  notaDi,
   type EventoCalendario,
   type TipoEvento,
 } from "@/components/calendar/v2/calendar-model";
@@ -413,13 +414,18 @@ function EventRow({
         <span className={cn("flex flex-wrap items-center gap-2", annullato && "text-egw-ink-62 line-through")}>
           {gara ? <Trophy className="h-3.5 w-3.5 shrink-0 text-egw-orange" aria-hidden /> : <Users className="h-3.5 w-3.5 shrink-0 text-egw-blue" aria-hidden />}
           <span className="min-w-0 text-[14px] font-bold">{titoloDi(evento)}</span>
-          <DataChip tone={gara ? "orange" : "blue"} size="sm">
-            {gara ? "Gara" : "Allenamento"}
-          </DataChip>
+          {gara ? (
+            <DataChip tone="orange" size="sm">
+              Gara
+            </DataChip>
+          ) : null}
           {evento.category || evento.categoryId ? (
             <DataChip tone="blue" size="sm" title={etichettaCategoria(evento)}>
               {etichettaCategoria(evento)}
             </DataChip>
+          ) : null}
+          {notaDi(evento) ? (
+            <span className="egw-ellipsis min-w-0 text-[12.5px] font-medium text-egw-ink-62">{notaDi(evento)}</span>
           ) : null}
         </span>
       }

@@ -587,6 +587,24 @@ Atleti → «Atleti in prova» → scheda → storia derivata → «Converti in 
 `athlete_category_memberships` + `trial_athletes.athlete_id`. Stati IN
 PROVA / ISCRITTO / NON PROSEGUE. Nessun account e nessun tutore creati.
 Tenant isolato e provato. Sul redesign le tabelle partono vuote.
+Da ADR-0198: la data di nascita e **facoltativa** alla prova e la chiede la
+conversione; gli omonimi si cercano in **tutto il club** (prove e schede
+atleta di ogni stagione, `GET /api/v1/trial-athletes/homonyms`) e si
+mostrano senza fondere; le presenze di prova contano nel numeratore delle
+schede (`15/13` e un dato).
+
+## Coerenza operativa su piu stagioni — `COMPLETE` (ADR-0198, 2026-09-18)
+
+Sette difetti del pilota sulla seconda stagione. Gli allenatori di un
+allenamento generato sono quelli **assegnati nella stagione** alla squadra
+della voce (pagina Allenatori = autorita; voci riportate senza allenatori;
+diagnostica «non assegnati» nel pannello); la Dashboard legge gli allenamenti
+di oggi dalla rotta canonica e «registrato» e una riga di appello (anche
+tutti assenti); il titolo di un allenamento e «Allenamento» con la categoria
+in badge e la data come campo (nota facoltativa al posto del titolo); la
+finestra «N giorni» della generazione e `[adesso, adesso + N × 24h)` (40
+voci → 40, non 50). Regola di QA: ogni test sensibile alla stagione usa
+`tests/helpers/multi-season-club.mjs` (due stagioni sovrapposte, B attiva).
 
 ## Redesign delle aree famiglia, allenatore, atleta e dell'ambiente 3 — `COMPLETE` (ADR-0187, 2026-09-16)
 

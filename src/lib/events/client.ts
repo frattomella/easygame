@@ -1,4 +1,13 @@
 import { apiRequest } from "@/lib/api/client";
+import { clearCache } from "@/lib/supabase";
+
+/*
+  **Un appello salvato invalida la cache degli allenamenti di oggi** (ADR-0198
+  §2). La Dashboard tiene `trainings-<club>:<stagione>` per cinque minuti:
+  senza questo gesto, registrare le presenze su /training e tornare in
+  Dashboard senza ricaricare mostrava ancora «non registrato».
+*/
+const invalidaAllenamentiDiOggi = () => clearCache("trainings-");
 
 /**
  * **Il trasporto verso il dominio degli eventi.**
@@ -134,6 +143,7 @@ export const saveEventAttendance = async (
     `/api/v1/events/${encodeURIComponent(id)}/participants`,
     { method: "POST", body: { data: { action: "attendance", entries } } },
   );
+  invalidaAllenamentiDiOggi();
   return unwrap(response, "Impossibile salvare l'appello") || [];
 };
 

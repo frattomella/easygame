@@ -1,13 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { supabase, cachedQuery, clearCache } from "@/lib/supabase";
+import { cachedQuery, clearCache } from "@/lib/supabase";
 import {
   getClubAthletes,
   getClubCategories,
   getClubTrainers,
-  getClubTrainings,
 } from "@/lib/simplified-db";
+import { listEventParticipants, listEvents } from "@/lib/events/client";
+import { listEventTrialAttendance } from "@/lib/trials/client";
+import { attendanceStateOf, isRecordedAttendanceStatus } from "@/lib/events/attendance-count";
+import { isPresentAttendance } from "@/lib/funding/attendance-measure";
+import { readRecordedAttendance } from "@/lib/trainer-operational-alerts";
+import { trainingDisplayTitle } from "@/lib/events/training-presenter";
 import {
   athleteMatchesAnyCategory,
   buildClubCategoryOptions,
@@ -37,6 +42,15 @@ import { formatLocalDateOnly } from "@/lib/date-only";
  * (`trainings-<club>`), la stessa normalizzazione. Il catalogo delle
  * categorie e ricevuto davvero, perche due «Under 15» di due sedi sono due
  * squadre e l'organico atteso e quello del gruppo giusto (ADR-0155).
+ *
+ * **Gli allenamenti si leggono dalla rotta canonica, con i due numeri
+ * dell'appello** (ADR-0198 §2). Prima arrivavano dalla proiezione storica
+ * `clubs.trainings`, che non porta l'appello: `attendanceStatus` non
+ * esisteva nella risposta e il riquadro diceva «Presenze non registrate»
+ * sopra un registro compilato (pilota, 2026-09-18). Adesso «registrato» lo
+ * dice `attendanceStateOf` sui conteggi del server — almeno una riga di
+ * appello, presenti o assenti che siano — lo stesso lettore della pagina
+ * Allenamenti.
  */
 export type TodayTrainingStatus =
   | "upcoming"
@@ -129,14 +143,19 @@ export const normalizeTodayTraining = (
       : typeof training?.expected_attendees === "number"
         ? training.expected_attendees
         : 0;
+  /*
+    «Registrato» = almeno una riga di appello, dal conteggio del server
+    (`attendance_recorded`) o dall'elenco se la forma lo porta. Mai
+    `presenti > 0`: tredici assenti sono un appello fatto.
+  */
+  const appello = readRecordedAttendance(training);
+  /* Niente `pending` dal payload: la copia storica non e l'appello (revisione B8). */
+  const statoAppello: TodayTraining["attendanceStatus"] = attendanceStateOf(appello) === "recorded" ? "saved" : "none";
 
   return {
     id: String(training?.id || training?.training_id || getTrainingStableKey(training)),
     key: getTrainingStableKey(training),
-    title:
-      normalizeTrainingText(training?.title) ||
-      normalizeTrainingText(source?.title) ||
-      "Allenamento",
+    title: trainingDisplayTitle(training),
     date: getTrainingDate(training) || new Date(),
     startTime: startTime ? String(startTime).split(" - ")[0] : null,
     endTime: endTime ? String(endTime) : null,
@@ -150,11 +169,14 @@ export const normalizeTodayTraining = (
       normalizeTrainingText(training?.location) ||
       normalizeTrainingText(source?.location) ||
       "Luogo non specificato",
-    attendees: typeof training?.attendees === "number" ? training.attendees : 0,
+    attendees: appello.recorded
+      ? appello.present
+      : typeof training?.attendees === "number"
+        ? training.attendees
+        : 0,
     expectedAttendees: categoryAthleteCount > 0 ? categoryAthleteCount : explicitExpected,
     status: training?.status || "upcoming",
-    attendanceStatus:
-      training?.attendanceStatus || training?.attendance_status || "none",
+    attendanceStatus: statoAppello,
   };
 };
 
@@ -166,9 +188,26 @@ export const loadTodayTrainings = async (
   if (!clubId) return [];
 
   /* La chiave porta la stagione (revisione C7): B attivata, la cache di A non risponde piu. */
-  const result = await cachedQuery(`trainings-${clubId}:${seasonId || ""}`, async () => {
+  /*
+    Il giorno **civile** del browser, con le cifre scritte come UTC: e la
+    convenzione di `starts_at` (`toEventInstant`) e la stessa del calendario
+    (revisione B1/D7). La chiave della cache porta anche il giorno: a
+    mezzanotte la lista di ieri non risponde piu (revisione B7).
+  */
+  const oggi = formatLocalDateOnly(new Date());
+  const result = await cachedQuery(`trainings-${clubId}:${seasonId || ""}:${oggi}`, async () => {
     const [trainingsData, categoriesData, trainersData, athletesData] = await Promise.all([
-      getClubTrainings(clubId),
+      /*
+        La rotta canonica, sul solo giorno di oggi e sulla stagione che il
+        browser dichiara (`x-active-season-id`, ADR-0197): ogni riga porta
+        `attendance_recorded` e `attendance_present`.
+      */
+      listEvents({
+        kind: "training",
+        from: `${oggi}T00:00:00.000Z`,
+        to: `${oggi}T23:59:59.999Z`,
+        include_cancelled: "1",
+      }),
       getClubCategories(clubId),
       getClubTrainers(clubId),
       /*
@@ -224,7 +263,8 @@ export const useTodayTrainings = (
     }
     setLoading(true);
     setError(false);
-    if (attempt > 0) clearCache(`trainings-${clubId}`);
+    /* La chiave porta la stagione: il prefisso le prende tutte. */
+    if (attempt > 0) clearCache(`trainings-${clubId}:`);
     loadTodayTrainings(clubId, seasonId)
       .then((rows) => {
         if (!cancelled) setTrainings(rows);
@@ -250,26 +290,38 @@ export const useTodayTrainings = (
 export type SavedAttendanceRow = { name: string; present: boolean };
 
 /**
- * L'elenco nominativo delle presenze salvate: si legge solo quando la persona
- * lo apre, come faceva il riquadro V1 (stessa lettura su `training_attendance`).
+ * L'elenco nominativo delle presenze salvate, a richiesta: le righe vere
+ * dell'appello (`/api/v1/events/:id/participants`, dal perimetro di chi
+ * legge) e le persone in prova (`trial-attendance`), con il nome dal
+ * catalogo atleti (revisione B5: la lettura su `training_attendance` chiedeva
+ * una colonna `is_present` che nessuna proiezione produce e segnava tutti
+ * assenti).
  */
 export const loadSavedAttendance = async (
   trainingId: string,
   clubId: string | null,
 ): Promise<SavedAttendanceRow[]> => {
-  let query = supabase
-    .from("training_attendance")
-    .select("id, is_present, athletes(id, first_name, last_name)")
-    .eq("training_id", trainingId);
-  if (clubId) {
-    query = query.eq("organization_id", clubId);
+  const [partecipanti, prove, atleti] = await Promise.all([
+    listEventParticipants(trainingId),
+    listEventTrialAttendance(trainingId).catch(() => []),
+    clubId ? getClubAthletes(clubId, { view: "summary" }) : Promise.resolve([]),
+  ]);
+  const nomi = new Map(
+    (Array.isArray(atleti) ? atleti : []).map((atleta: any) => [String(atleta?.id || ""), getAthleteDisplayName(atleta)]),
+  );
+  const righe: SavedAttendanceRow[] = [];
+  for (const riga of Array.isArray(partecipanti) ? partecipanti : []) {
+    if (!isRecordedAttendanceStatus(riga?.status)) continue;
+    righe.push({
+      name: nomi.get(String(riga?.athlete_id || "")) || "Atleta",
+      present: isPresentAttendance(riga),
+    });
   }
-  const { data } = await query;
-  if (!Array.isArray(data)) return [];
-  return data.map((record: { athletes?: unknown; is_present?: boolean }) => ({
-    name: record.athletes ? getAthleteDisplayName(record.athletes) : "Atleta sconosciuto",
-    present: Boolean(record.is_present),
-  }));
+  for (const riga of Array.isArray(prove) ? prove : []) {
+    if (!riga?.attendance || !isRecordedAttendanceStatus(riga.attendance.status)) continue;
+    righe.push({ name: `${riga.trial?.name || "Persona in prova"} · in prova`, present: isPresentAttendance(riga.attendance) });
+  }
+  return righe;
 };
 
 /**

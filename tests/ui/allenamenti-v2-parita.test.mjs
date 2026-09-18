@@ -128,9 +128,11 @@ test("le presenze si registrano in un cassetto da 480 con la logica della V1", (
 
 test("crea/modifica: cassetti con tutti i campi, le regole e i payload della V1", () => {
   assert.match(addForm, /<Drawer[\s\S]{0,300}width="wide"/);
-  for (const field of ["Titolo", "Data", "Ora inizio", "Ora fine", "Allenatori", "Struttura", "Campo della struttura"]) {
+  /* Il titolo e il tipo (ADR-0198 §3): il campo libero e una nota facoltativa. */
+  for (const field of ["Nota \\(facoltativa\\)", "Data", "Ora inizio", "Ora fine", "Allenatori", "Struttura", "Campo della struttura"]) {
     assert.match(addForm, new RegExp(`label="${field}"`), `manca il campo ${field} in creazione`);
   }
+  assert.match(addForm, /title: formData.title.trim() || defaultTrainingTitle()/, "senza nota il titolo e «Allenamento»");
   assert.match(addForm, /<EventRsvpFields/, "conferma alle famiglie, scadenza, capienza");
   assert.match(addForm, /<TrainingGroupSelector/);
   assert.match(addForm, /categories: categoryIdsFromGroups\(groupOptions, groupIds\)/);
@@ -145,7 +147,7 @@ test("crea/modifica: cassetti con tutti i campi, le regole e i payload della V1"
   assert.doesNotMatch(addForm, /isAppointment/, "il ramo appuntamento era codice morto su questa rotta");
 
   assert.match(editForm, /<Drawer[\s\S]{0,300}width="wide"/);
-  for (const field of ["Titolo", "Data", "Orario inizio", "Orario fine", "Campo", "Allenatori"]) {
+  for (const field of ["Nota \\(facoltativa\\)", "Data", "Orario inizio", "Orario fine", "Campo", "Allenatori"]) {
     assert.match(editForm, new RegExp(`label="${field}"`), `manca il campo ${field} in modifica`);
   }
   assert.match(editForm, /<TrainingGroupSelector/);

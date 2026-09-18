@@ -13454,3 +13454,203 @@ ha `audit.read` (E nota, voluto).
 VIEW accounting_ledger_lines`, identica alla precedente salvo la proiezione
 di `seasonId`/`season_id` sulle due gambe storiche. Nessuna tabella, nessun
 dato.
+
+
+---
+
+## ADR-0198 — Coerenza operativa su piu stagioni: chi allena lo dice l'assegnazione della stagione, «registrato» e una riga di appello, il titolo di un allenamento e il suo tipo, «N giorni» sono N giorni
+
+**Data:** 2026-09-18 · **Stato:** accettata · **Ambito:** Web (programma settimanale e generazione, allenamenti, Dashboard, calendario, persone in prova) · **Branch:** `feat/web-redesign`. Estende ADR-0197 e ADR-0188.
+
+### Contesto
+
+Il club pilota lavora su una **seconda** stagione, creata dopo la prima e
+attivata. Sette difetti osservati in UAT (ricostruzione in sola lettura,
+2026-09-18, `.codex-scratch/season/trace-fortitudo-2.mjs`, nessuna scrittura):
+
+1. **Allenatori sugli allenamenti.** La pagina Allenatori diceva «Nessuna
+   categoria assegnata nella stagione 2026/27 · Stagione precedente:
+   2026/2027: Aquilotti»; la pagina Allenamenti mostrava sugli allenamenti
+   della stagione nuova gli allenatori dell'anno scorso. Fonte esatta: le 40
+   voci del programma della B portavano `trainerIds` **copiati dalla A** dal
+   riporto (`planSeasonRollover` clonava la voce intera: 12 voci con 3
+   allenatori, 23 con 2, 5 con 1), il generatore li scriveva sull'evento
+   (`club_events.trainer_ids`, `payload.trainerIds`) senza chiedere a nessuno
+   se nella B quell'allenatore seguisse quella squadra. Dieci allenatori su
+   undici avevano solo categorie della A; uno ne aveva 17 della B. Non era
+   una derivazione per nome ne un catalogo di tutte le stagioni: era un
+   **riferimento copiato** scritto come snapshot.
+2. **«Non registrato» in Dashboard dopo le presenze.** Il riquadro «Oggi in
+   palestra» leggeva la proiezione storica `clubs.trainings`, che **non porta
+   l'appello**: `attendanceStatus` non esisteva nella risposta e ricadeva su
+   `"none"`. L'appello vive in `club_event_participants` (ADR-0099); la
+   pagina Allenamenti lo leggeva gia dalla rotta canonica (P0-5), la
+   Dashboard no. In piu la cache (`trainings-<club>:<stagione>`, 5 minuti)
+   non si svuotava salvando un appello, e `reload` la svuotava con la chiave
+   senza stagione.
+3. **Titoli fatti con la data.** Il generatore scriveva «Giovedì 17
+   Settembre» come titolo, e ogni schermata inventava il suo.
+4. **Data di nascita obbligatoria per una persona in prova** (`trial_athletes.birth_date NOT NULL`).
+5. **Omonimi cercati solo fra le prove**, in memoria, dal modulo.
+6. **Contatore delle presenze** senza le persone in prova (`trial_attendances`
+   non entrava in `attendance_present`).
+7. **40 voci → 50 allenamenti.** «Genera ora» con «7 giorni» premuto giovedi
+   17 settembre alle 09:25: finestra `<= oggi + 7`, cioe dal 17 al **24
+   compresi**, otto giorni; le 10 voci del giovedi nate due volte (17 e 24),
+   le altre 30 una volta: 30 + 20 = 50. Nessuna voce doppia, nessuna voce di
+   A, nessuna ricorrenza multipla, un solo `created_at`. Mappa completa
+   regola → occorrenza nel rapporto del lotto.
+
+### Decisione
+
+1. **L'assegnazione della stagione e l'autorita sugli allenatori di un
+   allenamento nuovo.** `buildTrainerAssignmentIndex`
+   (`src/lib/trainers/season-assignments.ts`) spacca ogni allenatore per
+   stagione con `splitTrainerAssignmentsBySeason` — per identificativo, un
+   nome solo se unico nel club — e il generatore, per ogni voce, tiene gli
+   allenatori scritti **solo se assegnati nella stagione alla squadra della
+   voce** (categoria, gruppo, o un gruppo di quella categoria); una voce
+   senza allenatori riceve quelli assegnati. Chi non lo e viene scartato e
+   **detto** (`diagnostics.trainersNotAssigned`, nel pannello). Nessun ripiego
+   sulla stagione precedente. Il riporto del programma settimanale **non
+   copia** i riferimenti agli allenatori (`stripTrainerReferences`). Un
+   allenatore non rende incompleta una voce: il pannello non lo esige, e
+   mostra «Assegnato» / «Non assegnato nella stagione» accanto a ogni nome.
+   Un allenamento **gia scritto** conserva il suo snapshot (`trainer_ids`):
+   lo storico non si riscrive.
+2. **«Registrato» = almeno una riga di appello**, presenti o assenti che
+   siano; `presentCount > 0` non e una prova. Lo dice `attendanceStateOf` sui
+   conteggi di `countEventAttendance` (`src/lib/events/attendance-count.ts`),
+   e la Dashboard legge gli allenamenti di oggi dalla rotta canonica
+   (`listEvents`, con `x-active-season-id`) con `attendance_recorded` e
+   `attendance_present` — lo stesso lettore della pagina Allenamenti
+   (`readRecordedAttendance`). Salvare un appello (atleti o prove) svuota la
+   cache `trainings-`.
+3. **Il titolo di un allenamento e il tipo** — «Allenamento» — con la
+   categoria in un badge e data, ora e luogo come campi separati
+   (`src/lib/events/training-presenter.ts`: `trainingDisplayTitle`,
+   `trainingDisplayNote`, `defaultTrainingTitle`). La data **resta nel
+   dominio** (`date`, `starts_at`, `ends_at`): calendario, storico, ricerca,
+   presenze, export non cambiano. Un titolo scritto a mano che non e una data
+   e la **nota** sotto il titolo; il modulo lo chiama «Nota (facoltativa)».
+   Il generatore scrive `title: "Allenamento"`. Superfici: Allenamenti,
+   Dashboard, Calendario, bacheca dell'allenatore, cassetto di modifica.
+4. **La data di nascita di una persona in prova e facoltativa** (migrazione
+   `20260918090000_adr0198_prova_senza_data_di_nascita`: `DROP NOT NULL`,
+   nessuna riga toccata, nessun segnaposto). Vuota = `null` in UI, API, DB.
+   La chiede la **conversione** quando crea la scheda atleta
+   (`create.birthDate`), vagliata **prima** della transazione (D-RD-22
+   intatto): senza, si ferma e lo dice; collegare una scheda esistente non la
+   chiede. Due date mancanti non sono la stessa data (`match: "name"`).
+5. **Gli omonimi si cercano in tutto il club**: `findTrialHomonyms`
+   (`GET /api/v1/trial-athletes/homonyms`) risponde le persone in prova
+   (perimetro dell'allenatore applicato) e le schede atleta **senza perimetro
+   di stagione** (l'identita dell'atleta e del club, ADR-0197 §22), queste
+   ultime solo a chi puo convertire (`trials.convert`, gli stessi che gia
+   ricevono i candidati della conversione) — la lista dice se le ha cercate
+   (`athletesSearched`). Tenant sempre. Il confronto passa da **una** chiave
+   (`nameMatchKey` in `athlete-name-utils.ts`: minuscolo, senza accenti,
+   spazi ridotti; `sameNameInAnyOrder`), che sostituisce tre copie identiche.
+   L'avviso **mostra e non blocca**: «Atleta in prova» / «Atleta registrato»,
+   la data quando c'e; nessun merge, nessun link, nessuna conversione
+   automatica; «e lei» solo verso una prova. Schermata interna: nessuna
+   rotta pubblica (ADR-0191).
+6. **Il contatore ha un posto solo.** Numeratore = persone **registrate
+   presenti** all'evento: rosa, fuori rosa (`is_extra_category`), persone in
+   prova (`trial_attendances`); denominatore = rosa attesa, che **non si
+   allarga**: `15/13` e un dato. Chiave canonica della persona:
+   `athlete:<id>`, `trial:<id>` finche non convertita, poi l'atleta che e
+   diventata; due righe con la stessa chiave sono una persona, e se una la
+   dice presente era presente. La rotta degli eventi conta con questa
+   funzione (`attendance_present_extra`, `attendance_present_trial` in piu).
+7. **«N giorni» sono N giorni.** La finestra rotante della generazione e
+   semiaperta sull'istante: `[adesso, adesso + N × 24h)`. Ogni voce
+   settimanale produce esattamente N/7 occorrenze, in qualunque ora e giorno
+   si prema il pulsante; una voce di oggi gia passata nasce la settimana
+   dopo. «Genera fino a…» resta com'era: la data scelta e inclusa per
+   intero. Idempotenza intatta (`legacy_id` posizionale).
+
+**Regola di QA (obbligatoria).** Ogni test sensibile alla stagione usa il
+club con **due stagioni sovrapposte** — A precedente, B nuova e attiva —
+di `tests/helpers/multi-season-club.mjs`. Un test su un club con una
+stagione sola non basta.
+
+### Conseguenze
+
+- `WeeklyProgramDiagnostics.trainersNotAssigned` e un campo nuovo, additivo.
+- `GET /api/v1/events` porta due numeri in piu; `attendance_present` puo
+  superare la rosa. Chi mostrava `min(presenti, rosa)` non lo fa piu.
+- `TrialAthlete.birthDate` e `string | null` (contratto web; il mobile non
+  legge le prove).
+- Sul pilota gli allenamenti gia generati in B conservano lo snapshot con
+  gli allenatori della A (regola 1, ultima frase): rigenerarli e una
+  decisione del club, non una migrazione. Le 40 voci della B conservano i
+  `trainerIds` copiati: da qui in avanti il generatore li vaglia.
+
+### Alternative scartate
+
+- Validare gli allenatori solo nel pannello (client): il cron e «Genera
+  fino a…» non passano dal pannello.
+- Nascondere il badge «non registrato» quando `presenti > 0`: correggeva la
+  UI, non l'autorita, e lasciava «registrato» falso a un appello di sole
+  assenze.
+- Togliere la data dal titolo tenendo il titolo libero: quattro schermate
+  avrebbero continuato a inventare quattro titoli.
+- Contare le prove nel denominatore «per far tornare la frazione»: il
+  denominatore e la rosa attesa, e una frazione > 1 e un'informazione.
+- Una finestra `[oggi, oggi + N)` a giorni civili: il giovedi delle 10:00
+  premuto alle 11:00 non sarebbe nato ne oggi ne fra sette giorni.
+
+### Revisione ostile
+
+Quattro revisori in sola lettura (A multi-stagione/allenatori, B
+presenze/Dashboard/contatori, C prove/omonimi, D programma/generazione/
+finestre). Esito iniziale e finale nel rapporto del lotto e, per le chiusure,
+nella sezione «Revisione» in coda a questo ADR.
+
+
+### Revisione ostile — esito (2026-09-18)
+
+Quattro revisori in sola lettura sul diff del lotto. **Iniziale:** Critical 2
+(C1 regex della data nel cassetto di conversione, A1 il normalizzatore
+client scartava le voci senza allenatore e l'autosave le cancellava), High 8
+(A2 staff_members ignorati, A3 catalogo doppio, A4/A7 pannello e generatore
+con due predicati, A5 voce con allenatori tutti vecchi lasciata vuota, C2/C3
+conversione dalla pratica e da «Nuovo atleta» senza la data, B1/D7 finestra
+della Dashboard nel fuso del browser, B2 copia storica dell'appello nel
+payload che vinceva sui numeri, D1 nota scritta a mano persa in modifica),
+Medium 18, Low 18. **Finale:** Critical 0, High 0, Medium 0 (tutte chiuse:
+A6 categoria risolta, A8 nomi non contati, A9 modifica senza allenatore, B3
+`attendance_recorded_roster` per «quanti mancano», B4 conteggi dopo il
+salvataggio con le prove, B5 elenco presenze dalle righe vere, B6 groupBy
+per la rosa e righe solo per le prove, C4/C5 prefiltro per parola senza
+l'ultima lettera, C6 «schede non verificate» detto, C7 una chiave sola anche
+nella pratica, C8 prova iscritta e sua scheda una persona, D2 «generato fino
+al» = ultimo giorno coperto, D3/D4 cornice civile del club e giorni civili,
+D5/D6 ricerca e stato locale con la nota), Low 6 dichiarati:
+
+- **D-RD-39** (Low) — il prefiltro in archivio degli omonimi non toglie gli
+  accenti in mezzo alla parola («Sébastien» digitato «Sebastien»): il
+  confronto in memoria e giusto, la riga puo non arrivare. Serve `unaccent`
+  o una colonna normalizzata.
+- **D-RD-40** (Low) — i rapporti (`club-report-utils`, `category-athlete-stats`,
+  `athlete-category-analytics`) sommano ancora la copia `attendance` del
+  payload alle righe di `club_event_participants`: un evento migrato puo
+  contare due volte. Stessa radice di B2, fuori dal lotto.
+- **D-RD-41** (Low) — con `generateDaysAhead = 7` il cron quotidiano non ha
+  margine: un ritardo del cron oltre l'ora della corsa precedente lascia
+  scoperte le fasce di prima mattina di quel giorno. Il predefinito (21) e
+  al sicuro; da valutare un minimo `> intervallo del cron`.
+- **D-RD-42** (Low) — le schede atleta proposte come omonime (e i candidati
+  della conversione, preesistente) non applicano il perimetro di sede e
+  categoria di ADR-0103 a chi puo convertire: l'identita e del club, ma va
+  deciso e scritto.
+- **D-RD-43** (Low) — il pannello del programma settimanale risolve i nomi di
+  categoria sul catalogo della **stagione** (unico nella stagione), il
+  generatore su quello del **club** (unico nel club): un riferimento per
+  nome ambiguo fra due annate puo dirsi «Assegnato» a schermo e non esserlo
+  in generazione. La diagnostica lo dice; il client non ha il catalogo
+  intero.
+- **D-RD-44** (Low) — un allenatore sospeso non si deriva sugli allenamenti
+  nuovi ma, se scritto sulla voce ed e assegnato, resta: la sospensione non
+  e ancora un fatto del dominio degli allenamenti.

@@ -31,7 +31,7 @@ import {
   getStructureFieldOptions,
   type TrainingLocationOption,
 } from "@/lib/training-location-options";
-import { getAssociatedTrainerIds } from "@/lib/trainer-utils";
+import { buildTrainerAssignmentIndex } from "@/lib/trainers/season-assignments";
 import {
   buildCategoryDisplayIndex,
   UNKNOWN_SITE_LABEL,
@@ -224,9 +224,8 @@ export function WeeklyTrainingSchedule({
     endTime: "19:30",
     categoryId: defaultCategoryId,
     categoryName: categories[0]?.name || null,
-    trainerIds: defaultCategoryId
-      ? getAssociatedTrainerIds(trainers, [defaultCategoryId], categories)
-      : [],
+    /* Gli allenatori li riempie `resetNewTraining` dall'indice della stagione, all'apertura del modulo. */
+    trainerIds: [],
     structureId: "",
     locationId: "",
     location: null,
@@ -245,12 +244,29 @@ export function WeeklyTrainingSchedule({
     [effectiveLocations],
   );
 
+  /*
+    **Lo stesso indice del generatore** (ADR-0198 §1, revisione A4/A7): chi e
+    assegnato alla squadra di una voce lo decide `buildTrainerAssignmentIndex`
+    sulla stagione mostrata, per identificativo, con i gruppi operativi. Qui il
+    catalogo e quello della stagione (la pagina lo legge cosi): un id
+    dell'anno scorso non risolve, un nome vale solo se unico nel catalogo.
+  */
+  const assegnazioni = React.useMemo(
+    () =>
+      buildTrainerAssignmentIndex({
+        trainers: trainers as never,
+        categories: categories.map((category) => ({ id: category.id, name: category.name, seasonId: activeClub?.activeSeasonId ?? null })),
+        groups: groups.map((group) => ({ id: group.id, categoryId: group.categoryId, seasonId: activeClub?.activeSeasonId ?? null })),
+        seasons: activeClub?.activeSeasonId ? [{ id: activeClub.activeSeasonId, label: activeClub.activeSeasonLabel || activeClub.activeSeasonId }] : [],
+        seasonId: activeClub?.activeSeasonId ?? null,
+        legacySeasonId: activeClub?.activeSeasonId ?? null,
+      }),
+    [trainers, categories, groups, activeClub?.activeSeasonId, activeClub?.activeSeasonLabel],
+  );
   const getAutoTrainerIdsForCategory = React.useCallback(
-    (categoryId: string) =>
-      categoryId
-        ? getAssociatedTrainerIds(trainers, [categoryId], categories)
-        : [],
-    [trainers, categories],
+    (categoryId: string, groupId?: string | null) =>
+      categoryId ? assegnazioni.assignedTo({ categoryId, groupId: groupId || null }) : [],
+    [assegnazioni],
   );
 
   const syncTrainerIdsForCategory = React.useCallback(
@@ -719,8 +735,7 @@ export function WeeklyTrainingSchedule({
     if (
       !normalizedNewTraining.categoryId ||
       !normalizedNewTraining.structureId ||
-      !normalizedNewTraining.locationId ||
-      !normalizedNewTraining.trainerIds.length
+      !normalizedNewTraining.locationId
     ) {
       showToast("error", "Compila tutti i campi del nuovo allenamento");
       return;
@@ -785,8 +800,7 @@ export function WeeklyTrainingSchedule({
     if (
       !normalizedEditingTraining.categoryId ||
       !normalizedEditingTraining.structureId ||
-      !normalizedEditingTraining.locationId ||
-      !normalizedEditingTraining.trainerIds.length
+      !normalizedEditingTraining.locationId
     ) {
       showToast("error", "Compila tutti i campi dell'allenamento");
       return;
@@ -1032,6 +1046,25 @@ export function WeeklyTrainingSchedule({
       .filter(Boolean)
       .join(", ");
 
+  /*
+    **Gli allenatori di una voce sono quelli assegnati alla sua squadra nella
+    stagione** (ADR-0198 §1): il generatore non scrive sull'allenamento chi
+    non lo e, e qui si dice prima — sulla voce, e nell'elenco da spuntare,
+    dove chi non e assegnato compare come tale. Una voce riportata dall'anno
+    scorso nasce senza allenatori: li prende dall'assegnazione.
+  */
+  const getTrainerIdsNotAssigned = (item: Pick<WeeklyTrainingItem, "trainerIds" | "categoryId" | "groupId">) =>
+    assegnazioni.split(item.trainerIds || [], { categoryId: item.categoryId, groupId: item.groupId || null }).dropped;
+  /* Come il generatore: gli scritti se assegnati, altrimenti gli assegnati della stagione. */
+  const describeTrainersOf = (item: WeeklyTrainingItem) => {
+    const { valid, dropped } = assegnazioni.split(item.trainerIds || [], { categoryId: item.categoryId, groupId: item.groupId || null });
+    const nomi = getTrainerNames(valid.length ? valid : getAutoTrainerIdsForCategory(item.categoryId, item.groupId));
+    return {
+      label: nomi || "Allenatore da assegnare dalla pagina Allenatori",
+      notAssigned: getTrainerNames(dropped),
+    };
+  };
+
   const getLocationName = (item: WeeklyTrainingItem) =>
     findTrainingLocationOption(effectiveLocations, {
       structureId: item.structureId,
@@ -1232,8 +1265,16 @@ export function WeeklyTrainingSchedule({
                                           {item.active === false ? <StatusPill status="inactive" size="sm" /> : null}
                                         </div>
                                         <p className="egw-ellipsis mt-0.5 text-[11.5px] text-egw-ink-62">
-                                          {getTrainerNames(item.trainerIds) || "Allenatore da assegnare"}
+                                          {describeTrainersOf(item).label}
                                         </p>
+                                        {describeTrainersOf(item).notAssigned ? (
+                                          <p
+                                            className="mt-0.5 text-[11px] text-egw-amber-ink"
+                                            data-test="weekly-item-trainer-not-assigned"
+                                          >
+                                            Non assegnati alla squadra in questa stagione: {describeTrainersOf(item).notAssigned}
+                                          </p>
+                                        ) : null}
                                       </div>
 
                                       <IconButton
@@ -1445,9 +1486,13 @@ export function WeeklyTrainingSchedule({
                       <span>{trainer.name}</span>
                       {getAutoTrainerIdsForCategory(newTraining.categoryId).includes(
                         trainer.id,
-                      ) && (
+                      ) ? (
                         <span className="ml-auto text-[11px] font-medium text-egw-blue-700">
-                          Associato
+                          Assegnato
+                        </span>
+                      ) : (
+                        <span className="ml-auto text-[11px] font-medium text-egw-amber-ink">
+                          Non assegnato nella stagione
                         </span>
                       )}
                     </label>
@@ -1696,9 +1741,13 @@ export function WeeklyTrainingSchedule({
                         <span>{trainer.name}</span>
                         {getAutoTrainerIdsForCategory(editingTraining.categoryId).includes(
                           trainer.id,
-                        ) && (
+                        ) ? (
                           <span className="ml-auto text-[11px] font-medium text-egw-blue-700">
-                            Associato
+                            Assegnato
+                          </span>
+                        ) : (
+                          <span className="ml-auto text-[11px] font-medium text-egw-amber-ink">
+                            Non assegnato nella stagione
                           </span>
                         )}
                       </label>

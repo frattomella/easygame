@@ -3711,8 +3711,8 @@ model TrialAthlete {
   organization_id String            @db.Uuid
   first_name      String
   last_name       String
-  /// Obbligatoria: nel settore giovanile e cio che distingue due omonimi e dice la categoria.
-  birth_date      DateTime          @db.Date
+  /// Facoltativa (ADR-0198 §4): chi viene a provare non sempre la lascia. La chiede l'iscrizione.
+  birth_date      DateTime?         @db.Date
   /// `in_trial` | `enrolled` | `declined`.
   status          String            @default("in_trial")
   category_id     String?

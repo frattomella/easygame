@@ -1264,7 +1264,8 @@ non saltate in silenzio.
 
 ## Le persone in prova hanno rotte proprie, non risorse generiche (ADR-0188, 2026-09-16)
 
-`/api/v1/trial-athletes`, `/api/v1/trial-athletes/:id`,
+`/api/v1/trial-athletes`, `/api/v1/trial-athletes/homonyms` (ADR-0198 §5),
+`/api/v1/trial-athletes/:id`,
 `/api/v1/trial-athletes/:id/convert`, `/api/v1/events/:id/trial-attendance`
 (`docs/api-registry.md` § Persone in prova). Il preambolo comune legge la
 sessione e risolve lo scope; il permesso lo verifica il **dominio**
@@ -1325,6 +1326,12 @@ leggono l'header a mano.
   risponde con `diagnostics` (`totalRules`, `validRules`, `invalidRules`,
   `rulesWithoutOccurrence`, `outsideSeasonCount`, `reasons[]`) e
   `reason: "no_valid_rules"` quando le voci ci sono ma nessuna e generabile.
+- `GET /api/v1/events` porta per ogni riga `attendance_recorded`,
+  `attendance_present`, `attendance_present_extra`,
+  `attendance_present_trial` (ADR-0198 §6): il conteggio e di
+  `countEventAttendance`, che include le persone in prova e conta ogni
+  persona una volta; `attendance_present` puo superare la rosa attesa.
+  «Registrato» = `attendance_recorded > 0`, anche con zero presenti.
 - `PATCH /api/v1/clubs/:id` con una colonna JSON di stagione **intera**
   conserva i record delle altre stagioni che il chiamante non ha rimandato,
   tiene ai record esistenti la stagione che avevano (anche nessuna) e marca

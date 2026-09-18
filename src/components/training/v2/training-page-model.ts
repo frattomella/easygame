@@ -20,7 +20,12 @@ import { ACTIVITY_STATUS, STATUS_UNKNOWN, type StatusSpec } from "@/lib/web/stat
  */
 export interface TrainingSession {
   id: string;
+  /** Il titolo a schermo: il tipo, «Allenamento» (ADR-0198 §3). */
   title: string;
+  /** Un titolo scritto a mano che non e una data: la nota sotto il titolo. */
+  note?: string | null;
+  /** Il titolo com'e in archivio, per il modulo di modifica. */
+  storedTitle?: string;
   date: Date;
   time: string;
   endTime?: string | null;

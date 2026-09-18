@@ -40,6 +40,13 @@ tasselli:
 filtra i record con la semantica dei `where` di Prisma (uguaglianza, `in`,
 `not`, `gt`, `OR`, `AND`, `NOT`, filtri su path JSON).
 
+`tests/helpers/multi-season-club.mjs` e la fixture **obbligatoria** per ogni
+test sensibile alla stagione (ADR-0198): un club con due stagioni
+**sovrapposte** — A precedente, B nuova e attiva — categorie omonime nelle
+due annate, gruppi, un allenatore assegnato solo in A, 40 voci del programma
+come quelle del pilota. Un test che gira su un club con una stagione sola non
+vede i difetti che nascono con la seconda.
+
 Dove il runtime resta irraggiungibile si usano **test di conformita statica**
 sul sorgente: meno espressivi, ma colgono la regressione che conta — un
 endpoint nuovo che dimentica il controllo.

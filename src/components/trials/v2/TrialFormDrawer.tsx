@@ -5,22 +5,20 @@ import * as React from "react";
 import { UserRound } from "lucide-react";
 import { Drawer, DrawerSection } from "@/components/web/overlays/Drawer";
 import { Button } from "@/components/web/primitives/Button";
-import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
+import { DataChip } from "@/components/web/primitives/StatusPill";
 import { InsetBlock } from "@/components/web/primitives/Surface";
 import { DateInput, Field, FieldSizeProvider, FormGrid, SearchableSelect, TextInput, Textarea, ValidationSummary } from "@/components/web/forms/Field";
 import { AlertBlock } from "@/components/web/page/Alerts";
-import { formatDateShort } from "@/lib/web/format";
-import type { TrialAthlete } from "@/lib/trials/client";
+import { readTrialAthlete, type TrialAthlete } from "@/lib/trials/client";
 import type { TrialCategoryOption, TrialTargetOption } from "@/components/trials/v2/use-trial-catalog";
 import {
   EMPTY_TRIAL_FORM,
-  findTrialMatches,
   trialFormFrom,
-  trialStatusSpec,
   validateTrialForm,
   type TrialFormError,
   type TrialFormState,
 } from "@/components/trials/v2/trial-model";
+import { TrialHomonymsNotice, trialById, useTrialHomonyms } from "@/components/trials/v2/TrialHomonymsNotice";
 
 /**
  * Il modulo della persona in prova (ADR-0188): un cassetto da 480 con nome,
@@ -29,10 +27,12 @@ import {
  * se il ruolo puo leggerli.
  *
  * **Gli omonimi si mostrano, non si fondono.** Mentre si scrive un nome che
- * esiste gia fra le persone in prova, il cassetto lo dice, con la data di
- * nascita e la categoria per distinguerli, e offre di **usare quella**: la
- * scelta e di chi registra. `quick` e la forma da palestra: tre campi e la
- * categoria gia scelta dall'allenamento.
+ * esiste gia nel club — fra le persone in prova **e** fra le schede atleta di
+ * ogni stagione (ADR-0198 §5) — il cassetto lo dice, con la data di nascita e
+ * la categoria per distinguerli, e offre di **usare quella** solo per una
+ * prova: la scelta e di chi registra. La data di nascita e facoltativa
+ * (ADR-0198 §4). `quick` e la forma da palestra: tre campi e la categoria
+ * gia scelta dall'allenamento.
  */
 
 export function TrialFormDrawer({
@@ -84,10 +84,7 @@ export function TrialFormDrawer({
 
   const errorFor = (field: keyof TrialFormState) => errors.find((error) => error.field === field)?.message;
 
-  const matches = React.useMemo(
-    () => (trial ? [] : findTrialMatches(form, existing).filter((match) => match.trial.status !== "enrolled")),
-    [existing, form, trial],
-  );
+  const omonimi = useTrialHomonyms(form, open && !trial);
 
   const submit = async () => {
     const found = validateTrialForm(form);
@@ -133,7 +130,7 @@ export function TrialFormDrawer({
       description={
         trial
           ? "Aggiorna i dati: le presenze registrate restano sue."
-          : "Bastano nome, cognome e data di nascita. Se torna, EasyGame la riconosce da qui."
+          : "Bastano nome e cognome; la data di nascita si puo aggiungere dopo. Se torna, EasyGame la riconosce da qui."
       }
       dirty={touched}
       locked={saving}
@@ -168,39 +165,31 @@ export function TrialFormDrawer({
                 <TextInput id="trial-lastName" autoComplete="off" value={form.lastName} onChange={(event) => set("lastName", event.target.value)} />
               </Field>
             </FormGrid>
-            <Field label="Data di nascita" htmlFor="trial-birthDate" required error={errorFor("birthDate")} helper="Distingue due omonimi e dice la categoria." className="mt-5" width="20ch">
+            <Field label="Data di nascita" htmlFor="trial-birthDate" optional error={errorFor("birthDate")} helper="Facoltativa: distingue due omonimi e dice la categoria. Servira all'iscrizione." className="mt-5" width="20ch">
               <DateInput id="trial-birthDate" value={form.birthDate} max={todayLocalDateOnly()} onChange={(event) => set("birthDate", event.target.value)} />
             </Field>
           </DrawerSection>
 
-          {matches.length ? (
-            <AlertBlock
-              severity="warning"
-              title={matches.some((match) => match.exact) ? "Questa persona sembra gia in prova" : "C'e gia una persona in prova con questo nome"}
-            >
-              <ul className="mt-2 flex flex-col gap-2" aria-label="Persone in prova con lo stesso nome">
-                {matches.slice(0, 4).map(({ trial: match, exact }) => (
-                  <li key={match.id} className="flex flex-wrap items-center justify-between gap-2 rounded-egw-control border border-egw-hairline bg-white px-3 py-2">
-                    <span className="min-w-0">
-                      <span className="block font-brand text-[12.5px] font-semibold text-egw-ink">{match.name}</span>
-                      <span className="egw-num block font-brand text-[11px] text-egw-ink-62">
-                        {[`nato il ${formatDateShort(match.birthDate)}`, match.categoryLabel, exact ? "stessa data di nascita" : null].filter(Boolean).join(" · ")}
-                      </span>
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <StatusPill status={trialStatusSpec(match.status)} size="sm" />
-                      {onPickExisting && match.status === "in_trial" ? (
-                        <Button variant="secondary" size="xs" onClick={() => onPickExisting(match)}>
-                          E lei
-                        </Button>
-                      ) : null}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 font-brand text-[11.5px] text-egw-ink-62">Se e un&apos;altra persona, prosegui: due omonimi possono esistere.</p>
-            </AlertBlock>
-          ) : null}
+          <TrialHomonymsNotice
+            result={omonimi}
+            onPickTrial={
+              onPickExisting
+                ? (id) => {
+                    const scelta = trialById(existing, id);
+                    if (scelta) {
+                      onPickExisting(scelta);
+                      return;
+                    }
+                    /* Una prova registrata da un collega dopo il caricamento: si legge, non si ignora (revisione C10). */
+                    void readTrialAthlete(id)
+                      .then((riga) => {
+                        if (riga?.trial) onPickExisting(riga.trial);
+                      })
+                      .catch(() => {});
+                  }
+                : undefined
+            }
+          />
 
           <DrawerSection eyebrow="Dove si allena" title="Squadra">
             <Field label="Squadra" htmlFor="trial-category" optional helper="La squadra con cui prova: categoria e sede insieme. Solo le squadre del club.">

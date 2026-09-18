@@ -58,6 +58,7 @@ import { roleHasPermission } from "@/lib/permissions/catalog";
 import { loadMembershipTargetIndex } from "./category-write-guard";
 import { explainUnresolvedPlacement } from "@/lib/categories/placement";
 import { isTrainerAccessRole } from "@/lib/access-roles";
+import { nameMatchKey, sameNameInAnyOrder } from "@/lib/athlete-name-utils";
 import {
   accessScopeAllows,
   type AccessScopeEntry,
@@ -186,10 +187,18 @@ const trialWithinPerimeter = (
 
 const normalizeName = (value: unknown) => asText(value).replace(/\s+/g, " ");
 
-const parseBirthDate = (value: unknown): Date => {
+/**
+ * **La data di nascita di una persona in prova e facoltativa** (ADR-0198 §4):
+ * chi viene a provare non sempre la lascia, e un allenatore non deve
+ * inventarla per registrare una presenza. Vuota = `null`, mai un segnaposto.
+ * Diventa obbligatoria quando la persona **si iscrive** — e la chiede la
+ * conversione, non la prova.
+ */
+const parseBirthDate = (value: unknown): Date | null => {
   const raw = asText(value);
+  if (!raw) return null;
   const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) throw new Error("La data di nascita e obbligatoria (AAAA-MM-GG)");
+  if (!match) throw new Error("La data di nascita non e valida (AAAA-MM-GG)");
   const date = new Date(
     Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])),
   );
@@ -320,7 +329,7 @@ type TrialRow = {
   organization_id: string;
   first_name: string;
   last_name: string;
-  birth_date: Date;
+  birth_date: Date | null;
   status: string;
   category_id: string | null;
   category_name: string | null;
@@ -367,7 +376,8 @@ export type TrialAthleteView = {
   firstName: string;
   lastName: string;
   name: string;
-  birthDate: string;
+  /** `null` se la persona non l'ha lasciata (ADR-0198 §4). */
+  birthDate: string | null;
   status: TrialStatus;
   categoryId: string | null;
   categoryName: string | null;
@@ -481,7 +491,7 @@ const serializeTrial = (
     firstName: riga.first_name,
     lastName: riga.last_name,
     name: `${riga.first_name} ${riga.last_name}`.trim(),
-    birthDate: toDateOnly(riga.birth_date) || "",
+    birthDate: toDateOnly(riga.birth_date),
     status: (TRIAL_STATUSES.includes(riga.status as TrialStatus)
       ? riga.status
       : "in_trial") as TrialStatus,
@@ -589,7 +599,7 @@ export const listTrialAthletes = async (
   */
   const cercate = q
     ? visibili.filter((riga) => {
-        const identita = `${riga.first_name} ${riga.last_name} ${riga.last_name} ${riga.first_name} ${toDateOnly(riga.birth_date)}`;
+        const identita = `${riga.first_name} ${riga.last_name} ${riga.last_name} ${riga.first_name} ${toDateOnly(riga.birth_date) || ""}`;
         const testo =
           `${identita} ${recapiti ? `${riga.phone || ""} ${riga.email || ""}` : ""}`.toLowerCase();
         return q.split(" ").every((parola) => testo.includes(parola));
@@ -1375,13 +1385,7 @@ export const saveEventTrialAttendance = async (
 
 /* ── Conversione ─────────────────────────────────────────────────────────── */
 
-const normalizeForMatch = (value: string) =>
-  value
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
+const normalizeForMatch = (value: string) => nameMatchKey(value);
 
 export type AthleteCandidate = {
   id: string;
@@ -1413,24 +1417,24 @@ export const findAthleteCandidates = async (
 
   const nome = normalizeForMatch(trial.first_name);
   const cognome = normalizeForMatch(trial.last_name);
+  /* Lo stesso prefiltro degli omonimi (ADR-0198 §5): ogni parola, senza l'ultima lettera. */
+  const gambi = Array.from(
+    new Set(
+      [...trial.first_name.split(" "), ...trial.last_name.split(" ")]
+        .flatMap((parola) => [parola, nameMatchKey(parola)])
+        .map((parola) => parola.trim())
+        .filter((parola) => parola.length >= 2)
+        .map((parola) => (parola.length >= 4 ? parola.slice(0, -1) : parola)),
+    ),
+  );
   const atleti = await prisma.athlete.findMany({
     where: {
       organization_id: organizationId,
       anonymized_at: null,
-      OR: [
-        {
-          last_name: {
-            contains: trial.last_name.split(" ")[0],
-            mode: "insensitive",
-          },
-        },
-        {
-          first_name: {
-            contains: trial.last_name.split(" ")[0],
-            mode: "insensitive",
-          },
-        },
-      ],
+      OR: gambi.flatMap((gambo) => [
+        { last_name: { contains: gambo, mode: "insensitive" as const } },
+        { first_name: { contains: gambo, mode: "insensitive" as const } },
+      ]),
     },
     select: {
       id: true,
@@ -1441,7 +1445,7 @@ export const findAthleteCandidates = async (
       category_id: true,
       category_name: true,
     },
-    take: 50,
+    take: 200,
   });
   const display = await loadDisplay(organizationId);
   const nascita = toDateOnly(trial.birth_date);
@@ -1462,7 +1466,8 @@ export const findAthleteCandidates = async (
             categoryName: atleta.category_name,
           })
         : null,
-      match: (toDateOnly(atleta.birth_date) === nascita
+      /* Due date mancanti non sono la stessa data (ADR-0198 §4). */
+      match: (nascita && toDateOnly(atleta.birth_date) === nascita
         ? "exact"
         : "name") as AthleteCandidate["match"],
     }))
@@ -1475,6 +1480,144 @@ export const findAthleteCandidates = async (
     );
 };
 
+/* ── Omonimi ──────────────────────────────────────────────────────────────── */
+
+export type TrialHomonym = {
+  kind: "trial" | "athlete";
+  id: string;
+  name: string;
+  birthDate: string | null;
+  status: string;
+  categoryLabel: string | null;
+  /** `exact`: stesso nome e stessa data di nascita (entrambe note); `name`: stesso nome. */
+  match: "exact" | "name";
+};
+
+export type TrialHomonymsResult = {
+  trials: TrialHomonym[];
+  athletes: TrialHomonym[];
+  /** `false` se il ruolo non puo leggere le schede atleta: la lista e vuota per quello, non perche non ci siano. */
+  athletesSearched: boolean;
+};
+
+/**
+ * **Gli omonimi di chi si sta registrando in prova, in tutto il club**
+ * (ADR-0198 §5). Prima il modulo cercava solo fra le persone in prova; una
+ * scheda atleta con lo stesso nome — anche di una stagione passata, perche
+ * l'identita dell'atleta e del club e non della stagione — non compariva.
+ * Qui si cercano tutte e due: le prove, e le schede atleta senza perimetro
+ * di stagione. Si **mostra**, non si fonde, non si collega, non si
+ * converte: chi registra decide.
+ *
+ * Il tenant e il perimetro: `organization_id` sempre, e le schede atleta
+ * solo per chi puo convertire una prova (`trials.convert`). E una schermata
+ * interna del club: nessuna rotta pubblica la chiama (ADR-0191).
+ */
+export const findTrialHomonyms = async (
+  scope: TrialScope,
+  query: { firstName?: unknown; lastName?: unknown; birthDate?: unknown },
+): Promise<TrialHomonymsResult> => {
+  await assertPermission(scope, "trials.manage");
+  const organizationId = requireOrganization(scope);
+  const firstName = normalizeName(query.firstName);
+  const lastName = normalizeName(query.lastName);
+  /* La data arriva come AAAA-MM-GG, o con l'ora: si confronta il solo giorno. */
+  const nascita = asText(query.birthDate).slice(0, 10) || null;
+  const vuoto: TrialHomonymsResult = { trials: [], athletes: [], athletesSearched: false };
+  if (!firstName || !lastName) return vuoto;
+
+  const [display, perimetro] = await Promise.all([loadDisplay(organizationId), readTrialPerimeter(scope, organizationId)]);
+  /*
+    **Il prefiltro in archivio, il confronto in memoria.** `contains` non
+    toglie gli accenti: «Bianchì» in archivio non contiene «bianchi». Si
+    cerca ogni parola del nome e del cognome, com'e scritta e senza accenti,
+    **senza l'ultima lettera** quando e lunga almeno quattro (l'accento
+    italiano cade in coda: Nicolò, Bianchì); poi decide `sameNameInAnyOrder`,
+    l'unica chiave. Un accento in mezzo alla parola resta un limite dichiarato.
+  */
+  const gambi = Array.from(
+    new Set(
+      [...firstName.split(" "), ...lastName.split(" ")]
+        .flatMap((parola) => [parola, nameMatchKey(parola)])
+        .map((parola) => parola.trim())
+        .filter((parola) => parola.length >= 2)
+        .map((parola) => (parola.length >= 4 ? parola.slice(0, -1) : parola)),
+    ),
+  );
+  const prefiltroNomi = {
+    OR: gambi.flatMap((gambo) => [
+      { last_name: { contains: gambo, mode: "insensitive" as const } },
+      { first_name: { contains: gambo, mode: "insensitive" as const } },
+    ]),
+  };
+  const strength = (birthDate: string | null): TrialHomonym["match"] =>
+    nascita && birthDate && birthDate === nascita ? "exact" : "name";
+  const ordina = (a: TrialHomonym, b: TrialHomonym) =>
+    a.match === b.match ? a.name.localeCompare(b.name) : a.match === "exact" ? -1 : 1;
+
+  /* Le prove: tutte, anche iscritte o che non proseguono — un omonimo e un omonimo. */
+  const prove = await prisma.trialAthlete.findMany({
+    where: { organization_id: organizationId, ...prefiltroNomi },
+    select: { id: true, first_name: true, last_name: true, birth_date: true, status: true, category_id: true, category_name: true, group_id: true, site_id: true, created_by: true, athlete_id: true },
+    orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
+    take: 200,
+  });
+  const proveOmonime = prove
+    .filter((riga) => trialWithinPerimeter(perimetro, scope, riga))
+    .filter((riga) => sameNameInAnyOrder({ firstName, lastName }, { firstName: riga.first_name, lastName: riga.last_name }));
+  const toTrialHomonym = (riga: (typeof proveOmonime)[number]): TrialHomonym => ({
+      kind: "trial" as const,
+      id: riga.id,
+      name: `${riga.first_name} ${riga.last_name}`.trim(),
+      birthDate: toDateOnly(riga.birth_date),
+      status: riga.status,
+      categoryLabel: riga.category_id
+        ? display.display.label({ categoryId: riga.category_id, categoryName: riga.category_name })
+        : null,
+      match: strength(toDateOnly(riga.birth_date)),
+  });
+  const trials: TrialHomonym[] = proveOmonime.map(toTrialHomonym).sort(ordina);
+
+  /*
+    Le schede atleta non hanno una chiave di catalogo (le governano ruolo e
+    perimetro): qui le vede chi puo **convertire** una prova, cioe chi gia
+    riceve i candidati della conversione. L'allenatore vede le prove del suo
+    perimetro e sa che le schede non sono state cercate.
+  */
+  if (!roleHasPermission(scope.activeRole, "trials.convert")) {
+    return { trials, athletes: [], athletesSearched: false };
+  }
+  /* Le schede atleta: identita del club, **senza** perimetro di stagione (ADR-0197 §22). */
+  const atleti = await prisma.athlete.findMany({
+    where: { organization_id: organizationId, anonymized_at: null, ...prefiltroNomi },
+    select: { id: true, first_name: true, last_name: true, birth_date: true, status: true, category_id: true, category_name: true },
+    orderBy: [{ last_name: "asc" }, { first_name: "asc" }],
+    take: 200,
+  });
+  const athletes: TrialHomonym[] = atleti
+    .filter((riga) => sameNameInAnyOrder({ firstName, lastName }, { firstName: riga.first_name, lastName: riga.last_name }))
+    .map((riga) => ({
+      kind: "athlete" as const,
+      id: riga.id,
+      name: `${riga.first_name} ${riga.last_name}`.trim(),
+      birthDate: toDateOnly(riga.birth_date),
+      status: riga.status,
+      categoryLabel: riga.category_id
+        ? display.display.label({ categoryId: riga.category_id, categoryName: riga.category_name })
+        : null,
+      match: strength(toDateOnly(riga.birth_date)),
+    }))
+    .sort(ordina);
+  /* Una prova gia iscritta e la sua scheda sono una persona: resta la scheda. */
+  const schedeTrovate = new Set(athletes.map((row) => row.id));
+  const trialsSenzaDoppioni = proveOmonime
+    .filter((riga) => !riga.athlete_id || !schedeTrovate.has(riga.athlete_id))
+    .map(toTrialHomonym)
+    .sort(ordina);
+
+  return { trials: trialsSenzaDoppioni, athletes, athletesSearched: true };
+};
+
 export type ConvertTrialInput = {
   /** Collega una scheda esistente del club. */
   athleteId?: unknown;
@@ -1484,6 +1627,8 @@ export type ConvertTrialInput = {
     categoryId?: unknown;
     categoryName?: unknown;
     siteId?: unknown;
+    /** Obbligatoria se la prova non la porta: l'atleta iscritto ce l'ha (ADR-0198 §4). */
+    birthDate?: unknown;
   } | null;
 };
 
@@ -1528,6 +1673,20 @@ export const convertTrialAthlete = async (
   }
   if (richiestaScheda && !UUID.test(richiestaScheda))
     throw new Error("Identificativo della scheda non valido");
+  /*
+    **La data di nascita si chiede qui, non alla prova** (ADR-0198 §4): la
+    scheda dell'atleta la vuole («Obbligatori nome, cognome e data di
+    nascita»), la persona in prova puo non averla lasciata. Si vaglia
+    **prima** della transazione: una conversione che manca della data non
+    prende la riga di prova e non lascia niente a meta. Non si inventa.
+  */
+  const nascitaPerLaScheda =
+    !richiestaScheda ? trial.birth_date || parseBirthDate(input.create?.birthDate) : null;
+  if (!richiestaScheda && !nascitaPerLaScheda) {
+    throw new Error(
+      "La data di nascita e obbligatoria per iscrivere l'atleta: indicala nella conversione",
+    );
+  }
 
   /*
     **Una transazione sola** (D-RD-22, chiuso).
@@ -1633,7 +1792,7 @@ export const convertTrialAthlete = async (
             ]
           : [];
         const status = asText(create.status) || "active";
-        const birthDate = `${toDateOnly(trial.birth_date)}T00:00:00.000Z`;
+        const birthDate = `${toDateOnly(nascitaPerLaScheda)}T00:00:00.000Z`;
         const scheda = await createResource(
           "simplified_athletes",
           {

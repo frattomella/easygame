@@ -576,32 +576,6 @@ const capitalizeItalianWord = (value: string) => {
   return value.charAt(0).toLocaleUpperCase("it-IT") + value.slice(1);
 };
 
-export const formatTrainingTitle = (dateInput: string | Date | null | undefined) => {
-  const parsedDate =
-    dateInput instanceof Date
-      ? new Date(dateInput)
-      : getTrainingDate({ date: dateInput });
-
-  if (!parsedDate || Number.isNaN(parsedDate.getTime())) {
-    return "Allenamento";
-  }
-
-  const formatter = new Intl.DateTimeFormat("it-IT", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-  const parts = formatter.formatToParts(parsedDate);
-  const weekday = capitalizeItalianWord(
-    parts.find((part) => part.type === "weekday")?.value || "",
-  );
-  const day = parts.find((part) => part.type === "day")?.value || "";
-  const month = capitalizeItalianWord(
-    parts.find((part) => part.type === "month")?.value || "",
-  );
-
-  return [weekday, day, month].filter(Boolean).join(" ");
-};
 
 export const resolveExplicitWeeklyScheduleDay = (scheduleItem: unknown) => {
   if (isRecord(scheduleItem)) {

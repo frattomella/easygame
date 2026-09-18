@@ -1,5 +1,6 @@
 import { ACTIVITY_STATUS, PERSON_STATUS, type StatusSpec } from "@/lib/web/status";
 import { formatLocalDateOnly } from "@/lib/date-only";
+import { trainingDisplayNote, trainingDisplayTitle } from "@/lib/events/training-presenter";
 
 /**
  * Il modello puro del calendario unico nel Web V2 (ADR-0098: allenamenti e
@@ -34,9 +35,15 @@ export const dayKeyOf = (evento: Pick<EventoCalendario, "date">) => String(event
 
 export const isGara = (evento: Pick<EventoCalendario, "kind">) => evento.kind === "match";
 
-/** Il titolo di riga: quello dell'evento, o «Gara contro …» / «Allenamento» come la V1. */
+/**
+ * Il titolo di riga: per una gara quello dell'evento o «Gara contro …»; per
+ * un allenamento **il tipo**, con la categoria nel badge accanto (ADR-0198
+ * §3) — un titolo scritto a mano che non e una data e la nota.
+ */
 export const titoloDi = (evento: EventoCalendario) =>
-  evento.title || (isGara(evento) ? `Gara contro ${evento.opponent || "avversario"}` : "Allenamento");
+  isGara(evento) ? evento.title || `Gara contro ${evento.opponent || "avversario"}` : trainingDisplayTitle(evento);
+
+export const notaDi = (evento: EventoCalendario) => (isGara(evento) ? null : trainingDisplayNote(evento));
 
 /** La parola di stato (guideline 09 §9.4): Annullato · Completato · Archiviato · Programmato. */
 export const statoDi = (status: string): StatusSpec => {

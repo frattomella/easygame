@@ -140,6 +140,30 @@ const isAttendanceEntryRecorded = (entry: any) => {
  */
 export const readRecordedAttendance = (training: any) => {
   const elenco = Array.isArray(training?.attendance) ? training.attendance : [];
+  const registrati = Number(
+    training?.attendance_recorded ?? training?.attendanceRecorded,
+  );
+  const presenti = Number(
+    training?.attendance_present ?? training?.attendancePresent,
+  );
+  /*
+    **I numeri del server, quando ci sono, vincono sulla copia** (ADR-0198
+    §6, revisione B2/B4): l'elenco `attendance` dentro il payload e la copia
+    che il vecchio registro scriveva accanto alla tabella, e resta indietro
+    — e non porta mai le persone in prova. `attendance_recorded` e il conteggio
+    di `countEventAttendance` sulle righe vere.
+  */
+  if (Number.isFinite(registrati)) {
+    return {
+      dallElenco: false,
+      recorded: registrati,
+      present: Number.isFinite(presenti) ? presenti : 0,
+      /** Le sole righe della rosa (senza fuori rosa e prove), per «quanti mancano all'appello». */
+      recordedRoster: Number.isFinite(Number(training?.attendance_recorded_roster))
+        ? Number(training.attendance_recorded_roster)
+        : registrati,
+    };
+  }
 
   if (elenco.length) {
     return {
@@ -152,21 +176,11 @@ export const readRecordedAttendance = (training: any) => {
           voce?.present === true ||
           PRESENT_STATUSES.has(normalizeValue(voce?.status)),
       ).length,
+      recordedRoster: elenco.filter((voce: any) => isAttendanceEntryRecorded(voce)).length,
     };
   }
 
-  const registrati = Number(
-    training?.attendance_recorded ?? training?.attendanceRecorded,
-  );
-  const presenti = Number(
-    training?.attendance_present ?? training?.attendancePresent,
-  );
-
-  return {
-    dallElenco: false,
-    recorded: Number.isFinite(registrati) ? registrati : 0,
-    present: Number.isFinite(presenti) ? presenti : 0,
-  };
+  return { dallElenco: false, recorded: 0, present: 0, recordedRoster: 0 };
 };
 
 export const getTrainingAttendanceStatus = (
@@ -227,8 +241,9 @@ export const getTrainingAttendanceStatus = (
   const dalServer = readRecordedAttendance(training);
   const senzaElenco = !dalServer.dallElenco && dalServer.recorded > 0;
 
+  /* «Quanti della rosa hanno l'appello»: le prove e i fuori rosa non completano l'appello di chi manca (revisione B3). */
   const registered = senzaElenco
-    ? Math.min(dalServer.recorded, total || dalServer.recorded)
+    ? Math.min(dalServer.recordedRoster, total || dalServer.recordedRoster)
     : recordedAthleteIds.size;
   if (senzaElenco) present = dalServer.present;
 

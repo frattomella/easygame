@@ -1,5 +1,6 @@
 "use client";
 
+import { defaultTrainingTitle, isDateDerivedTitle, isGenericTrainingTitle, trainingDisplayNote, trainingDisplayTitle } from "@/lib/events/training-presenter";
 import React, { useState, useEffect } from "react";
 import {
   TrainingGroupSelector,
@@ -147,6 +148,8 @@ export function EditTrainingForm({
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitted, setSubmitted] = useState(false);
   const [dirty, setDirty] = useState(false);
+  /* La nota si riscrive solo se qualcuno l'ha toccata (revisione D1): un titolo storico non si perde cambiando l'orario. */
+  const [titleTouched, setTitleTouched] = useState(false);
 
   /**
    * I gruppi selezionabili. Senza gruppi configurati si ricade sulle
@@ -197,6 +200,7 @@ export function EditTrainingForm({
       setFormData({ ...training, groupIds });
       setOriginalTraining({ ...training, groupIds });
       setDirty(false);
+      setTitleTouched(false);
       setErrors({});
       setSubmitted(false);
     }
@@ -246,14 +250,13 @@ export function EditTrainingForm({
 
   const validate = (): FormErrors => {
     const next: FormErrors = {};
-    if (!formData.title.trim()) next.title = "Il titolo è obbligatorio";
     if (!formData.date) next.date = "La data è obbligatoria";
     if (!formData.time) next.time = "L'orario di inizio è obbligatorio";
     if (!formData.location) next.location = "Seleziona un campo";
     if (!isValidTimeRange(formData.time, formData.endTime || "")) {
       next.endTime = "L'orario di fine deve essere successivo all'orario di inizio";
     }
-    if (!formData.trainerIds.length) next.trainerIds = "Seleziona almeno un allenatore";
+    /* L'allenatore e facoltativo (ADR-0198 §1): un allenamento nato senza si modifica senza doverne scegliere uno. */
     return next;
   };
 
@@ -275,7 +278,13 @@ export function EditTrainingForm({
 
     if (!originalTraining) return;
 
-    const saved = await onSubmit(formData, originalTraining);
+    const saved = await onSubmit(
+      {
+        ...formData,
+        title: titleTouched ? formData.title.trim() || defaultTrainingTitle() : formData.title,
+      },
+      originalTraining,
+    );
     if (saved === false) return;
     setDirty(false);
     onClose();
@@ -300,7 +309,7 @@ export function EditTrainingForm({
       width="wide"
       eyebrow="Allenamenti"
       title="Modifica allenamento"
-      description={training?.title}
+      description={training ? [trainingDisplayTitle(training), trainingDisplayNote(training)].filter(Boolean).join(" · ") : undefined}
       dirty={dirty}
       locked={saving}
       data-test="edit-training-drawer"
@@ -328,12 +337,16 @@ export function EditTrainingForm({
           ) : null}
 
           <DrawerSection eyebrow="Seduta">
-            <Field label="Titolo" htmlFor="edit-training-title" required error={errors.title}>
+            <Field label="Nota (facoltativa)" htmlFor="edit-training-title" error={errors.title} helper="Compare sotto «Allenamento». La data e l'ora restano campi a parte.">
               <TextInput
                 id="edit-training-title"
                 name="title"
-                value={formData.title}
-                onChange={(event) => setValue("title", event.target.value)}
+                value={!titleTouched && (isDateDerivedTitle(formData.title) || isGenericTrainingTitle(formData.title)) ? "" : formData.title}
+                onChange={(event) => {
+                  setTitleTouched(true);
+                  setValue("title", event.target.value);
+                }}
+                placeholder="Es. Tecnica portieri"
               />
             </Field>
             <FormGrid className="mt-5">

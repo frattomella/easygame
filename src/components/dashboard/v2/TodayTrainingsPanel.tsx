@@ -81,7 +81,8 @@ function SavedAttendanceList({
   }, [open, rows, training.id, clubId]);
 
   const present = rows ? rows.filter((row) => row.present).length : 0;
-  const total = rows ? Math.max(training.expectedAttendees || 0, rows.length) : 0;
+  /* Il denominatore e la rosa attesa e non si allarga (ADR-0198 §6). */
+  const total = training.expectedAttendees || 0;
 
   return (
     <div className="pb-3 pl-[72px]">
@@ -104,7 +105,7 @@ function SavedAttendanceList({
           ) : rows && rows.length > 0 ? (
             <>
               <p className="egw-num mb-2 font-brand text-[12px] font-semibold text-egw-ink">
-                Presenze: {present}/{total}
+                Presenze: {present}/{total || "—"}
               </p>
               <ul className="divide-y divide-egw-rule">
                 {rows.map((row, index) => (

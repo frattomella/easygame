@@ -1,5 +1,6 @@
 "use client";
 
+import { natoIl } from "@/components/trials/v2/TrialHomonymsNotice";
 import * as React from "react";
 import { Pencil, Plus, UserCheck, UserRound, UserX, Users } from "lucide-react";
 import { useToast } from "@/components/ui/toast-notification";
@@ -177,7 +178,7 @@ export function TrialAthletesPanel({
     }
   };
 
-  const submitConvert = async (input: { athleteId?: string; create?: { categoryId?: string | null; siteId?: string | null } }) => {
+  const submitConvert = async (input: { athleteId?: string; create?: { categoryId?: string | null; siteId?: string | null; birthDate?: string | null } }) => {
     if (!converting) return;
     setConvertSaving(true);
     try {
@@ -207,7 +208,7 @@ export function TrialAthletesPanel({
           return (
             <IdentityCell
               name={row.name}
-              meta={joinMeta(`nato il ${formatDateShort(row.birthDate)}`, eta !== null ? `${eta} anni` : null)}
+              meta={joinMeta(natoIl(row.birthDate), eta !== null ? `${eta} anni` : null)}
               onClick={() => void openProfile(row)}
             />
           );
@@ -340,7 +341,7 @@ export function TrialAthletesPanel({
         views={views}
         search={{
           placeholder: "Cerca per nome o data di nascita",
-          match: (row, query) => `${row.name} ${row.lastName} ${row.firstName} ${row.birthDate}`.toLowerCase().includes(query.toLowerCase()),
+          match: (row, query) => `${row.name} ${row.lastName} ${row.firstName} ${row.birthDate || ""}`.toLowerCase().includes(query.toLowerCase()),
         }}
         defaultSort={{ columnId: "last", direction: "desc" }}
         rowActions={rowActions}

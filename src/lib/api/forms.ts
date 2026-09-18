@@ -29,7 +29,7 @@ const unwrap = <T>(envelope: Envelope<T>) => {
 export type TrialMatchCandidatePayload = {
   id: string;
   name: string;
-  birthDate: string;
+  birthDate: string | null;
   sameBirthDate: boolean;
   categoryLabel: string | null;
   trialsCount: number;

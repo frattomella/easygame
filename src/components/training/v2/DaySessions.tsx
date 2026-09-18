@@ -181,6 +181,11 @@ export function SessionCard({ training, actions }: { training: TrainingSession; 
             <DataChip tone="blue" size="sm" title={training.category}>
               {training.category}
             </DataChip>
+            {training.note ? (
+              <span className="egw-ellipsis min-w-0 text-[12.5px] font-medium text-egw-ink-62" data-test="training-note">
+                {training.note}
+              </span>
+            ) : null}
           </span>
         }
         meta={

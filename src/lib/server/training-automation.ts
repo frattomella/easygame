@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/server/prisma";
 import { createSystemExecutionContext } from "@/lib/server/system-actor";
 import { normalizeTrainerList } from "@/lib/trainer-utils";
+import { buildTrainerAssignmentIndex } from "@/lib/trainers/season-assignments";
+import { defaultTrainingTitle } from "@/lib/events/training-presenter";
 import {
   athleteMatchesAnyCategory,
   buildClubCategoryOptions,
@@ -16,7 +18,6 @@ import {
   buildTrainingStart,
   dedupeTrainings,
   formatLocalDateKey,
-  formatTrainingTitle,
   getTrainingCategoryReferences,
   getTrainingDate,
   getTrainingEndTime,
@@ -25,6 +26,7 @@ import {
   resolveCategoryLabelForTraining,
   resolveExplicitWeeklyScheduleDay,
   resolveTrainingWeekday,
+  timeToMinutes,
 } from "@/lib/training-utils";
 import {
   isDateExcludedForSlot,
@@ -196,6 +198,12 @@ export type WeeklyProgramDiagnostics = {
     label: string;
     examples: string[];
   }>;
+  /**
+   * Allenatori scritti sulle voci ma **non assegnati nella stagione** alla
+   * squadra della voce (ADR-0198 §1): la voce resta valida e genera senza di
+   * loro. `rules` = quante voci ne hanno almeno uno; `examples` = «voce: nome».
+   */
+  trainersNotAssigned: { rules: number; trainers: number; examples: string[] };
 };
 
 const WEEKLY_PROGRAM_DIAGNOSTIC_LABELS: Record<
@@ -207,7 +215,7 @@ const WEEKLY_PROGRAM_DIAGNOSTIC_LABELS: Record<
       ? `appartengono a un'altra stagione, non alla ${seasonLabel}`
       : "appartengono a un'altra stagione",
   inactive: () => "sono disattivate",
-  incomplete: () => "sono incomplete (manca l'allenatore, il campo o l'orario)",
+  incomplete: () => "sono incomplete (manca il campo o l'orario)",
   unknown_category: (seasonLabel) =>
     seasonLabel
       ? `fanno riferimento a una categoria non disponibile nella stagione ${seasonLabel}`
@@ -227,6 +235,7 @@ const emptyWeeklyProgramDiagnostics = (): WeeklyProgramDiagnostics => ({
   rulesWithoutOccurrence: 0,
   outsideSeasonCount: 0,
   reasons: [],
+  trainersNotAssigned: { rules: 0, trainers: 0, examples: [] },
 });
 
 const describeRuleForDiagnostics = (item: Record<string, any>) =>
@@ -461,11 +470,15 @@ const normalizeWeeklyScheduleSourceItem = (item: Record<string, any>) => {
     !endTime ||
     !isValidTimeRange(startTime, endTime) ||
     !categoryReference ||
-    !locationReference ||
-    trainerIds.length === 0
+    !locationReference
   ) {
     return null;
   }
+  /*
+    L'allenatore **non** rende incompleta una voce (ADR-0198 §1): chi allena
+    lo dice l'assegnazione della stagione, e una voce riportata dall'anno
+    scorso nasce senza allenatori apposta. Il generatore li deriva.
+  */
 
   return {
     id: String(item.id || buildWeeklyScheduleIdentityKey(item)),
@@ -697,6 +710,47 @@ const buildStoredAutomationSettings = (
 
 const getDateOnly = (value: Date) =>
   new Date(value.getFullYear(), value.getMonth(), value.getDate());
+
+const DEFAULT_CLUB_TIMEZONE = "Europe/Rome";
+
+const resolveClubTimezone = (settings: Record<string, unknown>) => {
+  const value = String(settings.timezone || "").trim();
+  if (!value) return DEFAULT_CLUB_TIMEZONE;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return value;
+  } catch {
+    return DEFAULT_CLUB_TIMEZONE;
+  }
+};
+
+/**
+ * Le cifre civili di un istante nel fuso del club, scritte come UTC: la
+ * stessa convenzione con cui `toEventInstant` scrive `starts_at`. E la
+ * cornice in cui il generatore confronta «adesso» e le occorrenze.
+ */
+export const civilDateOf = (instant: Date, timeZone: string) => {
+  const parti = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(instant);
+  const leggi = (tipo: string) => Number(parti.find((parte) => parte.type === tipo)?.value || 0);
+  return new Date(Date.UTC(leggi("year"), leggi("month") - 1, leggi("day"), leggi("hour") % 24, leggi("minute"), leggi("second")));
+};
+
+/** Le cifre civili di un'occorrenza (`AAAA-MM-GG` + `HH:MM`) come UTC. */
+export const civilInstantOf = (dateKey: string, time: string | null | undefined) => {
+  const [anno, mese, giorno] = String(dateKey || "").split("-").map(Number);
+  const minuti = timeToMinutes(time);
+  if (!anno || !mese || !giorno || minuti === null) return null;
+  return new Date(Date.UTC(anno, mese - 1, giorno, Math.floor(minuti / 60), minuti % 60, 0));
+};
 
 const getWeekdayLabelFromDate = (value: Date) =>
   resolveTrainingWeekday({ date: getDateOnly(value) });
@@ -1401,6 +1455,8 @@ export async function runTrainingAutomationForClub(
       weekly_schedule: true,
       trainers: true,
       structures: true,
+      category_groups: true,
+      staff_members: true,
     },
   });
 
@@ -1523,6 +1579,9 @@ export async function runTrainingAutomationForClub(
 
   /* Gli esiti per voce: si riempiono qui e nel ciclo, e alla fine si contano. */
   const ruleOutcome = new Map<string, WeeklyProgramDiagnosticCode | "valid">();
+  /* Gli allenatori scartati per voce (ADR-0198 §1): si riempiono nel ciclo, si contano nella diagnostica. */
+  const trainersDroppedByRule = new Map<string, string[]>();
+  const trainersDroppedExamples: string[] = [];
   const ruleExamples = new Map<WeeklyProgramDiagnosticCode, string[]>();
   for (const item of incomplete) {
     ruleOutcome.set(
@@ -1579,6 +1638,11 @@ export async function runTrainingAutomationForClub(
     return {
       seasonId: generationSeasonId,
       seasonLabel: generationSeasonLabel,
+      trainersNotAssigned: {
+        rules: trainersDroppedByRule.size,
+        trainers: new Set(Array.from(trainersDroppedByRule.values()).flat()).size,
+        examples: trainersDroppedExamples,
+      },
       totalRules: ruleOutcome.size,
       /* Una voce senza occorrenze nel periodo e valida: e il periodo che non la contiene. */
       validRules: valid + noOccurrence,
@@ -1679,10 +1743,81 @@ export async function runTrainingAutomationForClub(
       generatedUntil: null,
     };
   }
+  /* Gli allenatori storici in `staff_members` sono allenatori come gli altri (revisione A2): stessa lista del client. */
+  const staffAllenatori = (Array.isArray(club.staff_members) ? (club.staff_members as any[]) : []).filter(
+    (staff) => staff && typeof staff === "object" && ["trainer", "allenatore"].includes(String(staff.role || staff.type || "").trim().toLowerCase()),
+  );
   const trainerList = normalizeTrainerList(
-    [club.trainers, ...(resourcePayloadsByType.trainers || [])],
+    [club.trainers, ...(resourcePayloadsByType.trainers || []), staffAllenatori],
     categoryList,
   );
+  /*
+    **Chi allena lo dice l'assegnazione della stagione** (ADR-0198 §1). L'indice
+    si costruisce sui grezzi — tutte le stagioni, tutti i gruppi — perche e
+    l'unico modo di dire che un identificativo dell'anno scorso non e una
+    squadra di quest'anno. Una voce con allenatori scritti li tiene solo se
+    sono assegnati nella stagione alla sua squadra; una voce senza allenatori
+    riceve quelli assegnati. Mai un ripiego sulla stagione precedente.
+  */
+  const trainerAssignments = buildTrainerAssignmentIndex({
+    trainers: [
+      ...(Array.isArray(club.trainers) ? (club.trainers as any[]) : []),
+      ...(resourcePayloadsByType.trainers || []),
+      ...staffAllenatori,
+    ].filter((entry) => entry && typeof entry === "object"),
+    categories: [
+      ...(Array.isArray(club.categories) ? (club.categories as any[]) : []),
+      ...(resourcePayloadsByType.categories || []),
+    ].filter((entry) => entry && typeof entry === "object" && (entry as any).id),
+    groups: (Array.isArray(club.category_groups) ? (club.category_groups as any[]) : [])
+      .filter((entry) => entry && typeof entry === "object" && (entry as any).id)
+      .map((entry) => ({
+        id: String((entry as any).id),
+        categoryId: String((entry as any).categoryId || (entry as any).category_id || ""),
+        seasonId: (entry as any).seasonId || (entry as any).season_id || null,
+      })),
+    seasons: seasonContext.seasons,
+    seasonId: generationSeasonId,
+    legacySeasonId: seasonContext.legacySeasonId,
+  });
+  const trainerNameOf = (trainerId: string) =>
+    trainerList.find((trainer) => trainer.id === trainerId)?.name || trainerId;
+  /*
+    Per voce, una volta: la squadra e quella **risolta** sul catalogo della
+    stagione (revisione A6), non il riferimento com'e scritto. Gli
+    identificativi scritti restano solo se assegnati; se nessuno lo e, la voce
+    riceve gli assegnati della stagione — mai quelli dell'anno scorso
+    (revisione A5). Un nome o un id che non e un allenatore del club si
+    ignora e non si conta (revisione A8).
+  */
+  const trainersPerVoce = new Map<string, string[]>();
+  const trainersForRule = (scheduleItem: Record<string, any>, groupId: string | null, resolvedCategoryId: string | null) => {
+    const key = `${ruleKey(scheduleItem)}|${groupId || ""}|${resolvedCategoryId || ""}`;
+    const gia = trainersPerVoce.get(key);
+    if (gia) return gia;
+    const target = { categoryId: resolvedCategoryId || scheduleItem.categoryId || null, groupId };
+    const explicit = Array.isArray(scheduleItem.trainerIds) ? scheduleItem.trainerIds : [];
+    const assegnati = trainerAssignments.assignedTo(target);
+    if (!explicit.length) {
+      trainersPerVoce.set(key, assegnati);
+      return assegnati;
+    }
+    const { valid, dropped } = trainerAssignments.split(explicit, target);
+    if (dropped.length) {
+      const key = ruleKey(scheduleItem);
+      if (!trainersDroppedByRule.has(key)) {
+        trainersDroppedByRule.set(key, dropped);
+        if (trainersDroppedExamples.length < 3) {
+          trainersDroppedExamples.push(
+            `${describeRuleForDiagnostics(scheduleItem)}: ${dropped.map(trainerNameOf).join(", ")}`,
+          );
+        }
+      }
+    }
+    const effettivi = valid.length ? valid : assegnati;
+    trainersPerVoce.set(key, effettivi);
+    return effettivi;
+  };
   const builtLocationOptions = buildTrainingLocationOptions(
     Array.isArray(club.structures) ? (club.structures as any[]) : [],
   );
@@ -1708,16 +1843,52 @@ export async function runTrainingAutomationForClub(
       : toTrainingEntries(club.trainings),
   );
 
-  const startDate = getDateOnly(now);
+  /*
+    **«N giorni» sono N giorni, non N + 1** (ADR-0198 §7, pilota 2026-09-17:
+    40 voci, «una settimana», 50 allenamenti). La finestra a giorni finiva
+    con `<= oggi + N`, cioe da giovedi a giovedi **compresi**: otto giorni, e
+    le dieci voci del giovedi nascevano due volte. La finestra rotante e
+    semiaperta sull'istante: `[adesso, adesso + N × 24h)`. Ogni voce
+    settimanale produce esattamente N/7 occorrenze, in qualunque ora e
+    giorno si prema il pulsante. «Genera fino a…» resta com'era: una data
+    scelta e inclusa per intero.
+  */
+  /*
+    **Una sola cornice: quella civile del club** (revisione D3/D4/D7). Gli
+    eventi si scrivono con le cifre civili come UTC (`toEventInstant`); il
+    server di produzione gira in UTC, quello di sviluppo a Roma. Confrontare
+    un istante vero con `setHours` locali sposta il confine «gia passata» di
+    una o due ore a seconda della macchina. Qui `adesso` diventa le cifre
+    civili del club (Europe/Rome, o il fuso del club) e ogni occorrenza si
+    confronta con le proprie cifre: stessa cornice, ovunque giri. I giorni
+    della finestra sono giorni **civili** (`setUTCDate` sulle cifre), non
+    24 ore: al cambio d'ora N giorni restano N giorni.
+  */
+  const clubTimezone = resolveClubTimezone(clubSettings);
+  const nowCivil = civilDateOf(now, clubTimezone);
+  const startDate = new Date(nowCivil.getUTCFullYear(), nowCivil.getUTCMonth(), nowCivil.getUTCDate());
+  const rollingHorizonEnd = untilDateOnly
+    ? null
+    : (() => {
+        const end = new Date(nowCivil);
+        end.setUTCDate(end.getUTCDate() + Math.max(7, effectiveSettings.generateDaysAhead));
+        return end;
+      })();
   const endDate = untilDateOnly
     ? new Date(untilDateOnly)
-    : (() => {
-        const rolling = getDateOnly(now);
-        rolling.setDate(
-          rolling.getDate() + Math.max(7, effectiveSettings.generateDaysAhead),
-        );
-        return rolling;
-      })();
+    : new Date(
+        (rollingHorizonEnd as Date).getUTCFullYear(),
+        (rollingHorizonEnd as Date).getUTCMonth(),
+        (rollingHorizonEnd as Date).getUTCDate(),
+      );
+  /* L'ultimo giorno coperto per intero dalla finestra rotante (revisione D2). */
+  const ultimoGiornoCoperto = rollingHorizonEnd
+    ? (() => {
+        const d = new Date(endDate);
+        d.setDate(d.getDate() - 1);
+        return d;
+      })()
+    : endDate;
   let existingCount = 0;
   /* Le voci del programma la cui categoria non risolve sul catalogo (ADR-0186): saltate, e dette. */
   const unresolvedCategorySlots: string[] = [];
@@ -1753,7 +1924,12 @@ export async function runTrainingAutomationForClub(
         scheduleItem.startTime,
       );
 
-      if (!trainingStart || trainingStart <= now) {
+      /* Le cifre civili dell'occorrenza, nella stessa cornice di `nowCivil`. */
+      const trainingStartCivil = civilInstantOf(trainingDate, scheduleItem.startTime);
+      if (!trainingStart || !trainingStartCivil || trainingStartCivil < nowCivil) {
+        continue;
+      }
+      if (rollingHorizonEnd && trainingStartCivil >= rollingHorizonEnd) {
         continue;
       }
 
@@ -1850,6 +2026,9 @@ export async function runTrainingAutomationForClub(
         categoryKey: scheduleGroupId || categoryKey,
       });
 
+      /* Gli allenatori della stagione, non quelli scritti sulla voce (ADR-0198 §1): si contano anche sulle occorrenze gia esistenti (revisione D10). */
+      const effectiveTrainerIds = trainersForRule(scheduleItem, scheduleGroupId, resolvedCategoryId || null);
+
       if (existingKeys.has(duplicateKey)) {
         existingCount += 1;
         continue;
@@ -1865,14 +2044,12 @@ export async function runTrainingAutomationForClub(
               },
             ]
           : [];
-      const trainerNames = Array.isArray(scheduleItem.trainerIds)
-        ? scheduleItem.trainerIds
-            .map(
-              (trainerId: string) =>
-                trainerList.find((trainer) => trainer.id === trainerId)?.name,
-            )
-            .filter(Boolean)
-        : [];
+      const trainerNames = effectiveTrainerIds
+        .map(
+          (trainerId: string) =>
+            trainerList.find((trainer) => trainer.id === trainerId)?.name,
+        )
+        .filter(Boolean);
       /*
         **L'identificativo di un allenamento generato e la sua posizione, non
         un sorteggio.**
@@ -1904,7 +2081,8 @@ export async function runTrainingAutomationForClub(
         // stagioni sono state contate e scartate prima. Un club senza
         // stagioni salvate non ne marca nessuna.
         seasonId: scheduleItem.seasonId || generationSeasonId || null,
-        title: formatTrainingTitle(trainingDate),
+        /* Il titolo e il tipo; la data e un campo (ADR-0198 §3). */
+        title: defaultTrainingTitle(),
         date: trainingDate,
         time: scheduleItem.startTime,
         endTime: scheduleItem.endTime,
@@ -1916,9 +2094,7 @@ export async function runTrainingAutomationForClub(
           resolvedCategoryLabel ||
           categoryOption?.name ||
           "Categoria",
-        trainerIds: Array.isArray(scheduleItem.trainerIds)
-          ? scheduleItem.trainerIds
-          : [],
+        trainerIds: effectiveTrainerIds,
         trainer:
           trainerNames.length > 0 ? trainerNames.join(", ") : "Allenatore",
         structureId:
@@ -2076,7 +2252,7 @@ export async function runTrainingAutomationForClub(
         settings: buildStoredAutomationSettings(
           club.settings,
           lastRunAt,
-          formatLocalDateKey(endDate),
+          formatLocalDateKey(ultimoGiornoCoperto),
         ),
       },
     });
@@ -2101,16 +2277,16 @@ export async function runTrainingAutomationForClub(
           lastRunAt,
           generatedUntil:
             effectiveSettings.generatedUntil &&
-            effectiveSettings.generatedUntil > formatLocalDateKey(endDate)
+            effectiveSettings.generatedUntil > formatLocalDateKey(ultimoGiornoCoperto)
               ? effectiveSettings.generatedUntil
-              : formatLocalDateKey(endDate),
+              : formatLocalDateKey(ultimoGiornoCoperto),
         },
     conflicts,
     existingCount,
     excludedCount,
     excludedSlots,
     preview: Boolean(options.preview),
-    generatedUntil: formatLocalDateKey(endDate),
+    generatedUntil: formatLocalDateKey(ultimoGiornoCoperto),
   };
 }
 

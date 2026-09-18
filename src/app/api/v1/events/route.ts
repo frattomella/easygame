@@ -18,6 +18,12 @@ import {
 } from "@/lib/events/model";
 import { AUDIT_ACTIONS, recordAuditEvent } from "@/lib/server/audit";
 import { RSVP_NEUTRAL_ATTENDANCE_STATUS } from "@/lib/server/rsvp";
+import {
+  countEventAttendance,
+  isRecordedAttendanceStatus,
+  trialParticipantKey,
+  type AttendanceRow,
+} from "@/lib/events/attendance-count";
 import { isPresentAttendance } from "@/lib/funding/attendance-measure";
 
 /**
@@ -48,7 +54,7 @@ const errorStatus = (error: any) =>
   String(error?.message || "").includes("Accesso negato") ? 403 : 400;
 
 /**
- * **Quanti sono stati registrati, e quanti presenti** (P0-5).
+ * **Quanti sono stati registrati, e quanti presenti** (P0-5, ADR-0198 §6).
  *
  * `status` dice come e andata, e una riga in stato `pending` **non e** un
  * appello: e nata da una risposta della famiglia e dal registro non e mai
@@ -57,18 +63,29 @@ const errorStatus = (error: any) =>
  * `isPresentAttendance` fa sul verso opposto, e che ADR-0099 tiene su tre
  * colonne con tre scrittori.
  *
- * Un `groupBy` per l'intera pagina, che e la ragione per cui qui escono due
- * numeri e non l'elenco.
+ * Il conteggio e di `countEventAttendance` (`src/lib/events/attendance-count.ts`),
+ * l'unico posto che sa chi conta: la rosa, chi e stato aggiunto fuori
+ * categoria, le persone in prova (`trial_attendances`) — la stessa persona
+ * una volta sola. Due letture per l'intera pagina (le righe dell'appello e
+ * quelle delle prove) e un `groupBy` per le convocazioni: escono i numeri,
+ * non l'elenco.
  */
 type ConteggiDellEvento = {
   attendance_recorded: number;
+  /** Le sole righe della rosa: senza fuori rosa e persone in prova (per «quanti mancano»). */
+  attendance_recorded_roster: number;
   attendance_present: number;
+  attendance_present_extra: number;
+  attendance_present_trial: number;
   convocated_count: number;
 };
 
 const CONTEGGI_A_ZERO: ConteggiDellEvento = {
   attendance_recorded: 0,
+  attendance_recorded_roster: 0,
   attendance_present: 0,
+  attendance_present_extra: 0,
+  attendance_present_trial: 0,
   convocated_count: 0,
 };
 
@@ -82,15 +99,27 @@ const leggiAppello = async (organizationId: string, eventIds: string[]) => {
     return conteggi.get(chiave)!;
   };
 
-  const [appello, convocazioni] = await Promise.all([
+  /*
+    **Un groupBy per l'intera pagina** (P0-5, revisione B6): una riga per
+    atleta e evento e garantita dall'indice unico, quindi i conteggi della
+    rosa non hanno bisogno delle righe. Le persone in prova sono poche e si
+    leggono per riga, perche una prova gia convertita si conta come l'atleta
+    che e diventata — e se quell'atleta ha gia la sua riga sull'evento, una
+    volta sola.
+  */
+  const [appello, prove, convocazioni] = await Promise.all([
     (prisma as any).clubEventParticipant.groupBy({
-      by: ["event_id", "status"],
+      by: ["event_id", "status", "is_extra_category"],
       where: {
         organization_id: organizationId,
         event_id: { in: eventIds },
         status: { notIn: [RSVP_NEUTRAL_ATTENDANCE_STATUS] },
       },
       _count: { _all: true },
+    }),
+    (prisma as any).trialAttendance.findMany({
+      where: { organization_id: organizationId, event_id: { in: eventIds } },
+      select: { event_id: true, trial_athlete_id: true, status: true, trial_athlete: { select: { athlete_id: true } } },
     }),
     /*
       **Le convocazioni sono una colonna diversa, con uno scrittore diverso**
@@ -114,13 +143,52 @@ const leggiAppello = async (organizationId: string, eventIds: string[]) => {
   ]);
 
   for (const riga of appello as any[]) {
-    if (!riga?.event_id) continue;
-
+    if (!riga?.event_id || !isRecordedAttendanceStatus(riga?.status)) continue;
     const quante = Number(riga?._count?._all || 0);
     const conto = voce(riga.event_id);
-
+    const extra = riga?.is_extra_category === true;
     conto.attendance_recorded += quante;
-    if (isPresentAttendance(riga)) conto.attendance_present += quante;
+    if (!extra) conto.attendance_recorded_roster += quante;
+    if (isPresentAttendance(riga)) {
+      conto.attendance_present += quante;
+      if (extra) conto.attendance_present_extra += quante;
+    }
+  }
+
+  /* Le prove convertite che hanno gia una riga da atleta sullo stesso evento: una persona. */
+  const coppie = (prove as any[])
+    .filter((riga) => riga?.trial_athlete?.athlete_id)
+    .map((riga) => ({ event_id: String(riga.event_id), athlete_id: String(riga.trial_athlete.athlete_id) }));
+  const giaContate = new Set<string>();
+  if (coppie.length) {
+    const righe = await (prisma as any).clubEventParticipant.findMany({
+      where: {
+        organization_id: organizationId,
+        OR: coppie.map((coppia) => ({ event_id: coppia.event_id, athlete_id: coppia.athlete_id })),
+        status: { notIn: [RSVP_NEUTRAL_ATTENDANCE_STATUS] },
+      },
+      select: { event_id: true, athlete_id: true },
+    });
+    for (const riga of righe as any[]) giaContate.add(`${riga.event_id}|${riga.athlete_id}`);
+  }
+  const provePerEvento = new Map<string, AttendanceRow[]>();
+  for (const riga of prove as any[]) {
+    const eventId = String(riga?.event_id || "");
+    const athleteId = String(riga?.trial_athlete?.athlete_id || "");
+    if (!eventId || (athleteId && giaContate.has(`${eventId}|${athleteId}`))) continue;
+    if (!provePerEvento.has(eventId)) provePerEvento.set(eventId, []);
+    provePerEvento.get(eventId)!.push({
+      key: trialParticipantKey({ trialId: riga?.trial_athlete_id, athleteId }),
+      status: riga?.status,
+      trial: true,
+    });
+  }
+  for (const [eventId, righe] of provePerEvento) {
+    const counts = countEventAttendance(righe);
+    const conto = voce(eventId);
+    conto.attendance_recorded += counts.recorded;
+    conto.attendance_present += counts.present;
+    conto.attendance_present_trial += counts.presentTrial;
   }
 
   for (const riga of convocazioni as any[]) {
@@ -207,9 +275,18 @@ export async function GET(request: Request) {
       rows.map((row) => String(row.id)),
     );
 
+    /*
+      **La copia dell'appello nel payload non esce** (revisione B2/B8): e
+      quella che il vecchio registro scriveva accanto alla tabella, resta
+      indietro e non ha mai le persone in prova. Escono i numeri delle righe.
+    */
+    const senzaCopiaDellAppello = (forma: Record<string, any>) => {
+      const { attendance: _copia, attendance_status: _stato, attendanceStatus: _statoCamel, ...resto } = forma;
+      return resto;
+    };
     return NextResponse.json({
       data: rows.map((row) => ({
-        ...toEventLegacyShape(row),
+        ...senzaCopiaDellAppello(toEventLegacyShape(row)),
         ...(appello.get(String(row.id)) || CONTEGGI_A_ZERO),
         convocated_athlete_ids: rosePerEvento.get(String(row.id)) || [],
         row: {

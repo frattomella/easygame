@@ -174,16 +174,17 @@ export const buildTrainingColumns = ({
     locked: true,
     cell: (row) => (
       <span className="min-w-0">
-        <span className="egw-ellipsis block font-brand text-[12.5px] font-semibold text-egw-ink" title={row.title}>
+        <span className="egw-ellipsis block font-brand text-[12.5px] font-semibold text-egw-ink" title={[row.title, row.note].filter(Boolean).join(" · ")}>
           {row.title}
+          {row.note ? <span className="font-medium text-egw-ink-62"> · {row.note}</span> : null}
         </span>
         <span className="egw-ellipsis block font-brand text-[10px] text-[rgba(11,26,58,.5)]" title={row.trainer}>
           {row.trainer}
         </span>
       </span>
     ),
-    sortValue: (row) => row.title,
-    title: (row) => row.title,
+    sortValue: (row) => [row.title, row.note].filter(Boolean).join(" · "),
+    title: (row) => [row.title, row.note].filter(Boolean).join(" · "),
   },
   {
     id: "categoria",

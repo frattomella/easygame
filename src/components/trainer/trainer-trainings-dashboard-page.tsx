@@ -1,5 +1,6 @@
 "use client";
 
+import { trainingDisplayNote, trainingDisplayTitle } from "@/lib/events/training-presenter";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -260,14 +261,14 @@ export default function TrainerTrainingsDashboardPage() {
               (entry: any) => entry.athleteId === athlete.id,
             )
           : null;
-        /* Cio che e gia in archivio, se la scheda non lo porta gia. */
+        /* Le righe vere dell'appello vincono sulla copia nel payload, che resta indietro (revisione B10). */
         const gia = appelloSalvato.get(String(athlete.id));
 
         return {
           id: athlete.id,
           name: getAthleteDisplayName(athlete),
-          present: attendanceRecord?.present ?? gia?.present ?? false,
-          notes: attendanceRecord?.notes || gia?.notes || "",
+          present: gia?.present ?? attendanceRecord?.present ?? false,
+          notes: gia?.notes || attendanceRecord?.notes || "",
           medicalCertExpiry:
             athlete?.data?.medicalCertExpiry ||
             athlete?.medical_cert_expiry ||
@@ -336,7 +337,7 @@ export default function TrainerTrainingsDashboardPage() {
           return (
             <CompactEntityCard
               key={getTrainingStableKey(training)}
-              title={training.title || "Allenamento"}
+              title={[trainingDisplayTitle(training), trainingDisplayNote(training)].filter(Boolean).join(" · ")}
               className={
                 focusedTrainingId === training.id
                   ? "border-egw-tint-blue-bd bg-egw-tint-blue shadow-egw-plane-1"
@@ -779,7 +780,7 @@ export default function TrainerTrainingsDashboardPage() {
             }}
             training={{
               id: selectedTraining.id,
-              title: selectedTraining.title || "Allenamento",
+              title: [trainingDisplayTitle(selectedTraining), trainingDisplayNote(selectedTraining)].filter(Boolean).join(" · "),
               date: selectedTraining.date,
               time: formatTimeRange(selectedTraining.time, selectedTraining.endTime),
               category: selectedTraining.displayCategory || selectedTraining.category || "Categoria",
