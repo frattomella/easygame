@@ -23,12 +23,18 @@ const CustomKitComponentsBuilder = dynamic(
 );
 
 /* ── Numero maglia ─────────────────────────────────────────────────────── */
+/**
+ * **Il gruppo non si sceglie qui** (mandato multi-stagione B8/B9/B10): lo
+ * dice la categoria primaria (`resolveNumberingGroupForCategory`), e questo
+ * cassetto lo mostra soltanto. Un editor libero permetteva di assegnare
+ * l'atleta a un gruppo che la sua categoria non nomina — la stessa
+ * incoerenza che il numero, da solo, non puo correggere.
+ */
 export function AthleteJerseyNumberDrawer({
   open,
   onOpenChange,
-  groups,
   groupId,
-  onGroupChange,
+  groupName,
   number,
   onNumberChange,
   onRandom,
@@ -36,9 +42,10 @@ export function AthleteJerseyNumberDrawer({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  groups: ReadonlyArray<{ id: string; name: string; season?: string | null }>;
+  /** Il gruppo derivato dalla categoria primaria, o "" se nessuno la nomina. */
   groupId: string;
-  onGroupChange: (groupId: string) => void;
+  /** Il nome del gruppo derivato, o `null` se la categoria primaria non ne ha uno configurato. */
+  groupName: string | null;
   number: string;
   onNumberChange: (value: string) => void;
   onRandom: () => void;
@@ -48,7 +55,7 @@ export function AthleteJerseyNumberDrawer({
   React.useEffect(() => {
     if (!open) setDirty(false);
   }, [open]);
-  const canSave = Boolean(groupId) || groups.length === 0;
+  const canSave = Boolean(groupId) || !number;
 
   return (
     <Drawer
@@ -75,21 +82,10 @@ export function AthleteJerseyNumberDrawer({
           <Field
             label="Gruppo numerazione"
             htmlFor="jersey-group"
-            warning={groups.length === 0 ? "Crea prima un gruppo numerazione dalla pagina Abbigliamento." : undefined}
+            helper={groupName ? "Assegnato automaticamente dalla categoria primaria" : undefined}
+            warning={!groupName ? "Nessun gruppo numerazione configurato per questa categoria." : undefined}
           >
-            <Select
-              id="jersey-group"
-              value={groupId}
-              onValueChange={(value) => {
-                setDirty(true);
-                onGroupChange(value);
-              }}
-              placeholder="Seleziona gruppo"
-              options={groups.map((group) => ({
-                value: group.id,
-                label: group.season ? `${group.name} · ${group.season}` : group.name,
-              }))}
-            />
+            <TextInput id="jersey-group" value={groupName || ""} disabled readOnly />
           </Field>
           <Field label="Numero" htmlFor="jersey-number" helper="Al massimo tre cifre. Il numero deve essere libero nel gruppo.">
             <div className="flex items-center gap-2">
@@ -109,7 +105,7 @@ export function AthleteJerseyNumberDrawer({
                   if (event.key === "Enter") void onSave();
                 }}
               />
-              <Button variant="secondary" size="sm" onClick={onRandom} disabled={groups.length === 0}>
+              <Button variant="secondary" size="sm" onClick={onRandom} disabled={!groupId}>
                 Random
               </Button>
             </div>

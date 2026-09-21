@@ -210,7 +210,7 @@ test("§4.10 · taglie, numero maglia, numeri assegnati e kit", () => {
     assert.ok(activity.includes(label), `manca «${label}»`);
   }
   const drawers = read(path.join(V2, "AthleteActivityDrawers.tsx"));
-  for (const label of ["Gruppo numerazione", "Crea prima un gruppo numerazione dalla pagina Abbigliamento.", "Random", "Kit completo", "Componenti singoli", "Seleziona kit", "Nuova assegnazione"]) {
+  for (const label of ["Gruppo numerazione", "Assegnato automaticamente dalla categoria primaria", "Nessun gruppo numerazione configurato per questa categoria.", "Random", "Kit completo", "Componenti singoli", "Seleziona kit", "Nuova assegnazione"]) {
     assert.ok(drawers.includes(label), `manca «${label}»`);
   }
   assert.match(drawers, /CustomKitComponentsBuilder/);

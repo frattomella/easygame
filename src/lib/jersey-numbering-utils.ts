@@ -522,3 +522,43 @@ export const getAthleteJerseyNumberSummary = ({
     duplicateRecords,
   };
 };
+
+/**
+ * **Il gruppo numerazione lo dice la categoria primaria, non chi assegna il
+ * numero** (mandato multi-stagione B8/B9).
+ *
+ * Risponde a una domanda diversa da quelle sopra: non «che numero ha», ma
+ * «a quale gruppo appartiene, per configurazione del club». Un gruppo che
+ * **nomina** questa categoria fra le sue vince sempre; un gruppo **senza**
+ * categorie (la convenzione «copre tutto il club») e l'ultima spiaggia, mai
+ * la prima — altrimenti un club con un gruppo generico e uno specifico
+ * assegnerebbe sempre il generico e la configurazione specifica non
+ * servirebbe a niente. Nessuna categoria compatibile: la compatibilita
+ * dice chi puo **prendere in prestito** un numero del gruppo altrui, non
+ * qual e la squadra di casa.
+ */
+export const resolveNumberingGroupForCategory = ({
+  categoryId,
+  groups,
+  categories = [],
+}: {
+  categoryId: string | null | undefined;
+  groups: readonly NumberingGroup[];
+  categories?: readonly CategoryCompatibilityInput[];
+}): NumberingGroup | null => {
+  const id = normalizeText(categoryId);
+  if (!id || !groups.length) return null;
+
+  const categoryIndex = buildCategoryCompatibilityIndex(categories);
+  const target = categoryIndex.resolveCategoryId(id);
+
+  const named = groups.find((group) => {
+    const groupCategoryIds = (group.categoryIds || []).map((value) =>
+      categoryIndex.resolveCategoryId(value),
+    );
+    return groupCategoryIds.includes(target);
+  });
+  if (named) return named;
+
+  return groups.find((group) => !(group.categoryIds || []).length) || null;
+};

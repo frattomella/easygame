@@ -6,6 +6,8 @@ import {
   type EditorMembership,
 } from "@/components/athletes/v2/AthleteCategoryMembershipEditor";
 import { buildMembershipTargetIndex, type MembershipTargetIndex } from "@/lib/categories/placement";
+import { resolveNumberingGroupForCategory } from "@/lib/jersey-numbering-utils";
+import type { NumberingGroup } from "@/lib/clothing-inventory-utils";
 import { Plus } from "lucide-react";
 import {
   findCategoryForBirthDate,
@@ -119,6 +121,12 @@ interface AthleteCreateFormProps {
    * catalogo.
    */
   membershipIndex?: MembershipTargetIndex;
+  /**
+   * I gruppi numerazione del club (mandato multi-stagione B12): servono solo
+   * all'anteprima read-only sotto la categoria primaria — il numero non si
+   * chiede qui (ADR-0057), il gruppo si mostra e basta.
+   */
+  numberingGroups?: readonly NumberingGroup[];
   /**
    * Le federazioni configurate dal club (N2).
    *
@@ -294,6 +302,7 @@ export function AthleteCreateForm({
   categories = [],
   categoryLabel,
   membershipIndex,
+  numberingGroups = [],
   federations = [],
 }: AthleteCreateFormProps) {
   const { showToast } = useToast();
@@ -604,6 +613,26 @@ export function AthleteCreateForm({
               })
             }
           />
+          {/*
+            **Solo un'anteprima** (mandato multi-stagione B12): il gruppo lo
+            deriva la categoria primaria appena scelta (B8/B9), non si
+            assegna qui. Il numero non si chiede all'iscrizione (ADR-0057):
+            e un'assegnazione con la sua stagione, che puo gia essere
+            occupata — chiederlo qui inventerebbe un dato che la vera
+            assegnazione potrebbe subito contraddire.
+          */}
+          {formData.categoryId ? (
+            <p className="mt-3 font-brand text-[12.5px] text-egw-ink-62" data-test="athlete-create-numbering-preview">
+              Gruppo numerazione:{" "}
+              <span className="font-semibold text-egw-ink">
+                {resolveNumberingGroupForCategory({
+                  categoryId: formData.categoryId,
+                  groups: numberingGroups,
+                  categories,
+                })?.name || "Nessun gruppo numerazione configurato per questa categoria"}
+              </span>
+            </p>
+          ) : null}
         </div>
       </Panel>
 

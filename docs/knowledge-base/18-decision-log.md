@@ -13723,3 +13723,85 @@ perche cambia una vista operativa di triage in una anagrafica ordinata).
   l'etichetta categoria per conto proprio, non attraverso l'indice canonico:
   fuori scope di questo giro, da allineare in un lotto dedicato.
 - A5 (eliminazione prova) e A6 (selezione sesso) restano aperti come sopra.
+
+### Wave B — Analitiche atleta e numerazione
+
+**B1/B2 (autorita dell'inizio attivita).** Nessun concetto del genere
+esisteva: le analitiche (`calculateAthleteCategoryAnalytics`, l'unica
+davvero letta dalla scheda — l'omonima `buildAthleteParticipationAnalytics`
+in `athlete-participation-utils.ts` e **codice irraggiungibile**, D-RD-18)
+non filtravano ne per data ne per ingresso. Decisione: `activityStartAt` e
+la creazione della **prova**, se la scheda ne viene da una (`trial_athletes.
+athlete_id` → questa scheda), altrimenti la creazione della scheda stessa —
+letta con un nuovo, unico endpoint (`GET /api/v1/athletes/:id/trial-history`,
+proprietario `src/lib/server/trial-athletes.ts`) invece di indovinarla dal
+nome.
+
+**B3/B4 (storia da prova, tre stati).** La causa vera di «sempre non
+registrato» non era la logica degli stati — gia corretta: entry assente →
+Non registrato, presente → Presente, assente → Assente — ma **la fonte**:
+la pagina passava `attendanceRecords: []` e leggeva solo la copia
+`training.attendance` incassata nella proiezione `clubs.trainings`, la
+stessa proiezione che ADR-0198 aveva gia trovato vuota di appello sul
+Dashboard. Corretto leggendo le righe vere di `club_event_participants`
+(gia un registro generico in **sola lettura**, filtrato per `athlete_id`) e
+le `trial_attendances` del trial convertito, ri-chiavate sulla stessa
+persona. **Stessa radice, non ancora chiusa altrove**: il rapporto per
+categoria dell'allenatore (`category-athlete-stats.ts`, via
+`trainer-athletes-dashboard-page.tsx`) chiama la sua funzione con
+`attendance: []` allo stesso modo — gia in debito come D-RD-40, qui
+confermato e lasciato li perche e un rapporto multi-atleta diverso dalla
+scheda singola, fuori dallo scope dichiarato di B1-B7.
+
+**B5/B6/B7 (futuro e pre-ingresso).** `calculateAthleteCategoryAnalytics`
+riceve ora `now`/`activityStartAt` e filtra trainings **e** matches allo
+stesso modo, prima di derivare le categorie e di calcolare i totali: un
+evento fuori da `[activityStartAt, now]` non entra ne nel consuntivo ne
+nella scoperta automatica della categoria dall'evento. `now` e l'istante
+del caricamento pagina (non la cornice civile del club): per un taglio
+grossolano «non mostrare il futuro» e sufficiente, e va detto come
+semplificazione dichiarata, non come precisione oraria.
+
+**B8/B9/B10/B11 (gruppo numerazione dalla categoria primaria).** Il modello
+esisteva gia in parte: `NumberingGroup.categoryIds` dichiara quali categorie
+appartengono a un gruppo, e la vista di gruppo (`getAthleteJerseyNumberSummary`
+/`buildGroupSummary`) ne deriva gia l'eleggibilita per la **lista** degli
+atleti di un gruppo. Mancava l'uso simmetrico per **un singolo atleta senza
+numero**: `defaultJerseyGroupId` ripiegava su `clothingState.
+numberingGroups[0]` — il primo gruppo del club, arbitrario — e il cassetto
+(`AthleteJerseyNumberDrawer`) offriva comunque una tendina per **sceglierne
+uno diverso a mano**, la stessa incoerenza che il mandato descrive («modifico
+gruppo → il numero resta sotto un gruppo che la categoria non nomina»).
+Nuova funzione, stesso modulo (`resolveNumberingGroupForCategory` in
+`src/lib/jersey-numbering-utils.ts`): il gruppo che **nomina** la categoria
+vince sempre; un gruppo senza categorie (la convenzione «copre tutto il
+club») e l'ultima spiaggia, mai la prima; nessuna categoria compatibile,
+che serve a prestare un numero altrui, non a dire la squadra di casa. Il
+cassetto non lascia piu scegliere: mostra il nome derivato o «Nessun gruppo
+numerazione configurato per questa categoria.» — mai una tendina. Un
+numero **gia assegnato** conserva il suo gruppo (uno storico non si
+riscrive perche la categoria e cambiata dopo); solo chi non ne ha uno
+riceve quello derivato da oggi.
+
+**B12 (Nuovo atleta).** Il modulo mostra ora un'anteprima **read-only** del
+gruppo numerazione non appena si sceglie la categoria primaria. **Non**
+aggiunto un campo per il numero, in **deviazione dichiarata** dalla lettera
+del mandato: `AthleteCreateForm.tsx` porta gia, dal 2026 (ADR-0057), la
+decisione opposta e motivata — «il numero di maglia non si chiede
+all'iscrizione: non e un dato della persona, e un'assegnazione che
+appartiene a un gruppo di numerazione, ha una stagione e puo essere gia
+occupata» — la stessa incoerenza che l'anteprima di solo il gruppo evita
+gia. Riproporre il campo avrebbe riaperto il difetto che ADR-0057 aveva
+chiuso. Segnalato invece di deciso a vista.
+
+**B13 (concorrenza) — non implementato, dichiarato.** `jersey_assignments`
+resta un array JSON su `Club` (nessuna tabella relazionale, nessun vincolo
+`UNIQUE` possibile sul database) scritto con un controlla-poi-scrivi lato
+client (`canAssignNumber` su uno stato appena riletto, poi `updateClubData`
+sull'intera colonna) — lo stesso pattern che i commenti di `resources.ts`
+segnalano gia come sorgente storica di scritture perse sotto concorrenza.
+Chiuderlo davvero richiede spostare la scrittura su una rotta server con
+blocco transazionale (`SELECT ... FOR UPDATE` o un lock consultivo per
+`(clubId, groupId)`), che e un cambio dell'architettura dello scrittore, non
+un vincolo aggiunto: fuori dallo scope sicuro di questo giro. Registrato
+come debito (D-RD-47).

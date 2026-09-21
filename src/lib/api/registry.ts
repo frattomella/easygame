@@ -173,6 +173,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "athletes.trial_history",
+    method: "GET",
+    path: "/api/v1/athletes/:id/trial-history",
+    description:
+      "La storia da persona in prova di un atleta gia iscritto (mandato multi-stagione B1/B2/B3): null se non e mai stato una prova, altrimenti l identificativo della prova, il momento in cui e diventata attiva (activityStartAt) e le sue presenze registrate prima della conversione. Permesso: lettura di athletes, non un permesso di dominio delle prove",
+    mobile_ready: false,
+  },
+  {
     name: "events.trial_attendance",
     method: "GET|POST",
     path: "/api/v1/events/:id/trial-attendance",

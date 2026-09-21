@@ -341,6 +341,38 @@ const isAllowedCategory = (
   );
 };
 
+/**
+ * **Un evento entra nel consuntivo solo se e gia successo e l'atleta c'era**
+ * (mandato multi-stagione B5/B6/B7).
+ *
+ * `now`: la cornice civile del club (chi chiama passa gia un istante,
+ * questo modulo non ne sceglie uno). `activityStartAt`: il primo momento in
+ * cui EasyGame puo attribuire attivita alla persona — la creazione della
+ * prova se ne e nata una, altrimenti la creazione della scheda (B1/B2).
+ *
+ * Una data che non si legge non si esclude: e cio che gia faceva questo
+ * file, e togliere dati per un formato inatteso e peggio di contarne uno di
+ * troppo.
+ */
+const isWithinActivityWindow = (
+  dateValue: string | null,
+  now: Date | null,
+  activityStartAt: Date | null,
+) => {
+  if (!dateValue) return true;
+  const time = new Date(dateValue).getTime();
+  if (Number.isNaN(time)) return true;
+  if (now && time > now.getTime()) return false;
+  if (activityStartAt && time < activityStartAt.getTime()) return false;
+  return true;
+};
+
+const toDateOrNull = (value: unknown): Date | null => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 const sortByDateDesc = <T extends { date: string | null }>(items: T[]) =>
   items.slice().sort((left, right) => {
     const leftTime = left.date ? new Date(left.date).getTime() : 0;
@@ -414,6 +446,8 @@ export function calculateAthleteCategoryAnalytics({
   matches = [],
   categories = [],
   allowedCategories,
+  now,
+  activityStartAt,
 }: {
   athlete: any;
   categoryMemberships?: unknown;
@@ -422,9 +456,19 @@ export function calculateAthleteCategoryAnalytics({
   matches?: any[];
   categories?: CategoryOption[];
   allowedCategories?: CategoryOption[];
+  /** L'istante oltre il quale un evento e futuro e non entra nel consuntivo (B5). */
+  now?: string | Date | null;
+  /** Il primo momento di attivita della persona: eventi prima non contano (B6). */
+  activityStartAt?: string | Date | null;
 }): AthleteCategoryAnalyticsResult {
   const athleteId = getAthleteId(athlete);
   const lookup = buildCategoryLookup(categories);
+  const clockNow = toDateOrNull(now);
+  const clockStart = toDateOrNull(activityStartAt);
+  const withinWindow = (record: any) =>
+    isWithinActivityWindow(getEventDate(record), clockNow, clockStart);
+  const consuntivoTrainings = trainings.filter(withinWindow);
+  const consuntivoMatches = matches.filter(withinWindow);
   const memberships = normalizeAthleteCategoryMemberships(
     categoryMemberships || athlete,
     categories,
@@ -441,7 +485,7 @@ export function calculateAthleteCategoryAnalytics({
   });
 
   if (athleteId) {
-    trainings.forEach((training) => {
+    consuntivoTrainings.forEach((training) => {
       const attendanceEntry = getAthleteAttendanceEntry(
         training,
         athleteId,
@@ -456,7 +500,7 @@ export function calculateAthleteCategoryAnalytics({
       );
     });
 
-    matches.forEach((match) => {
+    consuntivoMatches.forEach((match) => {
       if (!getConvocatedAthleteIdsFromMatch(match).includes(athleteId)) {
         return;
       }
@@ -478,13 +522,13 @@ export function calculateAthleteCategoryAnalytics({
       });
     })
     .map((membership) => {
-      const categoryTrainings = trainings.filter((training) =>
+      const categoryTrainings = consuntivoTrainings.filter((training) =>
         identitiesMatchMembership(
           getRecordCategoryIdentities(training, lookup),
           membership,
         ),
       );
-      const categoryMatches = matches.filter((match) =>
+      const categoryMatches = consuntivoMatches.filter((match) =>
         identitiesMatchMembership(
           getRecordCategoryIdentities(match, lookup),
           membership,
@@ -560,7 +604,7 @@ export function calculateAthleteCategoryAnalytics({
 
   const unclassifiedEvents = athleteId
     ? sortByDateDesc([
-        ...trainings.flatMap((training, index) => {
+        ...consuntivoTrainings.flatMap((training, index) => {
           const identities = getRecordCategoryIdentities(training, lookup);
           const attendanceEntry = getAthleteAttendanceEntry(
             training,
@@ -583,7 +627,7 @@ export function calculateAthleteCategoryAnalytics({
             },
           ];
         }),
-        ...matches.flatMap((match, index) => {
+        ...consuntivoMatches.flatMap((match, index) => {
           const identities = getRecordCategoryIdentities(match, lookup);
           const convocated = getConvocatedAthleteIdsFromMatch(match).includes(
             athleteId,

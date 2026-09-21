@@ -23,6 +23,7 @@ import { selectableCategoryOptions } from "@/lib/category-utils";
 import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import { buildCategoryGroups, normalizeClubSites, type ClubSite } from "@/lib/club-sites";
 import { filterCollectionBySeason, normalizeClubSeasons } from "@/lib/club-seasons";
+import { normalizeClubClothingState, type NumberingGroup } from "@/lib/clothing-inventory-utils";
 import { useMembershipTargetIndex } from "@/components/athletes/v2/AthleteCategoryMembershipEditor";
 import {
   addClubAthlete,
@@ -70,6 +71,7 @@ function NewAthletePageContent() {
   const [categoryGroups, setCategoryGroups] = React.useState<any[]>([]);
   const [clubSites, setClubSites] = React.useState<ClubSite[]>([]);
   const [federations, setFederations] = React.useState<ClubFederation[]>([]);
+  const [numberingGroups, setNumberingGroups] = React.useState<NumberingGroup[]>([]);
 
   /** Come si scrive una categoria qui (ADR-0185): la sede solo dove serve. */
   const categoryDisplay = React.useMemo(
@@ -122,7 +124,8 @@ function NewAthletePageContent() {
       getClubData(clubId, "club_sites"),
       getClubData(clubId, "category_groups"),
       getClubData(clubId, "settings"),
-    ]).then(([rows, sites, groups, settings]: any[]) => {
+      getClubData(clubId, "jersey_groups"),
+    ]).then(([rows, sites, groups, settings, jerseyGroups]: any[]) => {
       if (cancelled) return;
       /*
         Solo le categorie della stagione attiva (ADR-0197, come per
@@ -148,6 +151,8 @@ function NewAthletePageContent() {
           groups,
         }),
       );
+      /* Solo per l'anteprima read-only del gruppo numerazione (B12): niente prodotti/kit/assegnazioni, non servono qui. */
+      setNumberingGroups(normalizeClubClothingState({ jerseyGroups }).numberingGroups);
     });
 
     /*
@@ -339,6 +344,7 @@ function NewAthletePageContent() {
               categories={categories}
               categoryLabel={(categoryId) => categoryDisplay.label(categoryId)}
               membershipIndex={membershipTargetIndex}
+              numberingGroups={numberingGroups}
               federations={federations}
               onSubmit={handleSubmit}
               onCancel={goBack}

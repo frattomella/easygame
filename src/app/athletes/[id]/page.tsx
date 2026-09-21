@@ -103,6 +103,7 @@ import {
 import {
   getAthleteJerseyNumberSummary,
   getJerseyGroupSummary,
+  resolveNumberingGroupForCategory,
 } from "@/lib/jersey-numbering-utils";
 import {
   getPrimaryAthleteCategoryMembership,
@@ -605,6 +606,8 @@ export default function AthleteProfilePage() {
           catalogoTutteLeStagioni,
           matchRecords,
           athletePaymentRows,
+          eventParticipationRows,
+          trialHistory,
         ] = await Promise.all([
           getAthlete(athleteId),
           getAthleteCertificates(athleteId).catch(() => []),
@@ -623,6 +626,27 @@ export default function AthleteProfilePage() {
             ? getClubData(clubId, "matches").catch(() => [])
             : Promise.resolve([]),
           getAthletePayments(athleteId).catch(() => []),
+          /*
+            Le presenze **vere** (`club_event_participants`), non la copia
+            incassata nella proiezione `clubs.trainings`: quella copia e
+            spesso assente sugli eventi nati dopo l'appello canonico
+            (ADR-0198), e le analitiche dicevano «non registrato» su un
+            appello fatto davvero (mandato multi-stagione B3/B4).
+          */
+          clubId
+            ? apiRequest<any[]>(`/api/v1/club_event_participants?athlete_id=${encodeURIComponent(athleteId)}&organization_id=${encodeURIComponent(clubId)}`)
+                .then((response) => (response.error ? [] : response.data || []))
+                .catch(() => [])
+            : Promise.resolve([]),
+          /* La storia da prova, se questa scheda ne viene da una (B1/B2/B3). */
+          clubId
+            ? apiRequest<{ trialId: string; activityStartAt: string; attendances: any[] } | null>(
+                `/api/v1/athletes/${encodeURIComponent(athleteId)}/trial-history`,
+                { headers: { "x-active-club-id": clubId } },
+              )
+                .then((response) => (response.error ? null : response.data))
+                .catch(() => null)
+            : Promise.resolve(null),
         ]);
 
         if (!athleteRecord) {
@@ -711,12 +735,44 @@ export default function AthleteProfilePage() {
           normalizedMemberships.length > 0
             ? normalizedMemberships.map((membership) => membership.categoryName)
             : normalizeStringList(athleteData.categories);
+        /*
+          **Le presenze vere, non la copia della proiezione** (B3/B4): le
+          righe di `club_event_participants` di questo atleta, piu — se la
+          scheda viene da una prova — le sue `trial_attendances` di prima
+          della conversione, riportate sulla stessa persona. La stessa
+          chiave che l'appello legge (`training_id`/`athlete_id`), cosi il
+          resto del modulo non sa la differenza fra le due fonti.
+        */
+        const realAttendanceRecords = normalizeCollection<any>(eventParticipationRows).map(
+          (row: any) => ({
+            training_id: row.event_id ?? row.eventId,
+            athlete_id: row.athlete_id ?? row.athleteId,
+            status: row.status,
+            notes: row.notes,
+          }),
+        );
+        const trialAttendanceRecords = (trialHistory?.attendances || []).map((row: any) => ({
+          training_id: row.eventId,
+          athlete_id: athleteId,
+          status: row.status,
+          notes: row.notes,
+        }));
+        /*
+          **Da quando EasyGame puo attribuirle attivita** (B1/B2): la
+          creazione della prova se la scheda ne viene da una, altrimenti la
+          creazione della scheda. Un evento di prima non e un'assenza: non
+          e mai entrato nel suo consuntivo.
+        */
+        const activityStartAt = trialHistory?.activityStartAt || athleteRecord.created_at || null;
         const categoryAnalytics = calculateAthleteCategoryAnalytics({
           athlete: athleteRecord,
           categoryMemberships: normalizedMemberships,
           trainings: normalizedTrainingRecords,
+          attendanceRecords: [...realAttendanceRecords, ...trialAttendanceRecords],
           matches: normalizedMatchRecords,
           categories: normalizedCategoryOptions,
+          now: new Date().toISOString(),
+          activityStartAt,
         });
 
         setAthlete({
@@ -3230,10 +3286,29 @@ export default function AthleteProfilePage() {
     [clothingState.numberingGroups],
   );
 
+  /* La categoria primaria, non uno stato di modifica in corso: il gruppo si deriva da cio che l'atleta e oggi (B8/B9). */
+  const primaryCategoryIdForNumbering =
+    athleteCategoryMemberships.find((membership) => membership.isPrimary)?.categoryId || null;
+  const derivedNumberingGroup = React.useMemo(
+    () =>
+      resolveNumberingGroupForCategory({
+        categoryId: primaryCategoryIdForNumbering,
+        groups: clothingState.numberingGroups,
+        categories: clubCategoryOptions,
+      }),
+    [primaryCategoryIdForNumbering, clothingState.numberingGroups, clubCategoryOptions],
+  );
+  /*
+    Un numero gia assegnato conserva il suo gruppo (uno storico non si
+    riscrive perche la categoria e cambiata dopo); solo un atleta **senza**
+    numero riceve il gruppo che la categoria primaria di oggi gli assegna
+    (B9: un cambio di categoria ricalcola). Mai «il primo gruppo del club»:
+    era la scelta arbitraria che il derivato sostituisce.
+  */
   const defaultJerseyGroupId =
     athleteJerseyNumberDetails.primaryRecord?.groupId ||
     athleteJerseyAssignments[0]?.groupId ||
-    clothingState.numberingGroups[0]?.id ||
+    derivedNumberingGroup?.id ||
     "";
   const jerseyNumberSummary = athleteJerseyNumberDetails.records.length
     ? athleteJerseyNumberDetails.records
@@ -4397,19 +4472,8 @@ export default function AthleteProfilePage() {
       <AthleteJerseyNumberDrawer
         open={isJerseyNumberDialogOpen}
         onOpenChange={setIsJerseyNumberDialogOpen}
-        groups={clothingState.numberingGroups}
         groupId={jerseyGroupDraft}
-        onGroupChange={(value) => {
-          const existing = athleteJerseyNumberDetails.records.find(
-            (entry) => entry.groupId === value && entry.number !== null,
-          );
-          setJerseyGroupDraft(value);
-          setJerseyNumberDraft(
-            existing?.number === null || existing?.number === undefined
-              ? ""
-              : String(existing.number),
-          );
-        }}
+        groupName={jerseyGroupDraft ? jerseyGroupById.get(jerseyGroupDraft)?.name || null : null}
         number={jerseyNumberDraft}
         onNumberChange={(value) => setJerseyNumberDraft(sanitizeJerseyDraft(value))}
         onRandom={fillRandomJerseyDraft}

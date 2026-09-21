@@ -1048,6 +1048,17 @@ stessa semantica per la scheda singola e per il blocco: si sceglie una
   Una coppia (categoria, sede) che il club non ha configurato e rifiutata
   (`400`), anche sul registro generico.
 
+### Storia da prova di un atleta (mandato multi-stagione B1/B2/B3, 2026-09-21)
+
+- `GET /api/v1/athletes/:id/trial-history` — `null` se l'atleta non e mai
+  stato una persona in prova, altrimenti `{trialId, activityStartAt,
+  attendances: [...]}` con le presenze registrate **prima** della
+  conversione (`trial_attendances`, che restano dell'identificativo della
+  prova). `activityStartAt` e il primo momento di attivita reale nel club:
+  la data di creazione della prova, non quella della scheda atleta.
+  Permesso: lettura di `athletes`, non un permesso di dominio delle prove —
+  chi legge la scheda legge la sua storia.
+
 ### Import di atleti da file (ADR-0195, 2026-09-16)
 
 Una rotta, un writer (`src/lib/server/athlete-import.ts`), il piano lo

@@ -712,6 +712,51 @@ export const readTrialAthlete = async (scope: TrialScope, id: string) => {
 };
 
 /**
+ * **La storia da prova, per l'atleta in cui e diventata** (ADR-0198 §2,
+ * mandato multi-stagione B1/B2/B3).
+ *
+ * Una persona in prova che converte non porta le sue presenze con se: le
+ * righe di `trial_attendances` restano dell'identificativo della prova
+ * (regola gia scritta per la conversione). Le analitiche dell'atleta pero
+ * devono contarle: chi era presente a un allenamento da prova e stato
+ * presente, non «non registrato», e il suo primo momento di attivita e
+ * quando e entrata la prova, non quando e nata la scheda.
+ *
+ * **Nessun perimetro di ruolo qui dentro**: chi puo leggere la scheda
+ * dell'atleta (il chiamante lo vaglia) puo leggere la storia che l'ha
+ * preceduta — non serve `trials.read`, che e un permesso su una prova
+ * ancora aperta, non sulla storia di un atleta gia iscritto.
+ */
+export const loadConvertedTrialHistory = async (
+  organizationId: string,
+  athleteId: string,
+): Promise<{
+  trialId: string;
+  activityStartAt: string;
+  attendances: TrialAttendanceView[];
+} | null> => {
+  const trial = await prisma.trialAthlete.findFirst({
+    where: { organization_id: organizationId, athlete_id: athleteId },
+    select: { id: true, created_at: true },
+  });
+  if (!trial) return null;
+
+  const [display, presenze] = await Promise.all([
+    loadDisplay(organizationId),
+    prisma.trialAttendance.findMany({
+      where: { organization_id: organizationId, trial_athlete_id: trial.id },
+      include: { event: true },
+    }),
+  ]);
+
+  return {
+    trialId: trial.id,
+    activityStartAt: toIso(trial.created_at) || new Date(0).toISOString(),
+    attendances: serializeAttendances(presenze, display),
+  };
+};
+
+/**
  * **Le possibili corrispondenze, senza fondere nessuno.** Cognome e nome
  * (in qualunque ordine) e, se data, la data di nascita: chi registra sceglie.
  */
