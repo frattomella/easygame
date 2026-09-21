@@ -121,6 +121,18 @@ test("D10: un anno bisestile porta febbraio al 29, non al 28", () => {
   assert.deepEqual(date, ["2028-01-31", "2028-02-29"]);
 });
 
+test("D10 (revisione ostile Wave F, Reviewer D): una serie di oltre 12 mesi attraversa piu di un capodanno senza saltare", () => {
+  // 24 rate da giugno 2026: due capodanni, non uno.
+  const date = generateMonthlyDueDates({ startDate: "2026-06-15", dayOfMonth: 15, count: 24 });
+  assert.equal(date.length, 24);
+  assert.equal(date[0], "2026-06-15");
+  assert.equal(date[6], "2026-12-15");
+  assert.equal(date[7], "2027-01-15", "il primo capodanno non deve saltare un mese");
+  assert.equal(date[18], "2027-12-15");
+  assert.equal(date[19], "2028-01-15", "il secondo capodanno non deve saltare un mese");
+  assert.equal(date[23], "2028-05-15");
+});
+
 /**
  * D16/D17 — gia esistenti, verificati come regressione: template e schedule
  * materializzata restano due cose, una rata pagata resta immutabile.

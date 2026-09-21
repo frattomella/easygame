@@ -13,10 +13,15 @@
  * - MIME + estensione: vagliati da chi chiama, con
  *   `ALLOWED_ATTACHMENT_MIME_TYPES` (gia comprende il DOCX) — mai fidarsi
  *   del nome del file da solo;
- * - bomba d'archivio: la dimensione **non compressa** della somma delle
- *   voci si legge dai metadati dello zip (intestazione centrale) **prima**
- *   di espandere niente, e si rifiuta oltre una soglia — un file piccolo
- *   compresso che si gonfia enormemente in memoria non arriva a `mammoth`;
+ * - bomba d'archivio: la somma **decompressa per davvero** delle voci si
+ *   conta mentre si decomprime, con un tetto che ferma il flusso appena
+ *   superato — mai fidandosi del campo «dimensione non compressa» che lo
+ *   zip stesso dichiara nell'intestazione centrale, perche quel numero lo
+ *   scrive chi ha costruito l'archivio e un file scritto a mano puo
+ *   dichiararne uno piccolo mentre il contenuto vero si gonfia enormemente
+ *   (revisione ostile Wave F, C1: la prima stesura si fidava di quel
+ *   campo, ed era esattamente il buco che il commento sopra prometteva di
+ *   chiudere);
  * - XML: nessun parser proprio, e `mammoth`/`@xmldom` non eseguono entita
  *   esterne ne DTD — solo testo e formattazione del documento;
  * - macro: non lette mai. `mammoth` non apre `vbaProject.bin`;
@@ -53,14 +58,73 @@ export type DocxImportResult = {
 };
 
 /**
- * **Il tetto si legge dai metadati, non dal contenuto** (bomba d'archivio).
- *
- * `JSZip.loadAsync` legge l'intestazione centrale dello zip — nomi e
- * dimensioni delle voci — senza decomprimerle: e per questo che la somma
- * si puo controllare prima di chiamare `mammoth`, che decomprime per
- * intero.
+ * Decomprime **una voce per davvero**, contando i byte che escono dal
+ * flusso, e si ferma appena il totale **condiviso** (`stato.totale`, somma
+ * di tutte le voci) supera il tetto — senza aver mai chiesto allo zip
+ * quanto pesa: e lo zip stesso a poterlo dire il falso.
  */
-const assertSafeArchiveSize = async (buffer: Buffer) => {
+const decomprimiContando = (
+  voce: JSZip.JSZipObject,
+  stato: { totale: number },
+): Promise<void> =>
+  new Promise((resolve, reject) => {
+    /*
+      Il tipo di `jszip` dichiara `ReadableStream` (la sua interfaccia
+      astratta), ma in Node e sempre un vero `stream.Readable` — e per
+      questo ha `.destroy()`, che il tipo non elenca.
+
+      **Non si passa l'errore a `.destroy()`**: distruggere il flusso mentre
+      il decompressore sta ancora spingendo dati fa emettere a `jszip` un
+      proprio errore di flusso interrotto, che arriverebbe qui **al posto**
+      di quello passato — il pacchetto arrivato si tiene con un flag, e si
+      decide cosa risolvere in `finally`, non nell'evento `error`.
+    */
+    let troppoGrande = false;
+    const flusso: NodeJS.ReadableStream = voce.nodeStream("nodebuffer") as any;
+    let risolto = false;
+    const chiudi = (fn: () => void) => {
+      if (risolto) return;
+      risolto = true;
+      fn();
+    };
+    flusso.on("data", (chunk: Buffer) => {
+      stato.totale += chunk.length;
+      if (stato.totale > MAX_UNCOMPRESSED_BYTES) {
+        troppoGrande = true;
+        (flusso as any).destroy();
+      }
+    });
+    flusso.on("error", () => {
+      chiudi(() =>
+        troppoGrande
+          ? reject(new DocxImportError("Il documento e troppo grande una volta decompresso: non importato"))
+          : reject(new DocxImportError("Il file non e un documento Word valido (archivio corrotto o non riconosciuto)")),
+      );
+    });
+    flusso.on("close", () => {
+      chiudi(() =>
+        troppoGrande
+          ? reject(new DocxImportError("Il documento e troppo grande una volta decompresso: non importato"))
+          : resolve(),
+      );
+    });
+    flusso.on("end", () => chiudi(resolve));
+  });
+
+/**
+ * **Il tetto si misura decomprimendo, non leggendo i metadati** (bomba
+ * d'archivio, revisione ostile Wave F, C1). Una voce alla volta, in serie
+ * — non in parallelo, cosi il picco di memoria resta quello di una voce
+ * sola — con un contatore condiviso che ferma il flusso appena la somma
+ * supera la soglia, prima che l'ultima voce finisca di decomprimersi.
+ *
+ * Nello stesso giro si rilevano intestazioni e piè di pagina (`word/header*.xml`,
+ * `word/footer*.xml`): `mammoth` non li legge mai (non fa nemmeno un
+ * tentativo, non e un caso limite del convertitore), e senza dirlo qui
+ * sparirebbero in silenzio — l'esatto difetto che E9 vuole evitare
+ * (revisione ostile Wave F, H1).
+ */
+const assertSafeArchiveSize = async (buffer: Buffer): Promise<{ haIntestazioniOPiePagina: boolean }> => {
   let archivio: JSZip;
   try {
     archivio = await JSZip.loadAsync(buffer);
@@ -68,22 +132,26 @@ const assertSafeArchiveSize = async (buffer: Buffer) => {
     throw new DocxImportError("Il file non e un documento Word valido (archivio corrotto o non riconosciuto)");
   }
 
-  let totaleNonCompresso = 0;
-  archivio.forEach((_percorso, voce) => {
+  const voci = Object.values(archivio.files).filter((voce) => !voce.dir);
+  let haIntestazioniOPiePagina = false;
+  const stato = { totale: 0 };
+
+  for (const voce of voci) {
     /*
       Un nome di voce con `..` non porta a una scrittura su disco qui (non
       si estrae niente): resta comunque un segnale di un archivio scritto a
       mano, non da Word, e si rifiuta per prudenza.
     */
-    if (_percorso.includes("..")) {
+    if (voce.name.includes("..")) {
       throw new DocxImportError("Il file contiene un percorso non valido");
     }
-    totaleNonCompresso += (voce as any)?._data?.uncompressedSize || 0;
-  });
-
-  if (totaleNonCompresso > MAX_UNCOMPRESSED_BYTES) {
-    throw new DocxImportError("Il documento e troppo grande una volta decompresso: non importato");
+    if (/^word\/(header|footer)\d*\.xml$/.test(voce.name)) {
+      haIntestazioniOPiePagina = true;
+    }
+    await decomprimiContando(voce, stato);
   }
+
+  return { haIntestazioniOPiePagina };
 };
 
 /**
@@ -100,7 +168,7 @@ export const convertDocxToHtml = async (buffer: Buffer): Promise<DocxImportResul
     throw new DocxImportError(`Il file supera la dimensione massima consentita (${Math.floor(MAX_ATTACHMENT_BYTES / 1024 / 1024)} MB)`);
   }
 
-  await assertSafeArchiveSize(buffer);
+  const { haIntestazioniOPiePagina } = await assertSafeArchiveSize(buffer);
 
   let immaginiNelDocumento = 0;
   const esito = await mammoth.convertToHtml(
@@ -134,6 +202,11 @@ export const convertDocxToHtml = async (buffer: Buffer): Promise<DocxImportResul
   if (immaginiNelDocumento > 0) {
     unsupported.push(
       `${immaginiNelDocumento} immagine${immaginiNelDocumento === 1 ? "" : "i"} nel documento non importata${immaginiNelDocumento === 1 ? "" : "e"}: da aggiungere a mano dal builder`,
+    );
+  }
+  if (haIntestazioniOPiePagina) {
+    unsupported.push(
+      "Intestazione o piè di pagina del documento non importati: si aggiungono a mano dal builder",
     );
   }
 

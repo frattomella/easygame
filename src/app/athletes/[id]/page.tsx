@@ -139,7 +139,7 @@ import {
   normalizePaymentPlans,
 } from "@/lib/payment-plan-utils";
 import { loadActiveSeasonPeriod } from "@/lib/club-profile";
-import { normalizeActiveClubSeason } from "@/lib/club-seasons";
+import { filterCollectionBySeason, normalizeActiveClubSeason, normalizeClubSeasons } from "@/lib/club-seasons";
 import { normalizeAthleteStatus } from "@/lib/athletes/status";
 import { CompileFormDialog } from "@/components/forms/compile-form-dialog";
 import { getClubPaymentMethodChoices } from "@/lib/payments/payment-config-utils";
@@ -284,12 +284,15 @@ export default function AthleteProfilePage() {
   const [clubCategoryOptions, setClubCategoryOptions] = useState<any[]>([]);
   /**
    * Il catalogo di **tutte** le stagioni, per l'identita delle appartenenze
-   * (ADR-0196, revisione C3). `clubCategoryOptions` e il catalogo della
-   * stagione attiva — giusto per scegliere, sbagliato per riconoscere: con
-   * quello un'appartenenza alla «Under 14 Gold» archiviata ripiegava sul
-   * nome, si presentava come la «Under 14 Gold» nuova, e al primo salvataggio
-   * della sezione veniva **scritta** cosi: un riporto di stagione che nessuno
-   * aveva deciso, fatto da un cassetto che stava salvando altro.
+   * (ADR-0196, revisione C3). `clubCategoryOptions` e (dal mandato
+   * multi-stagione, Wave F) davvero il catalogo della sola stagione attiva
+   * — prima questo commento lo dichiarava senza che il codice lo facesse
+   * (`getClubCategories` non filtrava per stagione): con quello, oltre al
+   * riporto non deciso che questo commento gia descrive, il selettore
+   * «Categorie» offriva anche le squadre di stagioni chiuse come scelte
+   * ordinarie. `clubCategoryOptions` resta giusto per scegliere (solo la
+   * stagione attiva), sbagliato per riconoscere (un'appartenenza storica
+   * vuole il catalogo intero, sotto).
    */
   const [clubCategoryCatalogAllSeasons, setClubCategoryCatalogAllSeasons] = useState<any[]>([]);
   const categoryCatalogForIdentity = clubCategoryCatalogAllSeasons.length
@@ -593,7 +596,6 @@ export default function AthleteProfilePage() {
           getAthleteCertificates,
           getAthletePayments,
           getClub,
-          getClubCategories,
           getClubTrainings,
           getClubData,
         } = await import("@/lib/simplified-db");
@@ -612,7 +614,23 @@ export default function AthleteProfilePage() {
           getAthlete(athleteId),
           getAthleteCertificates(athleteId).catch(() => []),
           clubId ? getClub(clubId).catch(() => null) : Promise.resolve(null),
-          clubId ? getClubCategories(clubId).catch(() => []) : Promise.resolve([]),
+          /*
+            **Il catalogo della sola stagione attiva, per davvero** (revisione
+            ostile Wave F, Reviewer B — Critical): `getClubCategories`
+            (`simplified-db.ts`) legge `clubs.categories` senza alcun
+            perimetro di stagione, nonostante il commento su
+            `clubCategoryOptions` (sotto) dichiarasse il contrario. Il
+            selettore «Categorie» di questa scheda — e da li
+            `resolveNumberingGroupForCategory` — offriva quindi anche le
+            categorie di stagioni chiuse, e scrivere quella scelta la
+            attaccava a un'appartenenza corrente. Stessa fonte gia usata per
+            «Nuovo atleta»: il registro, che applica il perimetro da solo.
+          */
+          clubId
+            ? apiRequest<any[]>(`/api/v1/categories?organization_id=${encodeURIComponent(clubId)}`)
+                .then((response) => (response.error ? [] : response.data || []))
+                .catch(() => [])
+            : Promise.resolve([]),
           clubId ? getClubTrainings(clubId).catch(() => []) : Promise.resolve([]),
           /* Lo stesso catalogo senza il perimetro di stagione: l'header vuoto dice al registro di non filtrare (ADR-0196). */
           clubId
@@ -778,11 +796,17 @@ export default function AthleteProfilePage() {
         }));
         /*
           **Da quando EasyGame puo attribuirle attivita** (B1/B2): la
-          creazione della prova se la scheda ne viene da una, altrimenti la
-          creazione della scheda. Un evento di prima non e un'assenza: non
-          e mai entrato nel suo consuntivo.
+          creazione della prova, se la scheda ne viene da una — un fatto
+          vero del dominio. **Senza una prova non si esclude niente**
+          (revisione ostile Wave F, Reviewer A): `athleteRecord.created_at`
+          e quando la **riga** e nata, non quando la persona ha iniziato —
+          un roster importato in blocco nasce tutto nello stesso istante, e
+          usarlo come taglio avrebbe nascosto presenze vere gia migrate con
+          la loro data reale. La stessa regola che questo modulo gia
+          applica a una data che non si legge (`isWithinActivityWindow`):
+          senza un fatto positivo da tagliare, non si taglia.
         */
-        const activityStartAt = trialHistory?.activityStartAt || athleteRecord.created_at || null;
+        const activityStartAt = trialHistory?.activityStartAt || null;
         const categoryAnalytics = calculateAthleteCategoryAnalytics({
           athlete: athleteRecord,
           categoryMemberships: normalizedMemberships,
@@ -996,7 +1020,27 @@ export default function AthleteProfilePage() {
               Array.isArray(kits) ? kits.map(normalizeKitRecord) : [],
             );
             setClothingInventory(Array.isArray(inventory) ? inventory : []);
-            setJerseyGroups(Array.isArray(groups) ? groups : []);
+            /*
+              **I gruppi numerazione sono dati di stagione** (`jersey_groups`
+              e in `SEASON_SCOPED_DATA_TYPES`, `club-seasons.ts`), letti qui
+              da una colonna grezza senza alcun filtro — lo stesso difetto
+              gia trovato e chiuso per le categorie in questa pagina
+              (revisione ostile Wave F, Reviewer B). Senza il filtro, il
+              gruppo derivato dalla categoria primaria
+              (`resolveNumberingGroupForCategory`) poteva risolversi su un
+              gruppo di una stagione chiusa.
+            */
+            {
+              const tutteLeVoci = Array.isArray(groups) ? groups : [];
+              const stagioniPerGruppi = normalizeClubSeasons(clubRecord?.settings || {});
+              const gruppiDellaStagione = stagioniPerGruppi.isFallback
+                ? tutteLeVoci
+                : filterCollectionBySeason("jersey_groups", tutteLeVoci, stagioniPerGruppi.activeSeasonId, {
+                    legacySeasonId: stagioniPerGruppi.legacySeasonId,
+                    knownSeasonIds: stagioniPerGruppi.seasons.map((season: { id: string }) => season.id),
+                  });
+              setJerseyGroups(gruppiDellaStagione);
+            }
             setKitAssignments(
               Array.isArray(assignments)
                 ? assignments.map(normalizeKitAssignmentRecord)

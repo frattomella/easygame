@@ -4,6 +4,7 @@ import {
   resolveOrganizationScopeForUser,
 } from "@/lib/server/auth";
 import { assertClubResourceAccess } from "@/lib/access-roles";
+import { athleteWithinAccessScope } from "@/lib/server/access-scope-query";
 import { loadConvertedTrialHistory } from "@/lib/server/trial-athletes";
 
 type Context = { params: { id: string } };
@@ -14,6 +15,13 @@ type Context = { params: { id: string } };
  * primo momento di attivita e le presenze registrate prima della conversione.
  * Nessun permesso di dominio delle prove: chi legge la scheda dell'atleta
  * legge la sua storia.
+ *
+ * **Il perimetro vale anche qui** (revisione ostile Wave F, Reviewer A):
+ * «lettura di `athletes`» e un permesso di ruolo piatto — un allenatore
+ * perimetrato su una sola sede/categoria lo ha comunque, e senza questo
+ * controllo leggerebbe la storia da prova di un atleta fuori dal suo
+ * perimetro. Stesso controllo, stesso punto, della foto in
+ * `athletes/:id/avatar` (`athleteWithinAccessScope`).
  */
 export async function GET(request: Request, context: Context) {
   try {
@@ -30,6 +38,13 @@ export async function GET(request: Request, context: Context) {
     const organizationId = scope.activeOrganizationId;
     if (!organizationId) {
       return NextResponse.json({ data: null, error: { message: "Nessun club attivo" } }, { status: 400 });
+    }
+    const dentroIlPerimetro = await athleteWithinAccessScope(organizationId, context.params.id, scope);
+    if (!dentroIlPerimetro) {
+      return NextResponse.json(
+        { data: null, error: { message: "Accesso negato: questo atleta e fuori dal perimetro di sede o categoria del ruolo attivo" } },
+        { status: 403 },
+      );
     }
     const history = await loadConvertedTrialHistory(organizationId, context.params.id);
     return NextResponse.json({ data: history, error: null });

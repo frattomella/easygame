@@ -115,6 +115,19 @@ test("78: le immagini incassate non spariscono in silenzio — dichiarate come n
   assert.ok(!unsupported.some((riga) => riga.includes("immagine")));
 });
 
+test("H1 (revisione ostile Wave F): un'intestazione o un piè di pagina non sparisce in silenzio", async () => {
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", CONTENT_TYPES);
+  zip.file("_rels/.rels", ROOT_RELS);
+  zip.file("word/_rels/document.xml.rels", DOCUMENT_RELS);
+  zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${paragraph("Corpo")}</w:body></w:document>`);
+  // Mammoth non legge mai queste parti (non fa nemmeno il tentativo): basta che esistano nell'archivio.
+  zip.file("word/header1.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${paragraph("Intestazione")}</w:hdr>`);
+  const docx = await zip.generateAsync({ type: "nodebuffer" });
+  const { unsupported } = await convertDocxToHtml(docx);
+  assert.ok(unsupported.some((riga) => /Intestazione o piè di pagina/.test(riga)), "l'intestazione deve comparire fra i non supportati, non sparire in silenzio");
+});
+
 test("79: un file che non e uno zip (MIME sbagliato o rinominato) e rifiutato, non produce un crash", async () => {
   await assert.rejects(() => convertDocxToHtml(Buffer.from("questo non e un docx")), DocxImportError);
 });
@@ -132,7 +145,7 @@ test("81: il vaglio rifiuta un percorso «..» nell'archivio, se mai un file lo 
     raggiunto da ogni voce dell'archivio, non come http bypassabile.
   */
   const source = readFileSync("src/lib/server/docx-import.ts", "utf8");
-  assert.match(source, /_percorso\.includes\("\.\."\)/);
+  assert.match(source, /voce\.name\.includes\("\.\."\)/);
   assert.match(source, /throw new DocxImportError\("Il file contiene un percorso non valido"\);/);
 });
 

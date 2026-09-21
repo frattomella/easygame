@@ -14064,3 +14064,63 @@ le annate — non una regressione, un debito gia della stessa famiglia
 
 **Test**: `tests/lib/multi-season-master-batch-wave-a.test.mjs` (estesa con
 i due casi trovati in UAT).
+
+### Wave F — Revisione ostile: cinque revisori in sola lettura, esito
+
+**Iniziale**: Critical **2**, High **5**, Medium **10**, Low **7**.
+
+- **Critical**
+  - Reviewer B: la scheda atleta (`athletes/[id]/page.tsx`) leggeva
+    categorie e gruppi numerazione da `getClubCategories`/`getClubData`
+    senza alcun perimetro di stagione, nonostante un commento nel codice
+    dichiarasse il contrario (ADR-0196 §C3): il selettore «Categorie»
+    offriva anche le squadre di stagioni chiuse come scelte ordinarie, e
+    scrivere quella scelta la attaccava a un'appartenenza corrente.
+  - Reviewer E: il vaglio della bomba d'archivio (Wave E) si fidava del
+    campo «dimensione non compressa» che lo zip stesso dichiara — un
+    valore che chi costruisce l'archivio puo scrivere falso, vanificando
+    la difesa che il commento del modulo prometteva.
+- **High**
+  - Reviewer A: la rotta `GET /api/v1/athletes/:id/trial-history` non
+    applicava il perimetro di sede/categoria (`athleteWithinAccessScope`),
+    nonostante «lettura di `athletes`» sia un permesso di ruolo piatto —
+    stessa classe di difetto gia chiusa altrove per la foto dell'atleta.
+  - Reviewer A: `activityStartAt` ricadeva su `athleteRecord.created_at`
+    quando l'atleta non veniva da una prova — la nascita della **riga**,
+    non della persona: un roster importato in blocco avrebbe nascosto
+    presenze vere gia migrate con la loro data reale.
+  - Reviewer B: stesso difetto Critical, sui gruppi numerazione
+    (`jersey_groups`, anch'esso dato di stagione).
+  - Reviewer D: una data esatta scritta su un piano **riusabile** (D9)
+    vince sempre, senza che niente dichiari una rata gia scaduta quando lo
+    stesso piano si riassegna a un ciclo di iscrizione successivo.
+  - Reviewer E: `mammoth` non legge mai intestazioni e piè di pagina (non
+    ne fa nemmeno il tentativo): il rapporto `unsupported` non poteva
+    dirlo perche niente nel codice sapeva che esistevano.
+
+**Chiuso, tutti e sette**:
+- Categorie e gruppi numerazione della scheda atleta ora leggono dal
+  registro (`/api/v1/categories`) e con `filterCollectionBySeason` per
+  `jersey_groups`, come «Nuovo atleta».
+- La bomba d'archivio si vaglia decomprimendo **per davvero**, un file
+  alla volta con un contatore condiviso che ferma il flusso appena supera
+  la soglia — mai piu leggendo un numero che l'archivio stesso dichiara.
+- `athletes/:id/trial-history` applica `athleteWithinAccessScope` come
+  ogni altra superficie del dominio atleta.
+- `activityStartAt` senza una prova e `null` (nessun taglio), non piu
+  `created_at`.
+- Una rata con `dueDate` gia passata produce un avviso che blocca la
+  conferma (`generateInstallmentPreview`, nuovo parametro `now`).
+- Intestazioni e piè di pagina rilevati nell'archivio (senza che serva
+  leggerli) e dichiarati in `unsupported`.
+
+**Finale**: Critical **0**, High **0**. Medium **10** e Low **7**
+dichiarati in `docs/knowledge-base/16-technical-debt.md`
+(D-RD-54…D-RD-64; due Low minori chiusi a vista durante la revisione:
+il commento datato di `ClothingSizesFields`, il gap di test sui piani
+mensili oltre 12 mesi).
+
+**Test**: `tests/lib/multi-season-master-batch-wave-f-hostile-review.test.mjs`
+(le sette correzioni Critical/High), piu le estensioni a
+`tests/lib/multi-season-master-batch-wave-b.test.mjs` e
+`tests/lib/multi-season-master-batch-wave-d.test.mjs`/`-wave-e-docx.test.mjs`.

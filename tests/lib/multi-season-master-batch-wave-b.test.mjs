@@ -155,7 +155,18 @@ test("B3/B4: la scheda atleta legge le presenze vere e la storia da prova", () =
   const source = readFileSync("src/app/athletes/[id]/page.tsx", "utf8");
   assert.match(source, /\/api\/v1\/club_event_participants\?athlete_id=/);
   assert.match(source, /\/trial-history/);
-  assert.match(source, /const activityStartAt = trialHistory\?\.activityStartAt \|\| athleteRecord\.created_at \|\| null;/);
+  assert.match(source, /const activityStartAt = trialHistory\?\.activityStartAt \|\| null;/);
+});
+
+/**
+ * Revisione ostile Wave F (Reviewer A) — senza una prova non si taglia
+ * niente: `athleteRecord.created_at` e la nascita della riga, non della
+ * persona, e un roster importato in blocco l'avrebbe usata per nascondere
+ * presenze vere gia migrate con la loro data reale.
+ */
+test("B1/B2 (revisione ostile Wave F): senza una prova, activityStartAt non usa la creazione della riga", () => {
+  const source = readFileSync("src/app/athletes/[id]/page.tsx", "utf8");
+  assert.doesNotMatch(source, /activityStartAt.*athleteRecord\.created_at/);
 });
 
 /**

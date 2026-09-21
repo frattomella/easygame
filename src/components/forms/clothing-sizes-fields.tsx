@@ -14,8 +14,9 @@ import {
 /**
  * Taglie di vestiario per una persona.
  *
- * Le stesse quattro voci della scheda atleta — profilo, maglia, pantalone,
- * scarpe — usabili anche su allenatore, staff e socio (Blocco 7, punto 12).
+ * Le stesse cinque voci della scheda atleta — profilo, maglia, pantalone,
+ * scarpe, tuta — usabili anche su allenatore, staff e socio (Blocco 7,
+ * punto 12; la tuta dal mandato multi-stagione, Wave C).
  *
  * **Nessun numero di maglia qui.** Il numero appartiene a chi scende in campo,
  * e darlo a un dirigente creerebbe conflitti nei gruppi di numerazione (WP-44)

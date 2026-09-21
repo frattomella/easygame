@@ -1186,7 +1186,7 @@ export const roundInstallmentsToFive = (
 export const generateInstallmentPreview = (
   plan: unknown,
   totalAmount: number,
-  options: { startDate?: unknown } = {},
+  options: { startDate?: unknown; /** Per i test; nell'uso reale e sempre l'istante vero. */ now?: unknown } = {},
 ) => {
   const normalizedPlan = normalizePaymentPlan(plan);
   const schedule =
@@ -1289,25 +1289,51 @@ export const generateInstallmentPreview = (
 
   const parsedStartDate = parseDate(options.startDate);
 
+  const installments = schedule.map((installment, index) => ({
+    ...installment,
+    amount: roundedAmounts[index] || 0,
+    /*
+      **Una data esatta scritta sul piano vince sul giorno relativo**
+      (mandato multi-stagione D9): prima questo ramo la sovrascriveva
+      sempre con `dataInizio + dueAfterDays` non appena l'abbonamento
+      aveva una data di inizio — cioe sempre, nel flusso reale — e una
+      rata scritta «15/10/2026» diventava silenziosamente un'altra data.
+      Chi scrive il piano sceglie l'uno o l'altro; non si mescolano sulla
+      stessa rata.
+    */
+    dueDate: installment.dueDate
+      ? installment.dueDate
+      : parsedStartDate
+        ? toIsoDateOnly(addDays(parsedStartDate, installment.dueAfterDays))
+        : installment.dueDate,
+  }));
+
+  /*
+    **Una data esatta e scritta sul piano, non sull'atleta** (revisione
+    ostile Wave F, Reviewer D): un piano con date di calendario si riusa
+    da un ciclo di iscrizione al successivo senza che niente lo dichiari
+    scaduto — un «Piano mensile 2026/27» costruito con il preset a
+    ottobre 2026 e riassegnato a settembre 2027 genera scadenze gia
+    passate il giorno stesso in cui l'atleta si iscrive. Lo stesso
+    riepilogo che gia blocca su un importo che non torna
+    (`handleContinuePlanConfirmation`) blocca anche su questo: una
+    scadenza passata non e un dettaglio, e il piano va aggiornato prima
+    di assegnarlo.
+  */
+  const oggi = toIsoDateOnly(options.now ? new Date(options.now as any) : new Date());
+  const rateScadute = installments.filter(
+    (installment) => installment.dueDate && installment.dueDate < oggi,
+  ).length;
+  if (rateScadute > 0) {
+    warnings.push(
+      rateScadute === 1
+        ? "ATTENZIONE: una rata ha una scadenza gia passata. Aggiorna le date del piano prima di assegnarlo."
+        : `ATTENZIONE: ${rateScadute} rate hanno una scadenza gia passata. Aggiorna le date del piano prima di assegnarlo.`,
+    );
+  }
+
   return {
-    installments: schedule.map((installment, index) => ({
-      ...installment,
-      amount: roundedAmounts[index] || 0,
-      /*
-        **Una data esatta scritta sul piano vince sul giorno relativo**
-        (mandato multi-stagione D9): prima questo ramo la sovrascriveva
-        sempre con `dataInizio + dueAfterDays` non appena l'abbonamento
-        aveva una data di inizio — cioe sempre, nel flusso reale — e una
-        rata scritta «15/10/2026» diventava silenziosamente un'altra data.
-        Chi scrive il piano sceglie l'uno o l'altro; non si mescolano sulla
-        stessa rata.
-      */
-      dueDate: installment.dueDate
-        ? installment.dueDate
-        : parsedStartDate
-          ? toIsoDateOnly(addDays(parsedStartDate, installment.dueAfterDays))
-          : installment.dueDate,
-    })),
+    installments,
     warnings,
   };
 };
@@ -1315,7 +1341,7 @@ export const generateInstallmentPreview = (
 export const calculatePlanInstallmentsForTotal = (
   plan: unknown,
   totalAmount: number,
-  options: { startDate?: unknown } = {},
+  options: { startDate?: unknown; now?: unknown } = {},
 ) => generateInstallmentPreview(plan, totalAmount, options).installments;
 
 const normalizeDiscountIds = (value: unknown) =>

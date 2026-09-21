@@ -43,11 +43,13 @@ export async function POST(request: Request) {
     }
 
     /*
-      **Ne il MIME dichiarato ne il nome, da soli**: un file rinominato
-      `.docx` che il browser dichiara come tale ma che il contenuto smentisce
-      viene comunque fermato dentro `convertDocxToHtml` (l'archivio non si
-      apre, o non e uno zip). Qui si controllano entrambi i segnali esterni
-      prima di spendere anche un solo ciclo di conversione.
+      **Un filtro veloce, non la difesa vera** (revisione ostile Wave F,
+      Reviewer E, M1): un client che omette `Content-Type` fa passare
+      questo controllo con la sola estensione — un browser reale puo farlo,
+      e bloccare in quel caso respingerebbe upload legittimi. La difesa che
+      conta e dentro `convertDocxToHtml`: un contenuto che non e uno zip
+      OOXML valido non produce niente, quale che sia il MIME dichiarato.
+      Questo controllo esiste solo per rispondere in fretta ai casi ovvi.
     */
     const nomeFile = String(file.name || "").toLowerCase();
     const tipoDichiarato = String(file.type || "").toLowerCase();
