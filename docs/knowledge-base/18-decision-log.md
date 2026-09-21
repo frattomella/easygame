@@ -13655,10 +13655,10 @@ D5/D6 ricerca e stato locale con la nota), Low 6 dichiarati:
   nuovi ma, se scritto sulla voce ed e assegnato, resta: la sospensione non
   e ancora un fatto del dominio degli allenamenti.
 
-## ADR-0199 — Master batch: operativita atleta, analitiche, numerazione, abbigliamento, piani di pagamento V2, tesseramento, import moduli (in corso)
+## ADR-0199 — Master batch: operativita atleta, analitiche, numerazione, abbigliamento, piani di pagamento V2, tesseramento, import moduli
 
-**Data:** 2026-09-21 (Wave A). Questo ADR cresce con ogni wave del mandato
-«EASYGAME — MASTER BATCH» e si chiude a Wave F con la revisione ostile finale.
+**Data:** 2026-09-21. Questo ADR copre l'intero mandato «EASYGAME — MASTER
+BATCH», wave per wave, chiuso dalla revisione ostile e dalla UAT di Wave F.
 
 ### Wave A — Presentazione categoria e UX atleta
 
@@ -14030,3 +14030,37 @@ decisione di prodotto separata, non un blocco tecnico di questa wave.
 `tests/lib/multi-season-master-batch-wave-e.test.mjs`; 71-85 (import DOCX,
 comportamentali con `.docx` costruiti al volo, non presi da
 `node_modules`) in `tests/lib/multi-season-master-batch-wave-e-docx.test.mjs`.
+
+### Wave F — UAT dal vivo: due difetti trovati e chiusi
+
+Il probe sul database reale (QA UAT Club, stagione B attiva con categorie
+omonime della A) ha trovato quello che le sole prove unitarie non potevano
+vedere — la **pipeline di dati vera** fra il server e il selettore, non la
+sola funzione di presentazione:
+
+- **Nuovo atleta non mostrava mai le annate**: le categorie arrivavano da
+  `getClubCategories` (`simplified-db.ts`), che le passa da
+  `buildClubCategoryOptions` in `NormalizedCategoryOption` — un tipo che
+  **non porta** `birthYearFrom`/`birthYearTo`/`ageRange`. La funzione di
+  Wave A (`optionLabel`) era corretta; i dati che le arrivavano erano gia
+  spogli. Chiuso leggendo le categorie dal registro (`/api/v1/categories`,
+  season-scoped dall'intestazione che il client aggiunge da solo), che
+  porta il record intero — e per «Nuovo atleta» e la fonte giusta anche per
+  ADR-0185, perche non porta le voci fantasma nate da una scheda che
+  `getClubCategories` fondeva.
+- **La scheda atleta, stesso difetto sul suo editor «Categorie»**: stessa
+  causa. Chiuso arricchendo `categoryOptions` con le annate del catalogo di
+  tutte le stagioni gia caricato per l'identita delle appartenenze
+  (ADR-0196) — per identificativo, senza cambiare la fonte che governa
+  cosa e «configurato».
+
+Nessuno dei due era coperto dai test unitari di Wave A, che passavano
+oggetti categoria gia completi di annate direttamente alla funzione di
+presentazione: provavano la funzione, non la pipeline reale che la
+alimenta sulla pagina. Trovati solo aprendo il modulo sul QA UAT Club.
+Verificato anche che i selettori di Matches/Training/Groups non mostrano
+le annate — non una regressione, un debito gia della stessa famiglia
+(D-RD-45), ora anche loro dichiarati (D-RD-53).
+
+**Test**: `tests/lib/multi-season-master-batch-wave-a.test.mjs` (estesa con
+i due casi trovati in UAT).

@@ -101,6 +101,21 @@ test("A3: la pagina Atleti legge le categorie dal registro con perimetro di stag
  * A9/A10 — la pagina Atleti rispetta l'ordine che il club ha scelto nella
  * pagina Categorie (`sortOrder`), non l'ordine di creazione.
  */
+test("A1/A2 (trovato in UAT dal vivo): Nuovo atleta legge le categorie dal registro, non da getClubCategories che perde le annate", () => {
+  const source = readFileSync("src/app/athletes/new/page.tsx", "utf8");
+  assert.doesNotMatch(source, /getClubCategories\(/, "getClubCategories (NormalizedCategoryOption) non porta birthYearFrom/To: le annate sparivano dal selettore");
+  assert.match(source, /apiRequest<any\[\]>\(`\/api\/v1\/categories\?organization_id=\$\{encodeURIComponent\(clubId\)\}`\)/);
+});
+
+test("A1/A2 (trovato in UAT dal vivo): la scheda atleta arricchisce le categorie con le annate del catalogo intero", () => {
+  const source = readFileSync("src/app/athletes/[id]/page.tsx", "utf8");
+  assert.match(source, /annatePerCategoria/);
+  assert.match(
+    source,
+    /const normalizedCategoryOptions = normalizeCollection<any>\(categoryOptions\)\.map\(\(categoria: any\) => \(\{\s*\n\s*\.\.\.annatePerCategoria\.get\(String\(categoria\?\.id \|\| ""\)\),\s*\n\s*\.\.\.categoria,/,
+  );
+});
+
 test("A9/A10: la pagina Atleti ordina le categorie per il posto deciso dal club", () => {
   const source = readFileSync("src/app/athletes/page.tsx", "utf8");
   assert.match(source, /readCategorySortOrder\(sinistra\.category\)/);

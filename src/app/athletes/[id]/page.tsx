@@ -684,7 +684,26 @@ export default function AthleteProfilePage() {
           birthDate: athleteRecord.birth_date,
           ...athletePayload,
         };
-        const normalizedCategoryOptions = normalizeCollection<any>(categoryOptions);
+        /*
+          **Le annate mancano da `getClubCategories`** (`NormalizedCategoryOption`
+          non le porta), ma il catalogo di tutte le stagioni — gia caricato
+          per l'identita delle appartenenze — le ha, perche legge la
+          categoria grezza. Si arricchisce per identificativo invece di
+          cambiare la fonte: quella resta l'unica che sa quali categorie
+          sono «configurate» per ADR-0185 (mandato multi-stagione A1/A2,
+          verificato dal vivo: il selettore «Categorie» non mostrava mai
+          le annate).
+        */
+        const annatePerCategoria = new Map<string, { birthYearFrom?: unknown; birthYearTo?: unknown; ageRange?: unknown }>(
+          (Array.isArray(catalogoTutteLeStagioni) ? catalogoTutteLeStagioni : []).map((categoria: any) => [
+            String(categoria?.id || ""),
+            { birthYearFrom: categoria?.birthYearFrom, birthYearTo: categoria?.birthYearTo, ageRange: categoria?.ageRange },
+          ]),
+        );
+        const normalizedCategoryOptions = normalizeCollection<any>(categoryOptions).map((categoria: any) => ({
+          ...annatePerCategoria.get(String(categoria?.id || "")),
+          ...categoria,
+        }));
         const normalizedTrainingRecords = normalizeCollection<any>(trainingRecords);
         const normalizedMatchRecords = normalizeCollection<any>(matchRecords);
         const normalizedCollections =

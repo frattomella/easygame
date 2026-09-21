@@ -583,7 +583,11 @@ test("§3.1–3.2 · la pagina: titolo, sottotitolo, ritorno, avviso senza club"
     assert.ok(nuovo.includes(messaggio), `manca il messaggio ${messaggio}`);
   }
   assert.match(nuovo, /addClubAthlete\(clubId, \{/);
-  assert.match(nuovo, /getClubCategories\(clubId\)/);
+  assert.match(
+    nuovo,
+    /\/api\/v1\/categories\?organization_id=\$\{encodeURIComponent\(clubId\)\}/,
+    "le categorie vengono dal registro (porta le annate), non da getClubCategories che le perde",
+  );
   assert.match(nuovo, /getClubFederationOptions\(clubId\)/);
   assert.match(
     nuovo,

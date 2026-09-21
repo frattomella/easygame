@@ -28,12 +28,12 @@ import { useMembershipTargetIndex } from "@/components/athletes/v2/AthleteCatego
 import {
   addClubAthlete,
   updateClubAthlete,
-  getClubCategories,
   getClubData,
   getClubFederationOptions,
 } from "@/lib/simplified-db";
 import { type ClubFederation } from "@/lib/club-federations";
 import { sortByName } from "@/lib/sorting";
+import { apiRequest } from "@/lib/api/client";
 
 /**
  * Iscrivere un atleta: **una pagina**, come per allenatori e soci (ADR-0057).
@@ -113,14 +113,21 @@ function NewAthletePageContent() {
     let cancelled = false;
 
     /*
-      **Si sceglie solo fra cio che il club ha configurato** (ADR-0185): il
-      catalogo porta anche le voci nate da una scheda, e chi iscrive un
-      ragazzo non deve poterlo mettere in una squadra che non esiste. I gruppi
-      e le sedi servono a scrivere «Pulcini · Scauri» dove il nome ne nomina
-      due.
+      **Si sceglie solo fra cio che il club ha configurato** (ADR-0185), dal
+      registro delle categorie — non da `getClubCategories`
+      (`simplified-db.ts`), che le passa da `buildClubCategoryOptions` e
+      **perde le annate** (`NormalizedCategoryOption` non le porta): il
+      selettore di questa pagina, verificato dal vivo sul QA UAT Club
+      (mandato multi-stagione, Wave F), non mostrava mai `(2016-2017)`
+      nonostante la categoria le avesse. Il registro non aggiunge le
+      categorie nate solo da una scheda (non le legge affatto), quindi il
+      filtro `configured` di ADR-0185 resta rispettato senza doverlo
+      ricalcolare qui.
     */
     void Promise.all([
-      getClubCategories(clubId),
+      apiRequest<any[]>(`/api/v1/categories?organization_id=${encodeURIComponent(clubId)}`)
+        .then((response) => (response.error ? [] : response.data || []))
+        .catch(() => []),
       getClubData(clubId, "club_sites"),
       getClubData(clubId, "category_groups"),
       getClubData(clubId, "settings"),
