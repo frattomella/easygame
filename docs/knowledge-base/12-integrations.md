@@ -266,6 +266,7 @@ Vedi [13 — Ambienti](13-environments.md).
 | `xlsx` | Import/export fogli di calcolo | `src/lib/athlete-import.ts` e affini |
 | `bcryptjs` | Hash password | `src/lib/server/auth.ts` |
 | `nodemailer` | SMTP | `src/lib/server/email/smtp-provider.ts` |
+| `mammoth` + `jszip` | Import di un `.docx` come base per un modello di documento (ADR-0199 Wave E): converte in HTML sanificato, non apre mai macro, non chiama rete; `jszip` legge i metadati dell'archivio per il vaglio della bomba d'archivio prima di decomprimere | `src/lib/server/docx-import.ts` |
 
 ## Integrazioni assenti
 

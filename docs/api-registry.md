@@ -1048,6 +1048,17 @@ stessa semantica per la scheda singola e per il blocco: si sceglie una
   Una coppia (categoria, sede) che il club non ha configurato e rifiutata
   (`400`), anche sul registro generico.
 
+### Import di un documento Word (mandato multi-stagione E5-E12, 2026-09-21)
+
+- `POST /api/v1/document_templates/docx-preview` — `multipart/form-data`
+  con `file` (`.docx`, fino a 10 MB). Converte e sanifica, **non scrive**
+  niente: risponde `{html, unsupported}` (`unsupported` elenca cio che il
+  documento aveva e questo import non ha portato — messaggi di `mammoth`
+  piu il conteggio delle immagini incassate, mai importate come `data:`
+  URI). Il salvataggio come modello e un `POST /api/v1/document_templates`
+  qualunque, con questo `html` come `content`: nessuno scrittore nuovo.
+  Permesso: `document_templates`, azione `create`.
+
 ### Storia da prova di un atleta (mandato multi-stagione B1/B2/B3, 2026-09-21)
 
 - `GET /api/v1/athletes/:id/trial-history` — `null` se l'atleta non e mai

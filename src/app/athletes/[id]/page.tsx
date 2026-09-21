@@ -2954,6 +2954,28 @@ export default function AthleteProfilePage() {
       return;
     }
 
+    /*
+      **Una scadenza senza un rilascio non e un tesseramento** (mandato
+      multi-stagione E1/E2): lo stesso vaglio del registro generico
+      (`assertRegistrationDates`), qui solo per non far partire la
+      richiesta.
+    */
+    if (newRegistration.expiryDate && !newRegistration.issueDate) {
+      showToast(
+        "error",
+        "Il tesseramento ha una scadenza ma non una data di rilascio: indicala, o lascia il tesseramento non registrato",
+      );
+      return;
+    }
+    if (
+      newRegistration.issueDate &&
+      newRegistration.expiryDate &&
+      newRegistration.expiryDate < newRegistration.issueDate
+    ) {
+      showToast("error", "Il tesseramento scade prima della data di rilascio");
+      return;
+    }
+
     try {
       const indiceInModifica = findRegistrationIndex(
         registrations,

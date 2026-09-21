@@ -844,8 +844,14 @@ test("il dialogo dichiara la soglia invece di indovinarla", () => {
 });
 
 test("il fascicolo non introduce nessun motore PDF, e lo dice", () => {
+  /*
+    `jszip` non e in questo elenco da ADR-0199 Wave E: non e un motore PDF,
+    e la libreria di lettura zip che l'import DOCX usa per il vaglio della
+    bomba d'archivio (`src/lib/server/docx-import.ts`) — un compito diverso
+    da questo, arrivato per una ragione sua e dichiarata li.
+  */
   const librerie =
-    /\b(jspdf|pdfmake|html2pdf|html2canvas|pdf-lib|puppeteer|playwright|@react-pdf|pdfkit|jszip)\b/i;
+    /\b(jspdf|pdfmake|html2pdf|html2canvas|pdf-lib|puppeteer|playwright|@react-pdf|pdfkit)\b/i;
 
   for (const [nome, sorgente] of [
     ["il fascicolo", BUNDLE_RAW],

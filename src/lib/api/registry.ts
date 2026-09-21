@@ -173,6 +173,14 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     mobile_ready: false,
   },
   {
+    name: "document_templates.docx_preview",
+    method: "POST",
+    path: "/api/v1/document_templates/docx-preview",
+    description:
+      "Converte un .docx (fino a 10 MB) in HTML sanificato per la Modulistica (mandato multi-stagione E5-E12): non salva niente, risponde {html, unsupported}. unsupported elenca cio che mammoth non ha convertito piu il conteggio delle immagini incassate, mai importate come data: URI. Il salvataggio riusa POST /api/v1/document_templates con questo html come content. Permesso: document_templates, azione create",
+    mobile_ready: false,
+  },
+  {
     name: "athletes.trial_history",
     method: "GET",
     path: "/api/v1/athletes/:id/trial-history",

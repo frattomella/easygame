@@ -202,6 +202,25 @@ export const createDocumentTemplate = async (input: {
   return { template: response.data || null, error: response.error?.message || null };
 };
 
+export type DocxImportPreview = { html: string; unsupported: string[] };
+
+/**
+ * L'anteprima di un `.docx` come base per un modello (mandato multi-stagione
+ * E5-E12). Non scrive niente: il salvataggio e un `createDocumentTemplate`
+ * qualunque, con questo `html` come `content`.
+ */
+export const previewDocxImport = async (
+  file: File,
+): Promise<{ preview: DocxImportPreview | null; error: string | null }> => {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  const response = await apiRequest<DocxImportPreview>("/api/v1/document_templates/docx-preview", {
+    method: "POST",
+    body: form,
+  });
+  return { preview: response.data || null, error: response.error?.message || null };
+};
+
 export const saveDocumentTemplateDraft = async (
   id: string,
   input: {

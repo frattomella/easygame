@@ -408,6 +408,35 @@ export function AthleteCreateForm({
       return;
     }
 
+    /*
+      **Una scadenza senza un rilascio non e un tesseramento** (mandato
+      multi-stagione E1/E2): lo stesso vaglio che il registro generico
+      applica a ogni scrittura di `athletes.data` (`assertRegistrationDates`
+      in `resources.ts`) — qui solo per dirlo prima di mandare la richiesta,
+      non come unica difesa.
+    */
+    if (formData.registrationExpiryDate && !formData.registrationIssueDate) {
+      setValidationErrors([
+        { id: "registrationIssueDate", label: "Data di rilascio del tesseramento" },
+      ]);
+      showToast(
+        "error",
+        "Il tesseramento ha una scadenza ma non una data di rilascio: indicala, o lascia il tesseramento non registrato",
+      );
+      return;
+    }
+    if (
+      formData.registrationIssueDate &&
+      formData.registrationExpiryDate &&
+      formData.registrationExpiryDate < formData.registrationIssueDate
+    ) {
+      setValidationErrors([
+        { id: "registrationExpiryDate", label: "Scadenza del tesseramento" },
+      ]);
+      showToast("error", "Il tesseramento scade prima della data di rilascio");
+      return;
+    }
+
     setValidationErrors([]);
 
     /*

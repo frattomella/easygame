@@ -13954,3 +13954,79 @@ all'insieme esistente: stesso meccanismo, nessuna scrittura in piu.
 reale (QA UAT Club) e consolidato nella UAT di Wave F insieme alle altre
 wave, per un deploy solo con la guardia EXPECTED/ACTUAL invece di uno per
 wave — vedi REMAINING per lo stato esatto a fine batch.
+
+### Wave E — Tesseramento e import Modulistica
+
+**E1-E4 (data di rilascio obbligatoria).** Riprodotto esattamente come
+descritto: un tesseramento con `expiryDate` e `issueDate` vuota si salvava
+sempre, perche `athletes.data.registrations` e un array JSON senza vincolo
+di database, e ne il modulo di creazione ne la maschera di modifica lo
+controllavano — solo la federazione era vagliata (N2). Nuova guardia
+`assertRegistrationDates`, stesso punto di ingresso di
+`assertRegistrationFederations` (l'unica strada per `athletes.data`: la
+scheda, la creazione, un `curl`): una scadenza senza rilascio o una
+scadenza prima del rilascio si rifiuta, **solo per le righe nuove o
+cambiate** — una riga storica gia invalida non si tocca e non blocca il
+resto della scheda (E4, la stessa filosofia gia in uso per le federazioni).
+Doppiata lato client (form di creazione, cassetto di modifica) per
+l'esperienza, mai come unica difesa (E3). Script di censimento in sola
+lettura, `.codex-scratch/wave-e/censimento-tesseramenti-invalidi.mjs`, da
+eseguire nella UAT di Wave F.
+
+**E5-E12 (import da Word) — discovery, poi implementazione reale.**
+Confermato dalla discovery (E8): nessuna libreria di parsing zip/XML era
+installata. Non trattato come blocco automatico: valutata `mammoth`
+(mwilliamson/mammoth.js, MIT) — la libreria di riferimento per DOCX -> HTML,
+che non apre mai `vbaProject.bin` (nessuna macro), non chiama rete, non
+scrive su disco (tutto `Buffer` a `Buffer`). Verificato con `npm audit`
+**prima** di installarla: il suo albero di dipendenze (`jszip`, `lop`,
+`@xmldom/xmldom`, `bluebird`, `underscore`, …) non introduce **nessuna**
+vulnerabilita nuova — le 53 segnalate dopo l'installazione erano gia 44
+prima, tutte in `next`/`prisma`/`tiptap`/`xlsx`/toolchain, estranee a
+questa wave.
+
+Nuovo modulo, `src/lib/server/docx-import.ts`:
+- **dimensione**: `MAX_ATTACHMENT_BYTES` (10 MB), lo stesso soffitto degli
+  allegati;
+- **bomba d'archivio**: la somma delle dimensioni **non compresse** delle
+  voci si legge dai metadati dello zip (intestazione centrale, `jszip` non
+  decomprime per leggerla) **prima** di chiamare `mammoth`; oltre 80 MB si
+  rifiuta senza aver decompresso niente. Una seconda soglia indipendente
+  sull'HTML prodotto (5 MB) copre il caso di testo che si gonfia nella
+  conversione stessa;
+- **percorso**: un nome di voce con `..` si rifiuta (nessuna estrazione su
+  disco avviene comunque: e prudenza, non l'unica difesa);
+- **immagini**: **non** importate come `data:` URI — la sanificazione
+  esistente (ADR-0190, `ALLOWED_IMAGE_SRC`) le toglierebbe comunque perche
+  accetta solo gli allegati del sistema; si sceglie di non generarle
+  affatto e di **dirlo** nel rapporto (`unsupported`) invece di lasciarle
+  sparire in silenzio (E9). Supporto immagini completo (caricarle come
+  allegati veri e riscrivere `src`) e un incremento naturale, dichiarato
+  come debito (D-RD-51), non implementato in questo giro;
+- **XML/macro**: nessun parser proprio; `mammoth`/`@xmldom` leggono solo
+  testo e formattazione;
+- **output**: sempre passato da `sanitizeRichHtml` (ADR-0190), la stessa
+  funzione di ogni altro contenuto formattato — non una seconda
+  sanificazione.
+
+Nuova rotta a sola conversione, `POST /api/v1/document_templates/docx-preview`
+(nessuna scrittura): il salvataggio riusa `POST /api/v1/document_templates`
+gia esistente, con l'HTML convertito come `content` — nessuno scrittore
+nuovo per la persistenza. Un cassetto nuovo (`DocxImportDrawer`) offre
+l'anteprima (E12) prima della conferma; «Conferma e crea documento» crea
+sempre un documento **nuovo**, mai una sovrascrittura di un modello
+esistente.
+
+**Verificato, non promesso** (E8): paragrafi, titoli, grassetto/corsivo,
+tabelle e interruzioni di pagina si importano; un elenco puntato senza la
+parte `numbering.xml` del documento arriva come testo (non come `<ul>`) —
+limite dichiarato di `mammoth` senza configurazione aggiuntiva, non di
+questo modulo. PDF e ODT: **non** trattati in questo giro (E11) — un PDF e
+un documento di riferimento statico che questo dominio non rende
+editabile, un ODT userebbe un parser diverso; entrambi restano una
+decisione di prodotto separata, non un blocco tecnico di questa wave.
+
+**Test**: 64-70 (tesseramento) in
+`tests/lib/multi-season-master-batch-wave-e.test.mjs`; 71-85 (import DOCX,
+comportamentali con `.docx` costruiti al volo, non presi da
+`node_modules`) in `tests/lib/multi-season-master-batch-wave-e-docx.test.mjs`.

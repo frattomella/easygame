@@ -69,7 +69,11 @@ test("/modulistica: guscio V2 con una barra sola, intestazione e un solo primari
   assert.match(sources.page, /<PageHeader/);
   assert.match(sources.page, /title="Modulistica"/);
   assert.match(sources.page, /Nuovo documento/);
-  assert.match(sources.page, /currentTab === "documents" && canManage \? \(\s*<Button variant="primary"/, "il primario di pagina solo sulla scheda dei modelli e solo a chi puo");
+  assert.match(
+    sources.page,
+    /currentTab === "documents" && canManage \? \(\s*<div[^>]*>[\s\S]*?<Button variant="primary"/,
+    "il primario di pagina solo sulla scheda dei modelli e solo a chi puo",
+  );
   assert.equal((sources.page.match(/variant="primary"/g) || []).length, 1, "un solo gradiente in pagina: gli altri stanno nei cassetti");
 });
 

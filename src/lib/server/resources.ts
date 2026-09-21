@@ -814,6 +814,70 @@ const assertRegistrationFederations = async (
   }
 };
 
+/**
+ * **Una scadenza senza un rilascio non e un tesseramento** (mandato
+ * multi-stagione E1/E2).
+ *
+ * Il bug reale: la scheda salvava una scadenza con la data di rilascio
+ * vuota — ne il modulo di creazione ne la maschera di modifica lo
+ * impedivano, e nessun vaglio server lo faceva perche `athletes.data` non
+ * ha un vincolo di database su un array JSON. La guardia sta qui per lo
+ * stesso motivo di `assertRegistrationFederations`: e l'unica strada per
+ * `athletes.data`, quindi vale per la scheda, la creazione, un `curl`.
+ *
+ * **Solo i tesseramenti nuovi o cambiati**, come per le federazioni: una
+ * riga storica gia invalida (scadenza senza rilascio, scritta prima di
+ * questa guardia) resta com'e finche nessuno la tocca — non si corregge da
+ * sola e non blocca chi sta salvando un altro campo della scheda (E4: le
+ * righe legacy si contano, non si riscrivono).
+ */
+export const assertRegistrationDates = (
+  resource: string,
+  input: unknown,
+  existing?: Record<string, any> | null,
+) => {
+  if (resource !== "athletes" && resource !== "simplified_athletes") return;
+
+  const data =
+    input && typeof input === "object"
+      ? ((input as Record<string, any>).data as Record<string, any> | undefined)
+      : undefined;
+
+  const registrations = data?.registrations;
+  if (!Array.isArray(registrations) || registrations.length === 0) return;
+
+  const impronta = (riga: any) =>
+    [
+      String(riga?.federationId ?? riga?.federation_id ?? "").trim().toLowerCase(),
+      String(riga?.issueDate ?? riga?.issue_date ?? "").trim(),
+      String(riga?.expiryDate ?? riga?.expiry_date ?? "").trim(),
+    ].join("::");
+
+  const gia = new Set<string>(
+    (Array.isArray((existing as any)?.data?.registrations)
+      ? (existing as any).data.registrations
+      : []
+    ).map(impronta),
+  );
+
+  for (const riga of registrations) {
+    if (gia.has(impronta(riga))) continue;
+
+    const issueDate = String(riga?.issueDate ?? riga?.issue_date ?? "").trim();
+    const expiryDate = String(riga?.expiryDate ?? riga?.expiry_date ?? "").trim();
+
+    if (expiryDate && !issueDate) {
+      throw new Error(
+        "Il tesseramento ha una scadenza ma non una data di rilascio: indicala, o lascia il tesseramento non registrato",
+      );
+    }
+
+    if (issueDate && expiryDate && expiryDate < issueDate) {
+      throw new Error("Il tesseramento scade prima della data di rilascio");
+    }
+  }
+};
+
 const assertClinicalWrite = async (
   resource: string,
   scope: ResourceAccessScope | undefined,
@@ -6696,6 +6760,7 @@ export const createResource = async (
     scope,
     null,
   );
+  assertRegistrationDates(resource, input, null);
 
   if (config.kind === "club_resource") {
     const data = normalizeClubResourceInput(resource, input);
@@ -7934,6 +7999,7 @@ const applicaGuardieDiModifica = async (
       scope,
       existing as any,
     );
+    assertRegistrationDates(resource, normalized, existing as any);
 
     if (
       (resource === "athletes" || resource === "simplified_athletes") &&

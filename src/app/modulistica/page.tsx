@@ -47,6 +47,7 @@ import { GeneratedGrid } from "@/components/modulistica/v2/generated-grid";
 import { OnlineFormsSection } from "@/components/modulistica/v2/online-forms-section";
 import { TemplateEditorView } from "@/components/modulistica/v2/template-editor-view";
 import { NewTemplateDrawer, type NewTemplateValues } from "@/components/modulistica/v2/new-template-drawer";
+import { DocxImportDrawer } from "@/components/modulistica/v2/docx-import-drawer";
 import { GenerateDocumentDrawer } from "@/components/modulistica/v2/generate-document-drawer";
 import { FilledPreviewDrawer, type FilledPreviewState } from "@/components/modulistica/v2/filled-preview-drawer";
 import { DeleteTemplateDialog, PublishIssuesDialog } from "@/components/modulistica/v2/template-dialogs";
@@ -136,6 +137,7 @@ function ModulisticaPage() {
   const [publishIssues, setPublishIssues] = React.useState<TemplateIssue[] | null>(null);
 
   const [newDocumentDialog, setNewDocumentDialog] = React.useState(false);
+  const [docxImportDialog, setDocxImportDialog] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
   const [adoptingKey, setAdoptingKey] = React.useState("");
 
@@ -312,6 +314,32 @@ function ModulisticaPage() {
     setActiveView("editor");
     setNewDocumentDialog(false);
     showToast("success", "Nuovo modello creato: è una bozza, finché non lo pubblichi");
+  };
+
+  /**
+   * L'import da Word crea sempre un documento **nuovo** (E12): mai una
+   * sovrascrittura del modello corrente. Stessa strada di
+   * `handleCreateNewConfirm`, con il contenuto convertito al posto del
+   * paragrafo vuoto di partenza.
+   */
+  const handleDocxImportConfirm = async (values: { title: string; html: string }) => {
+    setCreating(true);
+    const { template, error } = await createDocumentTemplate({
+      title: values.title,
+      subjectKind: "athlete",
+      content: values.html,
+    });
+    setCreating(false);
+    if (error || !template) {
+      showToast("error", error || "Errore nella creazione del documento");
+      return;
+    }
+    setTemplates((current) => [...current, template]);
+    setEditorTemplate(template);
+    setEditorSubject(template.subjectKind);
+    setActiveView("editor");
+    setDocxImportDialog(false);
+    showToast("success", "Documento importato: è una bozza, rifiniscila nel foglio visuale");
   };
 
   /**
@@ -551,9 +579,14 @@ function ModulisticaPage() {
             description={PAGE_DESCRIPTION}
             actions={
               currentTab === "documents" && canManage ? (
-                <Button variant="primary" icon={<Plus />} onClick={() => setNewDocumentDialog(true)}>
-                  Nuovo documento
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="secondary" onClick={() => setDocxImportDialog(true)}>
+                    Importa da Word
+                  </Button>
+                  <Button variant="primary" icon={<Plus />} onClick={() => setNewDocumentDialog(true)}>
+                    Nuovo documento
+                  </Button>
+                </div>
               ) : null
             }
           >
@@ -636,6 +669,8 @@ function ModulisticaPage() {
       )}
 
       <NewTemplateDrawer open={newDocumentDialog} onOpenChange={setNewDocumentDialog} onCreate={handleCreateNewConfirm} creating={creating} />
+
+      <DocxImportDrawer open={docxImportDialog} onOpenChange={setDocxImportDialog} onConfirm={handleDocxImportConfirm} creating={creating} />
 
       <GenerateDocumentDrawer
         open={Boolean(generateTarget)}
