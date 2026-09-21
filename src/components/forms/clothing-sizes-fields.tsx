@@ -142,6 +142,27 @@ export function ClothingSizesFields({
           ) : null}
         </select>
       </div>
+
+      <div className="space-y-2">
+        <Label htmlFor={`${idPrefix}-tracksuit`}>Taglia tuta</Label>
+        <select
+          id={`${idPrefix}-tracksuit`}
+          className={selectClassName}
+          disabled={disabled}
+          value={sizes.tracksuitSize}
+          onChange={(event) => update({ tracksuitSize: event.target.value })}
+        >
+          <option value="">Non indicata</option>
+          {options.tracksuit.map((size) => (
+            <option key={size} value={size}>
+              {size}
+            </option>
+          ))}
+          {sizes.tracksuitSize && !options.tracksuit.includes(sizes.tracksuitSize) ? (
+            <option value={sizes.tracksuitSize}>{sizes.tracksuitSize}</option>
+          ) : null}
+        </select>
+      </div>
     </div>
   );
 }
@@ -184,6 +205,7 @@ export function ClothingSizesSummary({
     { label: "Taglia maglia", value: sizes.shirtSize },
     { label: "Taglia pantalone", value: sizes.pantsSize },
     { label: "Numero scarpe", value: sizes.shoeSize, tabular: true },
+    { label: "Taglia tuta", value: sizes.tracksuitSize },
   ];
 
   return (

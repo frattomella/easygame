@@ -13805,3 +13805,51 @@ blocco transazionale (`SELECT ... FOR UPDATE` o un lock consultivo per
 `(clubId, groupId)`), che e un cambio dell'architettura dello scrittore, non
 un vincolo aggiunto: fuori dallo scope sicuro di questo giro. Registrato
 come debito (D-RD-47).
+
+### Wave C — Abbigliamento, taglie, kit
+
+**Censimento (C1).** Il modulo esisteva gia, maturo: catalogo articoli,
+magazzino, kit, assegnazioni, gruppi numerazione — tutto JSON su `Club`
+(`clothing_kits`, `clothing_inventory`, `clothing_products`,
+`kit_assignments`), dominio in `src/lib/clothing-inventory-utils.ts` e
+`src/lib/clothing-sizes.ts`, superficie in `/clothing`. La maggior parte del
+mandato era **gia** soddisfatta e non e stata toccata per non duplicarla:
+
+- **C2/C3 (anni vs taglie)**: gia distinti. `deriveClothingProfile` sceglie
+  BAMBINO/BAMBINA (taglie per eta, `9-10A`) sotto i 15 anni, UOMO/DONNA
+  (lettere/numeri) sopra; il profilo resta scegliibile a mano.
+- **C7 (prefill)**: gia separato — `proposeSizeForItem` **propone**, non
+  scrive: cambiare la taglia di una consegna non tocca la preferenza
+  dell'atleta (commento del modulo: «Proporre non e scrivere»).
+- **C8/C9 (Nuovo atleta, sicurezza del magazzino)**: gia disaccoppiati. Il
+  modulo Nuovo atleta ha una sezione Taglie facoltativa e **nessuna**
+  assegnazione kit — l'assegnazione e un passo separato, permesso solo dopo
+  che la scheda esiste (`POST /api/clothing/assignments` richiede
+  l'atleta gia in archivio). «Salva atleta senza assegnare kit» era gia
+  sempre valido.
+- **C4 (maglia/pantaloncino)**: gia distinti come `shirtSize`/`pantsSize`
+  (il pantaloncino condivide il campo pantalone: e «l'equivalente nel
+  modello esistente» che il mandato ammette esplicitamente — non introdotta
+  una terza taglia per non disfare una scelta di dominio gia presa).
+
+**Il gap reale (C5/C6).** `tracksuitSize` viveva gia dentro
+`getAthleteClothingProfile` — il dominio **sapeva** che una tuta e una
+taglia sua — ma **senza un campo che lo scrivesse** (il componente
+condiviso `ClothingSizesFields`, usato da atleta/allenatore/staff/socio,
+si fermava a maglia/pantalone/scarpe) **e senza un `sizeSource` che lo
+leggesse** (`ClothingSizeSource` era `"shirt" | "pants" | "shoes" | "none"`):
+codice irraggiungibile su entrambi i lati, la stessa forma di D-RD-18. Nel
+frattempo un capo il cui tipo conteneva «tuta» ricadeva sul ramo `pants` di
+`resolveItemSizeSource` — proponeva la taglia del **pantalone** per un capo
+che si sceglie come una maglia.
+
+Chiuso aggiungendo `"tracksuit"` a `ClothingSizeSource` (con l'etichetta
+«Taglia tuta» nel catalogo articoli), un campo «Taglia tuta» al componente
+condiviso (quindi ad atleta, allenatore, staff e socio in un colpo solo),
+`tracksuitSize` a `ClothingSizes`/`normalizeClothingSizes`/
+`hasClothingSizes`/`formatClothingSizes`, e il ramo `tracksuit` prima di
+`pants` in `resolveItemSizeSource` (un tipo «tuta» non cade piu sul
+pantalone) e in `proposeSizeForItem`.
+
+**Test**: 33-43 della matrice Wave C, in
+`tests/lib/multi-season-master-batch-wave-c.test.mjs`.

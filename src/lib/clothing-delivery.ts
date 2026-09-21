@@ -261,7 +261,9 @@ export const resolveItemSizeSource = (
 
   if (!type) return "none";
   if (/scarp|calzatur|shoe|sneaker/.test(type)) return "shoes";
-  if (/pantalon|short|calzoncin|pants|tuta|leggin/.test(type)) return "pants";
+  /* Una tuta non si misura come un pantalone (C5): il tipo va controllato prima del ramo `pants`. */
+  if (/\btuta\b|tracksuit/.test(type)) return "tracksuit";
+  if (/pantalon|short|calzoncin|pants|leggin/.test(type)) return "pants";
   if (/magli|shirt|felp|giacc|polo|canott|top|k-?way/.test(type)) return "shirt";
 
   return "none";
@@ -292,7 +294,9 @@ export const proposeSizeForItem = ({
       ? sizes?.shirtSize
       : source === "pants"
         ? sizes?.pantsSize
-        : sizes?.shoeSize) || "",
+        : source === "tracksuit"
+          ? sizes?.tracksuitSize
+          : sizes?.shoeSize) || "",
   ).trim();
 
   if (!proposed) return "";

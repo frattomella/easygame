@@ -78,6 +78,7 @@ test("le taglie si normalizzano senza inventare valori", () => {
     shirtSize: "",
     pantsSize: "",
     shoeSize: "",
+    tracksuitSize: "",
   });
   assert.equal(
     formatClothingSizes({ shirtSize: "M", pantsSize: "48", shoeSize: "42" }),

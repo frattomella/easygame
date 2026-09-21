@@ -119,6 +119,7 @@ export const SIZE_SOURCE_LABELS: Record<ClothingSizeSource, string> = {
   shirt: "Taglia maglia",
   pants: "Taglia pantaloni",
   shoes: "Numero di scarpe",
+  tracksuit: "Taglia tuta",
 };
 
 export const STOCK_TYPE_LABELS: Record<InventoryStock["stockType"], string> = {

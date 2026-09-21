@@ -39,27 +39,31 @@ export type ClothingProfile = "BAMBINO" | "BAMBINA" | "UOMO" | "DONNA";
 
 export const CLOTHING_SIZE_OPTIONS: Record<
   ClothingProfile,
-  { shirt: readonly string[]; pants: readonly string[]; shoes: readonly string[] }
+  { shirt: readonly string[]; pants: readonly string[]; shoes: readonly string[]; tracksuit: readonly string[] }
 > = {
   BAMBINO: {
     shirt: ["3-4A", "5-6A", "7-8A", "9-10A", "11-12A", "13-14A"],
     pants: ["3-4A", "5-6A", "7-8A", "9-10A", "11-12A", "13-14A"],
     shoes: ["26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39"],
+    tracksuit: ["3-4A", "5-6A", "7-8A", "9-10A", "11-12A", "13-14A"],
   },
   BAMBINA: {
     shirt: ["3-4A", "5-6A", "7-8A", "9-10A", "11-12A", "13-14A"],
     pants: ["3-4A", "5-6A", "7-8A", "9-10A", "11-12A", "13-14A"],
     shoes: ["26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39"],
+    tracksuit: ["3-4A", "5-6A", "7-8A", "9-10A", "11-12A", "13-14A"],
   },
   UOMO: {
     shirt: ["XS", "S", "M", "L", "XL", "XXL", "3XL"],
     pants: ["XS", "S", "M", "L", "XL", "XXL", "3XL", "46", "48", "50", "52", "54", "56", "58", "60"],
     shoes: ["38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48"],
+    tracksuit: ["XS", "S", "M", "L", "XL", "XXL", "3XL"],
   },
   DONNA: {
     shirt: ["XXS", "XS", "S", "M", "L", "XL", "XXL"],
     pants: ["36", "38", "40", "42", "44", "46", "48", "50", "52"],
     shoes: ["35", "36", "37", "38", "39", "40", "41", "42"],
+    tracksuit: ["XXS", "XS", "S", "M", "L", "XL", "XXL"],
   },
 };
 
@@ -76,6 +80,8 @@ export type ClothingSizes = {
   shirtSize: string;
   pantsSize: string;
   shoeSize: string;
+  /** Una tuta non si misura come un pantalone (C5): campo suo, non un ripiego su `pantsSize`. */
+  tracksuitSize: string;
 };
 
 export const DEFAULT_CLOTHING_SIZES: ClothingSizes = {
@@ -83,6 +89,7 @@ export const DEFAULT_CLOTHING_SIZES: ClothingSizes = {
   shirtSize: "",
   pantsSize: "",
   shoeSize: "",
+  tracksuitSize: "",
 };
 
 const isFemale = (gender?: string | null) => {
@@ -135,7 +142,7 @@ export const clothingOptionsFor = (profile: ClothingProfile) =>
  */
 export const allClothingSizesFor = (profile: ClothingProfile): string[] => {
   const options = clothingOptionsFor(profile);
-  return Array.from([...options.shirt, ...options.pants, ...options.shoes]
+  return Array.from([...options.shirt, ...options.pants, ...options.shoes, ...options.tracksuit]
     .reduce((seen, size) => seen.add(size), new Set<string>()));
 };
 
@@ -147,17 +154,18 @@ export const normalizeClothingSizes = (
   shirtSize: String(value?.shirtSize || "").trim(),
   pantsSize: String(value?.pantsSize || "").trim(),
   shoeSize: String(value?.shoeSize || "").trim(),
+  tracksuitSize: String(value?.tracksuitSize || "").trim(),
 });
 
 export const hasClothingSizes = (value?: Partial<ClothingSizes> | null) => {
   const sizes = normalizeClothingSizes(value);
-  return Boolean(sizes.shirtSize || sizes.pantsSize || sizes.shoeSize);
+  return Boolean(sizes.shirtSize || sizes.pantsSize || sizes.shoeSize || sizes.tracksuitSize);
 };
 
 /** Riepilogo per un elenco o un export: `M · 48 · 42`. */
 export const formatClothingSizes = (value?: Partial<ClothingSizes> | null) => {
   const sizes = normalizeClothingSizes(value);
-  return [sizes.shirtSize, sizes.pantsSize, sizes.shoeSize]
+  return [sizes.shirtSize, sizes.pantsSize, sizes.shoeSize, sizes.tracksuitSize]
     .filter(Boolean)
     .join(" · ");
 };

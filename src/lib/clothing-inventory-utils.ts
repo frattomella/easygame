@@ -57,8 +57,18 @@ export type ClothingCatalogItem = {
   raw?: any;
 };
 
-/** Campo dell'anagrafica taglie da cui un articolo prende la sua. */
-export type ClothingSizeSource = "shirt" | "pants" | "shoes" | "none";
+/**
+ * Campo dell'anagrafica taglie da cui un articolo prende la sua.
+ *
+ * `tracksuit` esiste perche una tuta non si misura come un pantalone
+ * (mandato multi-stagione C5): prima un capo il cui tipo conteneva «tuta»
+ * ricadeva su `pants` — proponeva la taglia del pantalone per un capo che
+ * si sceglie come una maglia — e `tracksuitSize`, gia presente
+ * sull'anagrafica (`getAthleteClothingProfile`), non aveva ne un campo per
+ * scriverlo ne un consumatore che lo leggesse: codice irraggiungibile su
+ * entrambi i lati.
+ */
+export type ClothingSizeSource = "shirt" | "pants" | "shoes" | "tracksuit" | "none";
 
 export type ClothingKitComponent = {
   itemId: string;
@@ -481,7 +491,7 @@ const normalizeStockMode = (value: unknown, fallback: ClothingStockMode) => {
   return fallback;
 };
 
-const SIZE_SOURCES = new Set(["shirt", "pants", "shoes", "none"]);
+const SIZE_SOURCES = new Set(["shirt", "pants", "shoes", "tracksuit", "none"]);
 
 /**
  * Legge la configurazione esplicita, senza inventarla. La deduzione dal tipo
