@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { apiRequest, readStoredActiveClub } from "./api/client";
+import { describeScheduleMismatch, reconcileInstallmentTotal } from "@/lib/payments/installment-ledger";
 import { replaceAthleteMembershipsOnServer } from "./athletes/memberships-client";
 import type { ListPageMeta } from "./api/client";
 import { normalizeTrainerList } from "./trainer-utils";
@@ -1656,6 +1657,7 @@ export async function syncAthleteEnrollmentInstallmentPayments({
   planId,
   planName,
   installments,
+  expectedTotalAmount,
   selectedOptionalServiceIds = [],
   enrollmentDate = null,
   enrollmentStartDate = null,
@@ -1675,6 +1677,13 @@ export async function syncAthleteEnrollmentInstallmentPayments({
     amount: number;
     dueDate?: string | null;
   }>;
+  /**
+   * Il totale finale dovuto (servizi + pro-rata - sconto), calcolato da chi
+   * chiama (`calculateAthleteExpectedIncome`). Obbligatorio: senza un totale
+   * da confrontare, questo scrittore non ha modo di rifiutare una schedule
+   * scoperta o esuberante (mandato multi-stagione D12-D15).
+   */
+  expectedTotalAmount: number;
   selectedOptionalServiceIds?: string[];
   enrollmentDate?: string | null;
   enrollmentStartDate?: string | null;
@@ -1686,6 +1695,24 @@ export async function syncAthleteEnrollmentInstallmentPayments({
 }) {
   if (!clubId || !athleteId || !planId) {
     return getAthletePayments(athleteId);
+  }
+
+  /*
+    **Il writer rifiuta, non solo l'avviso del riepilogo** (D12-D15, test
+    58 «il server rifiuta uno scarto manipolato dal client»): questa e la
+    sola funzione che materializza le rate di un piano, e nessuna schermata
+    che la chiama deve poter scrivere una schedule che non torna — anche se
+    il passo precedente dell'interfaccia ha gia bloccato, un secondo
+    chiamante (presente o futuro) potrebbe non farlo.
+  */
+  if (installments.length > 0) {
+    const riconciliazione = reconcileInstallmentTotal({
+      expectedTotalAmount,
+      installmentAmounts: installments.map((installment) => installment.amount),
+    });
+    if (!riconciliazione.ok) {
+      throw new Error(describeScheduleMismatch(riconciliazione));
+    }
   }
 
   const clubSettings = await getClubSettings(clubId);

@@ -474,6 +474,16 @@ export const AUDITED_RESOURCES = new Set([
   "transactions",
   "transfers",
   "users",
+  /*
+    Un piano di pagamento assegnato e uno sconto applicato sono decisioni
+    economiche quanto una rata (mandato multi-stagione D19): restavano
+    fuori dall'audit mentre `payments`/`simplified_payments` — le rate che
+    quelle decisioni producono — c'erano gia. Stesso meccanismo generico,
+    nessuna scrittura nuova: la rotta `/api/v1/payment_plans` e
+    `/api/v1/discounts` sono gia quelle che il club usa.
+  */
+  "payment_plans",
+  "discounts",
 ]);
 
 /**

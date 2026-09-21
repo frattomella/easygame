@@ -13853,3 +13853,104 @@ pantalone) e in `proposeSizeForItem`.
 
 **Test**: 33-43 della matrice Wave C, in
 `tests/lib/multi-season-master-batch-wave-c.test.mjs`.
+
+### Wave D — Piani di pagamento V2
+
+**Censimento (D1-D3).** Il denaro e gia `Float` su `AthletePayment.amount`/
+`PaymentTransaction.amount` (non `Decimal`, non centesimi interi), ma i
+confronti gia passano da centesimi (`toCents`/`toPaymentAmount` in
+`installment-ledger.ts`): **non migrato** — spostare una colonna finanziaria
+gia in uso da `Float` a `Decimal`/centesimi e una migrazione di dati reali,
+fuori dallo scope di sicurezza di questa wave (mandato: «non migrare alla
+cieca»). L'ordine servizi -> pro-rata -> sconto -> rate era **gia** quello
+vero (`calculateAthleteExpectedIncome`), il template (`payment_plans`) era
+**gia** distinto dalla schedule materializzata (`AthletePayment`, con
+`data.enrollmentPlanId`/`installmentId`), le rate automatiche e
+personalizzate esistevano gia (`generateInstallmentPreview`), una rata
+pagata era **gia** immutabile (`isPaymentPaidLike` nel `PATCH
+/api/athlete-payments/:id`, con il blocco di riga di
+`payment-transactions.ts`). Non duplicato niente di questo.
+
+**Il gap reale (D12-D15): nessuna riconciliazione al momento di scrivere.**
+`generateInstallmentPreview` calcolava gia un avviso quando la somma delle
+rate non tornava, ma **solo** l'editor del template (`payment-plan-drawer.tsx`,
+via `validatePlanDraft`) lo trasformava in un blocco al salvataggio. Il
+punto in cui le rate diventano righe vere per l'atleta —
+`syncAthleteEnrollmentInstallmentPayments`, l'**unico** scrittore di questo
+flusso (nessun altro chiamante nel codice) — non rivalutava niente: riceveva
+`installments` e li scriveva, qualunque fosse la loro somma. La schermata
+di conferma (`athletes/[id]/page.tsx`) blocca gia il passo intermedio
+(`handleContinuePlanConfirmation`) se ci sono avvisi, ma lo scrittore finale
+(`confirmEnrollmentPlanAssignment` -> `syncAthleteEnrollmentInstallmentPayments`)
+non lo ricontrollava: un secondo chiamante, presente o futuro, non aveva
+niente che lo fermasse.
+
+**Onesta sull'architettura.** Questo scrittore non e un `route.ts` con
+Prisma: e una funzione client (`src/lib/simplified-db.ts`) che scrive una
+rata alla volta con `supabase.from("simplified_payments").insert/update`,
+che a sua volta chiama (verificato leggendo `src/lib/supabase.ts`)
+`POST`/`PATCH /api/v1/simplified_payments...` — **quindi passa gia
+dall'autorizzazione del registro generico**, ma quel registro autorizza
+riga per riga e non sa che dieci righe insieme devono sommare a un totale.
+Il vaglio nuovo vive quindi nell'**unico orchestratore** di questo flusso,
+non in un confine di rete indipendente: chi chiamasse
+`syncAthleteEnrollmentInstallmentPayments` bypassando l'interfaccia normale
+verrebbe comunque rifiutato **prima di ogni scrittura**; chi scrivesse
+`simplified_payments` riga per riga aggirando questa funzione del tutto
+(una `fetch` a mano contro il registro generico) non verrebbe intercettato
+da questo vaglio — resta un limite dichiarato, non nascosto (vedi
+REMAINING).
+
+**Decisione.** Nuova funzione pura e condivisa,
+`reconcileInstallmentTotal`/`describeScheduleMismatch` in
+`src/lib/payments/installment-ledger.ts` (l'owner gia dichiarato del
+calcolo, CLAUDE.md): confronto in centesimi, tolleranza di **un** centesimo
+(lo stesso arrotondamento a cinque euro puo lasciarlo), messaggio con la
+cifra e il verso — «ATTENZIONE: il piano lascia €50,00 non pianificati.» /
+«...supera di €50,00 il totale dovuto.» — non piu un avviso muto.
+`syncAthleteEnrollmentInstallmentPayments` la chiama **prima** di qualunque
+lettura o scrittura e lancia se lo scarto supera la soglia: il chiamante
+(`athletes/[id]/page.tsx`) ora passa `expectedTotalAmount` (obbligatorio,
+gia calcolato da `calculateAthleteExpectedIncome`) e mostra il messaggio
+com'e, non un «impossibile confermare» generico. `generateInstallmentPreview`
+riusa la stessa funzione per il proprio avviso: un conto solo, due
+chiamanti.
+
+**D9 (date esatte) — difetto trovato e chiuso.** Il modello del template
+portava gia un `dueDate` per rata, letto da `normalizePlanInstallments`, ma
+**mai esposto** nell'editor (solo «Scadenza dopo giorni») e — piu grave —
+**sempre sovrascritto** in `generateInstallmentPreview`: appena esisteva una
+data di inizio abbonamento (sempre, nel flusso reale), il calcolo la
+ricalcolava da `dataInizio + dueAfterDays` ignorando qualunque data esatta
+gia scritta sulla rata. Una rata «15/10/2026» diventava silenziosamente
+un'altra data. Chiuso: una data esatta sulla rata **vince** sul giorno
+relativo; aggiunto il campo «Data esatta (facoltativa)» nell'editor del
+template.
+
+**D10 (preset mensile) — non esisteva, costruito.** Nessun generatore di
+scadenze mensili esisteva. Nuova funzione pura,
+`generateMonthlyDueDates`/`addMonthsClampedUtc` in `payment-plan-utils.ts`:
+la prima scadenza e la data di inizio stessa (01/10, non «un mese dopo»),
+le successive un mese alla volta, il giorno **chiuso dentro il mese che
+c'e** — il 31 gennaio piu un mese e il 28 (o 29) febbraio, mai il 3 marzo
+che `Date.setMonth` produrrebbe da solo. **Tutta l'aritmetica in UTC**: la
+prima stesura usava i getter/costruttori locali (`getDate`, `new
+Date(y,m,d)`) su una data che `parseDate` legge come mezzanotte UTC, e su
+una macchina a ovest di Greenwich ogni scadenza usciva con un giorno di
+scarto — trovato dai test di questo stesso lotto, non da un utente. Un
+pulsante «Genera rate mensili» nel drawer del piano aggiunge le rate
+generate a quelle gia scritte (l'acconto resta una rata scritta a mano),
+mai le sostituisce.
+
+**D19 (audit) — chiuso senza un nuovo scrittore.** `payments`/
+`simplified_payments` erano gia in `AUDITED_RESOURCES` (verificato: le
+scritture di `syncAthleteEnrollmentInstallmentPayments` passano dal
+registro generico, che gia le auditava). Mancavano `payment_plans` e
+`discounts` — le decisioni economiche a monte delle rate. Aggiunte
+all'insieme esistente: stesso meccanismo, nessuna scrittura in piu.
+
+**Test**: 44-46, 51, 55-58 della matrice Wave D piu D9/D10/D16/D17/D19, in
+`tests/lib/multi-season-master-batch-wave-d.test.mjs`. Il probe su database
+reale (QA UAT Club) e consolidato nella UAT di Wave F insieme alle altre
+wave, per un deploy solo con la guardia EXPECTED/ACTUAL invece di uno per
+wave — vedi REMAINING per lo stato esatto a fine batch.

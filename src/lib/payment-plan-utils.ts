@@ -1,3 +1,5 @@
+import { describeScheduleMismatch, reconcileInstallmentTotal } from "@/lib/payments/installment-ledger";
+
 export type PaymentPlanServiceType =
   | "iscrizione"
   | "allenamenti"
@@ -592,6 +594,61 @@ const addDays = (value: Date, days: number) => {
   const next = new Date(value);
   next.setDate(next.getDate() + days);
   return next;
+};
+
+const daysInMonthUtc = (year: number, monthIndexZeroBased: number) =>
+  new Date(Date.UTC(year, monthIndexZeroBased + 1, 0)).getUTCDate();
+
+/**
+ * Un mese avanti, con il giorno **chiuso dentro il mese che c'e** (D10).
+ *
+ * `Date.setMonth` di per se non chiude niente: il 31 gennaio piu un mese
+ * diventa il 3 marzo, perche febbraio non ha un 31 e JavaScript scavalca
+ * al mese dopo invece di fermarsi all'ultimo giorno. Un piano «il 31 di
+ * ogni mese» produrrebbe scadenze che saltano un giorno a caso quattro
+ * volte l'anno.
+ *
+ * **Tutto in UTC, mai `getDate`/`new Date(y,m,d)` locali**: `parseDate`
+ * legge «2026-01-31» come mezzanotte UTC (regola ECMAScript per le date
+ * senza orario); leggerne i componenti con i getter **locali** su una
+ * macchina a ovest di Greenwich restituisce il 30, di un giorno indietro.
+ * La stessa classe di difetto che `civilDateOf` chiude altrove nel dominio
+ * eventi — qui la cornice e sempre UTC perche una data di scadenza non ha
+ * un fuso del club da rispettare, a differenza di un orario di allenamento.
+ */
+const addMonthsClampedUtc = (date: Date, months: number, dayOfMonth?: number) => {
+  const anchorDay = dayOfMonth && dayOfMonth >= 1 ? dayOfMonth : date.getUTCDate();
+  const targetMonthIndex = date.getUTCMonth() + months;
+  const targetYear = date.getUTCFullYear() + Math.floor(targetMonthIndex / 12);
+  const normalizedMonthIndex = ((targetMonthIndex % 12) + 12) % 12;
+  const lastDayOfTargetMonth = daysInMonthUtc(targetYear, normalizedMonthIndex);
+  return new Date(Date.UTC(targetYear, normalizedMonthIndex, Math.min(anchorDay, lastDayOfTargetMonth)));
+};
+
+/**
+ * Le scadenze del preset mensile: la prima e `startDate` stessa (D10, «01/10,
+ * 01/11, 01/12…» — non «un mese dopo»), le successive un mese alla volta,
+ * tutte sullo stesso giorno del mese o sull'ultimo giorno disponibile.
+ */
+export const generateMonthlyDueDates = ({
+  startDate,
+  dayOfMonth,
+  count,
+}: {
+  startDate: unknown;
+  /** Il giorno del mese di ogni rata; senza, si usa il giorno di `startDate`. */
+  dayOfMonth?: number;
+  count: number;
+}): string[] => {
+  const parsedStart = parseDate(startDate);
+  if (!parsedStart || !Number.isFinite(count) || count <= 0) {
+    return [];
+  }
+
+  const anchorDay = dayOfMonth && dayOfMonth >= 1 && dayOfMonth <= 31 ? Math.floor(dayOfMonth) : parsedStart.getUTCDate();
+  return Array.from({ length: Math.floor(count) }, (_, index) =>
+    toIsoDateOnly(addMonthsClampedUtc(parsedStart, index, anchorDay)),
+  );
 };
 
 const diffInDays = (start: Date, end: Date) => {
@@ -1216,11 +1273,18 @@ export const generateInstallmentPreview = (
     );
   }
 
-  const sommaRate = roundedAmounts.reduce((somma, importo) => somma + importo, 0);
-  if (Math.abs(sommaRate - total) > 0.01) {
-    warnings.push(
-      "La somma delle rate non corrisponde al totale del piano.",
-    );
+  /*
+    **La cifra e il verso, non solo il fatto** (mandato multi-stagione
+    D12/D13): un avviso senza numero si legge e si ignora. Stessa funzione
+    che il writer chiama prima di scrivere (`installment-ledger.ts`): due
+    conti in due file divergono al primo arrotondamento.
+  */
+  const riconciliazione = reconcileInstallmentTotal({
+    expectedTotalAmount: total,
+    installmentAmounts: roundedAmounts,
+  });
+  if (!riconciliazione.ok) {
+    warnings.push(describeScheduleMismatch(riconciliazione));
   }
 
   const parsedStartDate = parseDate(options.startDate);
@@ -1229,9 +1293,20 @@ export const generateInstallmentPreview = (
     installments: schedule.map((installment, index) => ({
       ...installment,
       amount: roundedAmounts[index] || 0,
-      dueDate: parsedStartDate
-        ? toIsoDateOnly(addDays(parsedStartDate, installment.dueAfterDays))
-        : installment.dueDate,
+      /*
+        **Una data esatta scritta sul piano vince sul giorno relativo**
+        (mandato multi-stagione D9): prima questo ramo la sovrascriveva
+        sempre con `dataInizio + dueAfterDays` non appena l'abbonamento
+        aveva una data di inizio — cioe sempre, nel flusso reale — e una
+        rata scritta «15/10/2026» diventava silenziosamente un'altra data.
+        Chi scrive il piano sceglie l'uno o l'altro; non si mescolano sulla
+        stessa rata.
+      */
+      dueDate: installment.dueDate
+        ? installment.dueDate
+        : parsedStartDate
+          ? toIsoDateOnly(addDays(parsedStartDate, installment.dueAfterDays))
+          : installment.dueDate,
     })),
     warnings,
   };

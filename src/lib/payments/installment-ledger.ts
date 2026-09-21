@@ -167,6 +167,55 @@ export const toCents = (value: unknown) =>
 
 const fromCents = (cents: number) => Number((cents / 100).toFixed(2));
 
+export type ScheduleReconciliation = {
+  ok: boolean;
+  expectedCents: number;
+  scheduleCents: number;
+  /** Positivo = sotto-pianificato (mancano rate), negativo = sopra-pianificato. */
+  differenceCents: number;
+};
+
+/**
+ * **Il totale pianificato contro il totale dovuto, in centesimi** (mandato
+ * multi-stagione D12-D15).
+ *
+ * Un centesimo di tolleranza (non zero) perche l'arrotondamento delle rate
+ * — a cinque euro, o alla parita — puo lasciare un residuo di un centesimo
+ * che non e una perdita di denaro: e la stessa soglia che
+ * `generateInstallmentPreview` gia usa per il proprio avviso. Oltre quella
+ * soglia non e un avviso, e un blocco: chi scrive le rate chiama questa
+ * funzione **prima** di scrivere, non solo chi disegna il riepilogo.
+ */
+export const reconcileInstallmentTotal = ({
+  expectedTotalAmount,
+  installmentAmounts,
+}: {
+  expectedTotalAmount: unknown;
+  installmentAmounts: readonly unknown[];
+}): ScheduleReconciliation => {
+  const expectedCents = toCents(expectedTotalAmount);
+  const scheduleCents = installmentAmounts.reduce(
+    (somma: number, importo) => somma + toCents(importo),
+    0,
+  );
+  const differenceCents = expectedCents - scheduleCents;
+
+  return {
+    ok: Math.abs(differenceCents) <= 1,
+    expectedCents,
+    scheduleCents,
+    differenceCents,
+  };
+};
+
+/** Il messaggio in italiano di uno scarto (mai chiamata se `ok`). */
+export const describeScheduleMismatch = (reconciliation: ScheduleReconciliation) => {
+  const euro = (Math.abs(reconciliation.differenceCents) / 100).toFixed(2).replace(".", ",");
+  return reconciliation.differenceCents > 0
+    ? `ATTENZIONE: il piano lascia €${euro} non pianificati.`
+    : `ATTENZIONE: il piano supera di €${euro} il totale dovuto.`;
+};
+
 const toIsoOrNull = (value: unknown) => {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value.toISOString();

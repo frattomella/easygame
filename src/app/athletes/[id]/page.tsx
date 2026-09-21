@@ -2014,6 +2014,7 @@ export default function AthleteProfilePage() {
         planId: planConfirmationPlan.id,
         planName: planConfirmationPlan.name,
         installments,
+        expectedTotalAmount: planConfirmationSummary.expectedTotal,
         selectedOptionalServiceIds: selectedOptionalIds,
         enrollmentDate: athlete.enrollmentDate || null,
         enrollmentStartDate: planConfirmationDraft.subscriptionStartDate,
@@ -2033,9 +2034,19 @@ export default function AthleteProfilePage() {
         "success",
         "Piano assegnato e pagamenti in attesa creati correttamente",
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error confirming enrollment plan:", error);
-      showToast("error", "Impossibile confermare piano e pagamenti");
+      /*
+        Lo scarto di riconciliazione (D12-D15) e un messaggio gia scritto
+        per l'operatore («ATTENZIONE: il piano lascia/supera...»): lo mostra
+        com'e, non lo copre con un «impossibile confermare» generico.
+      */
+      showToast(
+        "error",
+        typeof error?.message === "string" && error.message.startsWith("ATTENZIONE")
+          ? error.message
+          : "Impossibile confermare piano e pagamenti",
+      );
     } finally {
       setIsEnrollmentSaving(false);
     }

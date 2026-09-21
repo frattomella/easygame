@@ -17,7 +17,7 @@ import { Button, IconButton } from "@/components/web/primitives/Button";
 import { Checkbox } from "@/components/web/primitives/Controls";
 import { Eyebrow, Hairline, InsetBlock } from "@/components/web/primitives/Surface";
 import { formatMoney } from "@/lib/web/format";
-import { PAYMENT_PLAN_SERVICE_TYPES } from "@/lib/payment-plan-utils";
+import { generateMonthlyDueDates, PAYMENT_PLAN_SERVICE_TYPES } from "@/lib/payment-plan-utils";
 import {
   applyProrationChange,
   computePlanPreview,
@@ -159,6 +159,41 @@ export function PaymentPlanDrawer({
           ? current.installmentSchedule.filter((installment) => installment.id !== installmentId)
           : current.installmentSchedule,
     }));
+
+  /*
+    **Il preset mensile aggiunge, non sostituisce** (D10): l'acconto («Prima
+    quota») resta la rata che l'operatore ha gia scritto a mano con
+    «Aggiungi rata»; questo genera solo le N rate ricorrenti, con le date
+    gia chiuse dentro il mese che c'e (`generateMonthlyDueDates`).
+  */
+  const [monthlyPreset, setMonthlyPreset] = React.useState({
+    count: 8,
+    dayOfMonth: 1,
+    startDate: "",
+    amount: 0,
+  });
+  const applyMonthlyPreset = () => {
+    const dates = generateMonthlyDueDates({
+      startDate: monthlyPreset.startDate,
+      dayOfMonth: monthlyPreset.dayOfMonth,
+      count: monthlyPreset.count,
+    });
+    if (!dates.length) return;
+    setDraft((current) => ({
+      ...current,
+      installmentSchedule: [
+        ...current.installmentSchedule,
+        ...dates.map((dueDate, index) => ({
+          id: `${Date.now()}_mensile_${index}`,
+          label: `Rata mensile ${index + 1}`,
+          amountType: "fixed" as const,
+          amount: monthlyPreset.amount,
+          dueAfterDays: 0,
+          dueDate,
+        })),
+      ],
+    }));
+  };
 
   const updateProration = (field: keyof PaymentPlanDraft["proration"], value: string | boolean) =>
     setDraft((current) => ({
@@ -397,17 +432,35 @@ export function PaymentPlanDrawer({
                       trailing={installment.amountType === "percentage" ? "%" : "€"}
                     />
                   </Field>
-                  <Field label="Scadenza dopo giorni" htmlFor={`installment-days-${installment.id}`}>
+                  <Field
+                    label="Scadenza dopo giorni"
+                    htmlFor={`installment-days-${installment.id}`}
+                    helper={installment.dueDate ? "Ignorata: questa rata ha una data esatta." : undefined}
+                  >
                     <TextInput
                       id={`installment-days-${installment.id}`}
                       type="number"
                       numeric
                       min="0"
+                      disabled={Boolean(installment.dueDate)}
                       value={installment.dueAfterDays}
                       onChange={(event) =>
                         updateInstallment(installment.id, {
                           dueAfterDays: parseInt(event.target.value, 10) || 0,
                         })
+                      }
+                    />
+                  </Field>
+                  <Field
+                    label="Data esatta (facoltativa)"
+                    htmlFor={`installment-due-date-${installment.id}`}
+                    helper="Vince sulla scadenza a giorni, per un piano scritto con date di calendario (D9)."
+                  >
+                    <DateInput
+                      id={`installment-due-date-${installment.id}`}
+                      value={installment.dueDate || ""}
+                      onChange={(event) =>
+                        updateInstallment(installment.id, { dueDate: event.target.value || null })
                       }
                     />
                   </Field>
@@ -423,6 +476,57 @@ export function PaymentPlanDrawer({
           <Button variant="secondary" size="sm" icon={<Plus />} className="mt-3" onClick={addInstallment}>
             Aggiungi rata
           </Button>
+
+          <InsetBlock className="mt-4">
+            <Eyebrow>Preset mensile</Eyebrow>
+            <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Field label="Rate">
+                <TextInput
+                  type="number"
+                  numeric
+                  min="1"
+                  value={monthlyPreset.count}
+                  onChange={(event) => setMonthlyPreset((current) => ({ ...current, count: parseInt(event.target.value, 10) || 1 }))}
+                />
+              </Field>
+              <Field label="Importo">
+                <TextInput
+                  type="number"
+                  numeric
+                  min="0"
+                  step="0.01"
+                  trailing="€"
+                  value={monthlyPreset.amount}
+                  onChange={(event) => setMonthlyPreset((current) => ({ ...current, amount: numberOr(event.target.value) }))}
+                />
+              </Field>
+              <Field label="A partire dal">
+                <DateInput
+                  value={monthlyPreset.startDate}
+                  onChange={(event) => setMonthlyPreset((current) => ({ ...current, startDate: event.target.value }))}
+                />
+              </Field>
+              <Field label="Giorno del mese">
+                <TextInput
+                  type="number"
+                  numeric
+                  min="1"
+                  max="31"
+                  value={monthlyPreset.dayOfMonth}
+                  onChange={(event) => setMonthlyPreset((current) => ({ ...current, dayOfMonth: parseInt(event.target.value, 10) || 1 }))}
+                />
+              </Field>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="mt-3"
+              disabled={!monthlyPreset.startDate}
+              onClick={applyMonthlyPreset}
+            >
+              Genera rate mensili
+            </Button>
+          </InsetBlock>
         </DrawerSection>
 
         <DrawerSection
