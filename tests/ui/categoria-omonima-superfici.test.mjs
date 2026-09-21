@@ -205,7 +205,7 @@ test("gruppo operativo e disambiguazione si leggono con lo stesso separatore", (
   const display = leggi("src/lib/categories/display.ts");
   assert.match(
     display,
-    /label: site \? `\$\{name\}\$\{CATEGORY_SITE_SEPARATOR\}\$\{site\}` : name,/,
+    /const label = site \? `\$\{name\}\$\{CATEGORY_SITE_SEPARATOR\}\$\{site\}` : name;/,
     "la disambiguazione usa il separatore del dominio",
   );
   assert.doesNotMatch(

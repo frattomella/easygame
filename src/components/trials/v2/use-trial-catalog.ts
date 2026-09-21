@@ -97,7 +97,7 @@ export function useTrialCatalog(clubId: string | null | undefined) {
     () =>
       targetIndex.targets.map((target) => ({
         id: target.id,
-        label: target.label,
+        label: target.optionLabel,
         categoryId: target.categoryId,
         groupId: target.implicit ? "" : target.id,
         siteId: target.siteId,

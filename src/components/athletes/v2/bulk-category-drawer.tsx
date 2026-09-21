@@ -68,7 +68,7 @@ export function BulkCategoryDrawer({
     }
   }, [open]);
 
-  const options = React.useMemo(() => index.targets.map((t) => ({ value: t.id, label: t.label })), [index]);
+  const options = React.useMemo(() => index.targets.map((t) => ({ value: t.id, label: t.optionLabel })), [index]);
   const selectedCount = new Set(athleteIds).size;
   const command: MembershipChangeCommandInput = {
     kind: "assign",

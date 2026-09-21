@@ -431,7 +431,7 @@ function NewTrainerPageContent() {
                           id="trainer-new-categories"
                           values={formData.selectedCategories}
                           onValuesChange={(next) => patch({ selectedCategories: next })}
-                          options={categories.map((category) => ({ value: category.id, label: categoryDisplay.label(category.id) }))}
+                          options={categories.map((category) => ({ value: category.id, label: categoryDisplay.optionLabel(category.id) }))}
                           placeholder="Seleziona le categorie"
                         />
                         <div className="mt-2.5 flex flex-wrap gap-1.5">

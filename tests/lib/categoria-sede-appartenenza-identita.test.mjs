@@ -498,7 +498,7 @@ test("Web corrente e Web V2 leggono la stessa etichetta dallo stesso indice", ()
 
 test("i selettori della scheda atleta offrono solo le squadre configurate (ADR-0194: l'editor condiviso sceglie fra le collocazioni)", () => {
   const editor = readFileSync("src/components/athletes/v2/AthleteCategoryMembershipEditor.tsx", "utf8");
-  assert.match(editor, /index\.targets\.map\(\(t\) => \(\{ value: t\.id, label: t\.label \}\)\)/, "le opzioni sono le collocazioni dell'indice");
+  assert.match(editor, /index\.targets\.map\(\(t\) => \(\{ value: t\.id, label: t\.optionLabel \}\)\)/, "le opzioni sono le collocazioni dell'indice, con le annate quando la categoria le porta (A1/A2)");
   const collocazione = readFileSync("src/lib/categories/placement.ts", "utf8");
   assert.match(collocazione, /voce\?\.configured !== false/, "una voce nata da una scheda non e una scelta (ADR-0185 §4)");
   assert.match(collocazione, /if \(group\?\.active === false\) continue;/, "un gruppo disattivato non e una scelta");

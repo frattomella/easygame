@@ -94,7 +94,7 @@ export function AthleteContattiCard({ athlete, onEdit }: { athlete: AthleteLike;
   return (
     <div id={ATHLETE_RECORD_SECTIONS.contatti} className="scroll-mt-24">
       <DetailCard
-        eyebrow="Contatti"
+        eyebrow="Contatti Atleta"
         title="Contatto atleta"
         onEdit={onEdit}
         columns={2}

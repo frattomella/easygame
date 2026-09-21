@@ -187,6 +187,19 @@ export function TrialAthletesPanel({
       if (profile?.trial.id === result.trial.id) setProfile((current) => (current ? { ...current, trial: result.trial } : current));
       showToast("success", result.created ? `Scheda atleta creata per ${result.trial.name}` : `${result.trial.name} collegata alla scheda esistente`);
       setConverting(null);
+      /*
+        Dopo la conversione si va sulla scheda **nuova**, non su quella della
+        prova appena chiusa: l'identificativo lo dice la conversione stessa
+        (`result.athleteId`), mai una ricerca per nome (mandato multi-stagione
+        A4). Senza `athleteHref` il chiamante non ha una scheda Atleta da
+        aprire (es. il cassetto dell'allenatore) e si resta dove si e.
+      */
+      if (athleteHref) {
+        const href = athleteHref(result.athleteId);
+        if (onNavigate) onNavigate(href);
+        else window.location.assign(href);
+        return;
+      }
     } catch (caught: any) {
       showToast("error", caught?.message || "Conversione non riuscita");
     } finally {
@@ -343,7 +356,7 @@ export function TrialAthletesPanel({
           placeholder: "Cerca per nome o data di nascita",
           match: (row, query) => `${row.name} ${row.lastName} ${row.firstName} ${row.birthDate || ""}`.toLowerCase().includes(query.toLowerCase()),
         }}
-        defaultSort={{ columnId: "last", direction: "desc" }}
+        defaultSort={{ columnId: "identity", direction: "asc" }}
         rowActions={rowActions}
         onOpenRow={(row) => void openProfile(row)}
         state={state}

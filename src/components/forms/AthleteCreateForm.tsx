@@ -633,7 +633,7 @@ export function AthleteCreateForm({
       <CollapsedSection
         id="contatti"
         recordType={SECTIONS_PREFERENCE}
-        title="Contatti"
+        title="Contatti Atleta"
       >
         <FormGrid>
           <Field label="Email" htmlFor="email">

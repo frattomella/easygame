@@ -13654,3 +13654,72 @@ D5/D6 ricerca e stato locale con la nota), Low 6 dichiarati:
 - **D-RD-44** (Low) — un allenatore sospeso non si deriva sugli allenamenti
   nuovi ma, se scritto sulla voce ed e assegnato, resta: la sospensione non
   e ancora un fatto del dominio degli allenamenti.
+
+## ADR-0199 — Master batch: operativita atleta, analitiche, numerazione, abbigliamento, piani di pagamento V2, tesseramento, import moduli (in corso)
+
+**Data:** 2026-09-21 (Wave A). Questo ADR cresce con ogni wave del mandato
+«EASYGAME — MASTER BATCH» e si chiude a Wave F con la revisione ostile finale.
+
+### Wave A — Presentazione categoria e UX atleta
+
+**Decisione.** Le annate di una categoria entrano nell'etichetta di
+**selezione** (menu, autocomplete), mai in quella di **lettura**. I due punti
+gia canonici (`buildCategoryDisplayIndex` in `src/lib/categories/display.ts`,
+`buildMembershipTargetIndex` in `src/lib/categories/placement.ts`) guadagnano
+un campo `optionLabel`/`birthYears` accanto a `label`, invece di una terza
+funzione: «Pulcini · Scauri (2016-2017)» quando la categoria porta le annate,
+il nome nudo (o con la sede) quando non le porta — mai `(undefined)`, mai una
+parentesi vuota. `label` resta senza annate perche `fromLabel` la confronta
+con testo libero (import, modulistica) che non le scrive. Selettori aggiornati:
+scheda atleta (nuova/modifica, editor condiviso), cambio categoria in blocco,
+prova (modulo e conversione, via `use-trial-catalog.ts`), allenatore nuovo.
+Reports/filtri e import restano fuori da questo giro (**REMAINING**): usano
+una label propria, non l'indice canonico — vedi debito.
+
+**A3 (sicurezza di stagione).** «Nuovo atleta» e la pagina Atleti leggevano le
+categorie **senza** perimetro di stagione: la prima da `getClubCategories`
+senza filtro, la seconda da una query diretta sulla tabella `categories`
+(bypassava del tutto il registro). Un club con la B attiva offriva quindi
+anche le omonime della A, con le loro annate. Corretto con lo stesso schema
+gia usato per l'allenatore nuovo (`filterCollectionBySeason("categories", ...,
+activeSeasonId, {legacySeasonId, knownSeasonIds})` per Nuovo Atleta) e
+leggendo `/api/v1/categories` — che applica il perimetro da solo — al posto
+della tabella grezza per la pagina Atleti.
+
+**A9/A10.** L'ordine di `sortOrder` che il club sceglie nella pagina Categorie
+(gia persistito e gia dotato di un'interfaccia a frecce, `spostaCategoria` in
+`src/app/categories/page.tsx` — non serviva costruirne una nuova) non arrivava
+alla pagina Atleti, che ordinava per `created_at`. La pagina Atleti ora ordina
+con lo stesso `readCategorySortOrder` (D-INT-9).
+
+**A4.** La conversione di una prova restituisce gia `athleteId`: la lista
+Atleti in prova ora ci naviga (`athleteHref`/`onNavigate`, gia previsti dalla
+pagina) invece di restare sulla riga. Il cassetto dell'allenatore, che non
+passa `athleteHref`, resta com'era: non ha una scheda Atleta da aprire.
+
+**A5 — non implementato.** Non esiste un'eliminazione di una persona in prova
+in questo codice (nessuna `DELETE`, nessun writer): l'unica strada e lo stato
+«non prosegue». Inventare una `DELETE` per una persona che ha presenze legate
+(`trial_attendances`) e una decisione sul dominio (cascata? blocco? con che
+autorizzazione?) che questo mandato non specifica — **richiede una decisione
+del club**, non un'implementazione a vista.
+
+**A6 — non riprodotto.** La selezione del sesso (`person-identity-fields.tsx`)
+usa il `Select` di Radix con `value`/`onValueChange` cablati correttamente su
+entrambe le schede (nuova e modifica): nessun difetto trovato leggendo il
+codice. Non corretto in assenza di una riproduzione dal vivo.
+
+**A7/A8.** «Contatti» → «Contatti Atleta» solo sulle tre superfici della
+scheda atleta (modulo, profilo, area allenatore); le altre anagrafiche
+(club, sponsor, staff, soci, tutori, account) restano «Contatti», non sono
+la stessa ambiguita. Ordine alfabetico di default aggiunto alla griglia
+Atleti e a quella delle persone in prova (quest'ultima sostituisce
+l'ordinamento per «Ultima prova»: cambio esplicito da mandato, degno di nota
+perche cambia una vista operativa di triage in una anagrafica ordinata).
+
+**Debito aperto da Wave A:**
+- Reports/filtri (`report-context-controls.tsx`) e l'import atleti
+  (`AthleteImportDialog.tsx`/`src/lib/athletes/import/plan.ts`) costruiscono
+  l'etichetta categoria per conto proprio, non attraverso l'indice canonico:
+  fuori scope di questo giro, da allineare in un lotto dedicato.
+- A5 (eliminazione prova) e A6 (selezione sesso) restano aperti come sopra.

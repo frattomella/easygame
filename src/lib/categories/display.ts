@@ -55,6 +55,7 @@
  */
 
 import { normalizeCategoryToken } from "@/lib/categories/identity";
+import { formatCategoryBirthYearRange } from "@/lib/category-utils";
 
 /** Separatore fra categoria e sede: `Pulcini · Scauri`. Unico per tutto il prodotto. */
 export const CATEGORY_SITE_SEPARATOR = " · ";
@@ -100,6 +101,11 @@ export const membershipRoleLabel = (isPrimary: boolean) =>
 export type CategoryDisplayEntry = {
   id?: string | null;
   name?: string | null;
+  ageRange?: string | null;
+  birthYearFrom?: number | string | null;
+  birthYearTo?: number | string | null;
+  birth_year_from?: number | string | null;
+  birth_year_to?: number | string | null;
 };
 
 export type CategoryGroupLike = {
@@ -126,11 +132,22 @@ export type CategoryDisplay = {
   readonly label: string;
   /** Vero quando il nome, da solo, ne nomina piu di una. */
   readonly ambiguous: boolean;
+  /** `2016-2017`, o `2017` se coincidono; vuota se la categoria non le porta. */
+  readonly birthYears: string;
+  /**
+   * L'etichetta per un menu di **selezione**: `label` con le annate fra
+   * parentesi quando ci sono — `Pulcini · Scauri (2016-2017)`. Mai una
+   * parentesi vuota: se `birthYears` e vuota, `optionLabel === label`
+   * (mandato multi-stagione A1/A2).
+   */
+  readonly optionLabel: string;
 };
 
 export type CategoryDisplayIndex = {
   readonly describe: (reference: unknown) => CategoryDisplay;
   readonly label: (reference: unknown) => string;
+  /** L'etichetta di selezione con le annate — vedi `CategoryDisplay.optionLabel`. */
+  readonly optionLabel: (reference: unknown) => string;
   /** Vero quando almeno un nome del catalogo ne nomina piu di uno. */
   readonly hasHomonyms: boolean;
 };
@@ -338,6 +355,8 @@ export const buildCategoryDisplayIndex = ({
         site: "",
         label: etichetta,
         ambiguous: false,
+        birthYears: "",
+        optionLabel: etichetta,
       };
     }
 
@@ -345,13 +364,17 @@ export const buildCategoryDisplayIndex = ({
     const name = trim(voce.name) || id;
     const ambiguous = (quanteConQuestoNome.get(normalizeCategoryToken(name)) || 0) > 1;
     const site = ambiguous ? sedeCheDistingue(id, name) : "";
+    const label = site ? `${name}${CATEGORY_SITE_SEPARATOR}${site}` : name;
+    const birthYears = formatCategoryBirthYearRange(voce as any);
 
     return {
       id,
       name,
       site,
-      label: site ? `${name}${CATEGORY_SITE_SEPARATOR}${site}` : name,
+      label,
       ambiguous,
+      birthYears,
+      optionLabel: birthYears ? `${label} (${birthYears})` : label,
     };
   };
 
@@ -362,6 +385,7 @@ export const buildCategoryDisplayIndex = ({
   return {
     describe,
     label: (reference: unknown) => describe(reference).label,
+    optionLabel: (reference: unknown) => describe(reference).optionLabel,
     hasHomonyms,
   };
 };

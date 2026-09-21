@@ -35,6 +35,7 @@ import {
   type SiteDisplayEntry,
 } from "@/lib/categories/display";
 import { normalizeCategoryToken } from "@/lib/categories/identity";
+import { formatCategoryBirthYearRange } from "@/lib/category-utils";
 
 const trim = (value: unknown) => String(value ?? "").trim();
 
@@ -51,6 +52,14 @@ export type MembershipTarget = {
   readonly siteName: string;
   /** «Pulcini · S. Cosma», o il nome nudo quando la categoria non ha sedi. */
   readonly label: string;
+  /**
+   * `label` con le annate fra parentesi quando la categoria le porta —
+   * «Pulcini · S. Cosma (2016-2017)». E l'etichetta per un menu di
+   * **selezione**; `label` resta senza annate perche lo confronta `fromLabel`
+   * con testo libero (import, modulistica) che non le scrive (mandato
+   * multi-stagione A1/A2).
+   */
+  readonly optionLabel: string;
   /** Vero quando il gruppo e dedotto dalla sola categoria (nessuna sede configurata). */
   readonly implicit: boolean;
 };
@@ -162,13 +171,16 @@ export const buildMembershipTargetIndex = ({
     const categoryName = trim(categoria.name) || categoryId;
     /* Il nome del gruppo, se il catalogo delle sedi non lo porta: e l'evidenza che il gruppo aveva. */
     const siteName = nomiSedi.get(siteId) || trim(group?.siteName) || UNKNOWN_SITE_LABEL;
+    const label = `${categoryName}${CATEGORY_SITE_SEPARATOR}${siteName}`;
+    const birthYears = formatCategoryBirthYearRange(categoria as any);
     aggiungi({
       id: buildTargetId(categoryId, siteId),
       categoryId,
       categoryName,
       siteId,
       siteName,
-      label: `${categoryName}${CATEGORY_SITE_SEPARATOR}${siteName}`,
+      label,
+      optionLabel: birthYears ? `${label} (${birthYears})` : label,
       implicit: false,
     });
   }
@@ -177,14 +189,17 @@ export const buildMembershipTargetIndex = ({
     const categoryId = trim(voce.id);
     if (perCategoria.has(normalizeCategoryToken(categoryId))) continue;
     const categoryName = trim(voce.name) || categoryId;
+    /* Senza sede l'etichetta e quella del catalogo: la sede compare solo se serve a distinguere (ADR-0185 §2). */
+    const label = display.label(categoryId);
+    const birthYears = formatCategoryBirthYearRange(voce as any);
     aggiungi({
       id: buildTargetId(categoryId, ""),
       categoryId,
       categoryName,
       siteId: "",
       siteName: "",
-      /* Senza sede l'etichetta e quella del catalogo: la sede compare solo se serve a distinguere (ADR-0185 §2). */
-      label: display.label(categoryId),
+      label,
+      optionLabel: birthYears ? `${label} (${birthYears})` : label,
       implicit: true,
     });
   }

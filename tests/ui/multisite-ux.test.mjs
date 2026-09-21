@@ -332,7 +332,7 @@ test("il dato senza sede si colloca in blocco, non scheda per scheda", () => {
   */
   const source = read("components/athletes/v2/bulk-category-drawer.tsx");
   assert.doesNotMatch(source, /bulk-site-target|Lascia la sede attuale/, "nessun selettore di sede indipendente");
-  assert.match(source, /index\.targets\.map\(\(t\) => \(\{ value: t\.id, label: t\.label \}\)\)/, "si sceglie fra le squadre del club");
+  assert.match(source, /index\.targets\.map\(\(t\) => \(\{ value: t\.id, label: t\.optionLabel \}\)\)/, "si sceglie fra le squadre del club, con le annate quando la categoria le porta (A1/A2)");
   assert.match(source, /La sede è quella della squadra scelta\./);
 });
 

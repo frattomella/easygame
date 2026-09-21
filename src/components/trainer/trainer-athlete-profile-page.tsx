@@ -354,7 +354,7 @@ export default function TrainerAthleteProfilePage() {
     { value: "generale", label: "Generale", icon: User, visible: true },
     {
       value: "contatti",
-      label: "Contatti",
+      label: "Contatti Atleta",
       icon: Phone,
       visible: permissions.actions.viewAthleteContacts,
     },

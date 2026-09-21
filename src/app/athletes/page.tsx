@@ -40,6 +40,7 @@ import {
 import {
   formatCategoryBirthYears,
   normalizeCategoryBirthYears,
+  readCategorySortOrder,
   resolveCategoryId,
   resolveCategoryLabel,
   UNCATEGORIZED_CATEGORY_ID,
@@ -171,8 +172,25 @@ type PendingBulkAction = {
   targetIds: string[];
 };
 
+/**
+ * L'ordine che il club ha deciso nella pagina Categorie (D-INT-9), non
+ * quello di creazione: qui la lista Atleti leggeva `created_at`, quindi il
+ * riordino a frecce di quella pagina non si vedeva mai su questa (mandato
+ * multi-stagione A9/A10).
+ */
+const ordinaPerPostoDelClub = <T extends Record<string, unknown>>(categories: T[]) =>
+  categories
+    .map((category, indice) => ({ category, indice }))
+    .sort((sinistra, destra) => {
+      const a = readCategorySortOrder(sinistra.category) ?? Number.MAX_SAFE_INTEGER;
+      const b = readCategorySortOrder(destra.category) ?? Number.MAX_SAFE_INTEGER;
+      if (a !== b) return a - b;
+      return sinistra.indice - destra.indice;
+    })
+    .map((voce) => voce.category);
+
 const buildCategoryList = (rawCategories: any[]) =>
-  (rawCategories || []).map((category: any) => {
+  ordinaPerPostoDelClub((rawCategories || []).map((category: any) => {
     const { birthYearFrom, birthYearTo } = normalizeCategoryBirthYears(category);
 
     return {
@@ -185,7 +203,7 @@ const buildCategoryList = (rawCategories: any[]) =>
         birthYearTo,
       }),
     };
-  });
+  }));
 
 const coerceBoolean = (value: unknown) => {
   if (typeof value === "boolean") {
@@ -589,13 +607,23 @@ export default function AthletesPage() {
       setLoadError(null);
       setResolvedClubId(clubId);
 
-      const [{ data: categoriesData }, { data: clubData }, athletesPage, catalogoTutteLeStagioni] =
+      const [categoriesData, { data: clubData }, athletesPage, catalogoTutteLeStagioni] =
         await Promise.all([
-        supabase
-          .from("categories")
-          .select("*")
-          .eq("club_id", clubId)
-          .order("created_at", { ascending: true }),
+        /*
+          Solo le categorie della stagione attiva (ADR-0197): letta grezza
+          dalla tabella `categories` questa lista non filtrava per stagione, e
+          un club con la B attiva offriva in scelta anche le omonime della A,
+          con le loro annate — proprio l'elenco che alimenta i filtri e il
+          form Nuovo atleta (mandato multi-stagione A3). Il registro applica
+          il perimetro da solo quando l'intestazione non lo disattiva.
+        */
+        apiRequest<any[]>(`/api/v1/categories?organization_id=${encodeURIComponent(clubId)}`).then((response) => {
+          if (response.error) {
+            showToast("error", "Errore nel caricamento delle categorie del club");
+            return [];
+          }
+          return response.data || [];
+        }),
         supabase
           .from("clubs")
           .select("club_sites, category_groups, settings")
@@ -2058,6 +2086,7 @@ export default function AthletesPage() {
                   }
                   totalCount={paginated ? (listMeta?.total ?? archiveTotal ?? totaleAtletiDistinti) : totaleAtletiDistinti}
                   columns={columns}
+                  defaultSort={{ columnId: "atleta", direction: "asc" }}
                   filters={filters}
                   views={paginated ? ATHLETE_CERTIFICATE_VIEWS : ATHLETE_VIEWS}
                   /*

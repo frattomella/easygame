@@ -807,6 +807,20 @@ export const formatCategoryBirthYears = (category: CategoryLike) => {
   return "Anni di nascita non definiti";
 };
 
+/**
+ * Le annate in forma compatta per un'etichetta di selezione: `2016-2017` o,
+ * quando coincidono, `2017`. Stringa vuota se la categoria non le porta —
+ * niente `(undefined)`/`(-)`/`()`: chi la usa non scrive le parentesi se
+ * questa torna vuota (A1/A2, mandato multi-stagione).
+ */
+export const formatCategoryBirthYearRange = (category: CategoryLike) => {
+  const { birthYearFrom, birthYearTo } = normalizeCategoryBirthYears(category);
+  if (birthYearFrom === undefined || birthYearTo === undefined) return "";
+  return birthYearFrom === birthYearTo
+    ? String(birthYearFrom)
+    : `${birthYearFrom}-${birthYearTo}`;
+};
+
 export const resolveCategoryId = (raw: unknown, categories: CategoryLike[]) => {
   if (!raw) return null;
 

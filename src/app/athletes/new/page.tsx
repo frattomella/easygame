@@ -22,6 +22,7 @@ import { roleHasPermission } from "@/lib/permissions/catalog";
 import { selectableCategoryOptions } from "@/lib/category-utils";
 import { buildCategoryDisplayIndex } from "@/lib/categories/display";
 import { buildCategoryGroups, normalizeClubSites, type ClubSite } from "@/lib/club-sites";
+import { filterCollectionBySeason, normalizeClubSeasons } from "@/lib/club-seasons";
 import { useMembershipTargetIndex } from "@/components/athletes/v2/AthleteCategoryMembershipEditor";
 import {
   addClubAthlete,
@@ -120,11 +121,23 @@ function NewAthletePageContent() {
       getClubCategories(clubId),
       getClubData(clubId, "club_sites"),
       getClubData(clubId, "category_groups"),
-    ]).then(([rows, sites, groups]: any[]) => {
+      getClubData(clubId, "settings"),
+    ]).then(([rows, sites, groups, settings]: any[]) => {
       if (cancelled) return;
-      const selezionabili = selectableCategoryOptions(
-        Array.isArray(rows) ? rows : [],
-      );
+      /*
+        Solo le categorie della stagione attiva (ADR-0197, come per
+        l'allenatore nuovo): senza questo filtro un club con la B attiva
+        offriva anche le categorie omonime della A, con le sue annate.
+      */
+      const stagioni = normalizeClubSeasons(settings || {});
+      const tutte = Array.isArray(rows) ? rows : [];
+      const dellaStagione = stagioni.isFallback
+        ? tutte
+        : filterCollectionBySeason("categories", tutte, stagioni.activeSeasonId, {
+            legacySeasonId: stagioni.legacySeasonId,
+            knownSeasonIds: stagioni.seasons.map((season: { id: string }) => season.id),
+          });
+      const selezionabili = selectableCategoryOptions(dellaStagione);
       setCategories(sortByName(selezionabili, (row: any) => row?.name));
       const sedi = normalizeClubSites(sites);
       setClubSites(sedi);

@@ -155,7 +155,7 @@ export function AthleteCategoryMembershipEditor({
   }, [primaria, precedente]);
 
   const presenti = new Set(memberships.map((m) => m.categoryId.toLowerCase()));
-  const opzioniTutte = index.targets.map((t) => ({ value: t.id, label: t.label }));
+  const opzioniTutte = index.targets.map((t) => ({ value: t.id, label: t.optionLabel }));
   const primariaCorrente = primaria ? index.place(primaria) : null;
   const primariaTargetId = primariaCorrente?.status === "resolved"
     ? primariaCorrente.target.id
