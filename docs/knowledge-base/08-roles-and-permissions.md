@@ -100,6 +100,43 @@ Risorse admin-only (`MANAGEMENT_ADMIN_ONLY_RESOURCES`):
 `access_tokens`, `bank_accounts`, `clubs`, `organizations`,
 `organization_users`, `payment_methods`, `users`.
 
+### L'eccezione: fondare un club proprio (ADR-0201, 2026-10-05)
+
+`POST /api/v1/clubs` con `mode: "create"` **non** passa da
+`canAccessClubResource`: il `POST` del registro generico chiama
+`assertGenericCreateAccess(role, resource, mode)`, che lascia passare
+`isOwnClubFoundation(resource, mode)` — solo `clubs`, solo `create` — e per
+tutto il resto chiede `assertClubResourceAccess(…, "create")` come prima.
+
+- **Chi:** ogni utente autenticato, anche senza nessun club (`activeRole`
+  nullo), allenatore, genitore o ruolo personalizzato in un altro club.
+- **Con quale scope:** `scopeForOwnClubFoundation(scope)` (`src/lib/server/auth.ts`)
+  — la sessione e **nessun club**: ruolo, club attivo, club consentiti e
+  perimetro vuoti. La fondazione non eredita niente dal club attivo.
+- **Cosa resta chiuso:** `creator_id` e forzato alla sessione e uno diverso e
+  `Accesso negato`; il fondatore diventa `owner` con la propria tessera
+  (`assertConcessioneDiAccessoLecita`, ramo «creatore del club»), ma una
+  tessera **per un altro** nel corpo e rifiutata; `mode: "upsert"`,
+  `organizations` e ogni altra risorsa riservata restano della direzione;
+  `canAccessClubResource(…, "clubs", …)` non cambia.
+- **Tutto o niente:** `foundOwnClub` (`src/lib/server/resources.ts`) scrive
+  club, tessera `owner` e dashboard in **una** transazione, e rifiuta una
+  tessera per un altro **prima** di scrivere: nessun club resta a meta. La
+  tessera del fondatore e `owner` e nient'altro (un ruolo a scelta sulla
+  propria tessera e rifiutato: il collaudo a browser ne aveva scritto uno).
+- **Il tetto dei club** (`user_metadata.clubSlotLimit`, assegnato dalla
+  piattaforma) si conta **sul server** contro i club con `creator_id` della
+  persona, dietro un blocco consultivo sulla persona; oltre il tetto
+  `Accesso negato: hai esaurito gli slot…`. La regola e una sola
+  (`src/lib/auth/club-slot-policy.ts`) e la legge anche l'area account.
+  `clubSlotLimit` e fra le chiavi protette di `user_metadata`: non si alza
+  da soli, e il registro generico la riporta dalla riga invece di cancellarla.
+
+Prima di questa regola il cancello era `d465ec7d` (2026-08-21): «Crea club»
+dall'area account rispondeva 403 «Accesso negato per il ruolo attivo» a chi
+non era proprietario o gestore del club attivo — per primo a chi si era
+appena registrato. Test: `tests/server/fondazione-club-utente-senza-club.test.mjs`.
+
 ### Trainer — lettura
 
 `athlete_category_memberships`, `athletes`, `categories`,

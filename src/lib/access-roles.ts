@@ -992,6 +992,44 @@ export const assertClubResourceAccess = (
 };
 
 /**
+ * **Fondare un club proprio non e un atto dentro un club** (ADR-0201).
+ *
+ * `clubs` e fra le riservate alla direzione, e deve restarlo: modificarlo,
+ * leggerlo intero, cancellarlo sono atti del proprietario **di quel club**.
+ * Ma `POST /api/v1/clubs` in modo `create` non tocca nessun club esistente: ne
+ * fa nascere uno, e il fondatore e la sessione (`createResource` lo forza).
+ * Chiederlo al ruolo nel club **attivo** — da `d465ec7d` lo faceva — negava
+ * la fondazione proprio a chi non ha ancora un club, e a ogni allenatore,
+ * genitore o segreteria che voglia il proprio.
+ *
+ * Solo `clubs`, solo `create`: l'`upsert` puo raggiungere un club esistente,
+ * e `organizations` resta chiusa anche se nomina la stessa tabella. Il limite
+ * di slot resta quello che c'era (lato account).
+ */
+export const isOwnClubFoundation = (
+  resource: string,
+  mode: "create" | "upsert",
+) =>
+  mode === "create" &&
+  String(resource || "")
+    .trim()
+    .toLowerCase() === "clubs";
+
+/**
+ * Il cancello del `POST` del registro generico: la fondazione di un club
+ * proprio passa a ogni utente autenticato, tutto il resto chiede
+ * `canAccessClubResource(…, "create")` come prima.
+ */
+export const assertGenericCreateAccess = (
+  role: string | null | undefined,
+  resource: string,
+  mode: "create" | "upsert",
+) => {
+  if (isOwnClubFoundation(resource, mode)) return;
+  assertClubResourceAccess(role, resource, "create");
+};
+
+/**
  * **Chi amministra il club adesso, guardando il gettone e non la base.**
  *
  * `canManageClubConfiguration` risponde alla domanda «questo **ruolo base**

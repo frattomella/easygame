@@ -569,6 +569,26 @@ export const resolveOrganizationScopeForUser = async (
   };
 };
 
+/**
+ * **Lo scope di chi fonda un club: la sessione, e nessun club** (ADR-0201).
+ *
+ * La fondazione non avviene dentro il club attivo, quindi non ne eredita
+ * niente: ne il ruolo — un ruolo personalizzato la negherebbe, un ruolo di
+ * direzione autorizzerebbe a tesserare altri nel club nuovo — ne il club. Il
+ * fondatore resta `userId`, e le guardie di `createResource` vedono una
+ * persona che crea per se e basta.
+ */
+export const scopeForOwnClubFoundation = (
+  scope: OrganizationAccessScope,
+): OrganizationAccessScope => ({
+  userId: scope.userId,
+  activeOrganizationId: null,
+  activeRole: null,
+  activeMembershipId: null,
+  allowedOrganizationIds: [],
+  accessScopes: [],
+});
+
 export const attachSessionCookie = (
   response: NextResponse,
   session: AuthSessionPayload,

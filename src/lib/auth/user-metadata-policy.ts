@@ -31,8 +31,10 @@
  * Due famiglie, entrambe con la stessa ragione — **il loro valore non e un
  * dato della persona, e una conclusione del server**:
  *
- * - i **privilegi** (`role`, `app_metadata`, `is_platform_admin`): un
- *   privilegio che si concede da se non e un privilegio;
+ * - i **privilegi** (`role`, `app_metadata`, `is_platform_admin`,
+ *   `clubSlotLimit`): un privilegio che si concede da se non e un privilegio.
+ *   `clubSlotLimit` e il tetto dei club che l'account puo fondare, e da
+ *   ADR-0201 il server lo fa valere (`club-slot-policy.ts`);
  * - le **proiezioni calcolate** (`emailVerified`, `phoneVerified`,
  *   `phoneVerificationRequired`, `isClubCreator`): `buildUserMetadata` le
  *   ricalcola dalle colonne a ogni serializzazione. Persisterle non cambia cio
@@ -55,6 +57,7 @@ export const PROTECTED_USER_METADATA_KEYS = [
   "phoneVerified",
   "phoneVerificationRequired",
   "isClubCreator",
+  "clubSlotLimit",
 ] as const;
 
 export type ProtectedUserMetadataKey =

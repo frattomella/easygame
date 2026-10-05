@@ -14291,3 +14291,65 @@ hanno la loro data di uscita, il sito no), statistiche
 calcolate oltre a quelle registrate, classifiche automatiche, un tipo di
 evento societario generico nel calendario (open day e camp passano dai
 moduli online).
+
+---
+
+## ADR-0201 — Fondare un club proprio non e un atto dentro un club
+
+**Data:** 2026-10-05.
+
+**Contesto.** Riprodotto sul database locale: un utente appena registrato
+(`users.role = "user"`, nessuna riga in `organization_users`) usa «Crea club»
+dall'area account (`createOwnedClub`, `POST /api/v1/clubs` con `mode:
+"create"`) e riceve 403 «Accesso negato per il ruolo attivo». E una
+regressione di `d465ec7d` (2026-08-21, «centralize role routing and
+authorization»): il `POST` del registro generico ha cominciato a chiedere
+`assertClubResourceAccess(scope.activeRole, resource, "create")`, e `clubs` e
+fra le riservate alla direzione del club **attivo**. Chi non ha un club non
+ha un ruolo attivo; un allenatore, un genitore o una segreteria con ruolo
+personalizzato ce l'hanno, ma non di direzione. Il flusso client e lo stesso
+di prima del commit.
+
+**Decisione.**
+
+1. `POST /api/v1/clubs` con `mode: "create"` e permesso a **ogni utente
+   autenticato**. La regola vive in `src/lib/access-roles.ts`
+   (`isOwnClubFoundation`, `assertGenericCreateAccess`), e solo li:
+   `canAccessClubResource` non cambia, quindi allegati, letture, modifiche e
+   cancellazioni di un club restano della direzione.
+2. La fondazione si valuta **fuori** dal club attivo:
+   `scopeForOwnClubFoundation` (`src/lib/server/auth.ts`) passa a
+   `createResource` la sola sessione, senza ruolo, club attivo, club
+   consentiti ne perimetro. Il club attivo non concede niente (una direzione
+   non tessera altri nel club nuovo) e non toglie niente (un ruolo
+   personalizzato non nega la fondazione).
+3. Restano le guardie che c'erano: `creator_id` forzato alla sessione (uno
+   altrui e `Accesso negato`), il fondatore diventa `owner` dal ramo
+   «creatore» di `assertConcessioneDiAccessoLecita`, una tessera per un altro
+   e rifiutata, le impostazioni della piattaforma non si concedono alla
+   nascita.
+4. **Non** si apre altro: `mode: "upsert"` (puo raggiungere un club
+   esistente), `organizations` (stessa tabella, altro nome) e ogni altra
+   risorsa riservata chiedono la direzione come prima.
+
+5. **Tutto o niente, e con il tetto.** `foundOwnClub`
+   (`src/lib/server/resources.ts`) scrive club, tessera `owner` del
+   fondatore e dashboard in una transazione (i sincronizzatori ricevono il
+   client della transazione), e rifiuta prima di scrivere una tessera per un
+   altro o una tessera del fondatore con un ruolo diverso da `owner` (il ramo
+   «creatore» di `assertConcessioneDiAccessoLecita` lascia passare ogni ruolo
+   sulla propria tessera: nel collaudo a browser una fondazione aveva scritto
+   `custom:owner:finto`). Verificato su PostgreSQL locale: un rifiuto dentro la
+   transazione, dopo la scrittura del club, non lascia nessuna riga. Il tetto `user_metadata.clubSlotLimit` — che prima controllava
+   solo l'area account — si conta sul server contro i club fondati, dietro un
+   blocco consultivo sulla persona perche due richieste parallele non vedano
+   entrambe uno slot libero. `clubSlotLimit` entra fra le chiavi protette di
+   `user_metadata` (`user-metadata-policy.ts`), e il registro generico, che
+   riscrive la colonna intera, riporta le chiavi protette dalla riga: prima un
+   `PATCH` con `user_metadata: {}` le cancellava.
+
+**Conseguenze.** Aprire la fondazione a ogni utente autenticato non apre la
+creazione illimitata di club: il tetto, dove la piattaforma lo assegna, vale
+anche per un client che salta l'interfaccia.
+Test: `tests/server/fondazione-club-utente-senza-club.test.mjs` (fallisce su
+`d465ec7d`…`f2a77061`, passa con la regola).

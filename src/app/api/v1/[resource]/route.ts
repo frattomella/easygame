@@ -2,19 +2,25 @@ import { NextResponse } from "next/server";
 import {
   RESOURCE_CONFIG,
   createResource,
+  foundOwnClub,
   listResourcePage,
   isClosedResource,
 } from "@/lib/server/resources";
 import {
   requireAuthenticatedUser,
   resolveOrganizationScopeForUser,
+  scopeForOwnClubFoundation,
 } from "@/lib/server/auth";
 import { publicErrorMessage } from "@/lib/server/api-errors";
 import {
   assertWritableResourcePayload,
   resolveResourcePayload,
 } from "@/lib/server/resource-request-payload";
-import { assertClubResourceAccess } from "@/lib/access-roles";
+import {
+  assertClubResourceAccess,
+  assertGenericCreateAccess,
+  isOwnClubFoundation,
+} from "@/lib/access-roles";
 import { isPlatformAdminUser } from "@/lib/platform-admin";
 import { sendNotificationEmails } from "@/lib/server/email/email-service";
 import {
@@ -159,8 +165,16 @@ export async function POST(request: Request, context: Context) {
       request.headers.get("x-active-club-id"),
       request.headers.get("x-active-access-role"),
     );
+    /*
+      Fondare un club proprio non chiede niente al club attivo, e non ne
+      eredita niente (ADR-0201): il cancello e lo scope di scrittura lo dicono
+      entrambi.
+    */
+    const writeScope = isOwnClubFoundation(resource, mode)
+      ? scopeForOwnClubFoundation(scope)
+      : scope;
     try {
-      assertClubResourceAccess(scope.activeRole, resource, "create");
+      assertGenericCreateAccess(scope.activeRole, resource, mode);
     } catch (denied) {
       await recordAuditEvent({
         action: AUDIT_ACTIONS.resourceAccessDenied,
@@ -179,12 +193,17 @@ export async function POST(request: Request, context: Context) {
     const items = Array.isArray(payload) ? payload : [payload];
     const created = [];
 
+    const foundation = isOwnClubFoundation(resource, mode);
     for (const item of items) {
+      const options = {
+        activeSeasonId: request.headers.get("x-active-season-id"),
+        isPlatformAdmin: isPlatformAdminUser(session.db.user),
+      };
       created.push(
-        await createResource(resource, item || {}, mode, scope, {
-          activeSeasonId: request.headers.get("x-active-season-id"),
-          isPlatformAdmin: isPlatformAdminUser(session.db.user),
-        }),
+        /* Club, tessera owner e dashboard in una transazione, con il tetto dei club (ADR-0201). */
+        foundation
+          ? await foundOwnClub(item || {}, writeScope, options)
+          : await createResource(resource, item || {}, mode, writeScope, options),
       );
     }
 

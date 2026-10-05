@@ -55,6 +55,11 @@ dell'account tramite timing. Il messaggio d'errore e sempre
 | POST/DELETE | `/api/v1/auth/device-tokens` | Registra/rinnova o revoca il token push del dispositivo mobile (WP11) |
 | GET | `/api/v1/auth/oauth/[provider]/start` · `/callback` | OAuth |
 
+Dopo la registrazione, un account senza club ne fonda uno dall'area account
+(«Crea club», `POST /api/v1/clubs` con `mode: "create"`): e permesso a ogni
+utente autenticato e il fondatore diventa `owner` (ADR-0201, regola in
+[08](08-roles-and-permissions.md#leccezione-fondare-un-club-proprio-adr-0201-2026-10-05)).
+
 ## Flusso di login (stato reale, da PP-05)
 
 ```

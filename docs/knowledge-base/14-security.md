@@ -3258,6 +3258,15 @@ Metadata`. Un test presidia che nessuna delle due **dichiari** una lista
 propria: duplicare una difesa non la raddoppia, raddoppia i posti in cui
 dimenticarsi di aggiornarla.
 
+**2026-10-05, ADR-0201.** Si aggiunge `clubSlotLimit`, il tetto dei club che
+un account puo fondare: da quando la fondazione e aperta a ogni utente
+autenticato il server lo fa valere, e un tetto che si scrive da soli non e un
+tetto. Il registro generico riscrive `user_metadata` **intera**: togliere le
+chiavi protette dall'ingresso non bastava, perche un `PATCH` con
+`user_metadata: {}` le **cancellava** dalla riga. Ora le riporta dalla riga
+esistente (`applicaGuardieDiModifica`); `PATCH /api/v1/auth/user` fondeva gia
+(`tests/server/fondazione-club-utente-senza-club.test.mjs`).
+
 ### MEDIUM-2 — l'asse «per account» dei contatori si consumava su una stringa scelta dal chiamante
 
 Le quattro rotte di verifica accettano nel corpo un `userId` che **non e**

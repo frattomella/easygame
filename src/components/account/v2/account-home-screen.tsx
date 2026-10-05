@@ -27,6 +27,7 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/compo
 import { TextInput } from "@/components/web/forms/Field";
 import { DangerConfirmDialog } from "@/components/web/overlays/Modal";
 import { formatInteger } from "@/lib/web/format";
+import { resolveClubSlotLimit } from "@/lib/auth/club-slot-policy";
 import { AccountCreateClubDrawer, type CreateClubSection } from "@/components/account/v2/account-create-club-drawer";
 import { AccountProfileDrawer } from "@/components/account/v2/account-profile-drawer";
 import { AccountRedeemAccessDrawer } from "@/components/account/v2/account-redeem-access-drawer";
@@ -407,10 +408,7 @@ export default function AccountHomeScreen() {
   const [hasLoadedMemberships, setHasLoadedMemberships] = React.useState(false);
   const [membershipsLoading, setMembershipsLoading] = React.useState(false);
 
-  const clubSlotLimit = React.useMemo(() => {
-    const rawLimit = Number(user?.user_metadata?.clubSlotLimit);
-    return Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : null;
-  }, [user?.user_metadata?.clubSlotLimit]);
+  const clubSlotLimit = React.useMemo(() => resolveClubSlotLimit(user?.user_metadata), [user?.user_metadata]);
 
   const activeClubId = activeClub?.id || null;
   const availableClubSlots = clubSlotLimit === null ? null : Math.max(clubSlotLimit - ownedClubs.length, 0);

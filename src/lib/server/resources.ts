@@ -56,7 +56,15 @@ import {
 } from "@/lib/health/permissions";
 import { isReminderVisibleToTrainer } from "@/lib/reminder-targeting";
 import { Prisma } from "@prisma/client";
-import { stripProtectedUserMetadata } from "../auth/user-metadata-policy";
+import {
+  PROTECTED_USER_METADATA_KEYS,
+  stripProtectedUserMetadata,
+} from "../auth/user-metadata-policy";
+import {
+  CLUB_SLOTS_EXHAUSTED_MESSAGE,
+  hasClubSlotAvailable,
+  resolveClubSlotLimit,
+} from "../auth/club-slot-policy";
 import {
   lockInstallmentAndTransaction,
   recomputeChargeFromLedger,
@@ -2647,6 +2655,7 @@ const assertConcessioneDiAccessoLecita = async (
   user_id: string,
   role: string,
   scope?: ResourceAccessScope,
+  db: any = prisma,
 ) => {
   /*
     Senza sessione siamo in un percorso interno (registrazione, seed, script):
@@ -2680,7 +2689,8 @@ const assertConcessioneDiAccessoLecita = async (
   }
 
   if (chiamante && bersaglio === chiamante) {
-    const club = await prisma.club.findUnique({
+    /* Dentro la transazione della fondazione il club esiste solo li (ADR-0201). */
+    const club = await db.club.findUnique({
       where: { id: organization_id },
       select: { creator_id: true },
     });
@@ -2689,7 +2699,7 @@ const assertConcessioneDiAccessoLecita = async (
     }
   }
 
-  const gia = await prisma.organizationUser.findFirst({
+  const gia = await db.organizationUser.findFirst({
     where: { organization_id, user_id: bersaglio, role },
     select: { id: true },
   });
@@ -2832,6 +2842,7 @@ const syncClubMembers = async (
   organization_id: string,
   members: any,
   scope?: ResourceAccessScope,
+  db: any = prisma,
 ) => {
   if (!Array.isArray(members)) {
     return;
@@ -2874,8 +2885,9 @@ const syncClubMembers = async (
       String(member.user_id),
       String(role),
       scope,
+      db,
     );
-    const existingAccess = await prisma.organizationUser.findFirst({
+    const existingAccess = await db.organizationUser.findFirst({
       where: {
         organization_id,
         user_id: member.user_id,
@@ -2893,14 +2905,14 @@ const syncClubMembers = async (
         era vietato, ometterla la eseguiva — misurato, la scrivania di una
         persona si spostava lo stesso.
       */
-      await prisma.organizationUser.update({
+      await db.organizationUser.update({
         where: { id: existingAccess.id },
         data: dichiaraIlClubDiIngresso
           ? { is_primary: Boolean(member?.is_primary ?? member?.isPrimary) }
           : {},
       });
     } else {
-      await prisma.organizationUser.create({
+      await db.organizationUser.create({
         data: {
           organization_id,
           user_id: member.user_id,
@@ -2916,12 +2928,13 @@ const ensureClubDashboard = async (
   organization_id: string,
   creator_id?: string | null,
   dashboard_data?: any,
+  db: any = prisma,
 ) => {
   if (!dashboard_data) {
     return;
   }
 
-  const existing = await prisma.dashboard.findFirst({
+  const existing = await db.dashboard.findFirst({
     where: {
       organization_id,
     },
@@ -2931,7 +2944,7 @@ const ensureClubDashboard = async (
     return;
   }
 
-  await prisma.dashboard.create({
+  await db.dashboard.create({
     data: {
       organization_id,
       creator_id: creator_id || null,
@@ -3132,8 +3145,15 @@ const syncClubResourceItemsFromField = async (
   organization_id: string,
   resource_type: string,
   items: any,
+  db?: any,
 ) => {
   if (!Array.isArray(resource_type === "members" ? normalizeClubMembers(items) : items)) {
+    return;
+  }
+
+  /* Gia dentro una transazione (la fondazione, ADR-0201): non se ne apre un'altra. */
+  if (db) {
+    await applyClubResourceSync(db, organization_id, resource_type, items);
     return;
   }
 
@@ -7393,11 +7413,14 @@ export const createResource = async (
   }
 
   if (resource === "clubs" || resource === "organizations") {
-    await syncClubMembers(record.id, input.memberships, scope);
+    /* Con `options.client` (la fondazione, ADR-0201) club e tessere sono una transazione. */
+    const db = (options?.client as any) || undefined;
+    await syncClubMembers(record.id, input.memberships, scope, db || prisma);
     await ensureClubDashboard(
       record.id,
       normalized.creator_id,
       input.dashboard_data,
+      db || prisma,
     );
     for (const field of CLUB_RESOURCE_TYPES) {
       if (input[field] !== undefined) {
@@ -7418,12 +7441,95 @@ export const createResource = async (
         */
         assertNotDomainOwnedResourceItem(field, field);
         assertNotAdminOnlyFromClubAggregate(field);
-        await syncClubResourceItemsFromField(record.id, field, input[field]);
+        await syncClubResourceItemsFromField(record.id, field, input[field], db);
       }
     }
   }
 
   return serializeRecord(resource, record, scope);
+};
+
+/**
+ * **La fondazione di un club proprio** (ADR-0201): `POST /api/v1/clubs` con
+ * `mode: "create"`, aperta a ogni utente autenticato.
+ *
+ * Tre cose che `createResource` da sola non garantiva:
+ *
+ * 1. **Tutto o niente.** Il club, la tessera `owner` del fondatore e la
+ *    dashboard nascono nella **stessa transazione**: prima una tessera rifiutata
+ *    rispondeva 403 e lasciava il club scritto, intestato al fondatore.
+ * 2. **Le tessere sono solo del fondatore.** Si guarda prima di scrivere: chi
+ *    fonda non tessera nessun altro, nemmeno se nel club attivo amministra.
+ * 3. **Il tetto dei club si conta sul server** (`clubSlotLimit`). La conta e la
+ *    creazione stanno dietro un blocco consultivo sulla persona, altrimenti due
+ *    richieste parallele vedrebbero entrambe uno slot libero.
+ */
+export const foundOwnClub = async (
+  input: Record<string, any>,
+  scope: ResourceAccessScope,
+  options?: ResourceRequestOptions,
+) => {
+  const fondatore = String(scope?.userId ?? "").trim();
+  if (!fondatore) {
+    throw new Error("Accesso negato: serve un utente autenticato");
+  }
+
+  const tessere = Array.isArray(input?.memberships) ? input.memberships : [];
+  for (const tessera of tessere) {
+    const titolare = String(tessera?.user_id ?? "").trim();
+    if (titolare && titolare !== fondatore) {
+      throw new Error(
+        "Accesso negato: fondare un club non concede l'accesso ad altri",
+      );
+    }
+    /*
+      E la tessera del fondatore e `owner`, non una stringa a scelta: il ramo
+      «creatore del club» di `assertConcessioneDiAccessoLecita` lascia passare
+      ogni ruolo sulla propria tessera, e nel collaudo a browser una fondazione
+      ha scritto `custom:owner:finto` in `organization_users`.
+    */
+    if (titolare && String(tessera?.role ?? "").trim() !== "owner") {
+      throw new Error(
+        "Accesso negato: chi fonda un club ne e il proprietario",
+      );
+    }
+  }
+
+  return prisma.$transaction(
+    async (tx: any) => {
+      try {
+        await tx.$executeRawUnsafe(
+          `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+          `easygame.fondazione-club:${fondatore}`,
+        );
+      } catch (errore) {
+        /* Come in `profile-account-links.ts`: passa solo «qui SQL grezzo non c'e». */
+        const messaggio = String((errore as any)?.message || errore);
+        const nonSupportato =
+          typeof tx?.$executeRawUnsafe !== "function" ||
+          /is not a function|not implemented|non supportat/i.test(messaggio);
+        if (!nonSupportato) throw errore;
+      }
+
+      const utente = await tx.user.findUnique({
+        where: { id: fondatore },
+        select: { user_metadata: true },
+      });
+      const limite = resolveClubSlotLimit(utente?.user_metadata);
+      if (limite !== null) {
+        const fondati = await tx.club.count({ where: { creator_id: fondatore } });
+        if (!hasClubSlotAvailable(limite, fondati)) {
+          throw new Error(`${CLUB_SLOTS_EXHAUSTED_MESSAGE} (${fondati} su ${limite})`);
+        }
+      }
+
+      return createResource("clubs", input, "create", scope, {
+        ...options,
+        client: tx,
+      });
+    },
+    { timeout: 20_000 },
+  );
 };
 
 /**
@@ -7933,6 +8039,25 @@ const applicaGuardieDiModifica = async (
   */
   if (resource === "users" && normalized && typeof normalized === "object") {
     delete (normalized as any).email_verified_at;
+
+    /*
+      **Togliere una chiave protetta e cancellarla sono due cose diverse.**
+
+      Questa porta riscrive `user_metadata` intera, e `normalizeModelInput` ne
+      toglie le chiavi che decide il server: senza riportarle dalla riga, un
+      `PATCH` con `user_metadata: {}` cancellava il tetto dei club assegnato
+      dalla piattaforma (`clubSlotLimit`, ADR-0201) — non lo alzava, lo
+      toglieva, che e lo stesso. `PATCH /api/v1/auth/user` fonde gia con la riga.
+    */
+    if ((normalized as any).user_metadata && typeof (normalized as any).user_metadata === "object") {
+      const precedenti =
+        existing && typeof (existing as any).user_metadata === "object" && (existing as any).user_metadata
+          ? ((existing as any).user_metadata as Record<string, unknown>)
+          : {};
+      for (const chiave of PROTECTED_USER_METADATA_KEYS) {
+        if (chiave in precedenti) (normalized as any).user_metadata[chiave] = precedenti[chiave];
+      }
+    }
 
     const indirizzoNuovo = String((normalized as any).email ?? "").trim().toLowerCase();
     const indirizzoVecchio = String((existing as any)?.email ?? "").trim().toLowerCase();
