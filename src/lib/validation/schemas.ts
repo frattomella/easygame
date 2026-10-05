@@ -171,7 +171,8 @@ export const paymentTransactionActionSchema = z.object({
 /* -------------------------------------------------------- stagioni */
 
 export const seasonInputSchema = z.object({
-  label: fields.text("Nome della stagione", 120),
+  /* Facoltativo: senza nome la stagione prende quello delle date (`buildSeasonFromInput`). */
+  label: fields.text("Nome della stagione", 120).optional(),
   startDate: fields.isoDate("Data di inizio").optional(),
   endDate: fields.isoDate("Data di fine").optional(),
   activate: z.boolean().optional(),

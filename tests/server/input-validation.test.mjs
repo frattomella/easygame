@@ -265,3 +265,22 @@ test("non e nata una seconda libreria di validazione", () => {
     "zod e gia una dipendenza: aggiungerne una seconda e l'errore numero 1 di CLAUDE.md",
   );
 });
+
+test("una stagione senza nome passa la validazione: il nome lo prendono le date", async () => {
+  /*
+    Trovato nel collaudo a browser del 2026-10-05: «Nuova stagione» dichiara il
+    nome facoltativo («Senza nome, la stagione prende quello delle date») e il
+    dominio lo ricava (`buildSeasonFromInput`), ma lo schema della rotta lo
+    pretendeva — 400 «Nome della stagione obbligatorio» e procedura ferma.
+  */
+  const senzaNome = schemas.seasonInputSchema.safeParse({ startDate: "2026-09-01", endDate: "2027-06-30", activate: true });
+  assert.equal(senzaNome.success, true, JSON.stringify(senzaNome.error?.issues));
+  assert.equal(senzaNome.data.label, undefined);
+
+  const { buildSeasonFromInput } = await import("../../src/lib/club-seasons.ts");
+  assert.equal(buildSeasonFromInput({ startDate: "2026-09-01", endDate: "2027-06-30" }).label, "2026/2027");
+
+  /* Un nome mandato vuoto o troppo lungo resta un errore. */
+  assert.equal(schemas.seasonInputSchema.safeParse({ label: "   ", startDate: "2026-09-01", endDate: "2027-06-30" }).success, false);
+  assert.equal(schemas.seasonInputSchema.safeParse({ label: "x".repeat(121), startDate: "2026-09-01", endDate: "2027-06-30" }).success, false);
+});

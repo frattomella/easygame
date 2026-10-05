@@ -71,6 +71,8 @@ export type SeasonsOverview = {
   activeSeasonId: string;
   activeSeason: ClubSeason;
   legacySeasonId: string | null;
+  /** `true` finche il club non ha una stagione salvata: `seasons` e quella sintetizzata, e non c'e niente da riportare. */
+  isFallback?: boolean;
   counts: Record<string, Record<string, number>>;
   rolloverTypes: SeasonRolloverTypeDescriptor[];
   globalTypes: Array<{ key: string; label: string }>;

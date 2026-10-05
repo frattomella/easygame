@@ -16,7 +16,7 @@ import { AlertBlock } from "@/components/web/page/Alerts";
 import { SummaryCard } from "@/components/web/page/Cards";
 import { DateInput, Field, FieldSizeProvider, FormGrid, Select, TextInput } from "@/components/web/forms/Field";
 import { formatDateShort, formatInteger } from "@/lib/web/format";
-import { ATHLETE_MEMBERSHIP_ROLLOVER_TYPE, SEASON_STATUS_LABELS, type ClubSeason } from "@/lib/club-seasons";
+import { ATHLETE_MEMBERSHIP_ROLLOVER_TYPE, SEASON_STATUS_LABELS, buildSeasonLabelFromDates, type ClubSeason } from "@/lib/club-seasons";
 import {
   createSeason,
   deleteSeason,
@@ -304,7 +304,12 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
     setWizardDirty(false);
     setStep("periodo");
     setSourceSeasonId(overview?.activeSeasonId || "");
-    setSelectedTypes(rolloverTypes.filter((type) => type.defaultSelected).map((type) => type.key));
+    /*
+      La prima stagione di un club non ha un'origine salvata: proporre il
+      riporto spuntato portava a un rifiuto del server alla fine della
+      procedura (collaudo a browser del 2026-10-05).
+    */
+    setSelectedTypes(overview?.isFallback ? [] : rolloverTypes.filter((type) => type.defaultSelected).map((type) => type.key));
     setLastSummary(null);
     setRoster(null);
     setConfirmedIds(new Set());
@@ -825,6 +830,11 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
           ) : null}
 
           {step === "riporto" ? (
+            overview?.isFallback ? (
+              <AlertBlock severity="info" title="Prima stagione del club">
+                Non c&apos;e ancora una stagione salvata da cui riportare dati: la stagione nasce vuota, e le categorie si creano dopo.
+              </AlertBlock>
+            ) : (
             <div className="flex flex-col gap-5">
               <Field label="Stagione di origine" htmlFor="season-source">
                 <Select
@@ -858,6 +868,7 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
                 </InsetBlock>
               </div>
             </div>
+            )
           ) : null}
 
           {step === "tesserati" && rosterNonCaricato ? (
@@ -881,8 +892,9 @@ export function SeasonManager({ onActiveSeasonChange }: SeasonManagerProps) {
           {step === "riepilogo" ? (
             <div className="flex flex-col gap-4 font-brand text-[13px] text-egw-ink">
               <p>
-                Verra creata la stagione <strong>{form.label.trim() || "senza nome"}</strong> dal <span className="egw-num">{formatDateShort(form.startDate)}</span> al{" "}
-                <span className="egw-num">{formatDateShort(form.endDate)}</span>, in stato <strong>{form.activate ? "attiva" : "futura"}</strong>.
+                {/* Il nome e lo stato che il server dara davvero: senza nome lo prendono le date, e la prima stagione nasce attiva. */}
+                Verra creata la stagione <strong>{form.label.trim() || buildSeasonLabelFromDates(form.startDate, form.endDate)}</strong> dal <span className="egw-num">{formatDateShort(form.startDate)}</span> al{" "}
+                <span className="egw-num">{formatDateShort(form.endDate)}</span>, in stato <strong>{form.activate || overview?.isFallback ? "attiva" : "futura"}</strong>.
               </p>
 
               {selectedDescriptors.length ? (
