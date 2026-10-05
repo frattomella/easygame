@@ -555,7 +555,17 @@ test("la franchigia non si consuma due volte su due erogazioni della stessa pers
 
 // --- storno -------------------------------------------------------------------------------
 
-test("stornare aggiunge una riga di segno opposto e marca l'originale", async () => {
+test("stornare aggiunge una riga di segno opposto e marca l'originale", async (t) => {
+  /*
+    **L'orologio della fixture, non quello del calendario** (D-WS-6). Lo stato
+    della scadenza si ricava dalla data (`deriveInstallmentStatus`): dopo lo
+    storno la rata di settembre e «maturata» solo finche il 30 settembre 2026
+    non e passato, e dal 1 ottobre e — giustamente — «scaduta». Il test
+    leggeva l'adesso vero e ha cominciato a fallire con il calendario. Si
+    ferma l'orologio al giorno della scadenza e dell'erogazione della fixture;
+    la regola applicativa non cambia.
+  */
+  t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-09-30T12:00:00Z") });
   const { transaction } = await eroga();
   const esito = await ledger.reverseCompensationPayout(
     transaction.id,

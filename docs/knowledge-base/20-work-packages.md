@@ -2375,7 +2375,7 @@ aggiuntivo alimentato dal gestionale, piu il nucleo sportivo che gli serve
 | Area `/website` del gestionale (panoramica e creazione, editor, media, news, persone, sponsor, messaggi, domini, versioni, impostazioni) e voce «Sito web» | **Codice completo** |
 | Driver allegati S3/R2 | **Codice completo**, non acceso in nessun ambiente |
 | Verifica end-to-end a browser (creazione → editor → anteprima → dominio `*.localhost` → pubblicazione → sito pubblico; immagini, persone, sponsor, iscrizioni; squadra, competizione, avversari, risultato, scheda giocatore; persona minorenne con e senza consenso) | **Fatta** il 2026-10-05 sul DB locale (due giri: commit `45098102` e il lotto successivo); in [11](11-capabilities.md) resta `PARTIAL` solo la riga dei domini |
-| Gate prima del commit (`npm test`, `typecheck`, `lint`, `build`) | **Verdi** a ogni commit; l'unico test rosso e il preesistente `sport-work-ledger` dipendente dalla data (D-WS-6) |
+| Gate prima del commit (`npm test`, `typecheck`, `lint`, `build`) | **Verdi** a ogni commit; dal 2026-10-05 anche `sport-work-ledger` (D-WS-6 chiuso) |
 | Deploy su `easygame-redesign-staging` (migrazione su `web-redesign-staging`) | **In attesa** — dopo i gate verdi; il progetto va scritto esplicitamente (mai copiare il `project.json` della radice) |
 
 **Seguiti dichiarati** (debito in [16](16-technical-debt.md), D-WS-1…14):
@@ -2390,4 +2390,4 @@ aggiuntivo alimentato dal gestionale, piu il nucleo sportivo che gli serve
   classifica da una federazione (D-WS-2), ISR se il traffico lo chiedera
   (D-WS-1);
 - fuori dal sito: il test date-dipendente di `sport-work-ledger` (D-WS-6),
-  lasciato documentato.
+  chiuso in un commit a parte fermando l'orologio della fixture.
