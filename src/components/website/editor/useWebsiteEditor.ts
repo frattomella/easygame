@@ -16,7 +16,7 @@ import type { WebsiteDevice, WebsitePageDocument } from "@/lib/website/document/
 import type { EditorTarget } from "@/lib/website/editor-protocol";
 
 /**
- * **Lo stato dell'editor visuale** (ADR-0200 §10-§11).
+ * **Lo stato dell'editor visuale** (ADR-0200 §3, §5).
  *
  * Tre cose vivono qui e da nessun'altra parte:
  *

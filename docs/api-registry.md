@@ -1224,7 +1224,7 @@ lascia passare solo `/api/public/website/*`.
 | `PUT` | `/api/v1/website/sponsors/:id` | La vetrina di uno sponsor: visibile, livello, logo, sito, periodo (website.sponsors.manage) |
 | `GET` | `/api/v1/website/inquiries` | Le richieste arrivate dal modulo contatti del sito |
 | `PATCH` | `/api/v1/website/inquiries/:id` | Segna una richiesta come gestita, archiviata o nuova |
-| `GET` | `/api/v1/website/maintenance` | Giro periodico (cron con CRON_SECRET): stato dei domini e pulizia delle richieste oltre 24 mesi |
+| `GET` | `/api/v1/website/maintenance` | Giro periodico (cron con CRON_SECRET): stato dei domini, pulizia delle richieste oltre 24 mesi, potatura delle revisioni (ultime 50 piu la corrente) |
 
 ### Sport core
 
@@ -1236,10 +1236,10 @@ lascia passare solo `/api/public/website/*`.
 | `DELETE` | `/api/v1/club-teams/:id` | Elimina una squadra stabile; le gare restano con la loro categoria |
 | `POST` | `/api/v1/club-teams/from-categories` | Crea o collega le squadre stabili dalle categorie di una stagione |
 | `GET` | `/api/v1/competitions` | Le competizioni, filtrabili per stagione, con la classifica inserita dal club |
-| `POST` | `/api/v1/competitions` | Crea o modifica una competizione e la sua classifica (events.manage) |
+| `POST` | `/api/v1/competitions` | Crea o modifica una competizione e la sua classifica (chi amministra il club) |
 | `DELETE` | `/api/v1/competitions/:id` | Elimina una competizione |
 | `GET` | `/api/v1/opponents` | Gli avversari del club |
-| `POST` | `/api/v1/opponents` | Crea o modifica un avversario |
+| `POST` | `/api/v1/opponents` | Crea o modifica un avversario (chi amministra il club) |
 | `DELETE` | `/api/v1/opponents/:id` | Elimina un avversario; le gare conservano il nome libero |
 | `GET` | `/api/v1/events/:id/result` | Le statistiche individuali registrate di una gara |
 | `PUT` | `/api/v1/events/:id/result` | Risultato, parziali e statistiche di una gara (events.manage); clear:true lo toglie |

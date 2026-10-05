@@ -9,7 +9,7 @@ import { invalidateWebsiteData } from "./cache";
 import { WEBSITE_MEDIA_ENDPOINT } from "@/lib/rich-text/sanitize";
 
 /**
- * **La libreria immagini del sito** (ADR-0200 §9, §48).
+ * **La libreria immagini del sito** (ADR-0200 §9).
  *
  * Non e un secondo archivio: ogni file e un allegato (`owner_type = website`,
  * `owner_id = <sito>`) del servizio allegati, che resta l'unico posto dove

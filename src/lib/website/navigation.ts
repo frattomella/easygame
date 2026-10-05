@@ -2,7 +2,7 @@ import { normalizeLink } from "./links";
 import type { WebsiteLink } from "./document/types";
 
 /**
- * **La navigazione del sito** (ADR-0200 §12).
+ * **La navigazione del sito** (ADR-0200 §3).
  *
  * Un'entita di configurazione propria, non una stringa nel template e non una
  * conseguenza delle pagine: due menu (intestazione e piede), voci ordinate,

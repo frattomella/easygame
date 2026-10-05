@@ -1,5 +1,5 @@
 /**
- * **Le azioni di audit del modulo Website** (ADR-0200 §26).
+ * **Le azioni di audit del modulo Website** (ADR-0200 §10).
  *
  * Un file a parte, come `src/lib/sport-work/audit-actions.ts`: le azioni
  * hanno la forma `website.qualcosa` come le chiavi di permesso, e il presidio

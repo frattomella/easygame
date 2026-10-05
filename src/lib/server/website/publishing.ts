@@ -269,6 +269,13 @@ export const publishSite = async (
   return { revision: serializeRevision(revision), reused, issues: check.issues };
 };
 
+/**
+ * Quante revisioni pubblicate tiene ogni sito: le ultime N piu la corrente.
+ * E anche quante ne mostra lo storico, cosi nessuna revisione elencata sparisce
+ * sotto gli occhi di chi la sta per ripristinare.
+ */
+export const WEBSITE_REVISIONS_KEPT = 50;
+
 export const listRevisions = async (scope: WebsiteScope | null | undefined) => {
   const grant = await requireWebsiteAccess(scope, "website.read", "read");
   const site = await findSiteRow(grant.organizationId);
@@ -276,9 +283,47 @@ export const listRevisions = async (scope: WebsiteScope | null | undefined) => {
   const rows = await (prisma as any).websiteRevision.findMany({
     where: { site_id: site.id, organization_id: grant.organizationId },
     orderBy: { revision_number: "desc" },
-    take: 50,
+    take: WEBSITE_REVISIONS_KEPT,
   });
   return { currentRevisionId: site.current_revision_id || null, revisions: rows.map(serializeRevision) };
+};
+
+/**
+ * **La potatura delle revisioni** (D-WS-11), dal giro periodico del sito.
+ *
+ * Ogni pubblicazione scrive una riga con lo snapshot intero: senza potatura la
+ * tabella cresce per sempre. Per ogni sito restano le ultime
+ * `WEBSITE_REVISIONS_KEPT` e, comunque, la corrente — anche se fosse piu
+ * vecchia, dopo un ripristino. Il trigger rifiuta solo l'`UPDATE` (una
+ * revisione non si riscrive), non la cancellazione; `source_revision_id` di un
+ * ripristino non e una chiave esterna, e resta come memoria della provenienza.
+ *
+ * E un lavoro di sfondo, non un atto di una persona: nessuno scope, nessun
+ * club alla volta da scegliere.
+ */
+export const pruneOldRevisions = async (options: { keep?: number } = {}) => {
+  const keep = Math.max(5, Math.floor(options.keep ?? WEBSITE_REVISIONS_KEPT));
+  const sites = (await (prisma as any).websiteSite.findMany({ select: { id: true, current_revision_id: true } })) as Array<{ id: string; current_revision_id: string | null }>;
+  let deleted = 0;
+  for (const site of sites) {
+    const [boundary] = (await (prisma as any).websiteRevision.findMany({
+      where: { site_id: site.id },
+      orderBy: { revision_number: "desc" },
+      skip: keep - 1,
+      take: 1,
+      select: { revision_number: true },
+    })) as Array<{ revision_number: number }>;
+    if (!boundary) continue;
+    const result = await (prisma as any).websiteRevision.deleteMany({
+      where: {
+        site_id: site.id,
+        revision_number: { lt: boundary.revision_number },
+        ...(site.current_revision_id ? { id: { not: site.current_revision_id } } : {}),
+      },
+    });
+    deleted += Number(result?.count || 0);
+  }
+  return { sites: sites.length, deleted, keep };
 };
 
 /**

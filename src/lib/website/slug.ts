@@ -1,5 +1,5 @@
 /**
- * **Slug delle pagine** (ADR-0200 §13).
+ * **Slug delle pagine** (ADR-0200 §3).
  *
  * Uno slug e un segmento solo, minuscolo, senza accenti: `chi-siamo`, non
  * `Chi Siamo/` ne `club/storia`. La home e lo slug vuoto e ce n'e una sola per

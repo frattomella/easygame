@@ -1,7 +1,7 @@
 import { sanitizeExternalUrl } from "./links";
 
 /**
- * **Contenuti incorporati da un'allowlist** (ADR-0200 §15, §63).
+ * **Contenuti incorporati da un'allowlist** (ADR-0200 §7; sicurezza in KB 14).
  *
  * Nessun campo «incolla qui il codice»: un `<script>` scritto da un operatore
  * eseguirebbe nel dominio del club, con accesso a tutto cio che la pagina

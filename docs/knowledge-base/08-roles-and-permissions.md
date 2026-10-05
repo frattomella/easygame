@@ -1494,7 +1494,7 @@ Nessuna chiave nuova.
 |------|-------------|------|
 | Leggere squadre stabili, competizioni, avversari | `events.read` **oppure** `website.read` | Chi vede il calendario o chi costruisce il sito |
 | Creare, modificare, eliminare una squadra stabile | `canManageClubConfigurationAsActor` (proprietario, gestore) | E configurazione sportiva, come le categorie. Sull'**attore**: un ruolo personalizzato costruito sul gestore non la eredita (D-WS-7, chiuso) |
-| Creare, modificare, eliminare competizioni (con la classifica) e avversari | `events.manage` | Quindi anche l'allenatore, che ha `events.manage`; competizioni e avversari sono del club e **non** hanno un perimetro di sede o categoria |
+| Creare, modificare, eliminare competizioni (con la classifica) e avversari | `canManageClubConfigurationAsActor` (proprietario, gestore; mai un ruolo personalizzato) | Configurazione del club come le squadre stabili. Fino al 2026-10-05 bastava `events.manage`, quindi anche l'allenatore riscriveva classifica e avversari di tutto il club (D-WS-14, chiuso): competizioni e avversari **non** hanno un perimetro di sede o categoria. Nel pannello del risultato «Nuovo avversario» compare solo a chi puo crearlo |
 | Squadra, competizione, avversario e giornata di una gara (`saveMatchSportDetails`) | `events.manage` + perimetro dell'allenatore e di sede/categoria sull'evento | Come ogni scrittura di `events.ts` |
 | Risultato, parziali e statistiche (`saveMatchResult`) | `events.manage` + gli stessi perimetri | Le statistiche si accettano solo per atleti del club |
 | Leggere le statistiche di una gara (`listMatchPlayerStats`) | `events.read` + perimetri in lettura | |

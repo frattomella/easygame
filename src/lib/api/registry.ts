@@ -2227,7 +2227,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     name: "website.maintenance",
     method: "GET",
     path: "/api/v1/website/maintenance",
-    description: "Giro periodico (cron con CRON_SECRET): stato dei domini e pulizia delle richieste oltre 24 mesi",
+    description: "Giro periodico (cron con CRON_SECRET): stato dei domini, pulizia delle richieste oltre 24 mesi, potatura delle revisioni (ultime 50 piu la corrente)",
     mobile_ready: false,
   },
   {
@@ -2276,7 +2276,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     name: "competitions.save",
     method: "POST",
     path: "/api/v1/competitions",
-    description: "Crea o modifica una competizione e la sua classifica (events.manage)",
+    description: "Crea o modifica una competizione e la sua classifica (chi amministra il club)",
     mobile_ready: false,
   },
   {
@@ -2297,7 +2297,7 @@ export const API_REGISTRY: ApiRegistryEntry[] = [
     name: "opponents.save",
     method: "POST",
     path: "/api/v1/opponents",
-    description: "Crea o modifica un avversario",
+    description: "Crea o modifica un avversario (chi amministra il club)",
     mobile_ready: false,
   },
   {

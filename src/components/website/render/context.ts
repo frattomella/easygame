@@ -5,7 +5,7 @@ import type { LinkResolverContext } from "@/lib/website/links";
 import type { PageKind } from "@/lib/website/registry";
 
 /**
- * **Cio che ogni componente del sito riceve** (ADR-0200 §22).
+ * **Cio che ogni componente del sito riceve** (ADR-0200 §4).
  *
  * Il renderer e fatto di componenti server: nessun contesto React, nessuno
  * stato. Ogni blocco riceve questo oggetto, che contiene lo snapshot

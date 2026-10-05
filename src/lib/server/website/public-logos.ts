@@ -4,7 +4,7 @@ import { siteDayKey } from "@/lib/website/dates";
 import { readShowcasedSponsorLegacyLogo } from "../sponsors";
 
 /**
- * **I loghi storici**, serviti al sito senza copiarli (ADR-0200 §9, §70-71).
+ * **I loghi storici**, serviti al sito senza copiarli (ADR-0200 §9).
  *
  * Il logo del club vive in `clubs.logo_url` e quello di uno sponsor nella sua
  * scheda: spesso come data URL (debito D13), a volte come riferimento a un

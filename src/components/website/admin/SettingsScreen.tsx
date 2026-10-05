@@ -19,7 +19,7 @@ import { MediaField } from "./MediaPicker";
 import { CharCount, ConflictDialog, ListSkeleton, ToggleRow, slugify } from "./admin-ui";
 
 /**
- * **Le impostazioni generali del sito** (ADR-0200 §12): identita, SEO
+ * **Le impostazioni generali del sito** (ADR-0200 §3): identita, SEO
  * globale, categorie delle news, stile. Un campo vuoto vuol dire «usa il dato
  * dell'anagrafica del club»: il sito non copia, legge.
  */

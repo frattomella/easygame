@@ -15,7 +15,7 @@ import { normalizePageSeo } from "@/lib/website/publishing/snapshot";
 import { slugify, uniqueSlug, validatePageSlug } from "@/lib/website/slug";
 
 /**
- * **Le news del sito** (ADR-0200 §9, §25).
+ * **Le news del sito** (ADR-0200 §9).
  *
  * La bacheca del gestionale e interna e per pubblico (ADR della Wave 2): una
  * comunicazione alle famiglie di una categoria non e un articolo per il mondo.

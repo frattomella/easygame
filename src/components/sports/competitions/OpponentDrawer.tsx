@@ -62,7 +62,7 @@ export function OpponentDrawer({ open, onOpenChange, opponent, media, onSaved }:
     setSaving(true);
     setError(null);
     const response = await sportsApi.saveOpponent({
-      ...(opponent ? { id: opponent.id } : {}),
+      ...(opponent ? { id: opponent.id, expectedVersion: opponent.version } : {}),
       name,
       shortName: draft.shortName.trim(),
       city: draft.city.trim(),

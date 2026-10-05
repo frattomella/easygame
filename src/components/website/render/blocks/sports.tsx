@@ -633,7 +633,7 @@ export const PlayerStatsRenderer: BlockRenderer = ({ props, context, data }) => 
   const stats = value.person.stats.filter((stat) => !props.statKeys?.length || props.statKeys.includes(stat.key));
   return (
     <div>
-      <BlockTitle title={props.title} subtitle={`${value.seasonLabel} · ${value.matches} gare con statistiche`} />
+      <BlockTitle title={props.title} subtitle={`${value.seasonLabel} · ${value.matches} ${value.matches === 1 ? "gara" : "gare"} con statistiche`} />
       <dl className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {stats.map((stat) => (
           <div key={stat.key} className="rounded-ws border border-ws-border p-4 text-center">

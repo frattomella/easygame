@@ -1,5 +1,5 @@
 /**
- * **Il trasporto del sito pubblico** (ADR-0200 §22).
+ * **Il trasporto del sito pubblico** (ADR-0200 §4).
  *
  * Il gestionale parla con le API attraverso `src/lib/api/client.ts`, che
  * aggiunge club attivo, ruolo, stagione e il logout centralizzato: niente di

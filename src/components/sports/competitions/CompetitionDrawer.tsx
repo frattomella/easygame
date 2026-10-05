@@ -101,7 +101,7 @@ export function CompetitionDrawer({ open, onOpenChange, competition, seasons, de
     setSaving(true);
     setError(null);
     const response = await sportsApi.saveCompetition({
-      ...(competition ? { id: competition.id } : {}),
+      ...(competition ? { id: competition.id, expectedVersion: competition.version } : {}),
       name,
       shortName: draft.shortName.trim(),
       seasonId: draft.seasonId || null,

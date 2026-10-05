@@ -12,7 +12,7 @@ import { EditorProbe } from "@/components/website/preview/EditorProbe";
 import { PREVIEW_SAMPLE_ITEM } from "@/lib/website/editor-protocol";
 
 /**
- * **L'anteprima privata della bozza** (ADR-0200 §5, §21).
+ * **L'anteprima privata della bozza** (ADR-0200 §5).
  *
  * Non e un indirizzo pubblico: vive sul dominio del gestionale, chiede la
  * sessione (il middleware rimanda al login chi non ce l'ha) e il permesso

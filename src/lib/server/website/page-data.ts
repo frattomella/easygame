@@ -41,7 +41,7 @@ import {
 } from "./public-data/sponsors-articles";
 
 /**
- * **Il risolutore dei dati di una pagina** (ADR-0200 §6, §30).
+ * **Il risolutore dei dati di una pagina** (ADR-0200 §6).
  *
  * 1. raccoglie le richieste dei blocchi (`collectPageRequests`), gia
  *    deduplicate: tre blocchi che chiedono la stessa squadra sono una

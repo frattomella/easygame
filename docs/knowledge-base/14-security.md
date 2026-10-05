@@ -4381,7 +4381,16 @@ sparito spegne il dominio.
   pubblicazione attiva la usa e la policy la lascia passare **adesso**
   (`isPersonPhotoPublic`), con cache di 5 minuti invece di un anno: una revoca
   del consenso ferma la foto anche se un link o una cache la ricordano.
-  Un'immagine generica della libreria non puo diventare la foto di una persona.
+  Un'immagine generica della libreria non puo diventare la foto di una persona,
+  e nemmeno il contrario: il logo di uno sponsor o di un avversario non puo
+  essere un file `person-photo` (collaudo del 2026-10-05; prima il server lo
+  accettava, e solo la policy della foto ne impediva l'uscita).
+- **Le gare sul sito**: casa/trasferta e l'ora vengono dalla riga
+  (`home_away`, ricavata da `isHome`; `starts_at` convertita dal formato
+  dell'archivio, ADR-0098, in un istante vero): prima una trasferta vinta
+  compariva come una sconfitta in casa, con i parziali scambiati.
+- **Avviso del modulo contatti** (D-WS-13): il testo del visitatore entra
+  nell'email solo come testo protetto (`sendWebsiteInquiryEmail`, nel modulo email), mai come HTML.
 - **Cancellazione**: `website_person_publications` (con la foto) e
   `club_event_player_stats` sono nel perimetro di `data-subject.ts`.
 

@@ -33,7 +33,8 @@ export const updateSponsorShowcase = async (
   const logoMediaId = String((showcase as any)?.logoMediaId || "").trim();
   if (logoMediaId) {
     const media = await (prisma as any).attachment.findFirst({
-      where: { id: logoMediaId, organization_id: grant.organizationId, owner_type: "website" },
+      /* Una foto di persona ha la sua policy e non diventa un logo pubblico. */
+      where: { id: logoMediaId, organization_id: grant.organizationId, owner_type: "website", category: { not: "person-photo" } },
       select: { id: true },
     });
     if (!media) throw new Error("Il logo deve essere un'immagine della libreria del sito");

@@ -650,7 +650,7 @@ export const previewDataSubjectErasure = async (
   });
 
   /*
-    **Il nono indice: il sito pubblico** (ADR-0200 §17). Come compare la
+    **Il nono indice: il sito pubblico** (ADR-0200 §7). Come compare la
     persona sul sito vive in `website_person_publications`, chiavata per
     `person_id` senza chiave esterna; la sua foto e un file della libreria del
     sito (`person-photo`), non un allegato della scheda. Le statistiche di gara

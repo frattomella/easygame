@@ -1,5 +1,5 @@
 /**
- * **Una pila di annullamento per tutto cio che l'editor cambia** (ADR-0200 §11).
+ * **Una pila di annullamento per tutto cio che l'editor cambia** (ADR-0200 §3).
  *
  * Portata dal Website Builder GPW (`editor-history.ts` in Cedi Platform) e
  * riscritta per i tipi di EasyGame. Le tre idee restano quelle:

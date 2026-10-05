@@ -16,7 +16,7 @@ import { SegmentedControl, Skeleton } from "@/components/web/primitives/Controls
 import { Field, Select, TextInput } from "@/components/web/forms/Field";
 import { DangerConfirmDialog } from "@/components/web/overlays/Modal";
 import { formatInteger } from "@/lib/web/format";
-import { roleHasPermission } from "@/lib/permissions/catalog";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { sportsApi, type CompetitionDto, type OpponentDto } from "@/lib/sports/client";
 import { CompetitionDrawer } from "@/components/sports/competitions/CompetitionDrawer";
 import { OpponentDrawer } from "@/components/sports/competitions/OpponentDrawer";
@@ -30,7 +30,8 @@ import { useWebsiteMediaAvailability } from "@/components/sports/useWebsiteMedia
  * Due anagrafiche minime che danno un nome alle gare: in che campionato si
  * gioca e contro chi. La classifica di una competizione la inserisce il club;
  * EasyGame non la calcola, perche conosce solo le gare del club. Le gestisce
- * chi gestisce il calendario (`events.manage`); il server lo decide, qui le
+ * chi amministra il club (`canManageClubConfigurationAsActor`, come le squadre
+ * stabili); chi vede il calendario le consulta. Il server lo decide, qui le
  * azioni semplicemente non compaiono.
  */
 
@@ -54,7 +55,7 @@ export default function CompetizioniPage() {
   const router = useRouter();
   const { showToast } = useToast();
   const { activeClub, userRole } = useAuth();
-  const canManage = roleHasPermission(String(activeClub?.role || userRole || ""), "events.manage");
+  const canManage = canManageClubConfigurationAsActor(String(activeClub?.role || userRole || ""));
   const clubId = activeClub?.id ? String(activeClub.id) : "";
 
   const [tab, setTab] = React.useState<Tab>("competizioni");
@@ -253,7 +254,7 @@ export default function CompetizioniPage() {
           </div>
 
           {!canManage ? (
-            <InfoCard className="mb-5">Competizioni e avversari li gestisce chi gestisce il calendario delle gare: qui puoi consultarli.</InfoCard>
+            <InfoCard className="mb-5">Competizioni, classifiche e avversari li configura la direzione del club: qui puoi consultarli.</InfoCard>
           ) : null}
 
           {loading ? (

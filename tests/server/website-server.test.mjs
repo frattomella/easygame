@@ -246,3 +246,90 @@ test("le squadre stabili le scrive chi dirige il club, non un ruolo personalizza
   await assert.rejects(() => clubTeams.createClubTeam(scope(CLUB, "custom:club_manager:segreteria"), { name: "Under 15" }), /Accesso negato/);
   await assert.rejects(() => clubTeams.createClubTeam(scope(CLUB, "trainer"), { name: "Under 17" }), /Accesso negato/);
 });
+
+test("il logo di uno sponsor e un'immagine della libreria, mai una foto di persona", async () => {
+  const showcase = await import("../../src/lib/server/website/sponsors-showcase.ts");
+  fake.rows("attachment").push(
+    { id: "11111111-aaaa-4000-8000-0000000000f1", organization_id: CLUB, owner_type: "website", category: "person-photo" },
+    { id: "11111111-aaaa-4000-8000-0000000000f2", organization_id: CLUB, owner_type: "website", category: "website-media" },
+  );
+  await assert.rejects(
+    () => showcase.updateSponsorShowcase(scope(), "sponsor-x", { visible: true, logoMediaId: "11111111-aaaa-4000-8000-0000000000f1" }),
+    /libreria del sito/,
+  );
+  /* Un'immagine della libreria passa il vaglio del logo (cio che segue e il dominio sponsor). */
+  await assert.rejects(
+    () => showcase.updateSponsorShowcase(scope(), "sponsor-x", { visible: true, logoMediaId: "11111111-aaaa-4000-8000-0000000000f2" }),
+    (error) => !/libreria del sito/.test(String(error?.message)),
+  );
+});
+
+test("competizioni, classifiche e avversari li scrive chi dirige il club; l'allenatore li legge", async () => {
+  const competitions = await import("../../src/lib/server/competitions.ts");
+  const created = await competitions.saveCompetition(scope(CLUB, "club_manager"), { name: "Serie C Gold", standings: [{ position: 1, team: "Fortitudo", isClub: true }] });
+  assert.ok(created.id);
+  /* L'allenatore ha `events.manage` ma non la configurazione del club (D-WS-14). */
+  await assert.rejects(() => competitions.saveCompetition(scope(CLUB, "trainer"), { id: created.id, standings: [] }), /Accesso negato/);
+  await assert.rejects(() => competitions.saveOpponent(scope(CLUB, "trainer"), { name: "Basket Gaeta" }), /Accesso negato/);
+  await assert.rejects(() => competitions.deleteCompetition(scope(CLUB, "trainer"), created.id), /Accesso negato/);
+  /* Un ruolo personalizzato sul gestore non eredita la configurazione. */
+  await assert.rejects(() => competitions.saveOpponent(scope(CLUB, "custom:club_manager:segreteria"), { name: "Basket Gaeta" }), /Accesso negato/);
+  /* Leggere resta di chi vede il calendario. */
+  const visibili = await competitions.listCompetitions(scope(CLUB, "trainer"));
+  assert.equal(visibili.length, 1);
+  assert.equal(visibili[0].standings.length, 1);
+  assert.ok(await competitions.saveOpponent(scope(CLUB, "owner"), { name: "Basket Gaeta" }));
+  assert.equal((await competitions.listOpponents(scope(CLUB, "trainer"))).length, 1);
+});
+
+test("la potatura tiene le ultime 50 revisioni e la corrente, anche se e piu vecchia (D-WS-11)", async () => {
+  const overview = await createSite();
+  const siteId = overview.site.id;
+  const rows = fake.rows("websiteRevision");
+  rows.length = 0;
+  for (let n = 1; n <= 60; n += 1) {
+    rows.push({ id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`, site_id: siteId, organization_id: CLUB, revision_number: n, snapshot: {}, snapshot_hash: String(n), origin: "publish", published_at: new Date() });
+  }
+  /* Dopo un ripristino la corrente puo essere una vecchia: la 3. */
+  const site = fake.rows("websiteSite").find((row) => row.id === siteId);
+  site.current_revision_id = rows[2].id;
+
+  const result = await publishing.pruneOldRevisions();
+  assert.equal(result.keep, 50);
+  const left = fake.rows("websiteRevision").filter((row) => row.site_id === siteId).map((row) => row.revision_number).sort((a, b) => a - b);
+  assert.equal(left.length, 51, "50 piu la corrente");
+  assert.equal(left[0], 3, "la corrente resta");
+  assert.equal(left[1], 11);
+  assert.equal(left.at(-1), 60);
+  assert.equal(result.deleted, 9);
+
+  /* Un sito con poche revisioni non perde niente. */
+  const again = await publishing.pruneOldRevisions();
+  assert.equal(again.deleted, 0);
+});
+
+test("competizioni, avversari e squadre: due salvataggi con la stessa versione, il secondo e un conflitto (D-WS-12)", async () => {
+  const competitions = await import("../../src/lib/server/competitions.ts");
+  const owner = scope(CLUB, "owner");
+  const competition = await competitions.saveCompetition(owner, { name: "Serie C" });
+  const prima = await competitions.saveCompetition(owner, { id: competition.id, standings: [{ position: 1, team: "A" }], expectedVersion: competition.version });
+  assert.equal(prima.version, competition.version + 1);
+  await assert.rejects(
+    () => competitions.saveCompetition(owner, { id: competition.id, standings: [{ position: 1, team: "B" }], expectedVersion: competition.version }),
+    (error) => access.isWebsiteConflict(error) && error.currentVersion === prima.version,
+  );
+
+  const opponent = await competitions.saveOpponent(owner, { name: "Basket Gaeta" });
+  await competitions.saveOpponent(owner, { id: opponent.id, city: "Gaeta", expectedVersion: opponent.version });
+  await assert.rejects(() => competitions.saveOpponent(owner, { id: opponent.id, city: "Formia", expectedVersion: opponent.version }), (error) => access.isWebsiteConflict(error));
+
+  const team = await clubTeams.createClubTeam(owner, { name: "Under 15" });
+  await clubTeams.updateClubTeam(owner, team.id, { description: "uno", expectedVersion: team.version });
+  await assert.rejects(() => clubTeams.updateClubTeam(owner, team.id, { description: "due", expectedVersion: team.version }), (error) => access.isWebsiteConflict(error));
+});
+
+test("il logo di un avversario non e mai una foto di persona", async () => {
+  const competitions = await import("../../src/lib/server/competitions.ts");
+  fake.rows("attachment").push({ id: "11111111-aaaa-4000-8000-0000000000f9", organization_id: CLUB, owner_type: "website", category: "person-photo" });
+  await assert.rejects(() => competitions.saveOpponent(scope(CLUB, "owner"), { name: "Virtus", logoMediaId: "11111111-aaaa-4000-8000-0000000000f9" }), /libreria del sito/);
+});

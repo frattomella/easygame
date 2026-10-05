@@ -14,7 +14,7 @@ import { SiteUnavailable } from "@/components/website/render/SiteUnavailable";
 import { buildRenderContext } from "@/components/website/render/build-context";
 
 /**
- * **Il renderer pubblico del sito di un club** (ADR-0200 §22, §53).
+ * **Il renderer pubblico del sito di un club** (ADR-0200 §2, §4).
  *
  * Ci si arriva solo per rewrite dal middleware: un dominio del club diventa
  * `/site-render/<host>/<percorso>`. Qui: host → sito → revisione pubblicata

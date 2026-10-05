@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 /**
- * **Un contenuto esterno che si carica solo dopo un clic** (ADR-0200 §15).
+ * **Un contenuto esterno che si carica solo dopo un clic** (ADR-0200 §7).
  *
  * Prima del clic non parte nessuna richiesta verso il servizio — niente
  * cookie di terze parti, niente tracciamento — e il visitatore vede cosa sta

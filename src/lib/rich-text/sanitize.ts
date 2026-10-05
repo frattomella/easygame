@@ -155,7 +155,7 @@ export const sanitizeRichHtml = (html: unknown): string => {
 };
 
 /**
- * **La variante del sito pubblico** (ADR-0200 §15, §64).
+ * **La variante del sito pubblico** (ADR-0200 §7).
  *
  * Stessa allowlist, con tre differenze e nessuna di piu:
  *

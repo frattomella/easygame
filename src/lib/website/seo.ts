@@ -3,7 +3,7 @@ import type { PublicArticle, PublicClubInfo, PublicMatch, PublicPerson, PublicTe
 import { WEBSITE_MEDIA_ENDPOINT } from "@/lib/rich-text/sanitize";
 
 /**
- * **Titolo, descrizione, canonical, OpenGraph e dati strutturati** (ADR-0200 §16).
+ * **Titolo, descrizione, canonical, OpenGraph e dati strutturati** (ADR-0200).
  *
  * SEO globale + SEO della pagina + contenuto di dettaglio (l'articolo, la
  * gara, la squadra dell'indirizzo). Il canonical e sempre sul **dominio

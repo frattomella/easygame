@@ -219,7 +219,7 @@ export type MediaAltLookup = (mediaId: string) => string | null | undefined;
 /**
  * I controlli che **bloccano la pubblicazione** di una pagina, piu le
  * avvertenze. Un'immagine senza testo alternativo e un errore: e il limite del
- * Website Builder GPW che EasyGame non ripete (§17).
+ * Website Builder GPW che EasyGame non ripete.
  */
 export const checkDocumentForPublish = (doc: WebsitePageDocument, altOf: MediaAltLookup): DocumentIssue[] => {
   const issues: DocumentIssue[] = [];

@@ -2,9 +2,9 @@ import { normalizeLink, sanitizeEmail, sanitizeExternalUrl, sanitizePhone } from
 import type { MediaRef, WebsiteLink } from "./document/types";
 
 /**
- * **Intestazione, piede, identita e SEO globale di un sito** (ADR-0200 §12).
+ * **Intestazione, piede, identita e SEO globale di un sito** (ADR-0200 §3).
  *
- * Il principio dei dati del club (§70): ragione sociale, logo, indirizzo,
+ * Il principio dei dati del club (ADR-0200 §9): ragione sociale, logo, indirizzo,
  * contatti e social **si leggono dal gestionale** al render, non si copiano.
  * Qui vive solo cio che il sito vuole diverso — un nome breve, un logo per il
  * fondo scuro, un'email dedicata — e un campo vuoto significa «usa quello del

@@ -5,7 +5,7 @@ import { AUTH_RATE_LIMITS, consumeAuthRateLimit, getRequestIp, rateLimitHeaders 
 import { readRequestId, reportServerError } from "@/lib/server/observability";
 
 /**
- * **Il modulo contatti del sito di un club** (ADR-0200 §9, §47).
+ * **Il modulo contatti del sito di un club** (ADR-0200 §9).
  *
  * Il sito destinatario lo dice l'**host** della richiesta — il dominio del
  * club su cui il modulo e stato compilato — mai il corpo: un client non puo

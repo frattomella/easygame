@@ -173,7 +173,7 @@ const resolveRequestId = (request: NextRequest) => {
 };
 
 /**
- * **Gli host del gestionale e quelli dei siti dei club** (ADR-0200 §2, §53).
+ * **Gli host del gestionale e quelli dei siti dei club** (ADR-0200 §2, §4).
  *
  * Il gestionale risponde sui suoi host (`EASYGAME_APP_HOSTS`, l'host di
  * `NEXT_PUBLIC_APP_URL`/`AUTH_BASE_URL`, `localhost`, le anteprime di
@@ -353,7 +353,7 @@ export const config = {
     /*
       `robots.txt` e `sitemap.xml` hanno un'estensione e la regola sopra li
       lascerebbe fuori: sul dominio di un club devono invece arrivare al
-      renderer del sito, che li scrive per quel dominio (ADR-0200 §16).
+      renderer del sito, che li scrive per quel dominio (ADR-0200 §2).
     */
     "/robots.txt",
     "/sitemap.xml",

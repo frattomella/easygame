@@ -10,7 +10,7 @@ import {
 import type { WebsiteBlock, WebsitePageDocument } from "../document/types";
 
 /**
- * **Da un blocco alla sua richiesta di dati** (ADR-0200 §6, §30).
+ * **Da un blocco alla sua richiesta di dati** (ADR-0200 §6).
  *
  * Funzione pura, usata da due parti che devono dire la stessa cosa: il
  * risolutore di pagina (che raccoglie e carica) e il renderer (che cerca il

@@ -2,6 +2,8 @@ import { prisma } from "./prisma";
 import { recordAuditEvent, AUDIT_ACTIONS } from "./audit";
 import { assertActiveClub, resolveActiveClubId } from "@/lib/auth/active-club-boundary";
 import { roleHasPermission } from "@/lib/permissions/catalog";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
+import { WebsiteConflictError } from "./website/access";
 import { resolveSportKey } from "@/lib/sports/adapters";
 
 /**
@@ -33,8 +35,18 @@ const assertRead = (scope: CompetitionsScope) => {
     throw denied("il ruolo attivo non puo vedere competizioni e avversari");
   }
 };
+/*
+  **Competizioni, classifiche e avversari sono configurazione del club**, come
+  le squadre stabili (D-WS-7): li scrive chi amministra il club, sull'attore e
+  non sul ruolo base. Prima bastava `events.manage`, che ha anche
+  l'allenatore: chi allena una categoria riscriveva la classifica e
+  l'anagrafica avversari di tutto il club. Leggerle resta di chi vede il
+  calendario, perche l'allenatore le sceglie sulle gare che gestisce.
+*/
 const assertManage = (scope: CompetitionsScope) => {
-  if (!roleHasPermission(scope.activeRole, "events.manage")) throw denied("il ruolo attivo non puo gestire competizioni e avversari");
+  if (!canManageClubConfigurationAsActor(scope.activeRole)) {
+    throw denied("competizioni, classifiche e avversari li configura chi amministra il club");
+  }
 };
 
 const COMPETITION_KINDS = ["league", "cup", "tournament", "friendly"] as const;
@@ -88,7 +100,7 @@ export const listCompetitions = async (scope: CompetitionsScope, filter: { seaso
 
 export const saveCompetition = async (
   scope: CompetitionsScope,
-  input: { id?: unknown; name?: unknown; shortName?: unknown; seasonId?: unknown; sport?: unknown; kind?: unknown; standings?: unknown; active?: unknown },
+  input: { id?: unknown; name?: unknown; shortName?: unknown; seasonId?: unknown; sport?: unknown; kind?: unknown; standings?: unknown; active?: unknown; expectedVersion?: unknown },
 ) => {
   assertManage(scope);
   const id = text(input.id, 64);
@@ -113,11 +125,19 @@ export const saveCompetition = async (
     const existing = await (prisma as any).competition.findFirst({ where: { id } });
     if (!existing) throw denied("la competizione non esiste");
     assertActiveClub(scope, existing.organization_id, "la competizione");
-    row = await (prisma as any).competition.update({ where: { id }, data: { ...data, version: { increment: 1 } } });
+    /*
+      **Due salvataggi della stessa classifica non si sovrascrivono in silenzio**
+      (D-WS-12): con `expectedVersion` la riga si scrive solo se nessuno l'ha
+      cambiata nel frattempo, altrimenti 409 con la versione corrente.
+    */
+    const expected = input.expectedVersion === undefined || input.expectedVersion === null ? Number(existing.version) : Number(input.expectedVersion);
+    const updated = await (prisma as any).competition.updateMany({ where: { id, version: expected }, data: { ...data, version: { increment: 1 } } });
+    if (!updated.count) throw new WebsiteConflictError("La competizione e stata modificata da qualcun altro: ricarica e riprova", Number(existing.version));
+    row = await (prisma as any).competition.findUnique({ where: { id } });
   } else {
     const organizationId = resolveActiveClubId(scope, null, "la competizione");
     if (!data.name) throw new Error("Dai un nome alla competizione");
-    row = await (prisma as any).competition.create({ data: { organization_id: organizationId, kind: "league", ...data } });
+    row = await (prisma as any).competition.create({ data: { organization_id: organizationId, kind: "league", version: 1, ...data } });
   }
   await recordAuditEvent({
     action: AUDIT_ACTIONS.competitionSaved,
@@ -171,7 +191,7 @@ const httpUrl = (value: unknown) => {
 
 export const saveOpponent = async (
   scope: CompetitionsScope,
-  input: { id?: unknown; name?: unknown; shortName?: unknown; city?: unknown; logoMediaId?: unknown; websiteUrl?: unknown },
+  input: { id?: unknown; name?: unknown; shortName?: unknown; city?: unknown; logoMediaId?: unknown; websiteUrl?: unknown; expectedVersion?: unknown },
 ) => {
   assertManage(scope);
   const id = text(input.id, 64);
@@ -194,7 +214,8 @@ export const saveOpponent = async (
   if (input.logoMediaId !== undefined) {
     const mediaId = text(input.logoMediaId, 64) || null;
     if (mediaId) {
-      const media = await (prisma as any).attachment.findFirst({ where: { id: mediaId, organization_id: organizationId, owner_type: "website" }, select: { id: true } });
+      /* Una foto di persona ha la sua policy e non diventa un logo pubblico. */
+      const media = await (prisma as any).attachment.findFirst({ where: { id: mediaId, organization_id: organizationId, owner_type: "website", category: { not: "person-photo" } }, select: { id: true } });
       if (!media) throw new Error("Il logo deve essere un'immagine della libreria del sito");
     }
     data.logo_attachment_id = mediaId;
@@ -206,9 +227,16 @@ export const saveOpponent = async (
     });
     if (clash) throw new Error("Esiste gia un avversario con questo nome");
   }
-  const row = id
-    ? await (prisma as any).opponent.update({ where: { id }, data: { ...data, version: { increment: 1 } } })
-    : await (prisma as any).opponent.create({ data: { organization_id: organizationId, ...data } });
+  let row;
+  if (id) {
+    const existing = await (prisma as any).opponent.findFirst({ where: { id }, select: { version: true } });
+    const expected = input.expectedVersion === undefined || input.expectedVersion === null ? Number(existing?.version ?? 1) : Number(input.expectedVersion);
+    const updated = await (prisma as any).opponent.updateMany({ where: { id, organization_id: organizationId, version: expected }, data: { ...data, version: { increment: 1 } } });
+    if (!updated.count) throw new WebsiteConflictError("L'avversario e stato modificato da qualcun altro: ricarica e riprova", Number(existing?.version ?? 1));
+    row = await (prisma as any).opponent.findUnique({ where: { id } });
+  } else {
+    row = await (prisma as any).opponent.create({ data: { organization_id: organizationId, version: 1, ...data } });
+  }
   await recordAuditEvent({
     action: AUDIT_ACTIONS.opponentSaved,
     actorUserId: scope.userId,

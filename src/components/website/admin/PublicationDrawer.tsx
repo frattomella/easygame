@@ -249,7 +249,16 @@ export function PublicationDrawer({
               </p>
               {preview.role ? <p>{preview.role}</p> : null}
               <p>{[preview.birthYear ? `Nato nel ${preview.birthYear}` : "", preview.heightCm ? `${preview.heightCm} cm` : ""].filter(Boolean).join(" · ")}</p>
-              {!preview.photoMediaId && settings.showPhoto ? <p className="text-egw-amber-ink">La foto non e mostrata (consenso).</p> : null}
+              {/* L'anteprima e quella salvata: con modifiche aperte non si attribuisce l'assenza della foto al consenso. */}
+              {!preview.photoMediaId && settings.showPhoto ? (
+                <p className="text-egw-amber-ink">
+                  {dirty
+                    ? "Salva per aggiornare l'anteprima."
+                    : !settings.photoMediaId
+                      ? "Nessuna foto scelta."
+                      : "La foto non e mostrata (consenso)."}
+                </p>
+              ) : null}
             </div>
           </div>
         ) : (

@@ -116,6 +116,7 @@ import { MultipleMatchesDrawer } from "@/components/matches/v2/MultipleMatchesDr
 import { MatchResultDrawer } from "@/components/matches/v2/MatchResultDrawer";
 import { applyResultSnapshot, type MatchResultSnapshot } from "@/components/matches/v2/match-result-model";
 import { roleHasPermission } from "@/lib/permissions/catalog";
+import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
 import { clubPrimarySport } from "@/lib/sports/adapters";
 
 /*
@@ -1446,6 +1447,7 @@ export default function MatchesPage() {
         clubSport={clubSport}
         athletes={athletes}
         canManage={canManageEvents}
+        canCreateOpponent={canManageClubConfigurationAsActor(String(activeClub?.role || userRole || ""))}
         onSaved={(eventKey, snapshot) => {
           risultatiSalvati.current = { ...risultatiSalvati.current, [eventKey]: snapshot };
           void loadData({ silent: true });

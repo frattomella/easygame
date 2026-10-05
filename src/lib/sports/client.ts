@@ -79,11 +79,11 @@ export const sportsApi = {
 
   competitions: (seasonId?: string) =>
     apiRequest<CompetitionDto[]>(`/api/v1/competitions${seasonId ? `?seasonId=${encodeURIComponent(seasonId)}` : ""}`),
-  saveCompetition: (input: Partial<CompetitionDto> & { id?: string }) => apiRequest<CompetitionDto>("/api/v1/competitions", { method: "POST", body: input }),
+  saveCompetition: (input: Partial<CompetitionDto> & { id?: string; expectedVersion?: number }) => apiRequest<CompetitionDto>("/api/v1/competitions", { method: "POST", body: input }),
   deleteCompetition: (id: string) => apiRequest<{ deleted: boolean }>(`/api/v1/competitions/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   opponents: () => apiRequest<OpponentDto[]>("/api/v1/opponents"),
-  saveOpponent: (input: Partial<OpponentDto> & { id?: string }) => apiRequest<OpponentDto>("/api/v1/opponents", { method: "POST", body: input }),
+  saveOpponent: (input: Partial<OpponentDto> & { id?: string; expectedVersion?: number }) => apiRequest<OpponentDto>("/api/v1/opponents", { method: "POST", body: input }),
   deleteOpponent: (id: string) => apiRequest<{ deleted: boolean }>(`/api/v1/opponents/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   matchStats: (eventId: string) =>

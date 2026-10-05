@@ -58,7 +58,7 @@ import { ConflictDialog } from "./ConflictDialog";
 import type { ControlContext } from "./ControlField";
 
 /**
- * **L'editor visuale del sito** (ADR-0200 §10).
+ * **L'editor visuale del sito** (ADR-0200 §3).
  *
  * A tutto schermo: a sinistra pagine, struttura, blocchi, tema, menu,
  * intestazione e piede; al centro l'anteprima vera nell'iframe, larga quanto

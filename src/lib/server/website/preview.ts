@@ -1,11 +1,12 @@
 import { prisma } from "../prisma";
+import { instantToArchiveDigits } from "./public-data/matches";
 import { requireAuthenticatedUser, resolveOrganizationScopeForUser, isPlatformAdminSession } from "../auth";
 import { requireWebsiteAccess } from "./access";
 import { buildDraftSnapshot } from "./publishing";
 import type { SiteSnapshot } from "@/lib/website/publishing/snapshot";
 
 /**
- * **L'anteprima privata** (ADR-0200 §5, §21).
+ * **L'anteprima privata** (ADR-0200 §5).
  *
  * Non e un indirizzo pubblico: vive sotto `/website-preview/<sito>/…` sul
  * dominio del gestionale, chiede la sessione (il cookie del gestionale, che
@@ -66,7 +67,7 @@ export const samplePageContext = async (organizationId: string, detail: "article
       return { matchId: match?.id || null };
     }
     case "event": {
-      const event = await (prisma as any).clubEvent.findFirst({ where: { organization_id: organizationId, status: { not: "archived" }, starts_at: { gte: now } }, orderBy: { starts_at: "asc" }, select: { id: true } });
+      const event = await (prisma as any).clubEvent.findFirst({ where: { organization_id: organizationId, status: { not: "archived" }, starts_at: { gte: instantToArchiveDigits(now) } }, orderBy: { starts_at: "asc" }, select: { id: true } });
       return { eventId: event?.id || null };
     }
     case "article": {

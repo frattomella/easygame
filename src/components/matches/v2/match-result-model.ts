@@ -166,3 +166,23 @@ export const loadMatchEventDetail = async (eventKey: string): Promise<MatchEvent
     participants: Array.isArray(response.data.participants) ? response.data.participants : [],
   };
 };
+
+/**
+ * Le categorie di un atleta dell'elenco, primaria e secondarie, nelle forme
+ * che l'elenco porta (`category_id`, `categoryIds`, `category_memberships`).
+ * Serve al pannello del risultato per proporre la rosa di una gara senza
+ * convocazioni.
+ */
+export const athleteCategoryIds = (athlete: Record<string, any> | null | undefined): string[] => {
+  if (!athlete) return [];
+  const ids = new Set<string>();
+  const add = (value: unknown) => {
+    const text = String(value ?? "").trim();
+    if (text) ids.add(text);
+  };
+  add(athlete.category_id);
+  add(athlete.categoryId);
+  for (const value of Array.isArray(athlete.categoryIds) ? athlete.categoryIds : []) add(value);
+  for (const row of Array.isArray(athlete.category_memberships) ? athlete.category_memberships : []) add(row?.category_id ?? row?.categoryId);
+  return Array.from(ids);
+};

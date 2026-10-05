@@ -1,7 +1,7 @@
 import { revalidateTag } from "next/cache";
 
 /**
- * **I tag di cache del sito pubblico** (ADR-0200 §25, §52).
+ * **I tag di cache del sito pubblico** (ADR-0200 §6).
  *
  * EasyGame usa Next.js 14.2: la cache dei dati e `unstable_cache` con i tag,
  * l'invalidazione e `revalidateTag`. Due famiglie, e nient'altro:

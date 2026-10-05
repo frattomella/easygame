@@ -3,6 +3,7 @@ import { readClubResourceCollection } from "./resources";
 import { recordAuditEvent, AUDIT_ACTIONS } from "./audit";
 import { assertActiveClub, resolveActiveClubId } from "@/lib/auth/active-club-boundary";
 import { canManageClubConfigurationAsActor } from "@/lib/access-roles";
+import { WebsiteConflictError } from "./website/access";
 import { roleHasPermission } from "@/lib/permissions/catalog";
 import { filterCollectionBySeason, normalizeClubSeasons } from "@/lib/club-seasons";
 import { nextSlugHistory, normalizeSeasonLinks } from "@/lib/sports/teams";
@@ -151,6 +152,7 @@ export const createClubTeam = async (scope: ClubTeamsScope, input: TeamInput) =>
       season_links: await validateLinks(organizationId, input.seasonLinks),
       sort_order: Number.isFinite(Number(input.sortOrder)) ? Math.round(Number(input.sortOrder)) : 0,
       created_by: scope.userId,
+      version: 1,
     },
   });
   await recordAuditEvent({
@@ -203,7 +205,8 @@ export const updateClubTeam = async (scope: ClubTeamsScope, teamId: string, inpu
     where: { id: existing.id, organization_id: organizationId, version: expected },
     data,
   });
-  if (!result.count) throw new Error("La squadra e stata modificata da qualcun altro: ricarica e riprova");
+  /* 409 con la versione corrente, come pagine e competizioni (D-WS-12). */
+  if (!result.count) throw new WebsiteConflictError("La squadra e stata modificata da qualcun altro: ricarica e riprova", Number(existing.version));
   await recordAuditEvent({
     action: AUDIT_ACTIONS.clubTeamSaved,
     actorUserId: scope.userId,
@@ -287,6 +290,7 @@ export const createTeamsFromSeasonCategories = async (scope: ClubTeamsScope, sea
         season_links: [{ seasonId, categoryId, groupId: null }],
         sort_order: Number(category.sortOrder ?? category.sort_order ?? 0) || 0,
         created_by: scope.userId,
+        version: 1,
       },
     });
     created += 1;

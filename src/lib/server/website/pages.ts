@@ -20,7 +20,7 @@ import { isDetailPageKind } from "@/lib/website/templates/pages";
 import type { PageKind } from "@/lib/website/registry";
 
 /**
- * **Le pagine in bozza** (ADR-0200 §5, §13).
+ * **Le pagine in bozza** (ADR-0200 §3, §5).
  *
  * Unico scrittore di `website_pages` e `website_redirects`. Ogni pagina ha la
  * sua versione: due operatori sulla stessa pagina non si sovrascrivono, due

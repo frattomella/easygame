@@ -22,7 +22,7 @@ import { Button } from "@/components/web/primitives/Button";
 /**
  * **I menu del sito**: intestazione e piede, un livello di sottomenu.
  *
- * La navigazione e un'entita propria (ADR-0200 §12), non una conseguenza
+ * La navigazione e un'entita propria (ADR-0200 §3), non una conseguenza
  * delle pagine: una voce punta a una pagina per identificativo — rinominarne
  * lo slug non rompe il menu — a un indirizzo esterno, a un'ancora, oppure e un
  * gruppo che apre un sottomenu. Le voci si riordinano trascinando o con le

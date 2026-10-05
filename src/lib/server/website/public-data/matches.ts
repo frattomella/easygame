@@ -5,6 +5,7 @@ import { linkForSeason } from "@/lib/sports/teams";
 import type { PublicEvent, PublicImage, PublicMatch, PublicMatchStatus, PublicSide } from "@/lib/website/public-dto";
 import type { ClubContext, TeamRow } from "./club-context";
 import { toPublicImage, type MediaMeta } from "./images";
+import { instantFromLocalTime } from "@/lib/structures-utils";
 
 /**
  * **Le gare e gli eventi per il sito.**
@@ -64,33 +65,107 @@ const EVENT_SELECT = {
   away_score: true,
   result_status: true,
   period_scores: true,
+  payload: true,
 } as const;
+
+/*
+  **Le cifre dell'archivio e l'istante vero.**
+
+  `club_events.starts_at` porta le cifre digitate come se fossero UTC
+  (ADR-0098: `toEventInstant` fa `setUTCHours(ora, minuti)`), e il gestionale
+  le rilegge cosi. Il sito invece ragiona in istanti — conto alla rovescia,
+  JSON-LD, «prossima gara» contro l'adesso vero — e le mostra nel fuso del
+  club: senza conversione una gara delle 18:00 compariva alle 20:00 (collaudo a
+  browser del 2026-10-05). Si converte qui, una volta, all'uscita
+  dall'archivio; i limiti delle query fanno il viaggio inverso.
+*/
+const DEFAULT_TIMEZONE = "Europe/Rome";
+
+/** Cifre dell'archivio → istante vero nel fuso del club. */
+export const archiveDigitsToInstant = (value: Date, timeZone: string = DEFAULT_TIMEZONE): Date => {
+  const iso = value.toISOString();
+  return instantFromLocalTime(iso.slice(0, 10), iso.slice(11, 16), timeZone || DEFAULT_TIMEZONE) || value;
+};
+
+/** Istante vero → cifre dell'archivio (per i limiti di una query su `starts_at`). */
+export const instantToArchiveDigits = (value: Date, timeZone: string = DEFAULT_TIMEZONE): Date => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timeZone || DEFAULT_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(value);
+  const read = (type: string) => Number(parts.find((part) => part.type === type)?.value || "0");
+  return new Date(Date.UTC(read("year"), read("month") - 1, read("day"), read("hour") === 24 ? 0 : read("hour"), read("minute"), read("second")));
+};
+
+/*
+  **Casa o trasferta.** La colonna `home_away` e nata con ADR-0200 e le gare
+  scritte prima — o da un modulo che dichiara solo `isHome` — la hanno vuota:
+  vuota non vuol dire «in casa», e il sito invertiva risultato e parziali di
+  una gara in trasferta. Si legge la colonna, poi `payload.isHome`.
+*/
+export const homeAwayOfRow = (row: { home_away?: string | null; payload?: unknown }): "home" | "away" | "neutral" => {
+  const column = String(row.home_away || "").trim().toLowerCase();
+  if (column === "away" || column === "trasferta") return "away";
+  if (column === "neutral") return "neutral";
+  if (column === "home" || column === "casa") return "home";
+  const payload = row.payload && typeof row.payload === "object" ? (row.payload as Record<string, unknown>) : {};
+  if (payload.isHome === false) return "away";
+  const declared = String(payload.homeAway ?? payload.home_away ?? "").trim().toLowerCase();
+  if (declared === "away" || declared === "trasferta") return "away";
+  return "home";
+};
+
+/** Una riga come la legge il sito: istanti veri, casa/trasferta deciso, senza il resto del payload. */
+const toSiteRow = (row: EventRow & { payload?: unknown }): EventRow => {
+  const { payload, ...rest } = row;
+  const timeZone = rest.timezone || DEFAULT_TIMEZONE;
+  return {
+    ...rest,
+    starts_at: archiveDigitsToInstant(rest.starts_at, timeZone),
+    ends_at: rest.ends_at ? archiveDigitsToInstant(rest.ends_at, timeZone) : null,
+    home_away: homeAwayOfRow({ home_away: rest.home_away, payload }),
+  };
+};
 
 /** Le gare (e, se servono, gli allenamenti) del club in una finestra. */
 export const loadEventRows = async (
   context: ClubContext,
   options: { kinds: Array<"match" | "training">; from?: Date | null; to?: Date | null; limit?: number },
-): Promise<EventRow[]> =>
-  (prisma as any).clubEvent.findMany({
+): Promise<EventRow[]> => {
+  const rows = await (prisma as any).clubEvent.findMany({
     where: {
       organization_id: context.organizationId,
       kind: { in: options.kinds },
       status: { not: "archived" },
       ...(options.from || options.to
-        ? { starts_at: { ...(options.from ? { gte: options.from } : {}), ...(options.to ? { lte: options.to } : {}) } }
+        ? {
+            starts_at: {
+              ...(options.from ? { gte: instantToArchiveDigits(options.from) } : {}),
+              ...(options.to ? { lte: instantToArchiveDigits(options.to) } : {}),
+            },
+          }
         : {}),
     },
     select: EVENT_SELECT,
     orderBy: { starts_at: "asc" },
     take: Math.min(2000, options.limit ?? 1000),
   });
+  return (rows as Array<EventRow & { payload?: unknown }>).map(toSiteRow);
+};
 
 export const loadEventById = async (context: ClubContext, eventId: string): Promise<EventRow | null> => {
   if (!/^[0-9a-f-]{36}$/i.test(eventId)) return null;
-  return (prisma as any).clubEvent.findFirst({
+  const row = await (prisma as any).clubEvent.findFirst({
     where: { id: eventId, organization_id: context.organizationId, status: { not: "archived" } },
     select: EVENT_SELECT,
   });
+  return row ? toSiteRow(row) : null;
 };
 
 export type MatchBuildOptions = {

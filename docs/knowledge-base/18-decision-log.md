@@ -14284,6 +14284,16 @@ dominio. Collaboratore: contenuti, configurabile con un ruolo personalizzato.
 Staff, allenatore, genitore, atleta: nessun accesso. L'elenco completo delle
 chiavi e in [08](08-roles-and-permissions.md).
 
+**Aggiornamento 2026-10-05 (collaudo a browser e debiti D-WS).** Competizioni,
+classifiche e avversari sono configurazione del club come le squadre stabili:
+li scrive `canManageClubConfigurationAsActor`, non piu `events.manage`, che ha
+anche l'allenatore (D-WS-14); l'allenatore li legge e li sceglie sulle gare del
+suo perimetro. Il sito legge le gare con la convenzione d'archivio di
+ADR-0098 (`starts_at` porta le cifre digitate) e le converte in istanti veri
+nel fuso del club all'uscita dall'archivio (`public-data/matches.ts`);
+casa/trasferta si legge da `home_away`, che lo scrittore degli eventi ora
+ricava da `isHome`.
+
 ### Cosa non e in questo ADR
 
 Multilingua, piu siti per club, pubblicazione programmata del sito (le news

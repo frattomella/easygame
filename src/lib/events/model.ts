@@ -412,7 +412,14 @@ export const toEventColumns = (
     ends_at: resolveEndsAt(startsAt, endsAt),
     location: firstText(source.location, source.venue) || null,
     opponent: firstText(source.opponent, source.opponentName) || null,
-    home_away: firstText(source.homeAway, source.home_away) || null,
+    /*
+      I moduli delle gare dichiarano `isHome`, non `homeAway`: senza ricavarla,
+      la colonna (ADR-0200) restava vuota e il sito trattava una trasferta come
+      una gara in casa (collaudo a browser del 2026-10-05).
+    */
+    home_away:
+      firstText(source.homeAway, source.home_away) ||
+      (source.isHome === false ? "away" : source.isHome === true ? "home" : null),
     capacity: toPositiveInt(
       source.capacity ?? source.expectedAttendees ?? source.expected_attendees,
     ),

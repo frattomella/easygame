@@ -2,9 +2,12 @@ import { prisma } from "../prisma";
 import { requireWebsiteAccess, type WebsiteScope } from "./access";
 import { findSiteRow } from "./sites";
 import { sanitizeEmail } from "@/lib/website/links";
+import { normalizeIdentity } from "@/lib/website/site-config";
+import { sendWebsiteInquiryEmail } from "../email/email-service";
+import { reportServerError } from "../observability";
 
 /**
- * **La casella del modulo contatti del sito** (ADR-0200 §9, §47).
+ * **La casella del modulo contatti del sito** (ADR-0200 §9).
  *
  * EasyGame non ha un dominio «lead», e il mandato chiede di non inventarne
  * uno: questa e una casella, non un CRM. Una richiesta arriva con nome,
@@ -18,6 +21,12 @@ import { sanitizeEmail } from "@/lib/website/links";
  * e (ancora) del club.
  *
  * Conservazione: 24 mesi (`purgeOldInquiries`, nel giro notturno).
+ *
+ * **Avviso al club** (D-WS-13): se la piattaforma ha l'SMTP configurato, una
+ * richiesta nuova manda un'email all'indirizzo del sito (Impostazioni →
+ * identita) o, se vuoto, a quello del club. Senza SMTP non parte niente e la
+ * richiesta resta comunque nella casella; un invio fallito non fa fallire la
+ * richiesta.
  */
 
 export const INQUIRY_RETENTION_DAYS = 730;
@@ -84,7 +93,27 @@ export const submitInquiry = async (target: { siteId: string; organizationId: st
     },
     select: { id: true },
   });
+  await notifyClubOfInquiry(target, { name, email, phone, topic: text(input.topic, 60) || null, message });
   return { accepted: true, stored: true, id: row.id as string };
+};
+
+/** L'email al club per una richiesta nuova. Non solleva: la richiesta e gia salvata. */
+export const notifyClubOfInquiry = async (
+  target: { siteId: string; organizationId: string },
+  inquiry: { name: string; email: string; phone: string | null; topic: string | null; message: string },
+) => {
+  try {
+    const [site, club] = await Promise.all([
+      (prisma as any).websiteSite.findFirst({ where: { id: target.siteId, organization_id: target.organizationId }, select: { settings: true } }),
+      (prisma as any).club.findFirst({ where: { id: target.organizationId }, select: { name: true, contact_email: true } }),
+    ]);
+    const to = normalizeIdentity(site?.settings?.identity).email || sanitizeEmail(club?.contact_email) || "";
+    if (!to) return { status: "skipped" as const, reason: "no_recipient" };
+    return await sendWebsiteInquiryEmail({ to, clubName: String(club?.name || ""), inquiry });
+  } catch (error) {
+    reportServerError(error, { route: "/api/public/website/inquiries" });
+    return { status: "failed" as const };
+  }
 };
 
 export const listInquiries = async (scope: WebsiteScope | null | undefined, filter: { status?: unknown } = {}) => {

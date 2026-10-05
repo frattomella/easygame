@@ -2356,7 +2356,7 @@ sede. La promozione dello staging ufficiale resta un'autorizzazione separata.
 
 
 
-## WP-WEBSITE · EasyGame Website e sport core — `CODICE COMPLETO, VERIFICA IN CORSO` (2026-10-05)
+## WP-WEBSITE · EasyGame Website e sport core — `VERIFICATO IN LOCALE, MANCANO I PROVIDER REALI` (2026-10-05)
 
 Branch `feat/website-builder`. Decisione: [ADR-0200](18-decision-log.md)
 (supera N-10 di [30](30-golee-easygame-gap-audit.md)). Discovery:
@@ -2374,20 +2374,20 @@ aggiuntivo alimentato dal gestionale, piu il nucleo sportivo che gli serve
 | Middleware per host, renderer pubblico, `robots.txt`, `sitemap.xml`, anteprima privata | **Codice completo** |
 | Area `/website` del gestionale (panoramica e creazione, editor, media, news, persone, sponsor, messaggi, domini, versioni, impostazioni) e voce «Sito web» | **Codice completo** |
 | Driver allegati S3/R2 | **Codice completo**, non acceso in nessun ambiente |
-| Verifica end-to-end a browser (creazione → editor → anteprima → dominio `*.localhost` → pubblicazione → sito pubblico; risultato di una gara visto sul sito; persona minorenne con e senza consenso) | **In corso** — finche non e fatta, le voci in [11](11-capabilities.md) restano `PARTIAL` |
-| Gate prima del commit (`npm test`, `typecheck`, `lint`, `build`) | **Da eseguire** sull'albero finale |
+| Verifica end-to-end a browser (creazione → editor → anteprima → dominio `*.localhost` → pubblicazione → sito pubblico; immagini, persone, sponsor, iscrizioni; squadra, competizione, avversari, risultato, scheda giocatore; persona minorenne con e senza consenso) | **Fatta** il 2026-10-05 sul DB locale (due giri: commit `45098102` e il lotto successivo); in [11](11-capabilities.md) resta `PARTIAL` solo la riga dei domini |
+| Gate prima del commit (`npm test`, `typecheck`, `lint`, `build`) | **Verdi** a ogni commit; l'unico test rosso e il preesistente `sport-work-ledger` dipendente dalla data (D-WS-6) |
 | Deploy su `easygame-redesign-staging` (migrazione su `web-redesign-staging`) | **In attesa** — dopo i gate verdi; il progetto va scritto esplicitamente (mai copiare il `project.json` della radice) |
 
-**Seguiti dichiarati** (debito in [16](16-technical-debt.md), D-WS-1…13):
+**Seguiti dichiarati** (debito in [16](16-technical-debt.md), D-WS-1…14):
 
-- D-WS-7, D-WS-8 e D-WS-9 sono stati chiusi nello stesso lotto;
-- test di contratto per `vercel`, `cloudflare` e il driver S3, poi una prova
-  con credenziali di staging (D-WS-4); test della risoluzione host → pagina
-  senza `unstable_cache` (D-WS-5);
+- chiusi: D-WS-7, D-WS-8, D-WS-9 (nel lotto `45098102`); D-WS-5, D-WS-10,
+  D-WS-11, D-WS-12, D-WS-13, D-WS-14 (nel lotto successivo, 2026-10-05);
+- servono servizi esterni: test di contratto e prova con credenziali di
+  staging per `vercel`, `cloudflare` e il driver S3 (D-WS-4);
 - decisioni di prodotto aperte: prezzo del servizio e acquisto dall'HUB,
   provider di domini da usare in produzione (Vercel o Cloudflare for SaaS),
-  bucket per gli allegati, avviso email delle richieste di contatto
-  (D-WS-13), un tipo di evento societario (D-WS-3);
-- manutenzione: potatura delle revisioni (D-WS-11), concorrenza ottimistica su
-  squadre e competizioni (D-WS-12), rimandi `§` dei commenti verso i paragrafi
-  veri dell'ADR (D-WS-10), ISR se il traffico lo chiedera (D-WS-1).
+  bucket per gli allegati, un tipo di evento societario (D-WS-3), la
+  classifica da una federazione (D-WS-2), ISR se il traffico lo chiedera
+  (D-WS-1);
+- fuori dal sito: il test date-dipendente di `sport-work-ledger` (D-WS-6),
+  lasciato documentato.

@@ -14,7 +14,7 @@ import {
 } from "./types";
 
 /**
- * **Le operazioni sul documento di una pagina** (ADR-0200 §10).
+ * **Le operazioni sul documento di una pagina** (ADR-0200 §3).
  *
  * Funzioni pure che restituiscono un documento nuovo: l'editor le chiama, la
  * cronologia ne conserva lo stato precedente, e un test le prova senza DOM.

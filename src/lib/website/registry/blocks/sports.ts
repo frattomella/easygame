@@ -3,7 +3,7 @@ import { defineBlock } from "../types";
 import { COLUMN_OPTIONS, bool, choice, int, link, media, ref, stringList, text } from "../fields";
 
 /**
- * **Blocchi sportivi** (ADR-0200 §8, §11).
+ * **Blocchi sportivi** (ADR-0200 §8).
  *
  * Nessuno di questi blocchi scrive un dato: leggono gare, squadre, rose e
  * persone dal gestionale attraverso una sorgente dati. Un risultato inserito

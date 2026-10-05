@@ -1,7 +1,7 @@
 import { LINK_KINDS, type LinkKind, type WebsiteLink } from "./document/types";
 
 /**
- * **Collegamenti sicuri** (ADR-0200 §15).
+ * **Collegamenti sicuri** (ADR-0200 §7; sicurezza in KB 14).
  *
  * Ogni `href` del sito nasce qui. Un URL scritto da un operatore passa da
  * `sanitizeExternalUrl`: solo `http(s)`, niente `javascript:`, niente

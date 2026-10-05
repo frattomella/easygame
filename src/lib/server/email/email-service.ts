@@ -417,6 +417,38 @@ export const sendNotificationEmails = async (recipientUserIds: string[]) => {
 };
 
 /**
+ * **Una richiesta dal modulo contatti del sito del club** (D-WS-13). Il testo
+ * del visitatore entra solo come testo protetto, mai come HTML.
+ */
+export const sendWebsiteInquiryEmail = async (input: {
+  to: string;
+  clubName: string;
+  inquiry: { name: string; email: string; phone: string | null; topic: string | null; message: string };
+}) => {
+  const escape = (value: string) =>
+    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const { inquiry } = input;
+  const righe = [
+    `Nuova richiesta dal sito di ${input.clubName || "il club"}.`,
+    "",
+    `Nome: ${inquiry.name}`,
+    `Email: ${inquiry.email}`,
+    ...(inquiry.phone ? [`Telefono: ${inquiry.phone}`] : []),
+    ...(inquiry.topic ? [`Argomento: ${inquiry.topic}`] : []),
+    "",
+    inquiry.message,
+    "",
+    "La trovi anche in EasyGame, Sito web → Messaggi.",
+  ];
+  return sendTransactionalEmail({
+    to: input.to,
+    subject: `Nuova richiesta dal sito${inquiry.topic ? ` · ${inquiry.topic}` : ""}`,
+    text: righe.join("\n"),
+    html: `<p>${righe.map(escape).join("<br/>")}</p>`,
+  });
+};
+
+/**
  * «Il club chiede un'integrazione» (ADR-0189 §4): l'elenco dei campi da
  * correggere e la nota, e la strada — la ricevuta, che la famiglia gia
  * possiede. Nessun link con un segreto dentro: la ricevuta e sua.

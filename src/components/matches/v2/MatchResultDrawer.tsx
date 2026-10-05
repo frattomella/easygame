@@ -22,6 +22,7 @@ import {
 import { sportsApi, type ClubTeamDto, type CompetitionDto, type OpponentDto } from "@/lib/sports/client";
 import { isHomeMatch, type MatchRecord } from "@/components/matches/v2/match-page-model";
 import {
+  athleteCategoryIds,
   convocatedAthleteIds,
   loadMatchEventDetail,
   matchEventKey,
@@ -99,6 +100,8 @@ export type MatchResultDrawerProps = {
   athletes: readonly Record<string, any>[];
   /** `events.manage`: solo per la presentazione, il server decide. */
   canManage: boolean;
+  /** Creare un avversario e configurazione del club: non basta gestire la gara (D-WS-14). */
+  canCreateOpponent?: boolean;
   onSaved: (eventKey: string, snapshot: MatchResultSnapshot) => void;
 };
 
@@ -110,6 +113,7 @@ export function MatchResultDrawer({
   clubSport,
   athletes,
   canManage,
+  canCreateOpponent = false,
   onSaved,
 }: MatchResultDrawerProps) {
   const { showToast } = useToast();
@@ -235,9 +239,22 @@ export function MatchResultDrawer({
   const drawNotAllowed =
     !adapter.allowsDraw && draft?.status === "final" && homeValue !== null && homeValue === awayValue;
 
+  /*
+    **Senza convocazioni, la rosa della categoria.** Le convocazioni si aprono
+    solo per una gara in programma: una gara registrata dopo, senza averle
+    fatte, restava senza statistiche per sempre (collaudo a browser del
+    2026-10-05). Il server accetta qualunque atleta del club; qui si propone la
+    categoria della gara.
+  */
+  const rosterFallback = Boolean(loaded && !loaded.convocated.length);
   const statAthletes = React.useMemo(() => {
     if (!loaded) return [];
-    const ids = Array.from(new Set([...loaded.convocated, ...loaded.statsAthleteIds]));
+    const categoryId = String(match?.categoryId || "").trim();
+    const fromCategory =
+      !loaded.convocated.length && categoryId
+        ? athletes.filter((athlete) => athleteCategoryIds(athlete).includes(categoryId)).map((athlete) => String(athlete?.id || ""))
+        : [];
+    const ids = Array.from(new Set([...loaded.convocated, ...loaded.statsAthleteIds, ...fromCategory])).filter(Boolean);
     const byId = new Map(athletes.map((athlete) => [String(athlete?.id || ""), athlete]));
     return ids
       .map((id) => {
@@ -250,7 +267,7 @@ export function MatchResultDrawer({
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name, "it"));
-  }, [loaded, athletes]);
+  }, [loaded, athletes, match?.categoryId]);
 
   const dirty = Boolean(draft && initial && JSON.stringify(draft) !== initial);
   const hadResult = Boolean(loaded && (loaded.row.home_score !== null && loaded.row.home_score !== undefined));
@@ -567,7 +584,7 @@ export function MatchResultDrawer({
                 />
               </Field>
             </FormGrid>
-            {canManage ? (
+            {canManage && canCreateOpponent ? (
               newOpponentOpen ? (
                 <InsetBlock className="mt-3">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
@@ -792,12 +809,13 @@ export function MatchResultDrawer({
               <div id="match-result-stats" className="mt-3">
                 {!statAthletes.length ? (
                   <InfoCard>
-                    Le statistiche si inseriscono per gli atleti convocati: questa gara non ha ancora convocazioni.
-                    Convoca la squadra dalla pagina Gare e torna qui.
+                    Le statistiche si inseriscono per gli atleti convocati o, se la gara non ha convocazioni, per quelli della sua
+                    categoria: qui non ce n&apos;e nessuno.
                   </InfoCard>
                 ) : (
                   <>
                     <p className="mb-2 text-[11.5px] text-egw-ink-62">
+                      {rosterFallback ? "La gara non ha convocazioni: sono proposti gli atleti della sua categoria. " : null}
                       Solo numeri interi. Una riga lasciata vuota non registra niente (e cancella ciò che c&apos;era).
                     </p>
                     <div className="egw-scroll max-w-full overflow-x-auto rounded-egw-field border border-egw-hairline">
@@ -825,7 +843,7 @@ export function MatchResultDrawer({
                                   {athlete.jersey ? <span className="egw-num mr-1 text-egw-ink-62">#{athlete.jersey}</span> : null}
                                   {athlete.name}
                                 </span>
-                                {!athlete.convocated ? (
+                                {!athlete.convocated && !rosterFallback ? (
                                   <span className="block text-[10.5px] font-normal text-egw-amber-ink">non più convocato</span>
                                 ) : null}
                               </th>

@@ -5,7 +5,7 @@ import type { WebsitePageDocument } from "@/lib/website/document/types";
 
 /**
  * **La sanificazione del testo ricco dei blocchi**, sul server (ADR-0190 §3,
- * ADR-0200 §15).
+ * ADR-0200 §7; sicurezza in KB 14).
  *
  * Il registry dichiara quali props sono `richtext`; qui ognuna passa da
  * `sanitizeWebsiteRichHtml` prima del salvataggio. Il renderer pubblico puo

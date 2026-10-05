@@ -555,6 +555,11 @@ sempre, senza che nessuna riga lo dicesse a qualcuno.
 
 ## EasyGame Website: domini, object storage, contenuti incorporati, caratteri (ADR-0200, 2026-10-05)
 
+> **Email del modulo contatti** (D-WS-13, 2026-10-05): una richiesta nuova dal
+> sito passa dall'unico punto di invio (`sendTransactionalEmail`,
+> `src/lib/server/email/`) verso l'indirizzo del sito o, se vuoto, quello del
+> club. Senza SMTP configurato non parte niente; nessuna integrazione nuova.
+
 Tre integrazioni nuove, tutte **implementate e mai provate contro il servizio
 vero**: nessun ambiente ha le credenziali. In sviluppo si lavora con il
 provider di domini simulato e con il driver allegati su database. Le variabili

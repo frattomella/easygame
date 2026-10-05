@@ -31,6 +31,13 @@ export const mediaPreviewSrc = (item: { url: string; previewUrl?: string }, widt
   item.previewUrl && item.previewUrl !== item.url ? item.previewUrl : `/_next/image?url=${encodeURIComponent(item.url)}&w=${width}&q=70`;
 const thumb = mediaPreviewSrc;
 
+/** Le categorie con una propria cartella: chi sceglie un logo puo allargare a tutta la libreria. */
+const CATEGORY_LABELS: Record<string, string> = {
+  "sponsor-logo": "Loghi sponsor",
+  "team-photo": "Foto squadre",
+  "opponent-logo": "Loghi avversari",
+};
+
 const refPreview = (mediaId: string, category: string) =>
   category === "person-photo"
     ? { url: `${WEBSITE_MEDIA_ENDPOINT}/${mediaId}`, previewUrl: `${ATTACHMENT_ENDPOINT}/${mediaId}` }
@@ -56,11 +63,22 @@ export function MediaPickerDialog({
   const [error, setError] = React.useState<string | null>(null);
   const [cursor, setCursor] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  /*
+    Un logo sponsor puo essere qualunque immagine del club (il server non lo
+    lega alla cartella): la cartella e il punto di partenza, non un recinto.
+    Le foto delle persone restano un recinto, per la loro policy.
+  */
+  const categoryLabel = CATEGORY_LABELS[category];
+  const [wholeLibrary, setWholeLibrary] = React.useState(false);
+  React.useEffect(() => {
+    if (open) setWholeLibrary(false);
+  }, [open]);
+  const listCategory = category === "website-media" || (categoryLabel && wholeLibrary) ? undefined : category;
 
   const load = React.useCallback(
     async (reset: boolean, after?: string | null) => {
       setLoading(true);
-      const result = await websiteApi.media({ q: query || undefined, category: category === "website-media" ? undefined : category, cursor: after || undefined });
+      const result = await websiteApi.media({ q: query || undefined, category: listCategory, cursor: after || undefined });
       setLoading(false);
       if (result.error) {
         setError(result.error.message);
@@ -70,7 +88,7 @@ export function MediaPickerDialog({
       setItems((current) => (reset ? result.data.items : [...current, ...result.data.items]));
       setCursor(result.data.nextCursor);
     },
-    [query, category],
+    [query, listCategory],
   );
 
   React.useEffect(() => {
@@ -114,6 +132,16 @@ export function MediaPickerDialog({
         </Button>
         <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple className="hidden" onChange={(event) => void onFiles(event.target.files)} />
       </div>
+      {categoryLabel ? (
+        <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Dove cercare">
+          <Button size="sm" variant={wholeLibrary ? "secondary" : "neutral"} onClick={() => setWholeLibrary(false)} aria-pressed={!wholeLibrary}>
+            {categoryLabel}
+          </Button>
+          <Button size="sm" variant={wholeLibrary ? "neutral" : "secondary"} onClick={() => setWholeLibrary(true)} aria-pressed={wholeLibrary}>
+            Tutta la libreria
+          </Button>
+        </div>
+      ) : null}
       {error ? <p role="alert" className="mt-3 text-[12.5px] text-egw-red">{error}</p> : null}
       <ul className="mt-4 grid max-h-[55vh] grid-cols-2 gap-3 overflow-y-auto sm:grid-cols-3 md:grid-cols-4">
         {items.map((item) => (
@@ -132,7 +160,17 @@ export function MediaPickerDialog({
         ))}
         {!items.length && !loading ? (
           <li className="col-span-full rounded-lg border border-dashed border-egw-hairline p-8 text-center text-[13px] text-egw-ink-62">
-            La libreria e vuota: carica la prima immagine.
+            {categoryLabel && !wholeLibrary ? (
+              <>
+                Nessuna immagine in «{categoryLabel}».{" "}
+                <button type="button" className="font-semibold text-egw-blue-700 underline" onClick={() => setWholeLibrary(true)}>
+                  Cerca in tutta la libreria
+                </button>{" "}
+                o caricane una.
+              </>
+            ) : (
+              "La libreria e vuota: carica la prima immagine."
+            )}
           </li>
         ) : null}
       </ul>

@@ -1083,8 +1083,9 @@ senza autorizzazione (CLAUDE.md §9).
 `vercel.json` dichiara un sesto cron: `GET /api/v1/website/maintenance` alle
 `15 5 * * *` (UTC). Rilegge lo stato dei domini in attesa e di quelli attivi
 non controllati da un giorno (fino a 50 per giro; niente da fare se il provider
-non e configurato) e cancella le richieste del modulo contatti oltre i 24
-mesi. Si autentica con `CRON_SECRET` come gli altri: **503 sempre** senza il
+non e configurato), cancella le richieste del modulo contatti oltre i 24
+mesi e pota le revisioni pubblicate (per sito le ultime 50 piu la corrente,
+D-WS-11). Si autentica con `CRON_SECRET` come gli altri: **503 sempre** senza il
 segreto, 401 con un segreto sbagliato.
 
 ### Sviluppo locale: un sito vero su `*.localhost`
