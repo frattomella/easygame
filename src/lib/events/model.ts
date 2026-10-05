@@ -478,6 +478,15 @@ export type EventRowLike = {
   payload?: unknown;
   version?: number | null;
   updated_at?: Date | string | null;
+  /* Lo sport core (ADR-0200 §8): squadra stabile, competizione, avversario, risultato. */
+  team_id?: string | null;
+  competition_id?: string | null;
+  opponent_id?: string | null;
+  round_label?: string | null;
+  home_score?: number | null;
+  away_score?: number | null;
+  result_status?: string | null;
+  period_scores?: unknown;
 };
 
 /**
@@ -558,6 +567,26 @@ export const toEventLegacyShape = (row: EventRowLike) => {
     convocationsStatus: row.convocation_status ?? null,
     notes: row.notes ?? payload.notes ?? "",
     trainers: Array.isArray(row.trainer_ids) ? row.trainer_ids : [],
+    /*
+      Il risultato e i riferimenti sportivi vengono dalle colonne (ADR-0200
+      §8): l'elenco delle gare e la proiezione `clubs.matches` li mostrano
+      senza una seconda lettura. `opponent` resta il testo libero di sempre.
+    */
+    teamId: row.team_id ?? null,
+    team_id: row.team_id ?? null,
+    competitionId: row.competition_id ?? null,
+    competition_id: row.competition_id ?? null,
+    opponentId: row.opponent_id ?? null,
+    opponent_id: row.opponent_id ?? null,
+    roundLabel: row.round_label ?? null,
+    round_label: row.round_label ?? null,
+    homeScore: row.home_score ?? null,
+    home_score: row.home_score ?? null,
+    awayScore: row.away_score ?? null,
+    away_score: row.away_score ?? null,
+    resultStatus: row.result_status ?? null,
+    result_status: row.result_status ?? null,
+    periodScores: Array.isArray(row.period_scores) ? row.period_scores : [],
     version: row.version ?? 1,
     updated_at:
       row.updated_at instanceof Date

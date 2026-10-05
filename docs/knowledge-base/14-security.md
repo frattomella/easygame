@@ -4271,3 +4271,136 @@ permessi (`simplified_athletes:create`, `categories:create`, `clubs:update`)
 si controllano **prima** di scrivere e un rifiuto lascia una riga di audit.
 Un doppione non nasce da un ritentativo: la scheda porta il lotto e la riga
 da cui viene.
+
+
+## EasyGame Website: la superficie pubblica sui domini dei club (ADR-0200, 2026-10-05)
+
+Il sito di un club e la prima superficie di EasyGame servita su domini che
+EasyGame non possiede, a visitatori senza sessione. Le regole sotto sono nel
+codice; i presidi sono `tests/server/website-host-routing.test.mjs`,
+`tests/server/website-server.test.mjs`, `tests/lib/website-*.test.mjs` e
+`tests/web/app-site-separation.test.mjs`.
+
+### Sul dominio di un club non c'e il gestionale
+
+- **Il middleware decide dall'host** (`src/middleware.ts`): un host che non e
+  del gestionale e il dominio di un club. Le pagine si riscrivono verso il
+  renderer del sito; **ogni `/api/*` risponde `404`** tranne
+  `/api/public/website/*`. Il cookie di sessione di EasyGame e legato al
+  dominio del gestionale e non arriva mai sul dominio di un club: non c'e
+  sessione da proteggere, ci sono superfici da non esporre.
+- **`x-easygame-site-host` lo scrive il middleware** con l'host vero,
+  sovrascrivendo quello che il visitatore avesse mandato: dal dominio di un
+  club non si scrive nella casella di un altro club. Sull'host del gestionale
+  il middleware la **cancella**, e `POST /api/public/website/inquiries` non
+  ripiega su `host`: senza l'intestazione del middleware risponde 404
+  (D-WS-8, chiuso; `tests/server/website-host-routing.test.mjs`).
+- **Il renderer interno non si apre per indirizzo**: `/site-render/*`
+  sull'host del gestionale risponde `404`. Next pero ripassa dal middleware
+  il percorso riscritto, con l'host del gestionale: il secondo passaggio si
+  riconosce da un segreto che la riscrittura porta (`x-easygame-site-render`,
+  `EASYGAME_SITE_RENDER_SECRET` o uno per processo) e solo per l'host della
+  riscrittura. L'intestazione dell'host da sola non basta: si falsifica, e
+  farebbe disegnare il sito di un club sull'origine che porta i cookie di
+  sessione. Trovato nel collaudo a browser del 2026-10-05: senza, ogni pagina
+  del sito tranne la home rispondeva `404`
+  (`tests/server/website-host-routing.test.mjs`).
+- **Il sito non importa niente del gestionale**: root layout senza provider,
+  nessun codice di autenticazione, nessuna chiamata di sessione, CSS proprio;
+  il renderer non importa l'editor (`tests/web/app-site-separation.test.mjs`).
+- **Un host risolve a un club solo**: host → `website_domains` (hostname unico
+  globale) → sito → revisione pubblicata. Un host sconosciuto, un dominio non
+  attivo o senza certificato, un sito ritirato o un servizio sospeso
+  rispondono «sito non disponibile» (`noindex`) e non mostrano niente di un
+  altro club. L'organizzazione dei dati di una pagina arriva **sempre** dal
+  dominio risolto, mai dalla richiesta.
+
+### Domini: solo del club, prova di proprieta di EasyGame
+
+`website.domain.manage` e del solo proprietario e non si delega (vedi
+[08](08-roles-and-permissions.md)). Un dominio di EasyGame (`easygame.it`,
+`easygame.app`, `vercel.app`, `vercel-dns.com`, gli `EASYGAME_APP_HOSTS`), un
+IP o un dominio locale in produzione si rifiutano; un hostname gia collegato da
+un altro club e un `409` che non dice quale. La proprieta la verifica EasyGame
+leggendo il TXT `_easygame-verify.<host>` con un token casuale di 128 bit,
+**prima** di chiamare il provider; il cron riverifica ogni giorno e un TXT
+sparito spegne il dominio.
+
+### XSS: niente codice scritto dal club
+
+- **Testo formattato sanificato sul server** a ogni salvataggio: documenti di
+  pagina (`sanitizeDocumentRichText` →
+  `sanitizeWebsiteRichHtml`) e corpo delle news (`articles.ts`). La variante
+  del sito in `src/lib/rich-text/sanitize.ts` (l'unico punto di
+  sanificazione, ADR-0190) ammette immagini **solo** dalla libreria pubblica
+  (`/api/public/website/media/<uuid>`), mai `data:`, mai host esterni, mai un
+  allegato del gestionale; toglie classi e `div`; un link interno resta nella
+  stessa finestra, uno esterno si apre con `noopener noreferrer`. Il renderer
+  scrive con `dangerouslySetInnerHTML` solo HTML gia passato di li, e il JSON-LD
+  con `<` neutralizzato.
+- **Nessun HTML, CSS o JavaScript libero**: blocchi chiusi del registry,
+  props validate da schemi zod, stile solo per token.
+- **Contenuti incorporati da un'allowlist** (`src/lib/website/embed.ts`):
+  cinque servizi, `src` ricostruito da identificativi ripuliti, iframe caricato
+  solo dopo il clic del visitatore (nessuna richiesta e nessun cookie di terze
+  parti prima).
+- **Collegamenti normalizzati** (`src/lib/website/links.ts`): una pagina si
+  collega per identificativo, un URL esterno solo `http(s)`, mai
+  `javascript:`; email e telefono ripuliti.
+- **Media**: solo JPEG, PNG, WebP e GIF, tipo verificato sui byte (niente SVG,
+  che esegue codice); la rotta pubblica risponde con `nosniff` e una CSP
+  `default-src 'none'`.
+
+### Privacy delle persone
+
+- **Opt-in esplicito**: una persona compare solo con una riga di
+  `website_person_publications` con `published` vero, scritta da chi ha
+  `website.people.manage` (sola direzione).
+- **Una funzione sola decide** (`applyPublicationPolicy`,
+  `src/lib/website/people/policy.ts`): il suo tipo d'ingresso non contiene
+  codice fiscale, indirizzo, contatti, documenti, certificati, dati sanitari,
+  pagamenti, tutori o consensi, quindi nessun loader li puo far passare.
+- **Atleta minore** (data di nascita mancante o illeggibile = minore): il nome
+  pieno diventa nome e iniziale se il club non ne ha scritto uno a mano, l'anno
+  di nascita non esce mai, la foto esce **solo con il consenso `images`
+  accettato** nel registro. **L'assenza di un rifiuto non e un consenso.**
+- **Adulto**: un rifiuto vince sempre; con una definizione del consenso
+  `images` attiva serve l'accettazione; senza, serve la dichiarazione del club
+  di averlo raccolto fuori dal registro.
+- **Le foto si decidono alla richiesta**: una foto di persona e un file
+  `person-photo`, e `/api/public/website/media/:id` la serve solo se una
+  pubblicazione attiva la usa e la policy la lascia passare **adesso**
+  (`isPersonPhotoPublic`), con cache di 5 minuti invece di un anno: una revoca
+  del consenso ferma la foto anche se un link o una cache la ricordano.
+  Un'immagine generica della libreria non puo diventare la foto di una persona.
+- **Cancellazione**: `website_person_publications` (con la foto) e
+  `club_event_player_stats` sono nel perimetro di `data-subject.ts`.
+
+### Anteprima privata
+
+`/website-preview/<sito>/…` vive sul dominio del gestionale, chiede la
+sessione e `website.read` sul club del sito (`authorizePreview` ricostruisce lo
+scope sul club del sito e passa da `requireWebsiteAccess`), non si mette in
+cache e porta `noindex, nofollow` (anche il root layout del sito e `noindex`
+per default; solo una pagina pubblicata risolta lo toglie).
+
+### Il modulo contatti
+
+Due limiti di frequenza (`websiteInquiryIp`: 5 l'ora per indirizzo;
+`websiteInquirySite`: 100 l'ora per sito, `src/lib/auth/rate-limit-policy.ts`),
+un campo esca (`website`) e un tempo minimo di compilazione di 3 s — un robot
+riceve «accettato» senza che niente venga scritto —, lunghezze massime, email
+validata, consenso obbligatorio con il testo congelato sulla riga. Il sito di
+destinazione lo dice l'host, mai il corpo. Le richieste le legge chi ha
+`website.settings.manage` (dati personali di chi non e del club) e si
+cancellano dopo 24 mesi.
+
+### Isolamento fra club
+
+Ogni funzione del modulo passa da `requireWebsiteAccess`, che parte da
+`assertActiveClub`: un identificativo di un altro club non passa nemmeno se
+l'utente vi appartiene. Ogni query porta `organization_id` (oltre a `site_id`
+dove c'e), e una riga di un altro club risponde «Accesso negato … non
+appartiene al club attivo, o non esiste» senza distinguere i due casi. Le
+scritture sportive verificano che squadra, competizione, avversario e atleti
+delle statistiche siano del club.

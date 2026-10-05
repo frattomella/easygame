@@ -1,5 +1,12 @@
 import { prisma } from "./prisma";
 import {
+  clubPrimarySport,
+  getSportAdapter,
+  normalizePeriodScores,
+  normalizePlayerStats,
+  resultFromPeriods,
+} from "@/lib/sports/adapters";
+import {
   buildSeasonContext,
   resolveSeasonContext,
   seasonIdForNewRecord,
@@ -3389,3 +3396,274 @@ export const createClubEventsBatch = async (
 };
 
 export { toEventLegacyShape };
+
+/* ====================================================== risultati (ADR-0200 §8) ===== */
+
+/**
+ * **Squadra, competizione, avversario e giornata di una gara.**
+ *
+ * Quattro colonne nuove, scritte solo qui e solo per le gare. Non passano da
+ * `updateClubEvent` di proposito: non toccano data, campo, categoria o stato,
+ * quindi non devono riaprire controlli di sovrapposizione ne di consolidamento
+ * che non c'entrano. Scegliere un avversario dall'anagrafica aggiorna anche
+ * l'etichetta storica `opponent`, cosi i lettori che conoscono solo il testo
+ * vedono lo stesso nome.
+ */
+export const saveMatchSportDetails = async (
+  scope: EventsScope,
+  eventId: string,
+  input: {
+    teamId?: unknown;
+    competitionId?: unknown;
+    opponentId?: unknown;
+    roundLabel?: unknown;
+    expectedVersion?: unknown;
+  },
+  attore: Attore = {},
+) => {
+  await assertEventsPermission(scope, "events.manage");
+  const organizationId = requireActiveOrganization(scope);
+  const existing = await findClubEvent(organizationId, eventId);
+  if (!existing) throw new Error("Evento non trovato");
+  assertActiveClub(scope, existing.organization_id, "l'evento");
+  if (existing.kind !== "match") throw new Error("Squadra, competizione e avversario si indicano solo per una gara");
+  await assertTrainerEventPerimeter(scope, [existing], "events.manage", "scrittura");
+  await assertAccessScopeOnEvent(scope, [existing], "events.manage", "scrittura");
+
+  const data: Record<string, unknown> = {};
+  const idOrNull = (value: unknown) => {
+    const id = asText(value);
+    return id ? id : null;
+  };
+
+  if (input.teamId !== undefined) {
+    const teamId = idOrNull(input.teamId);
+    if (teamId) {
+      const team = await (prisma as any).clubTeam.findFirst({ where: { id: teamId, organization_id: organizationId }, select: { id: true } });
+      if (!team) throw negato("la squadra non appartiene al club");
+    }
+    data.team_id = teamId;
+  }
+  if (input.competitionId !== undefined) {
+    const competitionId = idOrNull(input.competitionId);
+    if (competitionId) {
+      const competition = await (prisma as any).competition.findFirst({ where: { id: competitionId, organization_id: organizationId }, select: { id: true } });
+      if (!competition) throw negato("la competizione non appartiene al club");
+    }
+    data.competition_id = competitionId;
+  }
+  if (input.opponentId !== undefined) {
+    const opponentId = idOrNull(input.opponentId);
+    if (opponentId) {
+      const opponent = await (prisma as any).opponent.findFirst({ where: { id: opponentId, organization_id: organizationId }, select: { id: true, name: true } });
+      if (!opponent) throw negato("l'avversario non appartiene al club");
+      data.opponent = opponent.name;
+    }
+    data.opponent_id = opponentId;
+  }
+  if (input.roundLabel !== undefined) data.round_label = asText(input.roundLabel).slice(0, 60) || null;
+  if (!Object.keys(data).length) return prisma.clubEvent.findUnique({ where: { id: existing.id } });
+
+  const attesa =
+    input.expectedVersion === undefined || input.expectedVersion === null ? existing.version : Number(input.expectedVersion);
+  const aggiornati = await prisma.clubEvent.updateMany({
+    where: { id: existing.id, version: attesa },
+    data: { ...(data as any), version: { increment: 1 } },
+  });
+  if (aggiornati.count === 0) {
+    throw new Error("L'evento e stato modificato da qualcun altro: ricarica la pagina e riprova");
+  }
+  /* La proiezione porta squadra, competizione e avversario: si riallinea sempre. */
+  await projectEventsToClubColumn(organizationId, "match");
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.eventUpdated,
+    actorUserId: attore.userId || null,
+    actorEmail: attore.email || null,
+    actorRole: scope.activeRole || null,
+    organizationId,
+    resource: "club_events",
+    resourceId: existing.id,
+    metadata: { campi: Object.keys(data) },
+  });
+  return prisma.clubEvent.findUnique({ where: { id: existing.id } });
+};
+
+/**
+ * **Il risultato di una gara**, con i parziali e le statistiche individuali.
+ *
+ * - il risultato e **secondo casa e trasferta**: se la gara e in trasferta,
+ *   il punteggio del club e `awayScore`;
+ * - i parziali sono un elenco generico `{number, label, home, away}`, le
+ *   etichette le propone l'adattatore dello sport (quarti, tempi, set);
+ * - se i parziali sono completi e il risultato manca, il risultato si
+ *   ricava (somma, o set vinti); se ci sono entrambi e non tornano, si
+ *   rifiuta: un tabellino che contraddice il risultato non si pubblica;
+ * - `final` chiude la gara (stato `completed`); `provisional` la lascia com'e;
+ * - le statistiche si scrivono per atleta, solo con le chiavi dello sport, e
+ *   solo per atleti del club. Una riga mandata vuota si cancella.
+ *
+ * Togliere il risultato (`clear: true`) azzera tutto, statistiche comprese.
+ */
+export const saveMatchResult = async (
+  scope: EventsScope,
+  eventId: string,
+  input: {
+    homeScore?: unknown;
+    awayScore?: unknown;
+    status?: unknown;
+    periods?: unknown;
+    playerStats?: unknown;
+    clear?: unknown;
+    expectedVersion?: unknown;
+  },
+  attore: Attore = {},
+) => {
+  await assertEventsPermission(scope, "events.manage");
+  const organizationId = requireActiveOrganization(scope);
+  const existing = await findClubEvent(organizationId, eventId);
+  if (!existing) throw new Error("Evento non trovato");
+  assertActiveClub(scope, existing.organization_id, "l'evento");
+  if (existing.kind !== "match") throw new Error("Il risultato si registra solo per una gara");
+  if (existing.status === "cancelled") throw new Error("Una gara annullata non ha un risultato");
+  await assertTrainerEventPerimeter(scope, [existing], "events.manage", "scrittura");
+  await assertAccessScopeOnEvent(scope, [existing], "events.manage", "scrittura");
+
+  const club = await prisma.club.findUnique({ where: { id: organizationId }, select: { settings: true } });
+  const team = existing.team_id
+    ? await (prisma as any).clubTeam.findFirst({ where: { id: existing.team_id, organization_id: organizationId }, select: { sport: true } })
+    : null;
+  const sport = getSportAdapter(team?.sport || clubPrimarySport(club?.settings));
+
+  const attesa =
+    input.expectedVersion === undefined || input.expectedVersion === null ? existing.version : Number(input.expectedVersion);
+  const now = new Date();
+
+  if (input.clear === true) {
+    const aggiornati = await prisma.$transaction(async (tx: any) => {
+      const result = await tx.clubEvent.updateMany({
+        where: { id: existing.id, version: attesa },
+        data: {
+          home_score: null,
+          away_score: null,
+          result_status: null,
+          period_scores: null,
+          result_updated_at: now,
+          result_updated_by: attore.userId || null,
+          version: { increment: 1 },
+        },
+      });
+      if (result.count) await tx.clubEventPlayerStat.deleteMany({ where: { organization_id: organizationId, event_id: existing.id } });
+      return result;
+    });
+    if (aggiornati.count === 0) throw new Error("L'evento e stato modificato da qualcun altro: ricarica la pagina e riprova");
+    await projectEventsToClubColumn(organizationId, "match");
+    await recordAuditEvent({
+      action: AUDIT_ACTIONS.eventResultSaved,
+      actorUserId: attore.userId || null,
+      actorEmail: attore.email || null,
+      actorRole: scope.activeRole || null,
+      organizationId,
+      resource: "club_events",
+      resourceId: existing.id,
+      metadata: { cleared: true },
+    });
+    return prisma.clubEvent.findUnique({ where: { id: existing.id } });
+  }
+
+  const score = (value: unknown) => {
+    if (value === null || value === undefined || value === "") return null;
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n) || n < 0 || n > 999) throw new Error("Il punteggio deve essere un numero intero fra 0 e 999");
+    return n;
+  };
+  const periods = normalizePeriodScores(input.periods, sport);
+  let home = score(input.homeScore);
+  let away = score(input.awayScore);
+  const derived = resultFromPeriods(periods, sport);
+  if ((home === null || away === null) && derived) {
+    home = derived.home;
+    away = derived.away;
+  }
+  if (home === null || away === null) throw new Error("Indica il punteggio di entrambe le squadre, o i parziali completi");
+  if (derived && (derived.home !== home || derived.away !== away)) {
+    throw new Error(
+      `I parziali danno ${derived.home}-${derived.away} e il risultato e ${home}-${away}: correggi uno dei due`,
+    );
+  }
+  const status = asText(input.status).toLowerCase() === "provisional" ? "provisional" : "final";
+  if (status === "final" && !sport.allowsDraw && home === away) {
+    throw new Error(`Nella ${sport.label.toLowerCase()} non esiste il pareggio: controlla il risultato`);
+  }
+
+  const statsInput = Array.isArray(input.playerStats) ? input.playerStats : [];
+  const statRows = statsInput
+    .map((entry: any) => ({
+      athleteId: asText(entry?.athleteId ?? entry?.athlete_id),
+      stats: normalizePlayerStats(entry?.stats, sport),
+    }))
+    .filter((entry: { athleteId: string }) => entry.athleteId);
+  if (statRows.length) {
+    const ids = Array.from(new Set(statRows.map((entry: { athleteId: string }) => entry.athleteId)));
+    const known = await prisma.athlete.findMany({ where: { organization_id: organizationId, id: { in: ids } }, select: { id: true } });
+    if (known.length !== ids.length) throw negato("le statistiche nominano un atleta che non e del club");
+  }
+
+  const aggiornati = await prisma.$transaction(async (tx: any) => {
+    const result = await tx.clubEvent.updateMany({
+      where: { id: existing.id, version: attesa },
+      data: {
+        home_score: home,
+        away_score: away,
+        result_status: status,
+        period_scores: periods.length ? periods : null,
+        result_updated_at: now,
+        result_updated_by: attore.userId || null,
+        ...(status === "final" && existing.status === "scheduled" ? { status: "completed" } : {}),
+        version: { increment: 1 },
+      },
+    });
+    if (!result.count) return result;
+    for (const entry of statRows as Array<{ athleteId: string; stats: Record<string, number> }>) {
+      if (!Object.keys(entry.stats).length) {
+        await tx.clubEventPlayerStat.deleteMany({ where: { organization_id: organizationId, event_id: existing.id, athlete_id: entry.athleteId } });
+        continue;
+      }
+      await tx.clubEventPlayerStat.upsert({
+        where: { event_id_athlete_id: { event_id: existing.id, athlete_id: entry.athleteId } },
+        update: { stats: entry.stats },
+        create: { organization_id: organizationId, event_id: existing.id, athlete_id: entry.athleteId, stats: entry.stats },
+      });
+    }
+    return result;
+  });
+  if (aggiornati.count === 0) throw new Error("L'evento e stato modificato da qualcun altro: ricarica la pagina e riprova");
+
+  /* La proiezione porta il risultato: si riallinea a ogni salvataggio. */
+  await projectEventsToClubColumn(organizationId, "match");
+  await recordAuditEvent({
+    action: AUDIT_ACTIONS.eventResultSaved,
+    actorUserId: attore.userId || null,
+    actorEmail: attore.email || null,
+    actorRole: scope.activeRole || null,
+    organizationId,
+    resource: "club_events",
+    resourceId: existing.id,
+    metadata: { home, away, status, periods: periods.length, playerStats: statRows.length },
+  });
+  return prisma.clubEvent.findUnique({ where: { id: existing.id } });
+};
+
+/** Le statistiche registrate di una gara, per l'editor del risultato. */
+export const listMatchPlayerStats = async (scope: EventsScope, eventId: string) => {
+  await assertEventsPermission(scope, "events.read");
+  const organizationId = requireActiveOrganization(scope);
+  const existing = await findClubEvent(organizationId, eventId);
+  if (!existing) throw new Error("Evento non trovato");
+  assertActiveClub(scope, existing.organization_id, "l'evento");
+  await assertTrainerEventPerimeter(scope, [existing], "events.read", "lettura");
+  await assertAccessScopeOnEvent(scope, [existing], "events.read");
+  return (prisma as any).clubEventPlayerStat.findMany({
+    where: { organization_id: organizationId, event_id: existing.id },
+    select: { athlete_id: true, stats: true },
+  });
+};

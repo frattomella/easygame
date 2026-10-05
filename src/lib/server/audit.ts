@@ -276,6 +276,13 @@ export const AUDIT_ACTIONS = {
   eventCancelled: "event.cancelled",
   eventConvocationsSaved: "event.convocations.saved",
   eventAttendanceRecorded: "event.attendance.recorded",
+  /* Il risultato di una gara (ADR-0200 §8): un fatto che il sito pubblica. */
+  eventResultSaved: "event.result.saved",
+  /* Le squadre stabili, le competizioni, gli avversari (ADR-0200 §8). */
+  clubTeamSaved: "club_team.saved",
+  clubTeamDeleted: "club_team.deleted",
+  competitionSaved: "competition.saved",
+  opponentSaved: "opponent.saved",
   /*
     Le persone in prova (ADR-0188): identita, stato e conversione hanno una
     riga ciascuno; la presenza di prova segue l'appello degli atleti, che e

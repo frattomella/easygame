@@ -5,6 +5,14 @@
 @import "../../styles/egw-tokens.css";
 @import "../../styles/egw-base.css";
 
+/*
+  Il config si dichiara anche qui (ADR-0200): il sito pubblico usa il suo con
+  `@config`, e senza una dichiarazione esplicita Tailwind applicava a questo
+  file il config dell'ultimo foglio compilato — se il sito veniva compilato
+  per primo, `border-border` non esisteva e la build falliva.
+*/
+@config "../../../tailwind.config.ts";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

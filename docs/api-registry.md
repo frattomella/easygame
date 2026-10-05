@@ -1170,6 +1170,90 @@ impronta, versione, risposta, ora, metodo), `snapshot_hash`, `athlete_id`,
   cancellare e della DIREZIONE. Il contenuto dei blocchi `content` si
   sanifica sul server a ogni salvataggio e pubblicazione.
 
+## EasyGame Website e sport core (ADR-0200)
+
+Nessuna rotta e `mobile_ready` (ADR-0025). Le rotte del gestionale passano
+da `websiteRoute` (`src/lib/server/website/route.ts`: sessione e club
+attivo) e il permesso lo verifica il modulo chiamato (`requireWebsiteAccess`,
+`assertEventsPermission`). Un conflitto di versione risponde `409` con
+`{ code: "CONFLICT", currentVersion }`. Sul dominio di un club il middleware
+lascia passare solo `/api/public/website/*`.
+
+### Sito della societa (gestionale)
+
+| Metodo | Rotta | Descrizione |
+|--------|-------|-------------|
+| `GET` | `/api/v1/website` | Panoramica del sito del club attivo: stato del servizio, bozza, pagine, domini, ultima pubblicazione, permessi del ruolo |
+| `POST` | `/api/v1/website` | Crea il sito da un template (website.settings.manage); il dominio non serve per iniziare |
+| `GET` | `/api/v1/website/templates` | I quattro template: nome, descrizione, colori e carattere dei titoli |
+| `GET` | `/api/v1/website/options` | Le opzioni dei selettori dell editor: stagioni, squadre, categorie, competizioni, livelli sponsor, categorie news, moduli pubblici, persone pubblicate, sport |
+| `PATCH` | `/api/v1/website/config` | Tema, intestazione, piede, menu, SEO, impostazioni con la versione della bozza; ogni parte chiede il suo permesso, 409 sul conflitto |
+| `POST` | `/api/v1/website/template-style` | Applica lo stile di un altro template (tema, intestazione, piede) senza toccare pagine e menu |
+| `GET` | `/api/v1/website/pages` | Le pagine della bozza con documento e SEO |
+| `POST` | `/api/v1/website/pages` | Crea o duplica una pagina (website.pages.manage); slug validato, unico e non riservato |
+| `GET` | `/api/v1/website/pages/:id` | Una pagina della bozza |
+| `PATCH` | `/api/v1/website/pages/:id` | Titolo, slug e SEO con la versione della pagina; uno slug cambiato lascia un reindirizzamento |
+| `DELETE` | `/api/v1/website/pages/:id` | Elimina una pagina (non la home) e la toglie da menu e piede |
+| `PUT` | `/api/v1/website/pages/:id/document` | Salva il documento della pagina con la versione letta: ripulito dal registry, testo formattato sanificato sul server, 409 sul conflitto |
+| `PUT` | `/api/v1/website/pages/order` | Riordina le pagine |
+| `GET` | `/api/v1/website/publish` | Cosa blocca la pubblicazione e se la bozza ha modifiche non pubblicate |
+| `POST` | `/api/v1/website/publish` | Pubblica un istantaneo immutabile (website.publish) con chiave di idempotenza; serve il dominio primario attivo con HTTPS |
+| `POST` | `/api/v1/website/unpublish` | Ritira il sito dal pubblico; le revisioni restano |
+| `GET` | `/api/v1/website/revisions` | Lo storico delle pubblicazioni |
+| `POST` | `/api/v1/website/revisions/:id/rollback` | Ripubblica una revisione precedente come revisione nuova |
+| `POST` | `/api/v1/website/revisions/:id/restore-draft` | Riporta nella bozza il contenuto di una revisione, con la versione della bozza |
+| `GET` | `/api/v1/website/domains` | I domini del sito con record DNS attesi, stato e certificato, e il provider configurato |
+| `POST` | `/api/v1/website/domains` | Collega un dominio del club (website.domain.manage, solo il proprietario); mai un indirizzo EasyGame |
+| `POST` | `/api/v1/website/domains/:id/verify` | Verifica il TXT di proprieta e chiede al provider instradamento e certificato |
+| `POST` | `/api/v1/website/domains/:id/primary` | Imposta il dominio principale (solo se attivo); gli altri reindirizzano |
+| `DELETE` | `/api/v1/website/domains/:id` | Scollega un dominio dal sito e dal provider |
+| `GET` | `/api/v1/website/media` | La libreria immagini del sito, con ricerca e categoria; le foto delle persone non sono nella libreria comune |
+| `POST` | `/api/v1/website/media` | Carica un immagine (multipart) nell archivio allegati, owner website |
+| `PATCH` | `/api/v1/website/media/:id` | Testo alternativo, titolo, punto focale |
+| `DELETE` | `/api/v1/website/media/:id` | Elimina un immagine solo se nessuna pagina, news, sponsor o persona la usa |
+| `GET` | `/api/v1/website/media/:id/usages` | Dove e usata un immagine |
+| `GET` | `/api/v1/website/people` | Atleti, allenatori o staff con le impostazioni di pubblicazione, minore e consenso immagini |
+| `PUT` | `/api/v1/website/people` | Come compare una persona sul sito (website.people.manage); restituisce l anteprima della policy |
+| `GET` | `/api/v1/website/articles` | Le news del sito, con filtro per stato, testo e categoria |
+| `POST` | `/api/v1/website/articles` | Crea una news in bozza (website.blog.manage) |
+| `GET` | `/api/v1/website/articles/:id` | Una news |
+| `PATCH` | `/api/v1/website/articles/:id` | Modifica una news con la sua versione; corpo sanificato sul server |
+| `DELETE` | `/api/v1/website/articles/:id` | Elimina una news |
+| `POST` | `/api/v1/website/articles/:id/status` | Pubblica, programma, riporta in bozza o archivia una news |
+| `GET` | `/api/v1/website/sponsors` | Gli sponsor del club con la loro vetrina sul sito e i livelli |
+| `PUT` | `/api/v1/website/sponsors/:id` | La vetrina di uno sponsor: visibile, livello, logo, sito, periodo (website.sponsors.manage) |
+| `GET` | `/api/v1/website/inquiries` | Le richieste arrivate dal modulo contatti del sito |
+| `PATCH` | `/api/v1/website/inquiries/:id` | Segna una richiesta come gestita, archiviata o nuova |
+| `GET` | `/api/v1/website/maintenance` | Giro periodico (cron con CRON_SECRET): stato dei domini e pulizia delle richieste oltre 24 mesi |
+
+### Sport core
+
+| Metodo | Rotta | Descrizione |
+|--------|-------|-------------|
+| `GET` | `/api/v1/club-teams` | Le squadre stabili del club, con i collegamenti per stagione |
+| `POST` | `/api/v1/club-teams` | Crea una squadra stabile (configurazione del club) |
+| `PATCH` | `/api/v1/club-teams/:id` | Modifica una squadra stabile; lo slug vecchio resta per i reindirizzamenti |
+| `DELETE` | `/api/v1/club-teams/:id` | Elimina una squadra stabile; le gare restano con la loro categoria |
+| `POST` | `/api/v1/club-teams/from-categories` | Crea o collega le squadre stabili dalle categorie di una stagione |
+| `GET` | `/api/v1/competitions` | Le competizioni, filtrabili per stagione, con la classifica inserita dal club |
+| `POST` | `/api/v1/competitions` | Crea o modifica una competizione e la sua classifica (events.manage) |
+| `DELETE` | `/api/v1/competitions/:id` | Elimina una competizione |
+| `GET` | `/api/v1/opponents` | Gli avversari del club |
+| `POST` | `/api/v1/opponents` | Crea o modifica un avversario |
+| `DELETE` | `/api/v1/opponents/:id` | Elimina un avversario; le gare conservano il nome libero |
+| `GET` | `/api/v1/events/:id/result` | Le statistiche individuali registrate di una gara |
+| `PUT` | `/api/v1/events/:id/result` | Risultato, parziali e statistiche di una gara (events.manage); clear:true lo toglie |
+| `PUT` | `/api/v1/events/:id/sport-details` | Squadra stabile, competizione, avversario e giornata di una gara |
+
+### Sito della societa (pubbliche, senza sessione)
+
+| Metodo | Rotta | Descrizione |
+|--------|-------|-------------|
+| `GET` | `/api/public/website/media/:id` | Un immagine della libreria pubblica di un sito; una foto di persona solo se la policy la consente |
+| `GET` | `/api/public/website/club-logo/:organizationId` | Il logo dell anagrafica del club, solo per un club con il sito |
+| `GET` | `/api/public/website/sponsor-logo/:organizationId/:sponsorId` | Il logo di uno sponsor in vetrina oggi |
+| `POST` | `/api/public/website/inquiries` | Il modulo contatti del sito: rate limit doppio, campo civetta, consenso obbligatorio |
+
 ## Cosa questo file elenca e `src/lib/api/registry.ts` no (2026-09-02)
 
 `GET /api/v1/registry` serve il registro che vive nel **codice**, e le due

@@ -111,6 +111,9 @@ const PROTECTED_PREFIXES = [
   "/trainer-dashboard",
   "/trainers",
   "/training",
+  /* EasyGame Website (ADR-0200): l'area del gestionale e l'anteprima privata. */
+  "/website",
+  "/website-preview",
 ] as const;
 
 /**
@@ -169,9 +172,120 @@ const resolveRequestId = (request: NextRequest) => {
   );
 };
 
+/**
+ * **Gli host del gestionale e quelli dei siti dei club** (ADR-0200 §2, §53).
+ *
+ * Il gestionale risponde sui suoi host (`EASYGAME_APP_HOSTS`, l'host di
+ * `NEXT_PUBLIC_APP_URL`/`AUTH_BASE_URL`, `localhost`, le anteprime di
+ * deploy). **Ogni altro host e il dominio di un club**: la richiesta si
+ * riscrive verso il renderer del sito (`/site-render/<host>/<percorso>`), che
+ * risolve host → sito → revisione pubblicata sul runtime Node — qui, sul
+ * runtime edge, Prisma non c'e.
+ *
+ * Sul dominio di un club le API del gestionale **non esistono**: passano solo
+ * quelle pubbliche del sito (`/api/public/website/…`), con l'host dichiarato
+ * in un'intestazione. Il cookie di sessione di EasyGame non arriva mai su un
+ * dominio diverso, quindi non c'e sessione da proteggere: c'e da non esporre
+ * superfici che non servono.
+ */
+const hostOf = (value: string | undefined | null) => {
+  if (!value) return "";
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+};
+
+const APP_HOSTS = new Set(
+  [
+    ...String(process.env.EASYGAME_APP_HOSTS || "").split(","),
+    hostOf(process.env.NEXT_PUBLIC_APP_URL),
+    hostOf(process.env.AUTH_BASE_URL),
+    "localhost",
+    "127.0.0.1",
+    "[::1]",
+  ]
+    .map((value) => value.trim().toLowerCase().replace(/:\d+$/, ""))
+    .filter(Boolean),
+);
+
+const normalizeHost = (value: string | null) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/:\d+$/, "")
+    .replace(/\.$/, "");
+
+export const isAppHost = (host: string) =>
+  !host ||
+  APP_HOSTS.has(host) ||
+  /* Le anteprime di deploy dell'hosting sono il gestionale, mai il sito di un club. */
+  host.endsWith(".vercel.app");
+
+const SITE_HOST_HEADER = "x-easygame-site-host";
+
+/*
+  **Il secondo passaggio della riscrittura.** Next ripassa dal middleware il
+  percorso riscritto (`/site-render/<host>/<percorso>`) con l'host interno, che
+  e quello del gestionale: senza riconoscerlo, ogni pagina tranne la home
+  rispondeva 404 (la home sfuggiva perche `/site-render/club.it` sembra un
+  file con estensione e il matcher la salta). Il riconoscimento e un segreto
+  che il visitatore non conosce — l'intestazione dell'host da sola si
+  falsifica, e farebbe disegnare il sito di un club sull'origine del
+  gestionale, che porta i cookie di sessione. Con piu istanze si fissa con
+  `EASYGAME_SITE_RENDER_SECRET`; altrimenti ne nasce uno per processo.
+*/
+const SITE_RENDER_HEADER = "x-easygame-site-render";
+const SITE_RENDER_SECRET =
+  String(process.env.EASYGAME_SITE_RENDER_SECRET || "").trim() ||
+  (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+
+const isInternalSiteRender = (request: NextRequest, pathname: string) => {
+  if (request.headers.get(SITE_RENDER_HEADER) !== SITE_RENDER_SECRET) return false;
+  const declared = String(request.headers.get(SITE_HOST_HEADER) || "");
+  const fromPath = decodeURIComponent(pathname.split("/")[2] || "");
+  return Boolean(declared) && declared === fromPath;
+};
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const requestId = resolveRequestId(request);
+
+  const host = normalizeHost(request.headers.get("host") || request.headers.get("x-forwarded-host"));
+  if (!isAppHost(host)) {
+    const headers = new Headers(request.headers);
+    headers.set(REQUEST_ID_HEADER, requestId);
+    headers.set(SITE_HOST_HEADER, host);
+    headers.set(SITE_RENDER_HEADER, SITE_RENDER_SECRET);
+    if (pathname.startsWith("/api/")) {
+      if (!pathname.startsWith("/api/public/website/")) {
+        const blocked = new NextResponse("Not found", { status: 404 });
+        blocked.headers.set(REQUEST_ID_HEADER, requestId);
+        return blocked;
+      }
+      const passthrough = NextResponse.next({ request: { headers } });
+      passthrough.headers.set(REQUEST_ID_HEADER, requestId);
+      return passthrough;
+    }
+    const target = request.nextUrl.clone();
+    target.pathname = `/site-render/${encodeURIComponent(host)}${pathname === "/" ? "" : pathname}`;
+    const rewritten = NextResponse.rewrite(target, { request: { headers } });
+    rewritten.headers.set(REQUEST_ID_HEADER, requestId);
+    return rewritten;
+  }
+
+  /* Sul gestionale il renderer interno non si apre per indirizzo. */
+  if (pathname === "/site-render" || pathname.startsWith("/site-render/")) {
+    if (isInternalSiteRender(request, pathname)) {
+      const passa = NextResponse.next();
+      passa.headers.set(REQUEST_ID_HEADER, requestId);
+      return passa;
+    }
+    const hidden = new NextResponse("Not found", { status: 404 });
+    hidden.headers.set(REQUEST_ID_HEADER, requestId);
+    return hidden;
+  }
 
   /*
     L'identificativo viaggia in **due** direzioni, e servono entrambe: in
@@ -181,6 +295,12 @@ export function middleware(request: NextRequest) {
   */
   const headersInoltrate = new Headers(request.headers);
   headersInoltrate.set(REQUEST_ID_HEADER, requestId);
+  /*
+    Sul gestionale l'host di un sito non esiste: un'intestazione con quel nome
+    arriva solo dal visitatore, e le rotte pubbliche del sito la credono.
+  */
+  headersInoltrate.delete(SITE_HOST_HEADER);
+  headersInoltrate.delete(SITE_RENDER_HEADER);
 
   const conIdentificativo = (response: NextResponse) => {
     response.headers.set(REQUEST_ID_HEADER, requestId);
@@ -228,5 +348,14 @@ export const config = {
    * l'unico punto in cui l'identificativo di richiesta puo essere generato una
    * volta sola per tutte le righe della stessa richiesta.
    */
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|images|.*\\.[\\w]+$).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|images|.*\\.[\\w]+$).*)",
+    /*
+      `robots.txt` e `sitemap.xml` hanno un'estensione e la regola sopra li
+      lascerebbe fuori: sul dominio di un club devono invece arrivare al
+      renderer del sito, che li scrive per quel dominio (ADR-0200 §16).
+    */
+    "/robots.txt",
+    "/sitemap.xml",
+  ],
 };

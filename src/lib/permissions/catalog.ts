@@ -67,7 +67,8 @@ export type PermissionDomain =
   | "seasons"
   | "sport_work"
   | "training_automation"
-  | "trials";
+  | "trials"
+  | "website";
 
 export type PermissionEntry = {
   key: string;
@@ -817,6 +818,103 @@ const ENTRIES: readonly PermissionEntry[] = [
     domain: "sport_work",
     label: "Vedere e preparare i dati contributivi e fiscali (F24, CU)",
     roles: DIREZIONE,
+  },
+
+  /* ------------------------------------------------ sito della societa --- */
+  /*
+    EasyGame Website (ADR-0200 §10). Nessun ruolo nuovo: il gestore ha tutto
+    tranne il dominio; il collaboratore ha i contenuti — pagine, menu, news,
+    immagini, vetrina sponsor, SEO — e un ruolo personalizzato costruito su di
+    lui li puo restringere uno per uno. Staff, allenatore, genitore e atleta
+    non compaiono: il sito non e un loro strumento.
+
+    Le chiavi di **sola direzione** (tema, persone pubblicate, impostazioni,
+    pubblicazione) restano a proprietario e gestore perche cambiano cosa vede
+    chiunque visiti il sito, o chi vi compare: concederle a un ruolo
+    personalizzato e un atto del proprietario (isDirectionPermission).
+
+    `website.domain.manage` ha come soli ruoli `owner`. Un ruolo
+    personalizzato non puo avere `owner` come base, quindi **non la puo
+    contenere**: e non delegabile per costruzione, senza un'eccezione scritta
+    altrove (§2 dell'ADR).
+  */
+  {
+    key: "website.read",
+    domain: "website",
+    label: "Vedere il sito della societa nel gestionale e la sua anteprima",
+    roles: [...DIREZIONE, "collaborator"],
+  },
+  {
+    key: "website.edit",
+    domain: "website",
+    label: "Modificare i contenuti delle pagine del sito",
+    roles: [...DIREZIONE, "collaborator"],
+  },
+  {
+    key: "website.pages.manage",
+    domain: "website",
+    label: "Creare, rinominare, duplicare ed eliminare le pagine del sito",
+    roles: [...DIREZIONE, "collaborator"],
+  },
+  {
+    key: "website.navigation.manage",
+    domain: "website",
+    label: "Modificare i menu del sito",
+    roles: [...DIREZIONE, "collaborator"],
+  },
+  {
+    key: "website.blog.manage",
+    domain: "website",
+    label: "Scrivere e pubblicare le news del sito",
+    roles: [...DIREZIONE, "collaborator"],
+  },
+  {
+    key: "website.media.manage",
+    domain: "website",
+    label: "Caricare e gestire le immagini del sito",
+    roles: [...DIREZIONE, "collaborator"],
+  },
+  {
+    key: "website.sponsors.manage",
+    domain: "website",
+    label: "Scegliere quali sponsor compaiono sul sito e come",
+    roles: [...DIREZIONE, "collaborator"],
+  },
+  {
+    key: "website.seo.manage",
+    domain: "website",
+    label: "Modificare titoli, descrizioni e indicizzazione delle pagine del sito",
+    roles: [...DIREZIONE, "collaborator"],
+  },
+  {
+    key: "website.theme.manage",
+    domain: "website",
+    label: "Cambiare tema, colori, caratteri, intestazione e piede del sito",
+    roles: DIREZIONE,
+  },
+  {
+    key: "website.people.manage",
+    domain: "website",
+    label: "Decidere quali atleti e quali membri dello staff compaiono sul sito, e con quali dati",
+    roles: DIREZIONE,
+  },
+  {
+    key: "website.settings.manage",
+    domain: "website",
+    label: "Modificare le impostazioni generali e i dati di identita del sito",
+    roles: DIREZIONE,
+  },
+  {
+    key: "website.publish",
+    domain: "website",
+    label: "Pubblicare il sito e ripristinare una versione precedente",
+    roles: DIREZIONE,
+  },
+  {
+    key: "website.domain.manage",
+    domain: "website",
+    label: "Collegare, verificare e rimuovere il dominio del sito",
+    roles: ["owner"],
   },
 ];
 

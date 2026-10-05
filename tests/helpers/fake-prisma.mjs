@@ -1235,7 +1235,33 @@ export const createFakePrisma = (seedByDelegate = {}) => {
     },
     findFirst: async (args = {}) => {
       calls.push({ delegate: name, method: "findFirst", args });
-      const row = rowsOf(name).find((r) => matchesWhere(r, args.where)) || null;
+      let candidates = rowsOf(name).filter((r) => matchesWhere(r, args.where));
+      /*
+        `orderBy` vale anche qui. «L'ultima revisione» si legge con
+        `findFirst({ orderBy: { revision_number: "desc" } })`: un doppio che
+        restituiva la prima inserita faceva numerare due revisioni allo stesso
+        modo, cosa che il database non farebbe mai.
+      */
+      const criteria = Array.isArray(args.orderBy) ? args.orderBy : args.orderBy && typeof args.orderBy === "object" ? [args.orderBy] : [];
+      if (criteria.length) {
+        candidates = [...candidates].sort((left, right) => {
+          for (const criterion of criteria) {
+            const [field, direction] = Object.entries(criterion || {})[0] || [];
+            if (!field) continue;
+            const x = left[field];
+            const y = right[field];
+            if (x === undefined || x === null) {
+              if (y === undefined || y === null) continue;
+              return 1;
+            }
+            if (y === undefined || y === null) return -1;
+            if (x < y) return direction === "desc" ? 1 : -1;
+            if (x > y) return direction === "desc" ? -1 : 1;
+          }
+          return 0;
+        });
+      }
+      const row = candidates[0] || null;
       if (args.include) return applicaInclude(name, row, args.include);
       if (args.select) return applicaSelect(name, row, args.select);
       return row;

@@ -39,6 +39,7 @@ export const ENTITLEMENT_KEYS = [
   "ai_documents",
   "extra_storage",
   "public_booking_portal",
+  "website",
 ] as const;
 
 export type EntitlementKey = (typeof ENTITLEMENT_KEYS)[number];
@@ -153,6 +154,15 @@ export const ENTITLEMENTS: Record<EntitlementKey, EntitlementDefinition> = {
     area: "organizzazione",
     includedIn: [],
     unlockedByExtra: "public_booking_portal",
+  },
+  website: {
+    key: "website",
+    label: "EasyGame Website",
+    description:
+      "Il sito pubblico della societa sul suo dominio: pagine, news, squadre, gare e sponsor dal gestionale.",
+    area: "comunicazione",
+    includedIn: [],
+    unlockedByExtra: "website",
   },
 };
 

@@ -1411,6 +1411,10 @@ export default function CategoriesPage() {
               actions={
                 activeClub ? (
                   <>
+                    {/* Le squadre stabili fra le stagioni (ADR-0200 §8). */}
+                    <Button variant="secondary" onClick={() => router.push("/categories/squadre")}>
+                      Squadre stabili
+                    </Button>
                     <Menu>
                       <MenuTrigger asChild>
                         <IconButton aria-label="Altre azioni" variant="secondary" size="md">

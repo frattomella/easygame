@@ -1026,3 +1026,90 @@ correzione della decima tornata: quella pagina si apriva **senza sessione**
 perche il prefisso non era fra i `PROTECTED_PREFIXES` e l'area non ha un layout
 con `AccessAreaGuard`. Le rotte reggevano gia, quindi non usciva un dato — ma
 la porta si apriva.
+
+
+## EasyGame Website: host, variabili, cron e sviluppo locale (ADR-0200, 2026-10-05)
+
+### Due gruppi di rotte, un middleware che sceglie dall'host
+
+Le pagine del gestionale vivono in `src/app/(app)/`, il sito pubblico in
+`src/app/(site)/` (root layout distinti, vedi [04](04-web-architecture.md));
+gli URL del gestionale non cambiano. Il middleware (`src/middleware.ts`)
+legge l'host della richiesta (`host`, poi `x-forwarded-host`; minuscolo, senza
+porta e senza punto finale):
+
+- **host del gestionale** = `EASYGAME_APP_HOSTS` (separati da virgola), l'host
+  di `NEXT_PUBLIC_APP_URL`, quello di `AUTH_BASE_URL`, `localhost`,
+  `127.0.0.1`, `[::1]`, e ogni `*.vercel.app` (le anteprime di deploy). Qui
+  tutto funziona come prima; in piu `/site-render/*` risponde `404` (il
+  renderer interno non si apre per indirizzo) e `/website`, `/website-preview`
+  sono percorsi protetti (senza cookie → `/login?next=…`);
+- **ogni altro host e il dominio di un club**: le pagine si riscrivono verso
+  `/site-render/<host>/<percorso>`, `robots.txt` e `sitemap.xml` compresi (sono
+  nel `matcher` apposta); le API rispondono `404` tranne
+  `/api/public/website/*`; l'intestazione `x-easygame-site-host` la scrive il
+  middleware con l'host vero, sovrascrivendo quella eventualmente mandata dal
+  visitatore.
+
+> **Prima di un deploy**: un dominio del gestionale che non sia
+> `*.vercel.app` e non sia l'host di `NEXT_PUBLIC_APP_URL`/`AUTH_BASE_URL`
+> **deve** stare in `EASYGAME_APP_HOSTS`. Altrimenti il middleware lo tratta
+> come il dominio di un club e il gestionale su quell'indirizzo risponde «sito
+> non disponibile» o 404 su ogni API.
+
+### Le variabili (copiate da `.env.example`)
+
+| Variabile | Cosa dice | Se manca |
+|-----------|-----------|----------|
+| `EASYGAME_APP_HOSTS` | Gli host del gestionale, separati da virgola. Ogni altro host e il dominio di un club. Entra anche negli host riservati che nessun club puo collegare | Valgono solo `localhost`, l'host di `NEXT_PUBLIC_APP_URL`/`AUTH_BASE_URL` e `*.vercel.app` |
+| `EASYGAME_WEBSITE_DOMAIN_PROVIDER` | `vercel`, `cloudflare` o `mock` | `mock` fuori produzione; **nessun provider** in produzione: la pagina Dominio dice che il collegamento non e configurato |
+| `VERCEL_API_TOKEN`, `VERCEL_PROJECT_ID`, `VERCEL_TEAM_ID` | Provider `vercel`: token con accesso al progetto che serve EasyGame; il team e facoltativo | Il provider risulta non configurato |
+| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID` | Provider `cloudflare` (custom hostnames della zona; permesso «SSL and Certificates: Edit») | Il provider risulta non configurato (serve anche `EASYGAME_WEBSITE_CNAME_TARGET`) |
+| `EASYGAME_WEBSITE_CNAME_TARGET` | Il nome verso cui il club punta un sottodominio (per Cloudflare: il fallback origin della zona) | I valori del provider (`cname.vercel-dns.com`, `sites.easygame.local` per il mock) |
+| `EASYGAME_WEBSITE_A_RECORDS` | Gli IPv4 per un dominio senza `www`, separati da virgola | I valori del provider (`76.76.21.21`, `127.0.0.1` per il mock) |
+| `EASYGAME_SITE_RENDER_SECRET` | Il segreto con cui il middleware riconosce il secondo passaggio della riscrittura verso `/site-render` | Vuoto = uno per processo, che basta con un processo solo. Con piu istanze dietro lo stesso dominio va fissato, altrimenti le pagine del sito diverse dalla home rispondono 404 (vedi [14](14-security.md)) |
+| `EASYGAME_WEBSITE_ALLOW_LOCAL_DOMAINS` | Ammette `*.localhost` e `*.test` come domini di un sito | Fuori produzione sono **gia ammessi** senza la variabile. Conta solo con `NODE_ENV=production`, con `1` o `true` (D-WS-9, chiuso) |
+| `EASYGAME_STORAGE_DRIVER` | `database` (predefinito) oppure `s3` | Gli allegati nuovi vanno nel database, come sempre |
+| `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_KEY_PREFIX` | Driver `s3` (AWS S3, R2, MinIO, firma SigV4). Per R2: `https://<account>.r2.cloudflarestorage.com`, regione `auto`. Prefisso vuoto = `attachments` | Il driver S3 non si registra; con `EASYGAME_STORAGE_DRIVER=s3` ma senza queste, resta attivo il database |
+
+Al 2026-10-05 le credenziali dei provider di domini e del bucket non esistono
+ancora: in nessun ambiente il collegamento dei domini reali o lo storage S3
+sono accesi. Prima del deploy del modulo su uno staging va verificato
+`EASYGAME_APP_HOSTS` (vedi l'avviso sopra). Non modificare variabili su Vercel
+senza autorizzazione (CLAUDE.md §9).
+
+### Il cron del sito
+
+`vercel.json` dichiara un sesto cron: `GET /api/v1/website/maintenance` alle
+`15 5 * * *` (UTC). Rilegge lo stato dei domini in attesa e di quelli attivi
+non controllati da un giorno (fino a 50 per giro; niente da fare se il provider
+non e configurato) e cancella le richieste del modulo contatti oltre i 24
+mesi. Si autentica con `CRON_SECRET` come gli altri: **503 sempre** senza il
+segreto, 401 con un segreto sbagliato.
+
+### Sviluppo locale: un sito vero su `*.localhost`
+
+I browser principali risolvono `*.localhost` su `127.0.0.1`, e il middleware
+non conosce `fortitudo.localhost` fra gli host del gestionale: e quindi il
+dominio di un club, servito dallo stesso `npm run dev`.
+
+1. Database di sviluppo con la migrazione applicata
+   (`20261005120000_adr0200_easygame_website`; il database locale e quello di
+   §«Development separato da staging»).
+2. In `.env.local` (o `.env`): `EASYGAME_WEBSITE_DOMAIN_PROVIDER="mock"`. Fuori
+   produzione e gia il predefinito; scriverlo rende esplicita la scelta.
+   `EASYGAME_WEBSITE_ALLOW_LOCAL_DOMAINS` non serve in sviluppo.
+3. Il club deve avere il servizio: dalla console di piattaforma (servizio
+   `website` in prova o attivo, oppure l'eccezione `website = true`).
+4. `npm run dev` (ascolta su `127.0.0.1:3001`), accesso come **proprietario**,
+   `/website` → crea il sito da un template.
+5. `/website/domini` → aggiungi `fortitudo.localhost` → «Verifica»: il controllo
+   del TXT si salta per i domini locali e il provider simulato risponde attivo
+   con HTTPS. Il primo dominio e il principale.
+6. `/website` → Pubblica.
+7. Apri `http://fortitudo.localhost:3001/`.
+
+Limiti noti: canonico, sitemap, robots e il reindirizzamento dal dominio
+secondario al principale scrivono sempre `https://` — in locale si lavora con
+un dominio solo. Un dominio reale con il mock resta «certificato in emissione»
+e quindi non pubblicabile: il simulatore non finge un certificato.

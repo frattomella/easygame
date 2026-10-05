@@ -545,6 +545,7 @@ const NON_SONO_CHIAVI = new Map([
 const CATALOGHI_DI_AUDIT = [
   path.join("lib", "server", "audit.ts"),
   path.join("lib", "sport-work", "audit-actions.ts"),
+  path.join("lib", "server", "website", "audit-actions.ts"),
 ];
 
 /*

@@ -319,6 +319,97 @@ export const applySponsorContract = (
 });
 
 /* ========================================================================== */
+/* La vetrina sul sito (ADR-0200 §9)                                           */
+/* ========================================================================== */
+
+/**
+ * **Come uno sponsor compare sul sito della societa.**
+ *
+ * Non e un secondo sponsor: e un sotto-oggetto della stessa scheda, come il
+ * contratto. Chi decide se e come mostrarlo e il sito (`website.sponsors.manage`);
+ * chi lo scrive e questo dominio (`saveSponsorShowcase` in
+ * `src/lib/server/sponsors.ts`). Lo sponsor resta nella collezione di club e
+ * nessuna `WebsiteSponsor` esiste.
+ *
+ * Il logo: un file della libreria del sito (`logoMediaId`), oppure — finche
+ * nessuno ne carica uno — il logo storico in data URL della scheda, che il
+ * sito serve da una rotta dedicata. Nessun logo si perde nella transizione.
+ */
+export type SponsorShowcase = {
+  visible: boolean;
+  tierKey: string;
+  logoMediaId: string | null;
+  websiteUrl: string | null;
+  description: string;
+  order: number;
+  featured: boolean;
+  /** Periodo di visibilita (`yyyy-mm-dd`); vuoto = sempre, finche e visibile. */
+  visibleFrom: string | null;
+  visibleTo: string | null;
+};
+
+export const EMPTY_SPONSOR_SHOWCASE: SponsorShowcase = {
+  visible: false,
+  tierKey: "partner",
+  logoMediaId: null,
+  websiteUrl: null,
+  description: "",
+  order: 100,
+  featured: false,
+  visibleFrom: null,
+  visibleTo: null,
+};
+
+const httpUrlOrNull = (value: unknown) => {
+  const raw = asText(value);
+  if (!raw) return null;
+  try {
+    const url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw}`);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+};
+
+export const normalizeSponsorShowcase = (raw: unknown): SponsorShowcase => {
+  if (!isRecord(raw)) return { ...EMPTY_SPONSOR_SHOWCASE };
+  const order = Math.round(Number(raw.order));
+  const tier = asText(raw.tierKey ?? raw.tier).toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 40);
+  return {
+    visible: Boolean(raw.visible),
+    tierKey: tier || EMPTY_SPONSOR_SHOWCASE.tierKey,
+    logoMediaId: /^[0-9a-f-]{36}$/i.test(asText(raw.logoMediaId)) ? asText(raw.logoMediaId) : null,
+    websiteUrl: httpUrlOrNull(raw.websiteUrl ?? raw.url),
+    description: asText(raw.description).slice(0, 600),
+    order: Number.isFinite(order) ? Math.max(0, Math.min(9999, order)) : EMPTY_SPONSOR_SHOWCASE.order,
+    featured: Boolean(raw.featured),
+    visibleFrom: toIsoDateOrNull(raw.visibleFrom),
+    visibleTo: toIsoDateOrNull(raw.visibleTo),
+  };
+};
+
+/** Vero se lo sponsor si mostra oggi: visibile e dentro il suo periodo. */
+export const isSponsorShowcaseActive = (showcase: SponsorShowcase, today: string) => {
+  if (!showcase.visible) return false;
+  if (showcase.visibleFrom && today < showcase.visibleFrom) return false;
+  if (showcase.visibleTo && today > showcase.visibleTo) return false;
+  return true;
+};
+
+/** Il logo storico della scheda (data URL o riferimento), se c'e. */
+export const legacySponsorLogo = (raw: unknown) => {
+  const record = isRecord(raw) ? raw : {};
+  const logo = firstText(record.logo, record.logoUrl, record.logo_url);
+  return logo || null;
+};
+
+/** La scheda con la vetrina aggiornata, conservando ogni altro campo. */
+export const applySponsorShowcase = (raw: unknown, showcase: SponsorShowcase): Record<string, any> => ({
+  ...(isRecord(raw) ? raw : {}),
+  showcase: { ...showcase },
+});
+
+/* ========================================================================== */
 /* La controparte                                                              */
 /* ========================================================================== */
 

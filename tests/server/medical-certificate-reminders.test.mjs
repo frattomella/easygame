@@ -383,6 +383,8 @@ test("le porte periodiche hanno uno scheduler", () => {
     "/api/medical-certificate-reminders",
     /* Wave 2: il giro delle automazioni, dopo tutti gli altri. */
     "/api/v1/automations/run",
+    /* ADR-0200: lo stato dei domini dei siti e la pulizia delle richieste di contatto. */
+    "/api/v1/website/maintenance",
   ]);
 
   const orari = vercel.crons.map((cron) => cron.schedule);

@@ -12,6 +12,7 @@ import { canAccessClubResource } from "@/lib/access-roles";
 import type { AccessScopeEntry } from "@/lib/roles/access-scope";
 import { assertActiveClub } from "@/lib/auth/active-club-boundary";
 import { prisma } from "./prisma";
+import { createS3StorageDriver, readS3Config } from "./storage/s3-driver";
 import {
   MAX_ATTACHMENT_BYTES,
   buildAttachmentReference,
@@ -193,6 +194,23 @@ export const setActiveStorageDriver = (name: string) => {
 
 export const getActiveStorageDriver = (): StorageDriver =>
   DRIVERS.get(activeDriverName) || databaseStorageDriver;
+
+/**
+ * **L'object storage, quando e configurato** (ADR-0200 §9).
+ *
+ * Se le variabili `S3_*` ci sono, il driver S3 si **registra** sempre — gli
+ * allegati gia scritti su S3 devono restare leggibili anche se un giorno si
+ * torna al database — e diventa **attivo** per gli allegati nuovi solo con
+ * `EASYGAME_STORAGE_DRIVER=s3`. Senza variabili non cambia niente: e il
+ * comportamento di sempre.
+ */
+const s3Config = readS3Config();
+if (s3Config) {
+  registerStorageDriver(createS3StorageDriver(s3Config));
+  if (String(process.env.EASYGAME_STORAGE_DRIVER || "").trim().toLowerCase() === "s3") {
+    activeDriverName = "s3";
+  }
+}
 
 /**
  * Il driver con cui e stato scritto un allegato **gia esistente**.

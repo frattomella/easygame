@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CalendarPlus, MoreHorizontal, Settings2 } from "lucide-react";
+import { CalendarPlus, MoreHorizontal, Settings2, Trophy } from "lucide-react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import {
@@ -113,6 +113,10 @@ import {
   type MatchFormPayload,
 } from "@/components/matches/v2/MatchFormDrawer";
 import { MultipleMatchesDrawer } from "@/components/matches/v2/MultipleMatchesDrawer";
+import { MatchResultDrawer } from "@/components/matches/v2/MatchResultDrawer";
+import { applyResultSnapshot, type MatchResultSnapshot } from "@/components/matches/v2/match-result-model";
+import { roleHasPermission } from "@/lib/permissions/catalog";
+import { clubPrimarySport } from "@/lib/sports/adapters";
 
 /*
   La pagina Gare nel Web V2 (pattern «giornata sportiva», come `/training`):
@@ -243,6 +247,14 @@ export default function MatchesPage() {
   const [matchToCancel, setMatchToCancel] = useState<Match | null>(null);
   const [matchToRestore, setMatchToRestore] = useState<Match | null>(null);
   const [matchToDelete, setMatchToDelete] = useState<Match | null>(null);
+  /* Il risultato (ADR-0200 §8): la gara aperta nel cassetto e lo sport del club. */
+  const [matchForResult, setMatchForResult] = useState<Match | null>(null);
+  const [clubSport, setClubSport] = useState<string | null>(null);
+  /*
+    L elenco delle gare non porta ancora le colonne del risultato: cio che il
+    cassetto ha scritto in questa sessione si rimette sulla gara a ogni ricarica.
+  */
+  const risultatiSalvati = React.useRef<Record<string, MatchResultSnapshot>>({});
   const [cambioStatoInCorso, setCambioStatoInCorso] = useState(false);
 
   /*
@@ -254,7 +266,9 @@ export default function MatchesPage() {
   const [richiediConferma, dialogoConferma] = useConfirm();
 
   const { showToast } = useToast();
-  const { activeClub, user } = useAuth();
+  const { activeClub, user, userRole } = useAuth();
+  /* Solo presentazione: il server decide (events.manage). */
+  const canManageEvents = roleHasPermission(String(activeClub?.role || userRole || ""), "events.manage");
 
   const requestedDate = React.useMemo(() => {
     const dateParam = searchParams?.get("date") ?? null;
@@ -349,11 +363,14 @@ export default function MatchesPage() {
       }
       setMatches(
         matchesData.map((match: any) =>
-          toMatchRecord(
-            match,
-            convocatiPerGara.get(String(match?.eventId || "").trim()) ??
-              convocatiPerGara.get(String(match?.id || "").trim()) ??
-              null,
+          applyResultSnapshot(
+            toMatchRecord(
+              match,
+              convocatiPerGara.get(String(match?.eventId || "").trim()) ??
+                convocatiPerGara.get(String(match?.id || "").trim()) ??
+                null,
+            ),
+            risultatiSalvati.current,
           ),
         ),
       );
@@ -363,6 +380,7 @@ export default function MatchesPage() {
 
       const clubSettings = read(4, "impostazioni");
       setMatchConvocationDeadlineDays(getMatchConvocationDeadlineDays(clubSettings));
+      setClubSport(clubSettings ? clubPrimarySport(clubSettings) : null);
 
       const structuresData = asArray(read(5, "strutture"));
       setHomeLocations(buildTrainingLocationOptions(structuresData));
@@ -938,9 +956,10 @@ export default function MatchesPage() {
       onCancel: (match) => setMatchToCancel(match),
       onRestore: (match) => setMatchToRestore(match),
       onDelete: (match) => setMatchToDelete(match),
+      onResult: canManageEvents ? (match) => setMatchForResult(match) : undefined,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [canManageEvents],
   );
 
   const gridColumns = React.useMemo(
@@ -1140,6 +1159,10 @@ export default function MatchesPage() {
                       <MenuItem onSelect={() => router.push("/settings?tab=gare")}>
                         <Settings2 />
                         Scadenza convocazioni
+                      </MenuItem>
+                      <MenuItem onSelect={() => router.push("/matches/competizioni")}>
+                        <Trophy />
+                        Competizioni e avversari
                       </MenuItem>
                     </MenuContent>
                   </Menu>
@@ -1411,6 +1434,22 @@ export default function MatchesPage() {
         confirmLabel="Elimina"
         onConfirm={() => void handleDeleteMatch(String(matchToDelete?.eventId || matchToDelete?.id || ""))}
         loading={cambioStatoInCorso}
+      />
+
+      <MatchResultDrawer
+        open={Boolean(matchForResult)}
+        onOpenChange={(open) => {
+          if (!open) setMatchForResult(null);
+        }}
+        match={matchForResult}
+        clubName={String(activeClub?.name || "Il club")}
+        clubSport={clubSport}
+        athletes={athletes}
+        canManage={canManageEvents}
+        onSaved={(eventKey, snapshot) => {
+          risultatiSalvati.current = { ...risultatiSalvati.current, [eventKey]: snapshot };
+          void loadData({ silent: true });
+        }}
       />
 
       {dialogoConferma}

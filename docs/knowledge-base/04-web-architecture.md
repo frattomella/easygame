@@ -28,13 +28,30 @@ toast ed editor del gestionale: la presidia `tests/web/app-site-separation.test.
 - `src/middleware.ts` fa da cancello di autenticazione edge: verifica la
   **presenza** del cookie di sessione sui percorsi protetti. Non puo validarla
   (niente Prisma su edge) ne applicare i ruoli.
+- **Lo stesso middleware sceglie l'albero dall'host** (ADR-0200). Sugli host
+  del gestionale (`EASYGAME_APP_HOSTS`, l'host di `NEXT_PUBLIC_APP_URL` e di
+  `AUTH_BASE_URL`, `localhost`, `*.vercel.app`) tutto resta com'era e
+  `/site-render/*` risponde 404. **Ogni altro host e il dominio di un club**:
+  la richiesta si riscrive verso `src/app/(site)/site-render/[host]/…`, che
+  risolve host → sito → revisione pubblicata sul runtime Node; le API
+  rispondono 404 tranne `/api/public/website/*`, e l'host vero viaggia
+  nell'intestazione `x-easygame-site-host`. Dettagli in
+  [13](13-environments.md) e [14](14-security.md).
+- **Il sito pubblico e reso sul server.** `site-render` e `force-dynamic`, con
+  i dati in `unstable_cache` a tag (snapshot della revisione, dati vivi per un
+  minuto) e `React.cache` per non risolvere due volte nella stessa richiesta;
+  il client riceve HTML e poche isole (`src/components/website/render/islands/`).
+  L'editor del gestionale (`/website/editor`) e invece un client component che
+  mostra l'anteprima privata (`src/app/(site)/website-preview/[siteId]/`) in un
+  iframe e le parla per messaggi (`src/lib/website/editor-protocol.ts`).
 
 ## Layout e chrome
 
 | Layout | Percorso | Contenuto |
 |--------|----------|-----------|
 | Root gestionale | `src/app/(app)/layout.tsx` | Provider globali |
-| Root sito pubblico | `src/app/(site)/layout.tsx` | Nessun provider: solo CSS e caratteri del sito |
+| Root sito pubblico | `src/app/(site)/layout.tsx` | Nessun provider: solo CSS e caratteri del sito; `noindex` per default (lo toglie solo una pagina pubblicata risolta) |
+| Sito della societa (gestionale) | `src/app/(app)/website/layout.tsx` | Re-export di `management-area-layout` (= `AccessAreaGuard`); `/website` e un prefisso di gestione non riservato alla direzione |
 | Dashboard | `src/app/(app)/dashboard/layout.tsx` | `AccessAreaGuard` + `Sidebar` + `Header` desktop, `MobileTopBar` mobile |
 | Trainer | `src/app/(app)/trainer-dashboard/layout.tsx` | `AccessAreaGuard` |
 | Parent | `src/app/(app)/parent-view/[id]/layout.tsx` | `AccessAreaGuard` |
@@ -62,6 +79,7 @@ il presidio principale (vedi [14](14-security.md)).
 | Pubblico / auth | `/login`, `/register`, `/auth/complete`, `/token-verification`, `/token-verification/[userId]`, `/forms/[publicSlug]` |
 | Account | `/account`, `/profile/[userId]`, `/create-club` |
 | Management | `/dashboard`, `/dashboard/[dashboardId]`, `/dashboard/access-management`, `/hub`, `/athletes`, `/athletes/[id]`, `/athletes/[id]/edit`, `/categories`, `/matches`, `/training`, `/medical`, `/structures`, `/structures/[id]`, `/clothing`, `/soci`, `/soci/new`, `/soci/[id]`, `/staff`, `/staff/new`, `/staff/[id]`, `/staff/[id]/edit`, `/trainers`, `/trainers/new`, `/trainers/[id]`, `/trainers/[id]/edit`, `/trainers/[id]/contracts`, `/trainers/[id]/contracts/upload`, `/sponsors`, `/sponsors/[id]`, `/payments`, `/movements`, `/reports`, `/secretariat`, `/modulistica`, `/procura`, `/registration-management`, `/notifications`, `/organization`, `/permissions`, `/settings` |
+| Sito della societa e sport core (ADR-0200) | `/website`, `/website/editor`, `/website/media`, `/website/news`, `/website/news/[id]`, `/website/persone`, `/website/sponsor`, `/website/messaggi`, `/website/domini`, `/website/versioni`, `/website/impostazioni`, `/website-preview/[siteId]/[[...path]]` (anteprima privata, gruppo `(site)`), `/categories/squadre`, `/matches/competizioni`. Il sito pubblico non ha route proprie: e `/site-render/[host]/[[...path]]`, raggiunto solo per rewrite dal dominio di un club |
 | Trainer | `/trainer-dashboard`, `/trainer-dashboard/[dashboardId]` (redirect), `/trainer-dashboard/athletes`, `/trainer-dashboard/athletes/[id]`, `/trainer-dashboard/categories`, `/trainer-dashboard/matches`, `/trainer-dashboard/notifications`, `/trainer-dashboard/trainings` |
 | Parent | `/parent-view/[id]` + 9 sottopagine (athlete, contacts, documents, matches, payments, secretariat, structures, trainings, `[dashboardId]`) |
 | Athlete | `/athletes/[id]/profile` |

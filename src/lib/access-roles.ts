@@ -325,6 +325,12 @@ const MANAGEMENT_PATH_PREFIXES = [
   "/structures",
   "/trainers",
   "/training",
+  /*
+    EasyGame Website (ADR-0200). Gestionale e non riservato alla direzione:
+    il collaboratore costruisce pagine e news. Chi fa cosa lo decidono le
+    chiavi `website.*`, non il prefisso.
+  */
+  "/website",
 ] as const;
 
 const MANAGEMENT_ADMIN_ONLY_PATH_PREFIXES = [

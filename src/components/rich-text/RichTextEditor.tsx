@@ -80,6 +80,12 @@ export type RichTextEditorProps = {
   minHeight?: number;
   className?: string;
   id?: string;
+  /**
+   * La sanificazione del dominio che ospita il testo. Predefinita quella dei
+   * moduli (immagini solo da allegati); il sito passa `sanitizeWebsiteRichHtml`,
+   * che ammette le immagini della sua libreria (ADR-0200).
+   */
+  sanitize?: (html: unknown) => string;
   "aria-label"?: string;
 };
 
@@ -153,7 +159,10 @@ export function RichTextEditor({
   className,
   id,
   "aria-label": ariaLabel,
+  sanitize = sanitizeRichHtml,
 }: RichTextEditorProps) {
+  const clean = React.useRef(sanitize);
+  clean.current = sanitize;
   const fileInput = React.useRef<HTMLInputElement | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const lastEmitted = React.useRef<string>(value);
@@ -188,7 +197,7 @@ export function RichTextEditor({
     ],
     [allowPageBreaks, placeholder],
   );
-  const initialContent = React.useRef(sanitizeRichHtml(value) || "<p></p>");
+  const initialContent = React.useRef(sanitize(value) || "<p></p>");
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -203,10 +212,10 @@ export function RichTextEditor({
         "data-placeholder": placeholder,
       },
       /* Un incolla porta HTML di ogni provenienza: lo schema lo riduce, la sanificazione lo ripulisce. */
-      transformPastedHTML: (html) => sanitizeRichHtml(html),
+      transformPastedHTML: (html) => clean.current(html),
     },
     onUpdate: ({ editor: current }) => {
-      const html = sanitizeRichHtml(current.getHTML());
+      const html = clean.current(current.getHTML());
       const normalized = html === "<p></p>" ? "" : html;
       lastEmitted.current = normalized;
       onChange(normalized);
@@ -218,7 +227,7 @@ export function RichTextEditor({
     if (!editor) return;
     if (value === lastEmitted.current) return;
     lastEmitted.current = value;
-    editor.commands.setContent(sanitizeRichHtml(value) || "<p></p>", false);
+    editor.commands.setContent(clean.current(value) || "<p></p>", false);
   }, [editor, value]);
 
 

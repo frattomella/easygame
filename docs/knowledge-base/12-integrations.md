@@ -270,8 +270,10 @@ Vedi [13 — Ambienti](13-environments.md).
 
 ## Integrazioni assenti
 
-Push notification, object storage (i file possono finire in
-`assets.data_base64`), error tracking / APM, analytics, scheduler
+Push notification, object storage **configurato** (i file possono finire in
+`assets.data_base64`; dal 2026-10-05 esiste un driver S3/R2, vedi «Object
+storage S3/R2» sotto, ma nessun ambiente lo accende), error tracking / APM,
+analytics, scheduler
 (nessun Vercel Cron configurato benche esistano endpoint pensati per un cron).
 
 ## Stripe: due integrazioni, non una (Blocco D, 2026-08-26)
@@ -549,3 +551,110 @@ gia scritto il movimento, la deduplica economica sull'indice parziale
 (`src/lib/server/platform-billing.ts`), con la stessa conseguenza spostata di
 dominio: un club che ha pagato l'abbonamento restava sul piano gratuito per
 sempre, senza che nessuna riga lo dicesse a qualcuno.
+
+
+## EasyGame Website: domini, object storage, contenuti incorporati, caratteri (ADR-0200, 2026-10-05)
+
+Tre integrazioni nuove, tutte **implementate e mai provate contro il servizio
+vero**: nessun ambiente ha le credenziali. In sviluppo si lavora con il
+provider di domini simulato e con il driver allegati su database. Le variabili
+sono in [13](13-environments.md) e in `.env.example`.
+
+### `DomainProvider` — chi porta il traffico del dominio del club e ne emette il certificato
+
+Contratto in `src/lib/server/website/domain-providers/types.ts`, scelta in
+`index.ts` con `EASYGAME_WEBSITE_DOMAIN_PROVIDER` = `mock` | `vercel` |
+`cloudflare`. Senza la variabile: `mock` fuori produzione, **nessun provider**
+in produzione (la pagina Dominio dice «collegamento non configurato» invece di
+un simulatore che risponde «tutto a posto» a un club vero). Un provider con
+`isConfigured()` falso non registra niente: `addDomain` e `verifyDomain` si
+fermano con un messaggio.
+
+| Chiamata | Cosa fa | `mock` | `vercel` (API v9/v10) | `cloudflare` (Cloudflare for SaaS, API v4) |
+|----------|---------|--------|-----------------------|--------------------------------------------|
+| `isConfigured()` | credenziali presenti | sempre vero | `VERCEL_API_TOKEN` + `VERCEL_PROJECT_ID` | `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ZONE_ID` + `EASYGAME_WEBSITE_CNAME_TARGET` |
+| `routingTarget()` | dove puntano i record di instradamento | `sites.easygame.local` / `127.0.0.1` | `cname.vercel-dns.com` / `76.76.21.21` | il fallback origin della zona (nessun predefinito) |
+| `register(host)` | registra il dominio, idempotente | `mock:<host>` | `POST /v10/projects/:id/domains` (409 = gia nel progetto, va bene); i record `verification[]` tornano come record del provider | cerca il custom hostname, se manca `POST /zones/:zone/custom_hostnames` con convalida DCV via TXT |
+| `verify(host, ref)` | chiede una verifica e restituisce lo stato | `*.localhost`/`*.test` → attivo con HTTPS; dominio reale → «certificato in emissione» (non finge) | `POST …/domains/:host/verify` poi stato | `PATCH` vuota sul custom hostname (ritenta la convalida) poi stato |
+| `status(host, ref)` | stato senza verifica nuova | come `verify` | `GET /v9/projects/:id/domains/:host` + `GET /v6/domains/:host/config` (`misconfigured`) | `GET` del custom hostname; `ssl.status` → `tls_state` |
+| `remove(host, ref)` | toglie il dominio, idempotente | niente | `DELETE`, 404 accettato | `DELETE`, 404 accettato |
+
+Ogni chiamata HTTP passa da `providerFetch`: tempo massimo 10 s, errore
+leggibile (`DomainProviderError`), nessun dettaglio del provider oltre il suo
+messaggio. I test del flusso dei domini (`tests/server/website-server.test.mjs`)
+usano un provider finto iniettato (`__setDomainProviderForTests`) e un
+resolver DNS finto (`__setDnsResolverForTests`): gli adattatori `vercel` e
+`cloudflare` **non hanno test propri**, neppure sul contratto HTTP (D-WS-4).
+
+**La prova di proprieta la fa EasyGame.** Prima di chiamare il provider,
+`checkOwnershipRecord` (`src/lib/server/website/domains.ts`) legge con il
+resolver DNS di Node il TXT `_easygame-verify.<host>` e cerca il token
+`easygame-verify=<32 esadecimali>` generato all'aggiunta. Senza il TXT il
+dominio resta `pending_dns` e il provider non viene interpellato: un dominio
+non diventa del club perche un provider lo ha accettato. In sviluppo
+(`*.localhost`, `*.test` con i domini locali ammessi) il controllo DNS si
+salta.
+
+**I record che il club deve creare** (`expectedDnsRecords`,
+`src/lib/website/domains/model.ts`): sempre il TXT di proprieta; un **CNAME**
+verso `routingTarget().cname` per un sottodominio (`www.club.it`,
+`basket.club.it`); uno o piu record **A** verso `routingTarget().ipv4` per un
+dominio di secondo livello (`club.it`), dove un CNAME non e ammesso (la nota
+suggerisce ALIAS/ANAME se il registrar lo offre). Il dominio registrabile
+conosce i suffissi a due livelli piu comuni (`co.uk`, `com.au`…). Il provider
+puo aggiungere record suoi (verifica di Vercel su un dominio gia di un altro
+account, DCV e proprieta di Cloudflare): si mostrano accanto ai nostri.
+`EASYGAME_WEBSITE_CNAME_TARGET` ed `EASYGAME_WEBSITE_A_RECORDS` sostituiscono i
+valori del provider.
+
+Stato in archivio: `active` solo con il provider che dichiara il dominio suo
+**e** il certificato attivo; altrimenti `provisioning` (instradato, TLS in
+emissione) o `verifying`. Il cron del sito (`/api/v1/website/maintenance`,
+fino a 50 domini per giro) ricontrolla quelli in attesa e quelli attivi non
+controllati da un giorno; un TXT sparito porta un dominio attivo a `failed`.
+
+### Object storage S3/R2 — `src/lib/server/storage/s3-driver.ts`
+
+Un `StorageDriver` in piu per il servizio allegati (ADR-0034): `put`, `get`,
+`remove` piu `signedUrl` (URL GET prefirmato, oggi **non usato** da nessuna
+rotta). Compatibile con AWS S3, Cloudflare R2 e MinIO, indirizzi path-style
+(`<endpoint>/<bucket>/<chiave>`), firma **AWS Signature V4 scritta con
+`node:crypto`** (nessuna dipendenza nuova). La chiave e `<prefisso>/<id
+allegato>`: un nome di file scritto da un utente non entra mai in una chiave.
+
+Registrazione in `src/lib/server/attachments.ts`: se `S3_ENDPOINT`,
+`S3_BUCKET`, `S3_ACCESS_KEY_ID` e `S3_SECRET_ACCESS_KEY` ci sono, il driver si
+**registra** sempre (gli allegati gia scritti su S3 restano leggibili anche
+tornando al database: il driver di un allegato si legge dalla sua riga); diventa
+**attivo** per gli allegati nuovi solo con `EASYGAME_STORAGE_DRIVER=s3`. Senza
+variabili il predefinito resta il driver su database, come sempre. Il driver
+accetta un `fetch` iniettato per essere provato, ma **oggi nessun test lo
+esercita** (ne la firma ne il contratto HTTP), e non e mai stato provato
+contro un bucket vero (D-WS-4 in [16](16-technical-debt.md)).
+
+Il sito non serve i file dal bucket: ogni immagine passa da
+`/api/public/website/media/:id`, che li legge dal servizio allegati e applica
+la policy delle foto di persona.
+
+### Contenuti incorporati: un'allowlist, mai codice — `src/lib/website/embed.ts`
+
+Nessun campo «incolla il codice». Si accetta solo l'**indirizzo** di un
+contenuto di cinque servizi — YouTube (servito da `youtube-nocookie.com`),
+Vimeo (`dnt=1`), Google Maps, Spotify, SoundCloud — e l'`src` dell'iframe lo
+**ricostruisce** il modulo da identificativi estratti e ripuliti, mai
+concatenando l'URL ricevuto. L'iframe si carica solo dopo il clic del
+visitatore (`ConsentFrame`, `src/components/website/render/islands/`): prima
+nessuna richiesta parte verso il servizio, e quindi nessun cookie di terze
+parti. L'anteprima statica di YouTube viene da `i.ytimg.com`.
+
+### Caratteri: Google Fonts caricati una volta, self-hosted
+
+`src/components/website/render/fonts.ts` e l'unico punto in cui il sito carica
+caratteri: dieci famiglie (`Inter`, `Poppins`, `Montserrat`, `Oswald`,
+`Barlow Condensed`, `Archivo`, `Roboto Slab`, `Playfair Display`, `Lora`,
+`Source Sans 3`) via `next/font/google`, quindi **scaricate al build e servite
+dall'applicazione**: il browser del visitatore non contatta Google. Nessun
+precaricamento: si scaricano solo i due che il tema usa. Le variabili CSS le
+monta il root layout del sito (`src/app/(site)/layout.tsx`); un blocco legge
+`--ws-font-heading` e `--ws-font-body`, mai un carattere. Il catalogo chiuso
+e in `src/lib/website/theme/fonts.ts`.

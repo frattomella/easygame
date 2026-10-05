@@ -1535,3 +1535,80 @@ reinterpretata — una compilazione `approved` di ieri resta `approved`.
 Scrittori: `src/lib/server/form-submissions.ts` (pratiche e revisioni),
 `src/lib/server/form-drafts.ts` (bozze). Nessuna delle tre passa dal
 registro generico.
+
+
+## EasyGame Website e sport core (ADR-0200, 2026-10-05)
+
+Migrazione `20261005120000_adr0200_easygame_website`, **additiva e
+deterministica**: tredici tabelle nuove e vuote, dieci colonne nuove
+**nullable** su `club_events`, indici e vincoli. Nessuna riga esistente viene
+riletta o riscritta: `club_events.opponent` (testo) resta com'e. Ritorno: `DROP`
+delle tabelle nuove e delle colonne nuove (nessun dato preesistente vi e
+scritto). Il deploy su staging e ancora da fare (vedi
+[20](20-work-packages.md)).
+
+### Sport core
+
+| Tabella / colonne | Colonne che contano | Regola |
+|---|---|---|
+| `club_teams` | `organization_id` → `clubs` (cascata), `name`, `short_name`, `slug`, `previous_slugs TEXT[]`, `sport`, `description`, `photo_attachment_id` (senza chiave esterna), `season_links` JSON, `sort_order`, `active`, `version` | l'**identita stabile** di una squadra fra le stagioni. Unico `(organization_id, slug)`; rinominare lo slug sposta il vecchio in `previous_slugs` e l'indirizzo pubblico vecchio risponde con un reindirizzamento. `season_links` = `[{seasonId, categoryId, groupId}]`, **uno per stagione** (`normalizeSeasonLinks` in `src/lib/sports/teams.ts`): la «Serie C» di quest'anno e una categoria diversa da quella dell'anno scorso, la squadra le collega entrambe. Unico scrittore `src/lib/server/club-teams.ts` |
+| `competitions` | `organization_id`, `name`, `short_name`, `season_id` (testo, l'id di `settings.seasons`), `sport`, `kind` (`CHECK`: `league · cup · tournament · friendly`), `standings` JSON, `standings_updated_at`, `active`, `version` | un nome con una stagione, non un motore di campionati. `standings` e la classifica **inserita dal club** (righe `{position, team, isClub, played, won, drawn, lost, pointsFor, pointsAgainst, points}`, max 40, `normalizeStandings`). Indice `(organization_id, season_id)`. Scrittore `src/lib/server/competitions.ts` |
+| `opponents` | `organization_id`, `name`, `short_name`, `city`, `logo_attachment_id` (senza chiave esterna), `website_url`, `version` | anagrafica minima degli avversari. Unico `(organization_id, name)`. Scrittore `src/lib/server/competitions.ts` |
+| `club_event_player_stats` | `organization_id`, `event_id` → `club_events` (cascata), `athlete_id` → `athletes` (cascata), `stats` JSON | le statistiche individuali di una gara, **una riga per `(event_id, athlete_id)`**. `stats` porta solo le chiavi dello sport (`normalizePlayerStats`, `src/lib/sports/adapters.ts`). Scrittore `saveMatchResult` in `src/lib/server/events.ts` |
+| `club_events` + `team_id` → `club_teams`, `competition_id` → `competitions`, `opponent_id` → `opponents` (tutte `ON DELETE SET NULL`), `round_label`, `home_score`, `away_score`, `result_status`, `period_scores` JSON, `result_updated_at`, `result_updated_by` | — | il risultato e un dato della **gara**, scritto solo da `src/lib/server/events.ts` (`saveMatchSportDetails`, `saveMatchResult`: ADR-0098 resta vero, un evento ha un solo scrittore). `CHECK`: `result_status` nullo o `provisional · final`; punteggi nulli o `>= 0`. Il punteggio e **casa/trasferta**, non «noi/loro». `period_scores` = `[{number, label, home, away}]` generico per ogni sport: le etichette (quarti, tempi, set) le propone l'adattatore. Indici `(organization_id, team_id, starts_at)` e `(organization_id, competition_id)`. Cancellare squadra, competizione o avversario stacca il riferimento e lascia la gara |
+
+### Il sito
+
+| Tabella | Colonne che contano | Regola |
+|---|---|---|
+| `website_sites` | `organization_id` **UNIQUE** (un sito per club), `status` (`CHECK`: `draft · published · offline`), `template_key`, `template_version`, `theme`, `header`, `footer`, `navigation`, `seo`, `settings`, `onboarding` (tutte JSON), `draft_version`, `current_revision_id` **UNIQUE** → `website_revisions` (`SET NULL`), `published_at`, `published_by` | la **bozza** della configurazione. `draft_version` e la versione ottimistica di tutta la configurazione: `updateSiteConfig` aggiorna con `updateMany … where draft_version = attesa`, zero righe = 409 |
+| `website_pages` | `site_id` → `website_sites` (cascata), `organization_id`, `kind` (`CHECK`: `home · standard · legal · news_index · article_detail · team_detail · match_detail · player_detail · event_detail`), `slug`, `path`, `title`, `seo` JSON, `document` JSON, `sort_order`, `version` | la **bozza** di una pagina. Unico `(site_id, path)`. `version` e la versione ottimistica della pagina (documento, titolo, slug, SEO). Le pagine `*_detail` sono **modelli**: una pagina per tipo, riempita dall'elemento dell'indirizzo (`/squadre/<slug>`) |
+| `website_revisions` | `site_id`, `organization_id`, `revision_number`, `snapshot` JSON, `snapshot_hash` (SHA-256), `origin` (`CHECK`: `publish · rollback`), `source_revision_id`, `idempotency_key`, `note`, `published_by`, `published_at` | **immutabile**: il trigger `website_revisions_immutable` (funzione `website_revisions_reject_update`) rifiuta ogni `UPDATE` con un'eccezione. La cancellazione resta possibile (cascata alla cancellazione del club o del sito; nessuna potatura e scritta oggi). Unici `(site_id, revision_number)` e `(site_id, idempotency_key)`: la stessa chiave non pubblica due volte. Il rollback scrive una riga nuova con `origin = rollback` e `source_revision_id` |
+| `website_domains` | `site_id`, `organization_id`, `hostname` **UNIQUE globale**, `role` (`primary · redirect`), `state` (`pending_dns · verifying · provisioning · active · failed`), `tls_state` (`not_started · pending · active · failed`), `verification_token`, `provider`, `provider_ref`, `dns_records` JSON, `last_error`, `last_checked_at`, `verified_at`, `activated_at`, `attempt_count`, `version` | **indice unico parziale** `website_domains_one_primary_per_site` su `(site_id) WHERE role = 'primary'`: un solo primario per sito, garantito dal database. `CHECK` `hostname = lower(hostname)`. Un dominio serve il sito solo con `state = active` **e** `tls_state = active` (`isDomainServing`). Il modello puro ha anche lo stato `removed`, che il database non ammette: togliere un dominio cancella la riga |
+| `website_redirects` | `site_id`, `organization_id`, `from_path`, `to_path` | gli indirizzi vecchi di una pagina rinominata. Unico `(site_id, from_path)` |
+| `website_articles` | `site_id`, `organization_id`, `slug`, `title`, `excerpt`, `body_html` (sanificato sul server), `cover` JSON, `gallery` JSON, `category_slug`, `author_label`, `status` (`CHECK`: `draft · scheduled · published · archived`), `publish_at`, `published_at`, `featured`, `seo` JSON, `related_event_id` (senza chiave esterna), `version` | le news del sito, distinte dalla bacheca interna. Unico `(site_id, slug)`. Un articolo `scheduled` e pubblico quando `publish_at <= adesso`, alla lettura |
+| `website_person_publications` | `organization_id`, `person_kind` (`CHECK`: `athlete · trainer · staff`), `person_id` **TEXT senza chiave esterna**, `published`, `settings` JSON, `updated_by` | chi compare sul sito e con quali campi. Unico `(organization_id, person_kind, person_id)`. Indice **polimorfo** come quelli gia censiti da `data-subject.ts`, che ora lo conosce (si cancella, con la foto) |
+| `website_media_meta` | `attachment_id` **PK** → `attachments` (cascata), `organization_id`, `alt_text`, `title`, `focal_x`, `focal_y` (`CHECK` 0-100), `width`, `height` | i metadati che servono a un sito su un allegato che esiste gia |
+| `website_inquiries` | `site_id`, `organization_id`, `name`, `email`, `phone`, `topic`, `message`, `consent_text` (il testo accettato, congelato), `source_path`, `status` (`CHECK`: `new · handled · archived`), `handled_by`, `handled_at` | le richieste del modulo contatti. Conservazione 24 mesi (`purgeOldInquiries`, cron del sito) |
+
+Tutte le tabelle del sito hanno `organization_id` → `clubs` con cascata, e ogni
+lettura del codice filtra per `organization_id` oltre che per `site_id`.
+
+### Cosa e JSON, e perche
+
+- **La configurazione del sito** (`theme`, `header`, `footer`, `navigation`,
+  `seo`, `settings`) e il **documento** di una pagina sono JSON perche sono
+  alberi la cui forma la decide il codice, non il database: le normalizzano i
+  moduli puri di `src/lib/website/` (`site-config.ts`, `theme/`,
+  `navigation.ts`, `document/validate.ts` con il registry dei blocchi), che
+  scartano tipi sconosciuti e riportano un blocco vecchio alla versione
+  corrente (`migrate`). Lo snapshot di una revisione li copia cosi come sono.
+- **Il documento** e SITE → PAGE → SECTION → BLOCK: una sezione ha colonne,
+  ogni colonna una lista di blocchi `{id, type, version, props}`; gli
+  scostamenti per dispositivo esistono solo sui token di stile.
+- **`season_links`, `standings`, `period_scores`, `stats`** sono elenchi
+  piccoli, letti sempre interi con la loro riga e mai interrogati per campo.
+- **Fuori dallo snapshot**: gare, rose, sponsor, articoli e persone si leggono
+  vivi alla richiesta, con le loro regole.
+
+### Riuso, non tabelle nuove
+
+- **Allegati**: la libreria del sito e il servizio allegati con
+  `owner_type = website` (aggiunto ad `ATTACHMENT_OWNER_TYPES` in
+  `src/lib/attachments.ts`), `owner_id` = id del sito e categorie
+  `website-media`, `person-photo`, `sponsor-logo`, `team-photo`,
+  `opponent-logo`. I byte vivono dove vivono tutti gli allegati (database, o
+  S3/R2 con `EASYGAME_STORAGE_DRIVER=s3`). La rotta generica degli allegati
+  tratta `website` come risorsa `clubs` (`attachment-permissions.ts`).
+- **Sponsor**: nessuna `WebsiteSponsor`. La vetrina e un sotto-oggetto
+  `showcase` della scheda sponsor nella collezione `sponsors` del club
+  (visibile, livello, logo come file della libreria, URL, descrizione, ordine,
+  periodo), scritto solo da `saveSponsorShowcase` in
+  `src/lib/server/sponsors.ts` sulla riga singola (`updateClubResourceItem`).
+  Finche nessuno carica un logo nuovo, il sito serve il logo storico in data
+  URL da `/api/public/website/sponsor-logo/:organizationId/:sponsorId`.
+- **Servizio aggiuntivo**: lo stato del modulo vive in
+  `clubs.settings.extraServices` (voce `website`, con `billingStatus` che ora
+  ammette anche `past_due`, `suspended`, `expired`, piu `trialEndsAt` e
+  `currentPeriodEnd`) e nelle eccezioni `settings.entitlements.overrides`.
+  Nessuna colonna nuova.

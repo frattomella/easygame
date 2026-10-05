@@ -28,7 +28,8 @@ const SORGENTI = [
   {
     file: "src/lib/server/events.ts",
     guardia: "assertEventsPermission",
-    attese: 9,
+    /* +3 con lo sport core (ADR-0200 §8): dettagli sportivi, risultato, statistiche della gara. */
+    attese: 12,
   },
   /*
     Il perimetro dell'allenatore corre lo stesso rischio, e su un atto che
@@ -48,7 +49,8 @@ const SORGENTI = [
   {
     file: "src/lib/server/events.ts",
     guardia: "assertTrainerEventPerimeter",
-    attese: 8,
+    /* +3 con lo sport core (ADR-0200 §8), le stesse tre funzioni. */
+    attese: 11,
   },
   {
     file: "src/lib/server/appointments.ts",

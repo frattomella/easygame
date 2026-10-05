@@ -294,7 +294,9 @@ test("il tracciato CSV lo decide un modulo solo", () => {
   const ALLOWED = [
     "lib/csv.ts",
     "lib/funding/reconciliation.ts",
-      ];
+    /* Firma AWS SigV4: `SignedHeaders` si separa con «;» per specifica, non e un CSV (ADR-0200). */
+    "lib/server/storage/s3-driver.ts",
+  ];
 
   const offenders = walk(SRC)
     .filter((file) => {

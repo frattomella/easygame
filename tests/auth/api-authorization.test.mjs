@@ -177,6 +177,22 @@ const PUBLIC_BY_DESIGN = new Map([
     "v1/athlete-accounts/accept",
     "riscatto dell'invito atleta: token opaco, hashato a riposo, monouso e con scadenza",
   ],
+  /*
+    Il sito pubblico dei club (ADR-0200). Le quattro rotte servono il
+    visitatore di un dominio del club, che per definizione non ha sessione:
+    - i media rispondono solo per file della libreria del sito (owner
+      `website`) di un club con il servizio attivo, e una foto di persona solo
+      se la policy della pubblicazione la lascia passare;
+    - i due loghi rispondono solo per un club che ha un sito, e il logo di uno
+      sponsor solo se e in vetrina oggi;
+    - le richieste di contatto: rate limit doppio (indirizzo e sito), campo
+      civetta, consenso obbligatorio, host del sito risolto dal server.
+  */
+  ["public/website/media/[id]", "immagini della libreria pubblica del sito; foto di persona solo se la policy la consente"],
+  ["public/website/club-logo/[organizationId]", "logo del club, solo per un club con il sito"],
+  ["public/website/sponsor-logo/[organizationId]/[sponsorId]", "logo di uno sponsor in vetrina oggi, solo per un club con il sito"],
+  ["public/website/inquiries", "modulo contatti del sito: rate limit doppio, civetta, consenso, host risolto dal server"],
+  ["v1/website/maintenance", "giro periodico del sito: lo aziona il cron con CRON_SECRET (authorizeCronRequest)"],
   ["payments/webhook", "callback del PSP: firma verificata, evento deduplicato"],
   ["billing/webhook", "callback del billing di piattaforma: firma verificata, evento deduplicato"],
 ]);
@@ -241,18 +257,36 @@ const NON_CLUB_SCOPED = new Map([
  */
 const SPORT_WORK_WRAPPER = "sportWorkRoute";
 
+/**
+ * `websiteRoute` e l'involucro delle rotte del sito e dello sport core
+ * (`src/lib/server/website/route.ts`, ADR-0200): legge la sessione e risolve
+ * il club come `sportWorkRoute`; il permesso lo verifica il modulo chiamato
+ * (`requireWebsiteAccess`, `assertEventsPermission`). Il test qui sotto
+ * controlla che l'involucro faccia davvero entrambe le cose.
+ */
+const WEBSITE_WRAPPER = "websiteRoute(";
+
 const requiresAuth = (source) =>
   source.includes("requireAuthenticatedUser") ||
   source.includes("requirePlatformAdmin") ||
   source.includes("getSessionFromRequest") ||
-  source.includes(SPORT_WORK_WRAPPER);
+  source.includes(SPORT_WORK_WRAPPER) ||
+  source.includes(WEBSITE_WRAPPER);
 
 const usesPrisma = (source) => /\bprisma\./.test(source);
 
 const enforcesClubScope = (source) =>
   source.includes("resolveOrganizationScopeForUser") ||
   source.includes("requirePlatformAdmin") ||
-  source.includes(SPORT_WORK_WRAPPER);
+  source.includes(SPORT_WORK_WRAPPER) ||
+  source.includes(WEBSITE_WRAPPER);
+
+test("l'involucro delle rotte del sito chiede la sessione e risolve il club", () => {
+  const wrapper = fs.readFileSync(path.join(process.cwd(), "src/lib/server/website/route.ts"), "utf8");
+  assert.ok(wrapper.includes("requireAuthenticatedUser(request)"), "websiteRoute non chiede la sessione");
+  assert.ok(wrapper.includes("resolveOrganizationScopeForUser("), "websiteRoute non risolve il club");
+  assert.ok(wrapper.includes("status: 401"), "websiteRoute non risponde 401 senza sessione");
+});
 
 test("gli endpoint non pubblici richiedono una sessione", () => {
   const senzaAuth = ROUTES.filter(
@@ -411,9 +445,18 @@ test("la deroga pubblica resta piccola e giustificata", () => {
     all'invio; la ricevuta gia esistente come credenziale dell'integrazione,
     che cambia solo i campi che il club ha elencato; rate limit; ogni esito
     negativo lo stesso 404; nessun endpoint che risponda «esiste Mario Rossi?».
+
+    Da 24 a 29 con EasyGame Website (ADR-0200). Quattro rotte servono il
+    visitatore del dominio di un club, che una sessione non l'ha per
+    definizione: i media della libreria pubblica (una foto di persona solo se la
+    policy della pubblicazione la consente, al momento della richiesta), il logo
+    del club e quello di uno sponsor in vetrina (solo per un club con il sito),
+    e il modulo contatti (rate limit doppio per indirizzo e per sito, campo
+    civetta, consenso obbligatorio, host risolto dal server e mai dal corpo).
+    La quinta e il giro periodico, che lo aziona il cron con `CRON_SECRET`.
   */
   assert.ok(
-    PUBLIC_BY_DESIGN.size <= 24,
+    PUBLIC_BY_DESIGN.size <= 29,
     `troppi endpoint pubblici: ${PUBLIC_BY_DESIGN.size}`,
   );
   for (const [id, motivo] of PUBLIC_BY_DESIGN) {

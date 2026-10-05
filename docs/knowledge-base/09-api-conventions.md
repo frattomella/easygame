@@ -1345,3 +1345,59 @@ leggono l'header a mano.
   se e una stagione del club.
 - `POST /api/v1/sport-work/obligations/:id/complete` marca il versamento
   con la stagione dichiarata (D-RD-29).
+
+## EasyGame Website e sport core (ADR-0200, 2026-10-05)
+
+L'elenco completo delle rotte e in
+[`docs/api-registry.md`](../api-registry.md), sezione «EasyGame Website e
+sport core». Nessuna e `mobile_ready` (ADR-0025). Qui solo le convenzioni.
+
+**Il guscio `websiteRoute`** (`src/lib/server/website/route.ts`). Ogni rotta di
+`/api/v1/website/**` lo usa, e lo usano anche le rotte nuove dello sport core
+(`/api/v1/club-teams`, `/api/v1/competitions`, `/api/v1/opponents`,
+`/api/v1/events/:id/result`, `/api/v1/events/:id/sport-details`). Fa sessione
+(`requireAuthenticatedUser`) e scope (`resolveOrganizationScopeForUser` con
+`x-active-club-id` e `x-active-access-role`), poi chiama un modulo del server
+che **autorizza da se** (`requireWebsiteAccess`, `assertEventsPermission`, le
+guardie di `club-teams.ts` e `competitions.ts`). Il guscio non decide
+permessi, traduce:
+
+| Esito | Risposta |
+|-------|----------|
+| nessuna sessione | `401` `{ error: { message: "Sessione non valida" } }` |
+| messaggio con «Accesso negato» | `403` |
+| `WebsiteConflictError` | `409` `{ error: { message, code: "CONFLICT", currentVersion } }` |
+| errore Prisma o `TypeError` | `400`/`500` con un messaggio generico; il dettaglio va a `reportServerError` |
+| ogni altro errore del dominio | `400` con il messaggio in italiano, piu `issues` (controlli di pubblicazione) o `usages` (immagine in uso) quando ci sono |
+
+Il corpo si legge con `readJsonBody`, che accetta anche la forma `{ data: … }`
+del client.
+
+**Concorrenza ottimistica.** Ogni scrittura su bozza, pagina o articolo porta
+`expectedVersion` (obbligatoria: senza, la scrittura si rifiuta).
+`draft_version` per la configurazione del sito, `version` per pagine e
+articoli. Una versione superata risponde `409 CONFLICT` con `currentVersion`:
+l'editor puo ricaricare, confrontare o riscrivere sopra **per scelta
+esplicita** (`ConflictDialog`). Anche il risultato e i dettagli sportivi di una
+gara accettano `expectedVersion` sulla versione dell'evento, ma li il conflitto
+e un `400` con il messaggio di `events.ts`, non un `409`.
+
+**Idempotenza.** `POST /api/v1/website/publish` e
+`POST /api/v1/website/revisions/:id/rollback` chiedono `idempotencyKey`
+(8-100 caratteri `[A-Za-z0-9_-]`). La stessa chiave restituisce la revisione
+gia scritta con `reused: true` (indice unico `(site_id, idempotency_key)`), e
+due pubblicazioni contemporanee si serializzano con `SELECT … FOR UPDATE` sulla
+riga del sito.
+
+**Le rotte pubbliche** vivono sotto `/api/public/website/*` (media, logo del
+club, logo di uno sponsor, modulo contatti): nessuna sessione, l'organizzazione
+arriva dall'host risolto o da un identificativo opaco, mai dal corpo. Sul
+dominio di un club il middleware risponde `404` a ogni `/api/*` che non sia
+`/api/public/website/*`. **Non vale il contrario**: le rotte pubbliche
+rispondono anche sull'host del gestionale (le immagini sono pubbliche per
+natura). Il modulo contatti risponde solo con l'host scritto dal middleware sul
+dominio di un club: sul gestionale quell'intestazione si cancella (D-WS-8, chiuso).
+
+**Il cron** `GET /api/v1/website/maintenance` si autentica con
+`Authorization: Bearer <CRON_SECRET>` (`authorizeCronRequest`): `503` senza
+segreto configurato, `401` con un segreto sbagliato.

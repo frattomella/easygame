@@ -331,6 +331,21 @@ model Club {
   paymentCoverageAllocations   PaymentCoverageAllocation[]
   trial_athletes               TrialAthlete[]
   trial_attendances            TrialAttendance[]
+  /// EasyGame Website (ADR-0200): un sito per club.
+  website_site                 WebsiteSite?
+  website_pages                WebsitePage[]
+  website_revisions            WebsiteRevision[]
+  website_domains              WebsiteDomain[]
+  website_redirects            WebsiteRedirect[]
+  website_articles             WebsiteArticle[]
+  website_person_publications  WebsitePersonPublication[]
+  website_media_meta           WebsiteMediaMeta[]
+  website_inquiries            WebsiteInquiry[]
+  /// Sport core (ADR-0200 §8).
+  club_teams                   ClubTeam[]
+  competitions                 Competition[]
+  opponents                    Opponent[]
+  event_player_stats           ClubEventPlayerStat[]
 
   @@map("clubs")
 }
@@ -494,6 +509,8 @@ model Athlete {
   funding_settlements        FundingSettlement[]         @relation("FundingSettlementBeneficiary")
   /// La persona in prova da cui questa scheda e nata, se e nata cosi (ADR-0188).
   trial_origin               TrialAthlete?
+  /// Le statistiche registrate nelle gare (ADR-0200 §8).
+  event_stats                ClubEventPlayerStat[]
 
   @@index([organization_id])
   @@index([user_id])
@@ -1596,12 +1613,35 @@ model ClubEvent {
   /// Controllo ottimistico. Due segretarie che salvano insieme non si
   /// sovrascrivono piu: la seconda fallisce invece di vincere.
   version            Int                    @default(1)
+  /// **Sport core** (ADR-0200 §8). La squadra stabile della gara, la
+  /// competizione e l'avversario strutturato. `opponent` (testo) resta: e
+  /// l'etichetta storica e il ripiego quando l'avversario non e in anagrafica.
+  team_id            String?                @db.Uuid
+  competition_id     String?                @db.Uuid
+  opponent_id        String?                @db.Uuid
+  /// «Giornata 12», «Semifinale»: testo libero, non un motore di campionati.
+  round_label        String?
+  /// Il risultato **secondo casa e trasferta** della gara: con
+  /// `home_away = away` il club e `away_score`. Nulli = nessun risultato.
+  home_score         Int?
+  away_score         Int?
+  /// `provisional` | `final`. Nullo = nessun risultato registrato.
+  result_status      String?
+  /// I parziali, uno per periodo: `[{number, label, home, away}]`. Generico
+  /// per ogni sport: le etichette le propone `src/lib/sports/adapters.ts`.
+  period_scores      Json?
+  result_updated_at  DateTime?
+  result_updated_by  String?                @db.Uuid
   created_by         String?                @db.Uuid
   created_at         DateTime               @default(now())
   updated_at         DateTime               @updatedAt
   organization       Club                   @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   participants       ClubEventParticipant[]
   trial_attendances  TrialAttendance[]
+  team               ClubTeam?              @relation(fields: [team_id], references: [id], onDelete: SetNull)
+  competition        Competition?           @relation(fields: [competition_id], references: [id], onDelete: SetNull)
+  opponent_record    Opponent?              @relation(fields: [opponent_id], references: [id], onDelete: SetNull)
+  player_stats       ClubEventPlayerStat[]
 
   @@unique([organization_id, kind, legacy_id])
   @@index([organization_id, starts_at])
@@ -1615,6 +1655,8 @@ model ClubEvent {
    * dipendenza dell'ambiente. Il filtro per club resta il btree che c'e gia.
    */
   @@index([category_ids], type: Gin)
+  @@index([organization_id, team_id, starts_at])
+  @@index([organization_id, competition_id])
   @@map("club_events")
 }
 
@@ -1689,6 +1731,8 @@ model Attachment {
   updated_at      DateTime        @updatedAt
   organization    Club            @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   blob            AttachmentBlob?
+  /// I metadati della libreria del sito (alt, punto focale), quando e un'immagine del sito.
+  website_meta    WebsiteMediaMeta?
 
   @@index([organization_id])
   @@index([organization_id, owner_type, owner_id])
@@ -3769,4 +3813,363 @@ model TrialAttendance {
   @@index([organization_id, trial_athlete_id, recorded_at])
   @@index([organization_id, event_id])
   @@map("trial_attendances")
+}
+
+/// =========================================================================
+/// SPORT CORE — squadre stabili, competizioni, avversari, statistiche (ADR-0200 §8)
+/// =========================================================================
+
+/// **L'identita stabile di una squadra.** Le categorie si ricreano a ogni
+/// stagione e il loro nome non e un'identita (ADR-0155); una squadra si.
+/// `season_links` dice a quale categoria (e gruppo) corrisponde in ogni
+/// stagione: `[{seasonId, categoryId, groupId?}]`. Lo slug vive qui, e quelli
+/// vecchi restano in `previous_slugs` perche un indirizzo pubblicato non
+/// muoia quando la squadra cambia nome. Unico scrittore:
+/// `src/lib/server/club-teams.ts`.
+model ClubTeam {
+  id                  String      @id @default(uuid()) @db.Uuid
+  organization_id     String      @db.Uuid
+  name                String
+  short_name          String?
+  slug                String
+  previous_slugs      String[]    @default([])
+  sport               String?
+  description         String?
+  photo_attachment_id String?     @db.Uuid
+  season_links        Json        @default("[]")
+  sort_order          Int         @default(0)
+  active              Boolean     @default(true)
+  version             Int         @default(1)
+  created_by          String?     @db.Uuid
+  created_at          DateTime    @default(now())
+  updated_at          DateTime    @updatedAt
+  organization        Club        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  events              ClubEvent[]
+
+  @@unique([organization_id, slug])
+  @@index([organization_id, active])
+  @@map("club_teams")
+}
+
+/// **Una competizione**, per classificare le gare e mostrarne il nome.
+/// Non e un motore di campionati: la classifica, se c'e, la scrive il club
+/// (`standings`) e il sito la mostra con la data dell'ultimo aggiornamento.
+model Competition {
+  id                   String      @id @default(uuid()) @db.Uuid
+  organization_id      String      @db.Uuid
+  name                 String
+  short_name           String?
+  season_id            String?
+  sport                String?
+  /// `league` | `cup` | `tournament` | `friendly`.
+  kind                 String      @default("league")
+  standings            Json?
+  standings_updated_at DateTime?
+  active               Boolean     @default(true)
+  version              Int         @default(1)
+  created_at           DateTime    @default(now())
+  updated_at           DateTime    @updatedAt
+  organization         Club        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  events               ClubEvent[]
+
+  @@index([organization_id, season_id])
+  @@map("competitions")
+}
+
+/// **Un avversario** in anagrafica: nome, sigla, citta, logo. Facoltativo:
+/// una gara con il solo testo `club_events.opponent` resta valida.
+model Opponent {
+  id                 String      @id @default(uuid()) @db.Uuid
+  organization_id    String      @db.Uuid
+  name               String
+  short_name         String?
+  city               String?
+  logo_attachment_id String?     @db.Uuid
+  website_url        String?
+  version            Int         @default(1)
+  created_at         DateTime    @default(now())
+  updated_at         DateTime    @updatedAt
+  organization       Club        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  events             ClubEvent[]
+
+  @@unique([organization_id, name])
+  @@map("opponents")
+}
+
+/// **Le statistiche di un atleta in una gara**: chiavi dell'adattatore dello
+/// sport (`{points: 12, rebounds: 4}`). Scritte solo da
+/// `src/lib/server/events.ts` insieme al risultato. Sul sito compaiono solo
+/// per chi ha una pubblicazione con le statistiche abilitate.
+model ClubEventPlayerStat {
+  id              String    @id @default(uuid()) @db.Uuid
+  organization_id String    @db.Uuid
+  event_id        String    @db.Uuid
+  athlete_id      String    @db.Uuid
+  stats           Json
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  organization    Club      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  event           ClubEvent @relation(fields: [event_id], references: [id], onDelete: Cascade)
+  athlete         Athlete   @relation(fields: [athlete_id], references: [id], onDelete: Cascade)
+
+  @@unique([event_id, athlete_id])
+  @@index([organization_id, athlete_id])
+  @@map("club_event_player_stats")
+}
+
+/// =========================================================================
+/// EASYGAME WEBSITE (ADR-0200)
+/// =========================================================================
+
+/// **Il sito di un club**: la bozza della configurazione (tema, intestazione,
+/// piede, menu, SEO, identita) e il puntatore alla revisione pubblicata.
+/// `draft_version` e il controllo ottimistico della configurazione; ogni
+/// pagina ha il suo. Unico scrittore: `src/lib/server/website/`.
+model WebsiteSite {
+  id                  String            @id @default(uuid()) @db.Uuid
+  organization_id     String            @unique @db.Uuid
+  /// `draft` (mai pubblicato) | `published` | `offline` (ritirato dal club).
+  status              String            @default("draft")
+  template_key        String
+  template_version    Int               @default(1)
+  theme               Json
+  header              Json
+  footer              Json
+  navigation          Json
+  seo                 Json
+  settings            Json
+  /// Il percorso guidato della prima configurazione: quali passi sono fatti.
+  onboarding          Json?
+  draft_version       Int               @default(1)
+  current_revision_id String?           @unique @db.Uuid
+  published_at        DateTime?
+  published_by        String?           @db.Uuid
+  created_by          String?           @db.Uuid
+  created_at          DateTime          @default(now())
+  updated_at          DateTime          @updatedAt
+  organization        Club              @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  current_revision    WebsiteRevision?  @relation("WebsiteCurrentRevision", fields: [current_revision_id], references: [id], onDelete: SetNull)
+  pages               WebsitePage[]
+  revisions           WebsiteRevision[] @relation("WebsiteSiteRevisions")
+  domains             WebsiteDomain[]
+  redirects           WebsiteRedirect[]
+  articles            WebsiteArticle[]
+  inquiries           WebsiteInquiry[]
+
+  @@map("website_sites")
+}
+
+/// **Una pagina in bozza**: il documento (sezioni e blocchi) e la SEO.
+/// `path` e unico per sito: `/`, `/squadre`, oppure `/squadre/*` per il
+/// modello di una pagina di dettaglio.
+model WebsitePage {
+  id              String      @id @default(uuid()) @db.Uuid
+  site_id         String      @db.Uuid
+  organization_id String      @db.Uuid
+  /// `home` | `standard` | `legal` | `news_index` | `article_detail` |
+  /// `team_detail` | `match_detail` | `player_detail` | `event_detail`.
+  kind            String      @default("standard")
+  slug            String
+  path            String
+  title           String
+  seo             Json
+  document        Json
+  sort_order      Int         @default(0)
+  version         Int         @default(1)
+  created_by      String?     @db.Uuid
+  updated_by      String?     @db.Uuid
+  created_at      DateTime    @default(now())
+  updated_at      DateTime    @updatedAt
+  site            WebsiteSite @relation(fields: [site_id], references: [id], onDelete: Cascade)
+  organization    Club        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([site_id, path])
+  @@index([organization_id])
+  @@map("website_pages")
+}
+
+/// **Una pubblicazione**, immutabile: il database rifiuta ogni UPDATE
+/// (trigger `website_revisions_immutable`). Un rollback e una revisione nuova
+/// copiata da una vecchia. Lo snapshot non contiene dati personali: persone,
+/// gare e sponsor si leggono vivi al render.
+model WebsiteRevision {
+  id                 String       @id @default(uuid()) @db.Uuid
+  site_id            String       @db.Uuid
+  organization_id    String       @db.Uuid
+  revision_number    Int
+  snapshot           Json
+  snapshot_hash      String
+  /// `publish` | `rollback`.
+  origin             String       @default("publish")
+  source_revision_id String?      @db.Uuid
+  idempotency_key    String?
+  note               String?
+  published_by       String?      @db.Uuid
+  published_at       DateTime     @default(now())
+  site               WebsiteSite  @relation("WebsiteSiteRevisions", fields: [site_id], references: [id], onDelete: Cascade)
+  organization       Club         @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  current_for        WebsiteSite? @relation("WebsiteCurrentRevision")
+
+  @@unique([site_id, revision_number])
+  @@unique([site_id, idempotency_key])
+  @@index([organization_id])
+  @@map("website_revisions")
+}
+
+/// **Un dominio del club.** `hostname` e unico su tutta la piattaforma: uno
+/// stesso dominio non puo servire due club. Un primario per sito (indice
+/// parziale nella migrazione); gli altri reindirizzano con 301.
+model WebsiteDomain {
+  id                 String      @id @default(uuid()) @db.Uuid
+  site_id            String      @db.Uuid
+  organization_id    String      @db.Uuid
+  hostname           String      @unique
+  /// `primary` | `redirect`.
+  role               String      @default("redirect")
+  /// `pending_dns` | `verifying` | `provisioning` | `active` | `failed`.
+  state              String      @default("pending_dns")
+  /// `not_started` | `pending` | `active` | `failed`.
+  tls_state          String      @default("not_started")
+  verification_token String
+  provider           String
+  provider_ref       String?
+  /// I record attesi (TXT di proprieta e instradamento) e quelli del provider.
+  dns_records        Json
+  last_error         String?
+  last_checked_at    DateTime?
+  verified_at        DateTime?
+  activated_at       DateTime?
+  attempt_count      Int         @default(0)
+  version            Int         @default(1)
+  created_by         String?     @db.Uuid
+  created_at         DateTime    @default(now())
+  updated_at         DateTime    @updatedAt
+  site               WebsiteSite @relation(fields: [site_id], references: [id], onDelete: Cascade)
+  organization       Club        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@index([site_id])
+  @@map("website_domains")
+}
+
+/// **Un reindirizzamento** di un percorso del sito: nasce quando una pagina
+/// cambia slug, perche un indirizzo gia condiviso non diventi un 404.
+model WebsiteRedirect {
+  id              String      @id @default(uuid()) @db.Uuid
+  site_id         String      @db.Uuid
+  organization_id String      @db.Uuid
+  from_path       String
+  to_path         String
+  created_at      DateTime    @default(now())
+  site            WebsiteSite @relation(fields: [site_id], references: [id], onDelete: Cascade)
+  organization    Club        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([site_id, from_path])
+  @@index([organization_id])
+  @@map("website_redirects")
+}
+
+/// **Un articolo del sito.** Non e la bacheca (interna, per pubblico): e un
+/// contenuto pubblico con stato proprio, fuori dallo snapshot del sito.
+model WebsiteArticle {
+  id               String      @id @default(uuid()) @db.Uuid
+  site_id          String      @db.Uuid
+  organization_id  String      @db.Uuid
+  slug             String
+  title            String
+  excerpt          String      @default("")
+  /// HTML sanificato sul server (`src/lib/rich-text/sanitize.ts`).
+  body_html        String      @default("")
+  cover            Json?
+  gallery          Json        @default("[]")
+  category_slug    String?
+  author_label     String      @default("")
+  /// `draft` | `scheduled` | `published` | `archived`.
+  status           String      @default("draft")
+  publish_at       DateTime?
+  published_at     DateTime?
+  featured         Boolean     @default(false)
+  seo              Json
+  /// La gara di cui l'articolo e il resoconto, se lo e.
+  related_event_id String?     @db.Uuid
+  version          Int         @default(1)
+  created_by       String?     @db.Uuid
+  updated_by       String?     @db.Uuid
+  created_at       DateTime    @default(now())
+  updated_at       DateTime    @updatedAt
+  site             WebsiteSite @relation(fields: [site_id], references: [id], onDelete: Cascade)
+  organization     Club        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([site_id, slug])
+  @@index([organization_id, status, published_at])
+  @@map("website_articles")
+}
+
+/// **Se e come una persona compare sul sito** (ADR-0200 §7). Opt-in: senza
+/// una riga con `published = true` la persona non esiste per il sito.
+/// Polimorfa perche allenatori e staff vivono in collezioni JSON del club.
+/// Nel perimetro di `data-subject.ts`: si cancella con la persona.
+model WebsitePersonPublication {
+  id              String   @id @default(uuid()) @db.Uuid
+  organization_id String   @db.Uuid
+  /// `athlete` | `trainer` | `staff`.
+  person_kind     String
+  person_id       String
+  published       Boolean  @default(false)
+  settings        Json
+  updated_by      String?  @db.Uuid
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  organization    Club     @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([organization_id, person_kind, person_id])
+  @@index([organization_id, published])
+  @@map("website_person_publications")
+}
+
+/// **I metadati di un'immagine della libreria del sito**: testo alternativo,
+/// titolo, punto focale, dimensioni. I byte restano nell'allegato: nessuna
+/// copia.
+model WebsiteMediaMeta {
+  attachment_id   String     @id @db.Uuid
+  organization_id String     @db.Uuid
+  alt_text        String     @default("")
+  title           String     @default("")
+  focal_x         Int        @default(50)
+  focal_y         Int        @default(50)
+  width           Int?
+  height          Int?
+  created_at      DateTime   @default(now())
+  updated_at      DateTime   @updatedAt
+  attachment      Attachment @relation(fields: [attachment_id], references: [id], onDelete: Cascade)
+  organization    Club       @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id])
+  @@map("website_media_meta")
+}
+
+/// **Una richiesta arrivata dal modulo contatti del sito.** EasyGame non ha un
+/// dominio lead: questa e la casella del sito, visibile nel gestionale. Chi
+/// scrive da quel modulo ha dato il consenso il cui testo e congelato qui.
+model WebsiteInquiry {
+  id              String      @id @default(uuid()) @db.Uuid
+  site_id         String      @db.Uuid
+  organization_id String      @db.Uuid
+  name            String
+  email           String
+  phone           String?
+  topic           String?
+  message         String
+  consent_text    String
+  source_path     String?
+  /// `new` | `handled` | `archived`.
+  status          String      @default("new")
+  handled_by      String?     @db.Uuid
+  handled_at      DateTime?
+  created_at      DateTime    @default(now())
+  site            WebsiteSite @relation(fields: [site_id], references: [id], onDelete: Cascade)
+  organization    Club        @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@index([organization_id, status, created_at])
+  @@map("website_inquiries")
 }

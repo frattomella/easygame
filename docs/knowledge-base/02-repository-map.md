@@ -177,3 +177,27 @@ cleanup 2026-08-22).
 | `scripts/sport-work-uat.mjs` | Il collaudo a runtime: parla HTTP con l'applicazione vera |
 | `scripts/sport-work-legacy-report.mjs` | Il rapporto sui dati legacy, in sola lettura |
 
+
+
+---
+
+## EasyGame Website e sport core (ADR-0200, 2026-10-05)
+
+| Percorso | Cosa c'e |
+|----------|----------|
+| `src/lib/website/` | **Dominio puro del sito** (client-safe, nessun import da `lib/server`): `document/` (tipi SITE → PAGE → SECTION → BLOCK, operazioni dell'editor, cronologia, validazione), `registry/` (**l'unico** registry dei blocchi: `blocks/content.ts`, `sports.ts`, `club.ts`, 59 definizioni), `datasources/` (contratti zod e richieste deduplicabili), `people/policy.ts` (`applyPublicationPolicy`, l'unica funzione che decide chi compare), `domains/model.ts` (hostname, record DNS, stati), `publishing/snapshot.ts` (lo snapshot pubblicato e l'instradamento delle pagine), `templates/`, `theme/` (palette, caratteri, tema), `navigation.ts`, `slug.ts`, `links.ts`, `embed.ts`, `seo.ts`, `site-config.ts`, `permissions.ts`, `access-state.ts`, `editor-protocol.ts` (messaggi editor ↔ anteprima), `public-dto.ts`, `client.ts` e `public-client.ts` (trasporto dal browser) |
+| `src/lib/server/website/` | **Server del sito**: `access.ts` (`requireWebsiteAccess`, il cancello unico; `WebsiteConflictError`), `route.ts` (`websiteRoute`, il guscio delle rotte), `sites.ts`, `pages.ts`, `publishing.ts`, `domains.ts` + `domain-providers/` (`mock`, `vercel`, `cloudflare`), `media.ts`, `people.ts`, `articles.ts`, `inquiries.ts`, `sponsors-showcase.ts`, `public-site.ts` (host → sito → revisione → pagina), `page-data.ts` (risolutore dei datasource) + `public-data/`, `cache.ts` (tag e invalidazione), `preview.ts`, `document-sanitize.ts`, `audit-actions.ts` |
+| `src/lib/server/storage/s3-driver.ts` | Driver allegati S3/R2/MinIO con firma SigV4; si registra da `src/lib/server/attachments.ts` |
+| `src/lib/server/club-teams.ts`, `src/lib/server/competitions.ts` | Unici scrittori di `club_teams`, `competitions`, `opponents` |
+| `src/lib/sports/` | Puro: `adapters.ts` (sport, periodi, statistiche, risultato dai parziali), `teams.ts` (collegamenti per stagione, storico degli slug), `client.ts` |
+| `src/components/website/render/` | Il renderer pubblico: `SiteDocument`, intestazione, piede, sezioni, `blocks/` (una mappa tipizzata contro il registry), `islands/` (le isole client: menu mobile, carosello, lightbox, conto alla rovescia, modulo contatti, modulo incorporato, `ConsentFrame`), `fonts.ts` (l'unico punto che carica caratteri). Non importa ne il gestionale ne l'editor |
+| `src/components/website/admin/` | Le schermate dell'area `/website` (panoramica e creazione guidata, media, news, persone, sponsor, messaggi, domini, versioni, impostazioni, cassetti di pubblicazione) |
+| `src/components/website/editor/` | L'editor visuale (`WebsiteEditor`, `useWebsiteEditor`, pannelli, inspector, `PreviewFrame`, `ConflictDialog`) |
+| `src/components/website/preview/` | `EditorProbe`: collega l'iframe dell'anteprima ai pannelli dell'editor |
+| `src/components/sports/`, `src/components/matches/v2/MatchResultDrawer.tsx` | Squadre stabili, competizioni e avversari; il cassetto del risultato di una gara |
+| `src/app/(app)/website/` | L'area del gestionale: `/website`, `/website/editor`, `media`, `news`, `news/[id]`, `persone`, `sponsor`, `messaggi`, `domini`, `versioni`, `impostazioni` |
+| `src/app/(app)/categories/squadre/`, `src/app/(app)/matches/competizioni/` | Le schermate dello sport core |
+| `src/app/(site)/site-render/[host]/` | Il renderer pubblico (raggiunto solo per rewrite dal middleware): `[[...path]]/page.tsx`, `robots.txt/`, `sitemap.xml/`, `not-found.tsx` |
+| `src/app/(site)/website-preview/[siteId]/` | L'anteprima privata della bozza |
+| `src/app/api/v1/website/`, `src/app/api/public/website/` | Rotte del gestionale e rotte pubbliche del sito (elenco in `docs/api-registry.md`) |
+| `src/styles/website/site.css`, `tailwind.website.config.ts` | Il CSS del sito, separato da quello del gestionale |

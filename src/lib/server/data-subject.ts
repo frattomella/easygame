@@ -649,7 +649,38 @@ export const previewDataSubjectErasure = async (
     where: { organization_id: organizationId, athlete_id: subjectId },
   });
 
+  /*
+    **Il nono indice: il sito pubblico** (ADR-0200 §17). Come compare la
+    persona sul sito vive in `website_person_publications`, chiavata per
+    `person_id` senza chiave esterna; la sua foto e un file della libreria del
+    sito (`person-photo`), non un allegato della scheda. Le statistiche di gara
+    hanno la chiave esterna, ma la scheda si anonimizza e non si cancella:
+    la cascata non scatterebbe mai.
+  */
+  const [pubblicazioniSito, statisticheGara] = await Promise.all([
+    (prisma as any).websitePersonPublication.count({
+      where: { organization_id: organizationId, person_kind: "athlete", person_id: subjectId },
+    }),
+    (prisma as any).clubEventPlayerStat.count({
+      where: { organization_id: organizationId, athlete_id: subjectId },
+    }),
+  ]);
+
   const slices: DataSubjectSlice[] = [
+    {
+      table: "website_person_publications",
+      label: "Presenza sul sito pubblico (nome mostrato, foto, biografia)",
+      index: "polymorphic",
+      count: Number(pubblicazioniSito || 0),
+      disposal: "delete",
+    },
+    {
+      table: "club_event_player_stats",
+      label: "Statistiche individuali nelle gare",
+      index: "foreign_key",
+      count: Number(statisticheGara || 0),
+      disposal: "delete",
+    },
     {
       table: "trial_athletes",
       label: "Scheda di persona in prova (con le sue presenze di prova)",
@@ -1304,6 +1335,36 @@ export const eraseDataSubject = async (
     organization_id: organizationId,
     athlete_id: subjectId,
   });
+  /*
+    Il sito pubblico (ADR-0200): prima la foto della persona, che e un file
+    della libreria del sito e non della scheda, poi la riga di pubblicazione.
+  */
+  const pubblicazioni = await (prisma as any).websitePersonPublication.findMany({
+    where: { organization_id: organizationId, person_kind: "athlete", person_id: subjectId },
+    select: { settings: true },
+  });
+  const fotoSito = (pubblicazioni as Array<{ settings: any }>)
+    .map((riga) => (typeof riga?.settings?.photoMediaId === "string" ? riga.settings.photoMediaId : null))
+    .filter((id): id is string => Boolean(id));
+  if (fotoSito.length) {
+    const fotoPersona = await (prisma as any).attachment.findMany({
+      where: { id: { in: fotoSito }, organization_id: organizationId, owner_type: "website", category: "person-photo" },
+      select: { id: true },
+    });
+    for (const foto of fotoPersona as Array<{ id: string }>) {
+      await deleteAttachment(foto.id, scopeAllegati);
+      conta(deleted, "attachments", 1);
+    }
+  }
+  await cancella("website_person_publications", "websitePersonPublication", {
+    organization_id: organizationId,
+    person_kind: "athlete",
+    person_id: subjectId,
+  });
+  await cancella("club_event_player_stats", "clubEventPlayerStat", {
+    organization_id: organizationId,
+    athlete_id: subjectId,
+  });
   /* La prova da cui la scheda e nata (ADR-0188): le presenze seguono per cascata. */
   await cancella("trial_athletes", "trialAthlete", {
     organization_id: organizationId,
@@ -1625,7 +1686,7 @@ export const assertPersonalDataDisposed = async (
     il club e noto e l'operazione e rara — ma questa guardia non le vede, e
     dirlo e meglio che far finta di coprirle.
   */
-  const [allegati, consensi, richieste, depositi, prove] = await Promise.all([
+  const [allegati, consensi, richieste, depositi, prove, pubblicazioniSito] = await Promise.all([
     (prisma as any).attachment.count({
       where: { ...perClub, owner_type: "athlete", owner_id: subjectId },
     }),
@@ -1642,6 +1703,10 @@ export const assertPersonalDataDisposed = async (
     (prisma as any).trialAthlete.count({
       where: { ...perClub, athlete_id: subjectId },
     }),
+    /* Il sito pubblico (ADR-0200): nome mostrato, foto e biografia, chiavati senza chiave esterna. */
+    (prisma as any).websitePersonPublication.count({
+      where: { ...perClub, person_kind: "athlete", person_id: subjectId },
+    }),
   ]);
 
   const residui = [
@@ -1650,6 +1715,7 @@ export const assertPersonalDataDisposed = async (
     ["richieste documentali", Number(richieste || 0)],
     ["consegne documentali", Number(depositi || 0)],
     ["schede di persona in prova", Number(prove || 0)],
+    ["presenze sul sito pubblico", Number(pubblicazioniSito || 0)],
   ].filter(([, count]) => Number(count) > 0) as Array<[string, number]>;
 
   if (residui.length === 0) return;

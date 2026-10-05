@@ -154,6 +154,65 @@ export const sanitizeRichHtml = (html: unknown): string => {
   return sanitizeHtml(text, SANITIZE_OPTIONS).trim();
 };
 
+/**
+ * **La variante del sito pubblico** (ADR-0200 §15, §64).
+ *
+ * Stessa allowlist, con tre differenze e nessuna di piu:
+ *
+ * 1. le immagini vengono **solo** dalla libreria pubblica del sito
+ *    (`/api/public/website/media/<uuid>`), che e l'unico posto da cui il sito
+ *    serve file — mai `data:`, mai host esterni, mai un allegato del
+ *    gestionale (chiede la sessione);
+ * 2. `h4` e ammesso: un articolo ha piu livelli di un modulo;
+ * 3. un collegamento interno (`/squadre`, `#iscrizioni`) resta nella stessa
+ *    finestra; quelli esterni si aprono altrove con `noopener`.
+ *
+ * Vive qui perche questo file e l'unico punto di sanificazione del testo
+ * formattato (CLAUDE.md §2): una seconda configurazione di `sanitize-html` in
+ * un altro modulo sarebbe una seconda verita su cosa e sicuro.
+ */
+export const WEBSITE_MEDIA_ENDPOINT = "/api/public/website/media";
+
+const WEBSITE_IMAGE_SRC = new RegExp(
+  `^${escapeForRegExp(WEBSITE_MEDIA_ENDPOINT)}/[0-9a-f-]{36}(\\?[a-z0-9=&_-]*)?$`,
+  "i",
+);
+
+const INTERNAL_HREF = /^(\/(?!\/)[A-Za-z0-9\-._~/%]*(#[A-Za-z0-9\-_]*)?|#[A-Za-z0-9\-_]+)$/;
+
+const WEBSITE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  ...SANITIZE_OPTIONS,
+  allowedTags: [...RICH_TEXT_ALLOWED_TAGS, "h4"],
+  allowedClasses: {},
+  transformTags: {
+    ...SANITIZE_OPTIONS.transformTags,
+    a: (tagName, attribs) => {
+      const href = String(attribs.href || "").trim();
+      if (INTERNAL_HREF.test(href)) {
+        return { tagName, attribs: { href, ...(attribs.title ? { title: attribs.title } : {}) } };
+      }
+      return { tagName, attribs: { ...attribs, target: "_blank", rel: "noopener noreferrer" } };
+    },
+  },
+  exclusiveFilter: (frame) => {
+    if (frame.tag === "img") {
+      const src = String(frame.attribs.src || "");
+      /* Solo la libreria pubblica: un allegato del gestionale chiede la sessione e al visitatore non si apre. */
+      return !WEBSITE_IMAGE_SRC.test(src);
+    }
+    /* Nessun div sopravvive nel sito: l'interruzione di pagina e dei documenti stampati. */
+    if (frame.tag === "div") return "excludeTag";
+    return false;
+  },
+};
+
+/** Il testo formattato di un blocco o di un articolo del sito. */
+export const sanitizeWebsiteRichHtml = (html: unknown): string => {
+  const text = String(html ?? "");
+  if (!text.trim()) return "";
+  return sanitizeHtml(text, WEBSITE_SANITIZE_OPTIONS).trim();
+};
+
 /** Il solo testo, senza tag: per anteprime, riassunti e impronte. */
 export const richHtmlToText = (html: unknown): string =>
   sanitizeHtml(

@@ -221,7 +221,7 @@ test("modello: i due preset del §24, le etichette dei domini e il perimetro del
       assert.ok(concedibili.has(chiave), `${preset.titolo} non puo portare ${chiave}`);
     }
   }
-  assert.equal(Object.keys(ETICHETTE_DOMINIO).length, 17); // + «Persone in prova» (ADR-0188)
+  assert.equal(Object.keys(ETICHETTE_DOMINIO).length, 18); // + «Persone in prova» (ADR-0188), + «Sito web» (ADR-0200)
   assert.deepEqual(Object.keys(PERIMETRO_DEL_RUOLO_BASE), ["club_manager", "collaborator", "staff", "trainer"]);
   assert.equal(perimetroDelRuoloBase("custom:staff:x"), PERIMETRO_DEL_RUOLO_BASE.staff);
   assert.equal(perimetroDelRuoloBase("owner"), "—");

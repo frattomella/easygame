@@ -60,6 +60,10 @@ import {
 import { assertAccountingPermission } from "@/lib/accounting/permissions";
 import {
   SPONSOR_RESOURCE_TYPE,
+  applySponsorShowcase,
+  isSponsorShowcaseActive,
+  legacySponsorLogo,
+  normalizeSponsorShowcase,
   applySponsorContract,
   buildSponsorCollectionInput,
   normalizeLegacySponsorCollections,
@@ -495,6 +499,59 @@ export const prepareSponsorCollection = async (
     notes: input.notes,
     operationTypeCode: input.operationTypeCode,
   });
+};
+
+/* ------------------------------------------------------ la vetrina del sito */
+
+/**
+ * Gli sponsor con la loro vetrina sul sito, per l'editor e per il sito.
+ *
+ * **Non chiede uno scope.** Il chiamante e il modulo del sito, che ha gia
+ * verificato club attivo, permesso `website.*` e stato del servizio
+ * (`requireWebsiteAccess`), oppure il renderer pubblico, che conosce il club
+ * dal dominio risolto. Il club arriva sempre da li, mai dal client. Non
+ * restituisce niente del contratto ne dei dati fiscali: nome, vetrina e la
+ * sola presenza di un logo storico.
+ */
+export const listSponsorShowcases = async (organizationId: string) => {
+  const records = await readSponsorRecords(organizationId);
+  return records
+    .filter((record: any) => normalizeSponsor(record).kind === "sponsor")
+    .map((record: any) => ({
+      id: asText(record.id),
+      name: normalizeSponsor(record).name,
+      showcase: normalizeSponsorShowcase(record.showcase),
+      hasLegacyLogo: Boolean(legacySponsorLogo(record)),
+    }))
+    .filter((entry) => entry.id && entry.name);
+};
+
+/** Il logo storico di uno sponsor in vetrina, per la rotta pubblica che lo serve. */
+export const readShowcasedSponsorLegacyLogo = async (organizationId: string, sponsorId: string, today: string) => {
+  const records = await readSponsorRecords(organizationId);
+  const record = records.find((item: any) => asText(item?.id) === asText(sponsorId));
+  if (!record) return null;
+  if (!isSponsorShowcaseActive(normalizeSponsorShowcase(record.showcase), today)) return null;
+  return legacySponsorLogo(record);
+};
+
+/**
+ * Scrive la vetrina di uno sponsor. **Unico scrittore** della chiave
+ * `showcase`, sulla riga sola (come il contratto: niente riscrittura della
+ * collezione intera).
+ */
+export const saveSponsorShowcase = async (input: { organizationId: string; sponsorId: string; showcase: unknown }) => {
+  const organizationId = asText(input.organizationId);
+  const sponsorId = asText(input.sponsorId);
+  const showcase = normalizeSponsorShowcase(input.showcase);
+  const records = await readSponsorRecords(organizationId);
+  const esistente = records.find((item: any) => asText(item?.id) === sponsorId);
+  if (!esistente) throw denied("lo sponsor non appartiene a questo club");
+  const aggiornato = await (prisma as any).$transaction((tx: any) =>
+    updateClubResourceItem(tx, organizationId, SPONSOR_RESOURCE_TYPE, sponsorId, applySponsorShowcase(esistente, showcase)),
+  );
+  if (!aggiornato) throw denied("lo sponsor non appartiene a questo club");
+  return { id: sponsorId, name: normalizeSponsor(aggiornato).name, showcase };
 };
 
 /* ------------------------------------------------------ il documento fiscale */

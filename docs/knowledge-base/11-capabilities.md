@@ -611,3 +611,45 @@ voci → 40, non 50). Regola di QA: ogni test sensibile alla stagione usa
 Rotte utente sulla V1: 0; miste: 0 (`docs/redesign/COMPLETION-PASS.md`).
 Scadenza convocazioni in Impostazioni → Gare e convocazioni (default 4, valori
 espliciti conservati). Marchio CediSoft con guardia di regressione.
+
+## EasyGame Website e sport core — `PARTIAL` (ADR-0200, 2026-10-05)
+
+> **Lo stato riga per riga.** Il 2026-10-05 il flusso del sito e stato
+> percorso a browser dal clic alla riga scritta, sul database locale con un
+> club di prova (Owner, prova gratuita): creazione da template, editor
+> (trascinamento anche fra sezioni, inspector, stile per dispositivo e
+> ripristino, annulla e ripristina, salvataggio automatico, conflitto fra due
+> schede con confronto, ricarica e sovrascrittura), dominio con il provider
+> simulato, pubblicazione, rollback come versione nuova, news, modulo
+> contatti e sito pubblico a 375, 768 e 1280 px: quelle righe sono COMPLETE.
+> Restano PARTIAL le righe non percorse a browser (immagini, persone,
+> sponsor, iscrizioni, sport core) e i domini, i cui provider reali non sono
+> mai stati provati. Niente e ancora su staging.
+
+### Il sito della societa
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Servizio aggiuntivo e stati del modulo | COMPLETE | Extra Hub `website` + entitlement omonimo; stato **ricavato** (`unavailable · trial · active · suspended`, `src/lib/website/access-state.ts`) da servizio, eccezioni di piattaforma e date. Si accende dalla console di piattaforma (`POST /api/v1/entitlements`, `operation: "service"` con `billing_status`, `trial_ends_at`, `current_period_end`); il prezzo non e in catalogo (decisione commerciale aperta) e l'HUB non ha un acquisto self-service. La prova pubblica; sospeso = sola lettura nel gestionale e «sito non disponibile» per il pubblico. Percorso a browser il 2026-10-05 sul DB locale, con un club di prova. |
+| Creazione del sito da template | COMPLETE | `/website`: procedura in tre passi (template, nome e colori, conferma; `OnboardingWizard`). Quattro template (`club-modern`, `academy`, `professional`, `minimal`) che diventano righe normali: tema, menu, intestazione, piede, pagine (home, societa, squadre, gare, news, sponsor, contatti, iscrizioni, privacy, cookie e i modelli di dettaglio). Un sito per club (seconda creazione = 409). Il dominio non serve per iniziare. «Applica lo stile di un altro template» cambia tema, intestazione e piede senza toccare pagine e menu. Percorso a browser il 2026-10-05 sul DB locale, con un club di prova. |
+| Editor visuale | COMPLETE | `/website/editor`: pannelli pagine, livelli, tavolozza, inspector, tema, menu, intestazione/piede; anteprima in un iframe che parla con l'editor (`src/lib/website/editor-protocol.ts`). 59 blocchi in un registry solo (contenuto, sport, club), sezioni a 1-4 colonne, trascinamento, duplica/nascondi/elimina, scostamenti per dispositivo sui soli token di stile, annulla/ripeti con cronologia a rami, salvataggio con versione ottimistica e dialogo di conflitto. Nessun HTML o JS libero. Percorso a browser il 2026-10-05 sul DB locale, con un club di prova. |
+| Anteprima privata della bozza | COMPLETE | `/website-preview/<sito>/<percorso>` sul dominio del gestionale: sessione + `website.read` sul club del sito, stesso renderer del pubblico, `noindex, nofollow`, niente cache. `/<modello>/__esempio` riempie un modello di dettaglio con un elemento vero del club. Percorso a browser il 2026-10-05 sul DB locale, con un club di prova. |
+| Pubblicazione, versioni, rollback, ritiro | COMPLETE | Controlli bloccanti (dominio primario attivo con HTTPS, home presente, voci di menu verso pagine esistenti, immagini con testo alternativo, ancore uniche) e avvertenze (privacy nel piede); istantaneo immutabile in `website_revisions` con chiave di idempotenza; rollback = revisione nuova; «riporta nella bozza» una versione; ritiro (`offline`) senza perdere niente. `/website/versioni`. Percorso a browser il 2026-10-05 sul DB locale, con un club di prova. |
+| Domini del club | PARTIAL | `/website/domini`, solo il proprietario. Normalizzazione (anche da URL incollato), rifiuto di host EasyGame, IP e domini locali in produzione; record attesi (TXT `_easygame-verify` + CNAME per un sottodominio o A per l'apex, piu quelli del provider); verifica del TXT fatta da EasyGame, poi provider; primario unico, gli altri reindirizzano; massimo sei domini; il cron ricontrolla i domini in attesa e quelli attivi ogni giorno. Provider `mock` funzionante in sviluppo (`*.localhost`); **`vercel` e `cloudflare` implementati ma mai provati contro i servizi veri: credenziali non configurate** Flusso percorso a browser il 2026-10-05 con il provider simulato (aggiunta, record, verifica, attivo); i provider reali non sono mai stati provati, servono le credenziali (D-WS-4). |
+| Libreria media | PARTIAL | `/website/media`: JPEG, PNG, WebP, GIF fino a 8 MB, tipo verificato sui byte, dimensioni lette, testo alternativo, titolo, punto focale; eliminazione bloccata se l'immagine e in uso (pagine, news, sponsor, persone, con l'elenco). I byte sono allegati (`owner_type = website`); nessun SVG. Verifica a browser in corso |
+| News del sito | COMPLETE | `/website/news`: bozza, programmata (visibile alla data, senza job), pubblicata, archiviata; copertina, galleria, categoria, in evidenza, SEO, gara collegata; corpo sanificato sul server; versione ottimistica. Distinta dalla bacheca interna. Percorso a browser il 2026-10-05 sul DB locale, con un club di prova. |
+| Persone sul sito | PARTIAL | `/website/persone` (`website.people.manage`, sola direzione): opt-in esplicito per atleti, allenatori e staff, con anteprima di cio che il pubblico vedrebbe calcolata da `applyPublicationPolicy`. Minore: nome e iniziale se il club non ne sceglie uno, mai l'anno di nascita, foto solo con consenso `images` accettato. La foto e un file `person-photo` servito solo se la policy lo consente **alla richiesta**. Nel perimetro di `data-subject.ts`. Verifica a browser in corso |
+| Vetrina sponsor | PARTIAL | `/website/sponsor`: visibile, livello, logo dalla libreria (o il logo storico in data URL finche non se ne carica uno), URL, descrizione, ordine, periodo; nessuna seconda anagrafica sponsor. Blocchi griglia, nastro, sponsor in evidenza, sezione per livello. Verifica a browser in corso |
+| Modulo contatti | COMPLETE | Blocco «modulo contatti» → `POST /api/public/website/inquiries`; casella in `/website/messaggi` (`website.settings.manage`): nuova, gestita, archiviata. Rate limit per indirizzo (5/ora) e per sito (100/ora), campo esca, tempo minimo di 3 s, consenso obbligatorio con il testo congelato, conservazione 24 mesi. **Nessuna notifica email** al club: le richieste si leggono solo nel gestionale. Percorso a browser il 2026-10-05 sul DB locale, con un club di prova. |
+| Iscrizioni dal sito | PARTIAL | I blocchi di iscrizione puntano ai moduli online pubblicati (ADR-0189): nessuna raccolta propria. Verifica a browser in corso |
+| SEO, sitemap, robots | COMPLETE | Metadati per pagina (titolo, descrizione, canonico sul dominio primario, Open Graph, Twitter), dati strutturati JSON-LD, `sitemap.xml` (pagine, news, squadre) e `robots.txt` per dominio, `noindex` per pagina e per sito, reindirizzamenti dagli slug vecchi. Percorso a browser il 2026-10-05 sul DB locale, con un club di prova. |
+| Sito pubblico sul dominio del club | COMPLETE | Middleware → `/site-render/<host>/…` → revisione pubblicata → dati vivi in cache (`unstable_cache`, un minuto per i dati, tag invalidati dalle scritture del modulo). Rendering dinamico, non ISR (D-WS-1). Verificato in locale solo con i test del middleware e del server; percorso a browser con un dominio `*.localhost` in corso Percorso a browser il 2026-10-05 sul DB locale, con un club di prova. |
+
+### Sport core
+
+| Capability | Stato | Note |
+|-----------|-------|------|
+| Squadre stabili | PARTIAL | `/categories/squadre`: identita della squadra fra le stagioni, slug con storico, collegamento per stagione a categoria e gruppo, «crea dalle categorie della stagione». Scrive chi amministra il club. Verifica a browser in corso |
+| Competizioni e classifica | PARTIAL | `/matches/competizioni`: competizioni per stagione (campionato, coppa, torneo, amichevole) con la classifica **inserita a mano dal club**; nessuna classifica calcolata, nessun feed di lega (D-WS-2). Verifica a browser in corso |
+| Avversari | PARTIAL | Anagrafica minima (nome unico, citta, logo, sito); scegliere un avversario per una gara aggiorna anche l'etichetta testuale storica. Verifica a browser in corso |
+| Risultato di una gara | PARTIAL | `MatchResultDrawer` dalla pagina Gare: punteggio casa/trasferta, provvisorio o finale (il finale chiude la gara), parziali con le etichette dello sport e risultato ricavato dai parziali (somma, o set vinti nella pallavolo), rifiuto se i due non tornano o se lo sport non ammette il pareggio, statistiche individuali con le sole chiavi dello sport (basket, calcio, pallavolo, pallamano, generico), «togli il risultato». Scrive solo `events.ts`. Verifica a browser in corso |

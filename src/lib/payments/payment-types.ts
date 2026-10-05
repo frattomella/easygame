@@ -94,13 +94,24 @@ export type HubExtraServiceKey =
   | "ai_documents"
   | "premium_support"
   | "extra_storage"
-  | "public_booking_portal";
+  | "public_booking_portal"
+  /* EasyGame Website (ADR-0200 §1): il sito della societa come servizio aggiuntivo. */
+  | "website";
 
 export type HubExtraBillingStatus =
   | "not_active"
   | "active"
   | "trialing"
-  | "cancelled";
+  | "cancelled"
+  /*
+    Tre stati in piu per i servizi con un ciclo di vita proprio (ADR-0200 §1):
+    un pagamento in ritardo, una sospensione decisa da Cedi, una scadenza. Per
+    il calcolo degli entitlement nessuno dei tre e «attivo»; per il sito
+    significano «sospeso, i contenuti restano».
+  */
+  | "past_due"
+  | "suspended"
+  | "expired";
 
 export type HubExtraService = {
   key: HubExtraServiceKey;
@@ -112,6 +123,10 @@ export type HubExtraService = {
   billingCycle?: "monthly" | "annual" | "one_time";
   providerSubscriptionItemId?: string;
   activatedAt?: string;
+  /** Fine della prova, per i servizi che ne hanno una (ISO). */
+  trialEndsAt?: string | null;
+  /** Fine del periodo pagato in corso (ISO). */
+  currentPeriodEnd?: string | null;
 };
 
 export type RegistrationPaymentMethodAvailability = {

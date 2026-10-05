@@ -264,6 +264,10 @@ export const setClubExtraService = async (input: {
   key: string;
   enabled: boolean;
   billingStatus?: HubExtraBillingStatus | null;
+  /** Fine della prova (ISO). `null` la toglie, assente la lascia com'e. */
+  trialEndsAt?: string | null;
+  /** Fine del periodo pagato (ISO). `null` la toglie, assente la lascia com'e. */
+  currentPeriodEnd?: string | null;
 }) => {
   const organizationId = String(input.organizationId || "").trim();
   if (!organizationId) {
@@ -301,6 +305,10 @@ export const setClubExtraService = async (input: {
             input.enabled && !(service as any).activatedAt
               ? new Date().toISOString()
               : (service as any).activatedAt,
+          ...(input.trialEndsAt === undefined ? {} : { trialEndsAt: input.trialEndsAt }),
+          ...(input.currentPeriodEnd === undefined
+            ? {}
+            : { currentPeriodEnd: input.currentPeriodEnd }),
         }
       : service,
   );

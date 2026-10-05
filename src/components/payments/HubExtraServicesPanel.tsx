@@ -27,6 +27,9 @@ const statusLabel = (status: HubExtraBillingStatus) => {
     active: "Attivo",
     trialing: "In prova",
     cancelled: "Annullato",
+    past_due: "Pagamento in ritardo",
+    suspended: "Sospeso",
+    expired: "Scaduto",
   };
 
   return labels[status] || "Non attivo";

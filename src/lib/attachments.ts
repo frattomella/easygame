@@ -108,6 +108,13 @@ export const ATTACHMENT_OWNER_TYPES = [
     societaria.
   */
   "announcement",
+  /*
+    La libreria del sito della societa (ADR-0200 §9): logo, foto, gallerie,
+    copertine degli articoli. Il proprietario e il **sito**, che decide cosa
+    e pubblico; i metadati del sito (alt, punto focale) stanno in
+    `website_media_meta`.
+  */
+  "website",
   "other",
 ] as const;
 

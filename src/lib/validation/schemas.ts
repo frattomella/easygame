@@ -226,6 +226,16 @@ export const entitlementWriteSchema = z.preprocess(
     organization_id: fields.id("Societa"),
     key: fields.text("Servizio", 60),
     value: z.boolean(),
+    /*
+      Facoltativi: lo stato e le date di un servizio con un ciclo di vita
+      proprio (la prova di EasyGame Website, la sospensione). Assenti, il
+      comportamento storico: `value` decide da solo.
+    */
+    billing_status: z
+      .enum(["not_active", "active", "trialing", "cancelled", "past_due", "suspended", "expired"])
+      .optional(),
+    trial_ends_at: fields.isoDate("Fine della prova").nullable().optional(),
+    current_period_end: fields.isoDate("Fine del periodo").nullable().optional(),
   }),
   z.object({
     operation: z.literal("override"),

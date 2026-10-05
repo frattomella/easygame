@@ -24,7 +24,10 @@ export type AuthRateLimitPolicy = {
     /** Cambio di un fattore su un account gia autenticato (PP-05). */
     | "credential_change"
     /** Registrazione del token push del dispositivo mobile (WP11). */
-    | "device_token";
+    | "device_token"
+    /** Il modulo contatti del sito di un club (ADR-0200 §9): per indirizzo e per sito. */
+    | "website_inquiry_ip"
+    | "website_inquiry_site";
   limit: number;
   windowMs: number;
 };
@@ -126,6 +129,14 @@ export const AUTH_RATE_LIMITS = {
   publicFormResubmit: { scope: "public_form_resubmit", limit: 10, windowMs: 60 * 60_000 },
   /* Le immagini di contenuto: un modulo ne ha N, la risposta e in cache; non si conta con le aperture. */
   publicFormAsset: { scope: "public_form_asset", limit: 300, windowMs: 15 * 60_000 },
+  /*
+    Il modulo contatti del sito di un club (ADR-0200 §9). Due contatori: per
+    indirizzo (cinque messaggi all'ora bastano a chiunque scriva davvero) e per
+    sito (cento all'ora: un sito sotto attacco non riempie la casella del
+    club con migliaia di righe, anche se gli indirizzi cambiano).
+  */
+  websiteInquiryIp: { scope: "website_inquiry_ip", limit: 5, windowMs: 60 * 60_000 },
+  websiteInquirySite: { scope: "website_inquiry_site", limit: 100, windowMs: 60 * 60_000 },
   /*
     Il link di pagamento (W2-B). Due contatori per gesto, e non uno: quello
     **per token** ferma chi martella un link che ha ricevuto o indovinato,

@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Globe,
   BarChart3,
   Briefcase,
   Building,
@@ -33,6 +34,7 @@ import {
 } from "lucide-react";
 import { canAccessPath } from "@/lib/access-roles";
 import { canOpenAccounting } from "@/lib/accounting/permissions";
+import { hasWebsitePermission } from "@/lib/website/permissions";
 
 /**
  * La navigazione del guscio Web V2 (guideline 06 §6.1).
@@ -80,6 +82,18 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { id: "dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
       { id: "reports", label: "Report", href: "/reports", icon: BarChart3 },
       { id: "hub", label: "EasyGame HUB", href: "/hub", icon: Sparkles, short: "HUB" },
+      /*
+        EasyGame Website (ADR-0200). La voce si vede a chi ha `website.read`:
+        il servizio non attivo apre la pagina che spiega come attivarlo. Sta accanto
+        all'HUB, da cui si attiva; la Segreteria ha gia otto voci.
+      */
+      {
+        id: "website",
+        label: "Sito web",
+        href: "/website",
+        icon: Globe,
+        visible: ({ role }) => hasWebsitePermission(role || null, "website.read"),
+      },
     ],
   },
   {

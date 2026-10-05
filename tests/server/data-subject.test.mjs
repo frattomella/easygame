@@ -94,11 +94,46 @@ const seed = () => ({
       created_at: new Date("2026-01-01T00:00:00Z"),
       updated_at: new Date("2026-01-01T00:00:00Z"),
     },
+    {
+      id: "foto-sito-1",
+      organization_id: CLUB,
+      owner_type: "website",
+      owner_id: "sito-1",
+      category: "person-photo",
+      file_name: "ritratto.jpg",
+      mime_type: "image/jpeg",
+      size_bytes: 4,
+      checksum: "foto",
+      storage_driver: "database",
+      storage_key: null,
+      valid_from: null,
+      valid_until: null,
+      created_by: null,
+      created_at: new Date("2026-01-01T00:00:00Z"),
+      updated_at: new Date("2026-01-01T00:00:00Z"),
+    },
   ],
   attachmentBlob: [
     { attachment_id: "att-1", content: Buffer.from("segreto") },
     { attachment_id: "att-2", content: Buffer.from("altro") },
+    { attachment_id: "foto-sito-1", content: Buffer.from("foto") },
   ],
+  /*
+    Il sito pubblico (ADR-0200): come la persona compare sul sito, chiavata
+    per `person_id` senza chiave esterna, con la foto che e un file della
+    libreria del sito; e le statistiche individuali di una gara.
+  */
+  websitePersonPublication: [
+    {
+      id: "pub-1",
+      organization_id: CLUB,
+      person_kind: "athlete",
+      person_id: MINORE,
+      published: true,
+      settings: { published: true, showPhoto: true, photoMediaId: "foto-sito-1", bio: "Playmaker" },
+    },
+  ],
+  clubEventPlayerStat: [{ id: "stat-1", organization_id: CLUB, event_id: "evento-1", athlete_id: MINORE, stats: { points: 12 } }],
   consentRecord: [
     {
       id: "con-1",
@@ -409,7 +444,8 @@ test("senza il gettone del riepilogo la cancellazione non parte", async () => {
     /riepilogo/i,
   );
 
-  assert.equal(righe("attachment").length, 2);
+  /* I due file delle schede piu la foto del sito: nessuno e stato toccato. */
+  assert.equal(righe("attachment").length, 3);
 });
 
 test("il dato di un minore non si cancella senza conferma esplicita", async () => {
@@ -474,6 +510,9 @@ test("la cancellazione non lascia orfani su nessuno dei sei indici", async () =>
     ["athleteCategoryMembership", (row) => row.athlete_id === MINORE],
     ["appointment", (row) => row.athlete_id === MINORE],
     ["paymentLink", (row) => row.athlete_id === MINORE],
+    ["websitePersonPublication", (row) => row.person_id === MINORE],
+    ["clubEventPlayerStat", (row) => row.athlete_id === MINORE],
+    ["attachment", (row) => row.id === "foto-sito-1"],
   ];
 
   for (const [delegate, predicato] of orfani) {
@@ -546,7 +585,10 @@ test("il rapporto dichiara cosa resta e cosa va riletto a mano", async () => {
   assert.deepEqual(rapporto.manualReview.map((row) => row.id), [
     "form-condiviso",
   ]);
-  assert.equal(rapporto.deleted.attachments, 1);
+  /* Il documento della scheda e la foto della persona sul sito (ADR-0200). */
+  assert.equal(rapporto.deleted.attachments, 2);
+  assert.equal(rapporto.deleted.website_person_publications, 1);
+  assert.equal(rapporto.deleted.club_event_player_stats, 1);
 });
 
 test("la cancellazione lascia una riga di audit con i conteggi", async () => {

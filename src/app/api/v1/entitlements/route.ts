@@ -197,6 +197,9 @@ export async function POST(request: Request) {
         organizationId,
         key: body.key,
         enabled: body.value,
+        billingStatus: body.billing_status ?? null,
+        trialEndsAt: body.trial_ends_at,
+        currentPeriodEnd: body.current_period_end,
       });
 
       await recordAuditEvent({
@@ -208,7 +211,13 @@ export async function POST(request: Request) {
         resource: "club_service",
         resourceId: body.key,
         request,
-        metadata: { key: body.key, enabled: body.value },
+        metadata: {
+          key: body.key,
+          enabled: body.value,
+          billingStatus: body.billing_status ?? null,
+          trialEndsAt: body.trial_ends_at ?? null,
+          currentPeriodEnd: body.current_period_end ?? null,
+        },
       });
 
       return NextResponse.json({ data: { services }, error: null });

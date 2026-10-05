@@ -376,6 +376,18 @@ export const HUB_EXTRA_SERVICE_DEFINITIONS: Array<
     priceCents: 1900,
     billingCycle: "monthly",
   },
+  {
+    /*
+      EasyGame Website (ADR-0200 §1). Il prezzo non e scritto qui: e una
+      decisione commerciale ancora aperta, e un numero inventato in un file di
+      configurazione finirebbe in una schermata come se fosse un listino.
+    */
+    key: "website",
+    name: "EasyGame Website",
+    description:
+      "Il sito pubblico della societa sul suo dominio, alimentato dal gestionale.",
+    billingCycle: "monthly",
+  },
 ];
 
 export const normalizeExtraServices = (value: unknown): HubExtraService[] => {
@@ -396,12 +408,18 @@ export const normalizeExtraServices = (value: unknown): HubExtraService[] => {
       name: firstText(stored.name, definition.name),
       description: firstText(stored.description, definition.description),
       enabled: Boolean(stored.enabled),
-      billingStatus:
-        stored.billingStatus === "active" ||
-        stored.billingStatus === "trialing" ||
-        stored.billingStatus === "cancelled"
-          ? stored.billingStatus
-          : "not_active",
+      billingStatus: (
+        [
+          "active",
+          "trialing",
+          "cancelled",
+          "past_due",
+          "suspended",
+          "expired",
+        ] as const
+      ).includes(stored.billingStatus)
+        ? stored.billingStatus
+        : "not_active",
     };
   });
 };

@@ -14152,22 +14152,33 @@ Il sito e l'extra Hub `website` con l'entitlement omonimo
 (`src/lib/entitlements/catalog.ts`): nessun secondo sistema di billing. Lo
 stato del modulo si **ricava** in `src/lib/website/access-state.ts` da servizio
 aggiuntivo, eccezioni di piattaforma e date: `unavailable` (non acquistato o
-revocato), `trial`, `active`, `suspended` (sospeso, scaduto o prova finita).
-La prova **puo pubblicare**. Sospeso: il gestionale mostra il sito in sola
-lettura e il pubblico vede «sito non disponibile» (`noindex`); i dati restano.
-Ogni rotta passa da `requireWebsiteAccess`: nessun bypass via API.
+revocato), `trial`, `active`, `suspended` (sospeso, scaduto, pagamento in
+ritardo, disdetto dopo essere stato attivo, o prova finita). L'extra si
+accende dalla console di piattaforma (`POST /api/v1/entitlements`,
+`operation: "service"`, con `billing_status`, `trial_ends_at`,
+`current_period_end`): il prezzo non e scritto nel catalogo, e una decisione
+commerciale aperta. La prova **puo pubblicare**. Sospeso: il gestionale mostra
+il sito in sola lettura e il pubblico vede «sito non disponibile» (`noindex`);
+i dati restano. Ogni funzione di `src/lib/server/website/` che agisce per una
+persona passa da `requireWebsiteAccess`: nessun bypass via API. (Ritirare il
+sito e togliere un dominio restano possibili anche da sospeso: chiedono il
+permesso ma non lo stato attivo.)
 
 ### §2 — Domini: solo quelli del club
 
 Nessun sottodominio EasyGame pubblico, nemmeno temporaneo: il sito si pubblica
 **solo** su un dominio o sottodominio del club. Prima del dominio esiste una
 sola superficie, l'anteprima privata (§5). Il dominio vive in
-`website_domains` (hostname unico globale, un primario per sito, gli altri
-reindirizzano con 301), si verifica con un record TXT di proprieta
-(`_easygame-verify.<host>`) piu il record di instradamento, e il certificato lo
-chiede un `DomainProvider` (`src/lib/server/website/domain-providers/`):
-`mock` per sviluppo e test, `vercel` e `cloudflare` completi e attivi quando
-le credenziali sono in ambiente. **La gestione del dominio e del solo
+`website_domains` (hostname unico globale, un primario per sito con indice
+unico parziale, gli altri reindirizzano al primario con un reindirizzamento
+permanente — `permanentRedirect` di Next, cioe **308**), si verifica con un
+record TXT di proprieta (`_easygame-verify.<host>`, letto da EasyGame con il
+proprio resolver) piu il record di instradamento, e il certificato lo chiede
+un `DomainProvider` (`src/lib/server/website/domain-providers/`): `mock` per
+sviluppo e test, `vercel` e `cloudflare` completi. Il provider si sceglie con
+`EASYGAME_WEBSITE_DOMAIN_PROVIDER`; senza la variabile vale `mock` fuori
+produzione e **nessuno** in produzione, e un provider senza credenziali non
+collega niente. **La gestione del dominio e del solo
 proprietario e non si delega**: `website.domain.manage` ha `roles: ["owner"]`,
 quindi nessun ruolo personalizzato la puo contenere.
 
@@ -14198,10 +14209,12 @@ su `website_pages`) con concorrenza ottimistica: ogni scrittura porta la
 versione letta, e una versione superata risponde 409 senza sovrascrivere.
 L'anteprima e una rotta protetta da sessione e permesso
 (`/website-preview/...`), `noindex`, che rende la bozza con lo stesso renderer
-del pubblico. Pubblicare congela tema, navigazione, intestazione, piede, SEO e
-pagine in una riga di `website_revisions`, **immutabile** (vincolo nel
-database). Il pubblico legge solo la revisione corrente. Rollback = una
-revisione nuova copiata da una vecchia (pattern ADR-0030 di Cedi Platform).
+del pubblico. Pubblicare congela tema, navigazione, intestazione, piede, SEO,
+impostazioni e pagine in una riga di `website_revisions`, **immutabile** (un
+trigger del database rifiuta ogni `UPDATE`); la pubblicazione chiede un
+dominio primario attivo con HTTPS e porta una chiave di idempotenza. Il
+pubblico legge solo la revisione corrente. Rollback = una revisione nuova
+copiata da una vecchia (pattern ADR-0030 di Cedi Platform).
 Dati sportivi, sponsor, articoli e persone **non** stanno nello snapshot: si
 leggono vivi, con le loro regole.
 
@@ -14221,8 +14234,10 @@ sul sito solo con una riga di `website_person_publications` con `published`
 vero, e solo con i campi che il club ha scelto: nome di visualizzazione, foto,
 numero, ruolo, anno di nascita, altezza, biografia, statistiche. Mai: codice
 fiscale, indirizzo, telefono o email personali, documenti, certificati, dati
-sanitari, pagamenti, tutori, consensi. Per un **minore** (data mancante =
-minore): nome abbreviato di default, nessun anno di nascita, foto solo con il
+sanitari, pagamenti, tutori, consensi. Per un **atleta minore** (data mancante =
+minore; allenatori e staff non passano da questo ramo): il nome pieno diventa
+nome e iniziale se il club non ne ha scritto uno a mano, nessun anno di
+nascita, foto solo con il
 consenso `images` **accettato** nel registro dei consensi — l'assenza di un
 rifiuto non e un consenso. La regola ha una funzione sola
 (`src/lib/website/people/policy.ts`) e la tabella e nel perimetro di
@@ -14252,12 +14267,15 @@ EasyGame non ha, nessuna integrazione esterna.
   punto focale). I byte non si duplicano. `StorageDriver` guadagna
   l'adattatore S3/R2, attivo con le variabili d'ambiente.
 - **News**: la bacheca e interna e per pubblico; gli articoli del sito sono
-  `website_articles`, con stato proprio (bozza, programmato, pubblicato).
+  `website_articles`, con stato proprio (bozza, programmato, pubblicato,
+  archiviato). Un articolo programmato diventa visibile quando la sua data
+  passa, alla lettura: nessun lavoro di sfondo lo «pubblica».
 - **Iscrizioni**: il sito non raccoglie iscrizioni da solo. I blocchi di
   iscrizione, prova, open day, camp e rinnovo puntano ai moduli online
   pubblicati (ADR-0189): la pratica entra nel flusso che esiste. Il modulo
   contatti scrive `website_inquiries` (non esiste un dominio lead) con rate
-  limit, honeypot e consenso.
+  limit, honeypot, tempo minimo di compilazione e consenso; non manda email a
+  nessuno: le richieste si leggono nell'area Messaggi del sito.
 
 ### §10 — Permessi
 
@@ -14268,7 +14286,8 @@ chiavi e in [08](08-roles-and-permissions.md).
 
 ### Cosa non e in questo ADR
 
-Multilingua, piu siti per club, pubblicazione programmata, statistiche
+Multilingua, piu siti per club, pubblicazione programmata del sito (le news
+hanno la loro data di uscita, il sito no), statistiche
 calcolate oltre a quelle registrate, classifiche automatiche, un tipo di
 evento societario generico nel calendario (open day e camp passano dai
 moduli online).

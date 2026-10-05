@@ -82,6 +82,13 @@ const RISORSA_PER_TIPO: Record<string, string> = {
     una scelta che valga la pena leggere.
   */
   other: "clubs",
+  /*
+    La libreria del sito (ADR-0200 §9). Le sue immagini si gestiscono dalle
+    rotte del sito, con i permessi `website.*`, e il pubblico le legge dalla
+    rotta pubblica dei media; la rotta generica degli allegati le lascia a chi
+    amministra il club, come un tipo riservato.
+  */
+  website: "clubs",
 };
 
 /**

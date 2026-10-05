@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Copy, Pencil, RotateCcw, Trash2, Users, XCircle } from "lucide-react";
+import { Copy, Pencil, RotateCcw, Trash2, Trophy, Users, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ColumnDef, FilterDef, FilterValue, RowActionDef, ViewDef } from "@/components/web/datagrid/types";
 import { DataChip, StatusPill } from "@/components/web/primitives/StatusPill";
@@ -23,6 +23,7 @@ import {
   matchStatusSpec,
   type MatchRecord,
 } from "@/components/matches/v2/match-page-model";
+import { matchResultLabel } from "@/components/matches/v2/match-result-model";
 
 /**
  * La «Vista elenco» delle gare come **griglia** (guideline 07): tutte le gare
@@ -323,6 +324,24 @@ export const buildMatchColumns = ({
     cell: (row) => <StatusPill status={matchStatusSpec(getEffectiveMatchStatus(row))} size="sm" />,
     sortValue: (row) => getEffectiveMatchStatus(row),
   },
+  {
+    id: "risultato",
+    header: "Risultato",
+    kind: "text",
+    width: "150px",
+    cell: (row) => {
+      const label = getEffectiveMatchStatus(row) === "cancelled" ? null : matchResultLabel(row);
+      return label ? (
+        <span className="egw-num egw-ellipsis block font-semibold" title={label}>
+          {label}
+        </span>
+      ) : (
+        <span className="text-egw-ink-42">{MISSING}</span>
+      );
+    },
+    sortValue: (row) => matchResultLabel(row) || "",
+    exportValue: (row) => matchResultLabel(row) || "",
+  },
 ];
 
 export const buildMatchRowActions = ({
@@ -332,6 +351,7 @@ export const buildMatchRowActions = ({
   onCancel,
   onRestore,
   onDelete,
+  onResult,
 }: {
   onConvocations: (row: MatchRecord) => void;
   onEdit: (row: MatchRecord) => void;
@@ -339,6 +359,8 @@ export const buildMatchRowActions = ({
   onCancel: (row: MatchRecord) => void;
   onRestore: (row: MatchRecord) => void;
   onDelete: (row: MatchRecord) => void;
+  /** Assente per chi non gestisce il calendario: l'azione non compare. */
+  onResult?: (row: MatchRecord) => void;
 }): RowActionDef<MatchRecord>[] => [
   {
     id: "convocazioni",
@@ -347,6 +369,13 @@ export const buildMatchRowActions = ({
     primary: true,
     onClick: onConvocations,
     hidden: (row) => !canManageMatch(row),
+  },
+  {
+    id: "risultato",
+    label: "Risultato",
+    icon: <Trophy />,
+    onClick: (row) => onResult?.(row),
+    hidden: (row) => !onResult || getEffectiveMatchStatus(row) === "cancelled",
   },
   {
     id: "modifica",

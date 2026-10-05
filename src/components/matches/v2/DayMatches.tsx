@@ -34,6 +34,7 @@ import {
   matchStatusSpec,
   type MatchRecord,
 } from "@/components/matches/v2/match-page-model";
+import { matchResultLabel } from "@/components/matches/v2/match-result-model";
 
 /**
  * Le gare della giornata (guideline 09 §9.3 «Timeline card», §9.7 «Prossime
@@ -54,6 +55,8 @@ export type MatchActions = {
   onCancel: (match: MatchRecord) => void;
   onRestore: (match: MatchRecord) => void;
   onDelete: (match: MatchRecord) => void;
+  /** Risultato, parziali e statistiche (ADR-0200 §8): assente per chi non gestisce il calendario. */
+  onResult?: (match: MatchRecord) => void;
 };
 
 /** Le risposte delle famiglie, per gara, lette dalla rotta RSVP (`null` = non richieste). */
@@ -83,6 +86,12 @@ export function MatchActionsMenu({
           <MenuItem onSelect={() => actions.onEdit(match)}>
             <Pencil />
             {manageable ? "Modifica" : "Apri"}
+          </MenuItem>
+        ) : null}
+        {!cancelled && actions.onResult ? (
+          <MenuItem onSelect={() => actions.onResult?.(match)}>
+            <Trophy />
+            Risultato
           </MenuItem>
         ) : null}
         <MenuItem onSelect={() => actions.onDuplicate(match)}>
@@ -183,6 +192,17 @@ function MatchAside({
             {verb}
           </Button>
         ) : null}
+        {status === "completed" && actions.onResult ? (
+          <Button
+            variant={matchResultLabel(match) ? "secondary" : "neutral"}
+            size="sm"
+            icon={<Trophy />}
+            onClick={() => actions.onResult?.(match)}
+            aria-label={`Risultato di ${match.title}`}
+          >
+            Risultato
+          </Button>
+        ) : null}
         <MatchActionsMenu match={match} actions={actions} />
       </div>
     </div>
@@ -209,6 +229,7 @@ export function MatchCard({
   const end = matchEndTime(match);
   const home = isHomeMatch(match);
   const location = formatMatchLocationLabel(match);
+  const result = cancelled ? null : matchResultLabel(match);
   return (
     <Panel
       as="article"
@@ -233,6 +254,11 @@ export function MatchCard({
             <DataChip tone="blue" size="sm" title={match.category}>
               {match.category || "Categoria"}
             </DataChip>
+            {result ? (
+              <DataChip tone="navy" size="sm" title={`Risultato: ${result}`}>
+                {result}
+              </DataChip>
+            ) : null}
             {match.matchNumber ? (
               <DataChip tone="neutral" size="sm" title={`Numero di gara ${match.matchNumber}`}>
                 N. {match.matchNumber}

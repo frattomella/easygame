@@ -1385,3 +1385,79 @@ ristretto (ADR-0103) vale sull'atleta **e** sulla squadra di destinazione: chi
 e ristretto a S. Cosma non sposta nessuno a Scauri. Il gruppo di una persona
 in prova resta una scelta esplicita e entra nel perimetro dei gruppi
 dell'allenatore (`eventWithinTrainerPerimeter`, in scrittura fallisce chiuso).
+
+## Il sito della societa: tredici chiavi, nessun ruolo nuovo (ADR-0200, 2026-10-05)
+
+Il catalogo (`src/lib/permissions/catalog.ts`) guadagna il dominio `website`
+(«Sito della societa» nell'editor dei ruoli,
+`src/components/access-management/v2/access-model.ts`).
+`src/lib/website/permissions.ts` le elenca per tipo e le interroga **solo**
+con `roleHasPermission`, che applica gia il restringimento dei ruoli
+personalizzati: nessuna matrice privata, quindi nessun bisogno di
+`narrowDomainPermission`.
+
+| Chiave | Ruoli | Cosa apre |
+|--------|-------|-----------|
+| `website.read` | proprietario, gestore, collaboratore | Vedere il sito nel gestionale, l'anteprima privata, l'elenco dei domini, la libreria, le news, le versioni |
+| `website.edit` | proprietario, gestore, collaboratore | Salvare il documento di una pagina |
+| `website.pages.manage` | proprietario, gestore, collaboratore | Creare, duplicare, rinominare (titolo e slug), riordinare ed eliminare pagine |
+| `website.navigation.manage` | proprietario, gestore, collaboratore | Menu dell'intestazione e del piede |
+| `website.blog.manage` | proprietario, gestore, collaboratore | Scrivere, programmare, pubblicare, archiviare ed eliminare news |
+| `website.media.manage` | proprietario, gestore, collaboratore | Caricare, descrivere ed eliminare immagini della libreria |
+| `website.sponsors.manage` | proprietario, gestore, collaboratore | La vetrina sul sito degli sponsor gia in anagrafica |
+| `website.seo.manage` | proprietario, gestore, collaboratore | Titoli, descrizioni e indicizzazione delle pagine e del sito |
+| `website.theme.manage` | proprietario, gestore | Tema, colori, caratteri, intestazione, piede, stile di un altro template |
+| `website.people.manage` | proprietario, gestore | Quali atleti, allenatori e staff compaiono sul sito e con quali dati |
+| `website.settings.manage` | proprietario, gestore | Creare il sito, impostazioni e identita, **leggere le richieste del modulo contatti** (dati personali di chi non e del club) |
+| `website.publish` | proprietario, gestore | Pubblicare, ripristinare una versione, ritirare il sito, riportare una versione nella bozza |
+| `website.domain.manage` | **solo proprietario** | Collegare, verificare, impostare come principale e togliere un dominio |
+
+Staff, allenatore, genitore e atleta non hanno nessuna chiave: il sito non e
+un loro strumento (`tests/lib/website-policy-access.test.mjs`,
+`tests/server/website-server.test.mjs`).
+
+**Il permesso non basta: conta anche lo stato del servizio.**
+`requireWebsiteAccess` (`src/lib/server/website/access.ts`) verifica in
+ordine club attivo (`assertActiveClub`), chiave del ruolo attivo e stato del
+modulo (`resolveWebsiteAccess`): leggere chiede `canView`, scrivere `canEdit`,
+pubblicare e collegare domini `canPublish`. Per un club senza il servizio ogni
+funzione risponde «Accesso negato» con il messaggio di attivazione (salvo chi
+amministra la piattaforma, che legge); un club sospeso legge ma non scrive.
+Ritirare il sito e togliere un dominio chiedono il permesso ma non lo stato
+attivo: si possono fare anche da sospeso.
+
+**Perche il dominio non si delega.** Collegare un dominio decide dove il nome
+del club compare su Internet e passa per il suo registrar: e un atto del
+legale rappresentante, non di chi scrive le news. `website.domain.manage` ha
+`roles: ["owner"]`, e un ruolo personalizzato non puo avere `owner` come base:
+il **soffitto** di `roleHasPermission` (la chiave deve appartenere al ruolo
+base) la esclude per costruzione, senza un'eccezione scritta altrove.
+
+**Il collaboratore si restringe con un ruolo personalizzato.** Le otto chiavi
+di contenuto stanno nel soffitto del collaboratore: un ruolo «Redazione sito»
+costruito su di lui puo tenere solo `website.read` + `website.blog.manage`, per
+esempio. Le quattro chiavi di sola direzione (tema, persone, impostazioni,
+pubblicazione) sono `isDirectionPermission` vere: un ruolo personalizzato
+costruito sul gestore puo portarle, ma **assegnarlo e un atto del
+proprietario** (`src/lib/roles/custom-role.ts`).
+
+**La voce «Sito web».** Sta nel gruppo Panoramica accanto all'HUB
+(`src/components/web/shell/navigation.ts`) e si vede a chi ha `website.read`,
+anche se il servizio non e attivo: la pagina spiega come attivarlo.
+`/website` e fra i prefissi del gestionale **non** riservati alla direzione
+(`src/lib/access-roles.ts`): chi fa cosa lo decidono le chiavi, non il
+percorso. L'anteprima `/website-preview/<sito>` chiede la sessione e
+`website.read` sul club del sito.
+
+### Sport core: le chiavi che esistevano gia
+
+Nessuna chiave nuova.
+
+| Atto | Cosa chiede | Note |
+|------|-------------|------|
+| Leggere squadre stabili, competizioni, avversari | `events.read` **oppure** `website.read` | Chi vede il calendario o chi costruisce il sito |
+| Creare, modificare, eliminare una squadra stabile | `canManageClubConfigurationAsActor` (proprietario, gestore) | E configurazione sportiva, come le categorie. Sull'**attore**: un ruolo personalizzato costruito sul gestore non la eredita (D-WS-7, chiuso) |
+| Creare, modificare, eliminare competizioni (con la classifica) e avversari | `events.manage` | Quindi anche l'allenatore, che ha `events.manage`; competizioni e avversari sono del club e **non** hanno un perimetro di sede o categoria |
+| Squadra, competizione, avversario e giornata di una gara (`saveMatchSportDetails`) | `events.manage` + perimetro dell'allenatore e di sede/categoria sull'evento | Come ogni scrittura di `events.ts` |
+| Risultato, parziali e statistiche (`saveMatchResult`) | `events.manage` + gli stessi perimetri | Le statistiche si accettano solo per atleti del club |
+| Leggere le statistiche di una gara (`listMatchPlayerStats`) | `events.read` + perimetri in lettura | |
