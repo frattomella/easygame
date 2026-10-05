@@ -20,13 +20,13 @@ import { generateInstallmentPreview } from "../../src/lib/payment-plan-utils.ts"
 /* ── Reviewer B — Critical + High: categorie e gruppi numerazione della scheda atleta ── */
 
 test("Critical (Reviewer B): la scheda atleta legge le categorie dal registro season-scoped, non da getClubCategories", () => {
-  const source = readFileSync("src/app/athletes/[id]/page.tsx", "utf8");
+  const source = readFileSync("src/app/(app)/athletes/[id]/page.tsx", "utf8");
   assert.doesNotMatch(source, /getClubCategories\(/, "getClubCategories non filtra per stagione: il selettore Categorie offriva anche le squadre di stagioni chiuse");
   assert.match(source, /apiRequest<any\[\]>\(`\/api\/v1\/categories\?organization_id=\$\{encodeURIComponent\(clubId\)\}`\)/);
 });
 
 test("High (Reviewer B): i gruppi numerazione della scheda atleta sono filtrati per stagione", () => {
-  const source = readFileSync("src/app/athletes/[id]/page.tsx", "utf8");
+  const source = readFileSync("src/app/(app)/athletes/[id]/page.tsx", "utf8");
   assert.match(source, /filterCollectionBySeason\("jersey_groups", tutteLeVoci, stagioniPerGruppi\.activeSeasonId,/);
 });
 
@@ -39,7 +39,7 @@ test("High (Reviewer A): la rotta trial-history applica il perimetro di sede/cat
 });
 
 test("High (Reviewer A): senza una prova, activityStartAt non usa la nascita della riga come taglio", () => {
-  const source = readFileSync("src/app/athletes/[id]/page.tsx", "utf8");
+  const source = readFileSync("src/app/(app)/athletes/[id]/page.tsx", "utf8");
   assert.doesNotMatch(source, /activityStartAt\s*=\s*trialHistory\?\.activityStartAt \|\| athleteRecord\.created_at/);
   assert.match(source, /const activityStartAt = trialHistory\?\.activityStartAt \|\| null;/);
 });

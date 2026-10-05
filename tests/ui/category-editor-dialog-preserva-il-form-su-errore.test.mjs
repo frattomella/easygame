@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
  *
  * Causa: l'effetto che inizializza `formData` da `initialData`/
  * `initialAssignedTrainerIds`/`initialSiteIds` ripartiva a ogni cambio di
- * **riferimento** di quelle prop — e `src/app/categories/page.tsx` le
+ * **riferimento** di quelle prop — e `src/app/(app)/categories/page.tsx` le
  * ricostruisce (nuovi array letterali) a ogni render, incluso il re-render
  * che `showToast` innesca per mostrare l'errore. Il dialogo restava aperto,
  * ma il suo stato veniva sovrascritto con quello iniziale (vuoto, in

@@ -17,7 +17,7 @@ const read = (relative) => readFileSync(path.join(SRC, ...relative.split("/")), 
 const senzaCommenti = (source) =>
   source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-const page = read("app/training/page.tsx");
+const page = read("app/(app)/training/page.tsx");
 const model = read("components/training/v2/training-page-model.ts");
 const rail = read("components/training/v2/WeekRail.tsx");
 const day = read("components/training/v2/DaySessions.tsx");

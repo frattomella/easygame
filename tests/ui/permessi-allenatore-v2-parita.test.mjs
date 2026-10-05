@@ -26,7 +26,7 @@ import { DEFAULT_TRAINER_DASHBOARD_PERMISSIONS } from "@/lib/trainer-dashboard-p
  */
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const sources = {
-  route: read("src/app/permissions/page.tsx"),
+  route: read("src/app/(app)/permissions/page.tsx"),
   page: read("src/components/permissions/v2/trainer-permissions-page.tsx"),
   model: read("src/components/permissions/v2/trainer-permissions-model.ts"),
 };

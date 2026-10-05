@@ -18,7 +18,7 @@ const read = (relative) => readFileSync(path.join(SRC, ...relative.split("/")), 
 const senzaCommenti = (source) =>
   source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-const page = read("app/registration-management/page.tsx");
+const page = read("app/(app)/registration-management/page.tsx");
 const model = read("components/registration-management/v2/plan-form-model.ts");
 const planDrawer = read("components/registration-management/v2/payment-plan-drawer.tsx");
 const methodDrawer = read("components/registration-management/v2/payment-method-drawer.tsx");

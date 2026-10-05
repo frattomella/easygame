@@ -26,7 +26,7 @@ const read = (relative) =>
   );
 
 const ADD_MATCH_FORM = "components/matches/v2/MatchFormDrawer.tsx";
-const MATCHES_PAGE = "app/matches/page.tsx";
+const MATCHES_PAGE = "app/(app)/matches/page.tsx";
 
 test("MatchFormDrawer propone la fine (+90 minuti) quando si lascia l'ora di inizio senza una fine", () => {
   const source = read(ADD_MATCH_FORM);

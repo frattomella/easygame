@@ -22,13 +22,13 @@ const strip = (source) =>
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
-const ELENCO = "app/athletes/page.tsx";
+const ELENCO = "app/(app)/athletes/page.tsx";
 const MODELLO = "components/athletes/v2/athlete-grid-model.ts";
 const COLONNE = "components/athletes/v2/athletes-grid-columns.tsx";
 const CONTESTO = "components/athletes/v2/athletes-context-controls.tsx";
 const CASSETTO = "components/athletes/v2/bulk-category-drawer.tsx";
 const IMPORT = "components/forms/AthleteImportDialog.tsx";
-const NUOVO = "app/athletes/new/page.tsx";
+const NUOVO = "app/(app)/athletes/new/page.tsx";
 const FORM = "components/forms/AthleteCreateForm.tsx";
 
 const elenco = strip(read(ELENCO));

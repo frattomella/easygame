@@ -323,8 +323,8 @@ test("la dashboard non rilegge cio che ha gia", () => {
     "i KPI arrivano da buildDashboardMetrics, non da una lettura propria",
   );
   for (const route of [
-    "src/app/dashboard/page.tsx",
-    "src/app/dashboard/[dashboardId]/page.tsx",
+    "src/app/(app)/dashboard/page.tsx",
+    "src/app/(app)/dashboard/[dashboardId]/page.tsx",
   ]) {
     assert.match(read(route), /<ClubDashboard \/>/, `${route}: una dashboard sola, non due`);
   }

@@ -20,9 +20,9 @@ const readCode = (file) =>
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
-const TRAINER_CARD = "app/trainers/[id]/page.tsx";
-const TRAINER_NEW = "app/trainers/new/page.tsx";
-const TRAINER_EDIT = "app/trainers/[id]/edit/page.tsx";
+const TRAINER_CARD = "app/(app)/trainers/[id]/page.tsx";
+const TRAINER_NEW = "app/(app)/trainers/new/page.tsx";
+const TRAINER_EDIT = "app/(app)/trainers/[id]/edit/page.tsx";
 const EDIT_TRAINING = "components/forms/EditTrainingForm.tsx";
 const DOCUMENTS_PANEL = "components/trainer/trainer-documents-panel.tsx";
 /* Dal Web V2 le sezioni si modificano in un cassetto: i campi vivono qui. */
@@ -181,7 +181,7 @@ test("la modifica di un allenamento permette la selezione multipla", () => {
 });
 
 test("il salvataggio della modifica scrive tutti gli allenatori e le categorie", () => {
-  const source = readCode("app/training/page.tsx");
+  const source = readCode("app/(app)/training/page.tsx");
 
   assert.match(source, /trainerIds: updatedTraining\.trainerIds/);
   assert.match(source, /categories: updatedTraining\.categories/);
@@ -200,7 +200,7 @@ test("il salvataggio della modifica scrive tutti gli allenatori e le categorie",
  * inventato su un tesseramento e peggio di un campo vuoto.
  */
 test("il numero di tessera non e obbligatorio", () => {
-  const athlete = readCode("app/athletes/[id]/page.tsx");
+  const athlete = readCode("app/(app)/athletes/[id]/page.tsx");
 
   assert.equal(
     /!newRegistration\.federation \|\| !newRegistration\.number/.test(athlete),
@@ -218,7 +218,7 @@ test("il numero di tessera non e obbligatorio", () => {
 test("nessuna schermata di persona rende obbligatorio un numero di tessera", () => {
   for (const file of [
     TRAINER_NEW,
-    "app/staff/new/page.tsx",
+    "app/(app)/staff/new/page.tsx",
     "components/soci/v2/member-form.tsx",
   ]) {
     const source = readCode(file);

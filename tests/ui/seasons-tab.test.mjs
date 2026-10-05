@@ -23,7 +23,7 @@ const readCode = (file) =>
 
 /* Dal Web V2 la sezione vive in `components/organization/v2/`: stesse regole. */
 const MANAGER = "components/organization/v2/season-manager.tsx";
-const ORG_PAGE = "app/organization/page.tsx";
+const ORG_PAGE = "app/(app)/organization/page.tsx";
 
 test("la scheda Stagioni monta il componente dedicato", () => {
   const page = readCode(ORG_PAGE);

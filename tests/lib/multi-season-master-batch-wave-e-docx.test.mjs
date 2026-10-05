@@ -169,7 +169,7 @@ test("83: l'output e sempre sanificato con la stessa funzione del resto del prod
 test("84/85: anteprima prima del salvataggio, nessuna sovrascrittura automatica", () => {
   const drawer = readFileSync("src/components/modulistica/v2/docx-import-drawer.tsx", "utf8");
   assert.match(drawer, /RichContent html=\{preview\.html\}/, "l'anteprima si mostra prima della conferma");
-  const page = readFileSync("src/app/modulistica/page.tsx", "utf8");
+  const page = readFileSync("src/app/(app)/modulistica/page.tsx", "utf8");
   assert.match(
     page,
     /createDocumentTemplate\(\{\s*\n\s*title: values\.title,\s*\n\s*subjectKind: "athlete",\s*\n\s*content: values\.html,/,

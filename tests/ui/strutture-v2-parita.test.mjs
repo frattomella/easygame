@@ -29,8 +29,8 @@ import { normalizeStructure } from "@/lib/structures-utils";
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/structures/v2";
 const sources = {
-  list: read("src/app/structures/page.tsx"),
-  detail: read("src/app/structures/[id]/page.tsx"),
+  list: read("src/app/(app)/structures/page.tsx"),
+  detail: read("src/app/(app)/structures/[id]/page.tsx"),
   drawer: read(`${V2}/structure-drawer.tsx`),
   sites: read(`${V2}/sites-drawer.tsx`),
   booking: read(`${V2}/booking-drawer.tsx`),

@@ -32,7 +32,7 @@ const PANNELLO =
   "src/components/athletes/profile/athlete-registrations-panel.tsx";
 const DIALOGO =
   "src/components/athletes/profile/athlete-registration-dialog.tsx";
-const PAGINA = "src/app/athletes/[id]/page.tsx";
+const PAGINA = "src/app/(app)/athletes/[id]/page.tsx";
 
 /* ------------------------------------------------------------------ */
 /* I pulsanti sul file                                                 */

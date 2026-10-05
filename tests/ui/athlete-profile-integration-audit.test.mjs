@@ -21,7 +21,7 @@ import path from "node:path";
  */
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, "..", "..");
-const PAGE = path.join(PROJECT_ROOT, "src/app/athletes/[id]/page.tsx");
+const PAGE = path.join(PROJECT_ROOT, "src/app/(app)/athletes/[id]/page.tsx");
 const ENROLLMENT_TAB = path.join(
   PROJECT_ROOT,
   "src/components/athletes/enrollment/AthleteEnrollmentTab.tsx",

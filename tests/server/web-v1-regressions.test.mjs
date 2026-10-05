@@ -549,8 +549,8 @@ test("un errore a meta sincronizzazione non lascia il club senza risorse", async
 
 test("le due rotte di modifica orfane non mostrano piu anagrafiche inventate", () => {
   const percorsi = [
-    "src/app/athletes/[id]/edit/page.tsx",
-    "src/app/trainers/[id]/edit/page.tsx",
+    "src/app/(app)/athletes/[id]/edit/page.tsx",
+    "src/app/(app)/trainers/[id]/edit/page.tsx",
   ];
 
   for (const percorso of percorsi) {

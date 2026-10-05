@@ -31,7 +31,7 @@ const senzaCommenti = (sorgente) =>
 /* ------------------------------------------------------------------ W6-51 */
 
 test("W6-51 · la segreteria legge le azioni, non gli stati", () => {
-  const pagina = senzaCommenti(leggi("app/secretariat/page.tsx"));
+  const pagina = senzaCommenti(leggi("app/(app)/secretariat/page.tsx"));
 
   for (const azione of ["confirm", "reject", "cancel"]) {
     assert.ok(
@@ -68,7 +68,7 @@ test("W6-51 · la traduzione stato -> azione vive nel dominio, non nelle scherma
     e esattamente cosi che il difetto e nato.
   */
   for (const file of [
-    "app/secretariat/page.tsx",
+    "app/(app)/secretariat/page.tsx",
     "components/trainer/trainer-appointments-dashboard-page.tsx",
   ]) {
     const sorgente = senzaCommenti(leggi(file));

@@ -116,7 +116,7 @@ test("le topbar mostrano club e stagione", () => {
 
 test("la console di piattaforma non usa la chrome del club", () => {
   const admin = read(
-    path.join(SRC, "app/private/easygame-platform-admin-0c7a/page.tsx"),
+    path.join(SRC, "app/(app)/private/easygame-platform-admin-0c7a/page.tsx"),
   );
 
   assert.equal(
@@ -169,7 +169,7 @@ for (const file of ["components/ui/dialog.tsx", "components/ui/alert-dialog.tsx"
 // --- tipografia ---------------------------------------------------------------
 
 test("i font sono self-hosted, non caricati da Google a runtime", () => {
-  const layout = read(path.join(SRC, "app/layout.tsx"));
+  const layout = read(path.join(SRC, "app/(app)/layout.tsx"));
 
   assert.match(layout, /next\/font\/google/);
   assert.equal(
@@ -183,7 +183,7 @@ test("i font sono self-hosted, non caricati da Google a runtime", () => {
 
 test("l'applicazione dichiara un titolo", () => {
   assert.match(
-    read(path.join(SRC, "app/layout.tsx")),
+    read(path.join(SRC, "app/(app)/layout.tsx")),
     /export const metadata/,
     "senza metadata la scheda del browser resta senza nome",
   );

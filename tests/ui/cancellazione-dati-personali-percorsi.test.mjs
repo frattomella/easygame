@@ -30,8 +30,8 @@ import path from "node:path";
  */
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, "..", "..");
-const ELENCO = path.join(PROJECT_ROOT, "src/app/athletes/page.tsx");
-const SCHEDA = path.join(PROJECT_ROOT, "src/app/athletes/[id]/page.tsx");
+const ELENCO = path.join(PROJECT_ROOT, "src/app/(app)/athletes/page.tsx");
+const SCHEDA = path.join(PROJECT_ROOT, "src/app/(app)/athletes/[id]/page.tsx");
 const SEZIONE = path.join(
   PROJECT_ROOT,
   "src/components/athletes/profile/athlete-data-subject-section.tsx",

@@ -10,7 +10,7 @@ import { createFakePrisma } from "../helpers/fake-prisma.mjs";
  * `403 Accesso negato: matches e una proiezione degli eventi e si scrive da
  * /api/v1/events, non dal club`).
  *
- * `handleDeleteMatch`/`handleCancelMatch` (`src/app/matches/page.tsx`)
+ * `handleDeleteMatch`/`handleCancelMatch` (`src/app/(app)/matches/page.tsx`)
  * leggevano e riscrivevano `clubs.matches` con `getClubData`/`updateClubData`
  * — la stessa colonna che, da ADR-0098, e una **proiezione in sola lettura**
  * con un solo scrittore (`projectEventsToClubColumn`, dentro

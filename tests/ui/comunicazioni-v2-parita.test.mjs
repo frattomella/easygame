@@ -41,9 +41,9 @@ import { PERSON_STATUS, ACTIVITY_STATUS } from "@/lib/web/status";
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/communications/v2";
 const sources = {
-  send: read("src/app/communications/page.tsx"),
-  board: read("src/app/communications/bacheca/page.tsx"),
-  automations: read("src/app/communications/automazioni/page.tsx"),
+  send: read("src/app/(app)/communications/page.tsx"),
+  board: read("src/app/(app)/communications/bacheca/page.tsx"),
+  automations: read("src/app/(app)/communications/automazioni/page.tsx"),
   picker: read(`${V2}/audience-picker.tsx`),
   audienceModel: read(`${V2}/audience-model.ts`),
   nav: read(`${V2}/communications-nav.tsx`),

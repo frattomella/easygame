@@ -27,7 +27,7 @@ const readCode = (relative) =>
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
-const PAGE = "app/modulistica/page.tsx";
+const PAGE = "app/(app)/modulistica/page.tsx";
 
 const COMPONENTS = [
   "components/modulistica/v2/online-forms-section.tsx",
@@ -332,7 +332,7 @@ test("la firma non fa scorrere la pagina mentre si disegna", () => {
 /* ------------------------------------------------ compilazione dalla scheda */
 
 test("dalla scheda atleta si compila un modulo, con l'atleta gia selezionato", () => {
-  const page = readCode("app/athletes/[id]/page.tsx");
+  const page = readCode("app/(app)/athletes/[id]/page.tsx");
   /* Web V2: il pulsante vive nella sezione «Documenti condivisi con la famiglia». */
   const sezione = readCode("components/athletes/profile/v2/AthleteDocumentSections.tsx");
   const dialog = readCode("components/forms/compile-form-dialog.tsx");
@@ -374,7 +374,7 @@ test("i campi precompilati sono dichiarati, non nascosti", () => {
 });
 
 test("la prima modulistica online e uscita dalla scheda atleta", () => {
-  const page = readCode("app/athletes/[id]/page.tsx");
+  const page = readCode("app/(app)/athletes/[id]/page.tsx");
 
   for (const residuo of [
     "/api/online-forms",

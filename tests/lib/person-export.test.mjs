@@ -220,9 +220,9 @@ test("esiste un solo generatore di PDF per gli elenchi di persone", () => {
     .filter(
       (file) =>
         ![
-          "app/modulistica/page.tsx",
-          "app/movements/page.tsx",
-          "app/private/api-docs/api-docs-client.tsx",
+          "app/(app)/modulistica/page.tsx",
+          "app/(app)/movements/page.tsx",
+          "app/(app)/private/api-docs/api-docs-client.tsx",
           "components/forms/FormShareDialog.tsx",
           /*
             Il fascicolo della generazione massiva (Wave 3): N documenti gia

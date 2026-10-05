@@ -23,7 +23,7 @@ import {
  */
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const sources = {
-  page: read("src/app/hub/page.tsx"),
+  page: read("src/app/(app)/hub/page.tsx"),
   content: read("src/components/hub/v2/hub-content.ts"),
   sections: read("src/components/hub/v2/hub-sections.tsx"),
 };

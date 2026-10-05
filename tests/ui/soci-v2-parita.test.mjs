@@ -42,10 +42,10 @@ import { deriveMemberStatus } from "@/lib/members/model";
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/soci/v2";
 const sources = {
-  list: read("src/app/soci/page.tsx"),
-  create: read("src/app/soci/new/page.tsx"),
-  detail: read("src/app/soci/[id]/page.tsx"),
-  edit: read("src/app/soci/[id]/edit/page.tsx"),
+  list: read("src/app/(app)/soci/page.tsx"),
+  create: read("src/app/(app)/soci/new/page.tsx"),
+  detail: read("src/app/(app)/soci/[id]/page.tsx"),
+  edit: read("src/app/(app)/soci/[id]/edit/page.tsx"),
   form: read(`${V2}/member-form.tsx`),
   formModel: read(`${V2}/member-form-model.ts`),
   model: read(`${V2}/member-model.ts`),
@@ -297,7 +297,7 @@ test("/soci/[id]: il libro si legge con fetchMembershipRecord e si scrive solo a
 /* ------------------------------------------------------------- /soci/[id]/edit */
 
 test("/soci/[id]/edit: il modulo intero in modifica, con la zona pericolosa", () => {
-  assert.ok(existsSync(path.join(process.cwd(), "src/app/soci/[id]/edit/page.tsx")));
+  assert.ok(existsSync(path.join(process.cwd(), "src/app/(app)/soci/[id]/edit/page.tsx")));
   assert.match(sources.edit, /mode="edit"/);
   assert.match(sources.edit, /updateMemberProfile\(\{ clubId, memberId, updates: memberEditPayload\(values\) \}\)/);
   assert.match(sources.edit, /dangerZone=/);
@@ -402,7 +402,7 @@ test("il clubId si risolve come nella V1: URL, poi contesto, poi localStorage", 
 });
 
 test("la V1 specifica di questa rotta e stata rimossa", () => {
-  assert.equal(existsSync(path.join(process.cwd(), "src/app/soci/[id]/membership-register-panel.tsx")), false);
+  assert.equal(existsSync(path.join(process.cwd(), "src/app/(app)/soci/[id]/membership-register-panel.tsx")), false);
   assert.equal(existsSync(path.join(process.cwd(), "src/components/club/ClubPersonDetailHeader.tsx")), false, "aveva un solo importatore: la scheda socio");
   for (const legacy of ["MembershipStatusBadge", "getSocioIdentity", "isRegisteredSocio", "<MobileTopBar", "BulkSelectionToolbar", "SharedPageHeader", "<Tabs"]) {
     assert.ok(!senzaCommenti(everything).includes(legacy), `${legacy} non deve restare in parallelo alla V2`);

@@ -1057,7 +1057,7 @@ test("del certificato l'atleta vede lo stato, non il contenuto", () => {
 
 test("W6-33 · l'area atleta non monta la sidebar gestionale, e la guardia c'e", () => {
   const layout = readFileSync(
-    path.join(RADICE, "app", "athlete-dashboard", "layout.tsx"),
+    path.join(RADICE, "app", "(app)", "athlete-dashboard", "layout.tsx"),
     "utf8",
   );
   assert.ok(layout.includes("AccessAreaGuard"), "l'area e guardata");
@@ -1090,7 +1090,7 @@ test("W6-33 · l'area atleta non monta la sidebar gestionale, e la guardia c'e",
       else if (voce.endsWith(".tsx")) pagine.push(completo);
     }
   };
-  visita(path.join(RADICE, "app", "athlete-dashboard"));
+  visita(path.join(RADICE, "app", "(app)", "athlete-dashboard"));
   assert.ok(pagine.length >= 10, "l'area ha le sue pagine");
 
   for (const pagina of pagine) {
@@ -1106,7 +1106,7 @@ test("W6-33 · l'area atleta non monta la sidebar gestionale, e la guardia c'e",
     `components/dashboard/Sidebar`: ora rinvia, e non disegna piu niente.
   */
   const profilo = readFileSync(
-    path.join(RADICE, "app", "athletes", "[id]", "profile", "page.tsx"),
+    path.join(RADICE, "app", "(app)", "athletes", "[id]", "profile", "page.tsx"),
     "utf8",
   );
   assert.equal(montaLaSidebarDelClub(profilo), false);
@@ -1218,7 +1218,7 @@ test("ogni rotta dell'accesso atleta chiede la sessione, tranne il riscatto", ()
  * (CLAUDE.md §11 punto 8).
  *
  * Una pagina nuova dell'area atleta vive in tre posti che nessuno tiene
- * insieme: il file di rotta sotto `app/athlete-dashboard/`, la voce in
+ * insieme: il file di rotta sotto `app/(app)/athlete-dashboard/`, la voce in
  * `ATHLETE_NAV_ITEMS` — che alimenta **sia** la sidebar del desktop **sia** il
  * menu del telefono — e il titolo in `TITOLI` dentro il guscio. Chi ne dimentica
  * uno ottiene, nell'ordine: una pagina che esiste e non si raggiunge; una voce
@@ -1236,7 +1236,7 @@ test("ogni rotta dell'accesso atleta chiede la sessione, tranne il riscatto", ()
 test("PP-04 · ogni pagina dell'area atleta e nel menu, e ogni voce di menu ha la sua pagina", () => {
   const FUORI_DALL_AREA = new Set(["/athlete-dashboard/attiva"]);
 
-  const cartella = path.join(RADICE, "app", "athlete-dashboard");
+  const cartella = path.join(RADICE, "app", "(app)", "athlete-dashboard");
   const rotte = new Set();
   const visita = (corrente, prefisso) => {
     for (const voce of readdirSync(corrente)) {

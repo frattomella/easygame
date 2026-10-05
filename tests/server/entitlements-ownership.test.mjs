@@ -369,7 +369,7 @@ const readFile = (relative) =>
   fs.readFileSync(path.join(PROJECT_ROOT, relative), "utf8");
 
 test("la pagina Organizzazione non offre piu di scegliere il piano", () => {
-  const page = readFile("src/app/organization/page.tsx");
+  const page = readFile("src/app/(app)/organization/page.tsx");
 
   assert.match(
     page,

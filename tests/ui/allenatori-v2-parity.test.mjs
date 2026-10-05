@@ -28,10 +28,10 @@ import { ACCOUNT_STATUS, PERSON_STATUS } from "@/lib/web/status";
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 
 const sources = {
-  list: read("src/app/trainers/page.tsx"),
-  create: read("src/app/trainers/new/page.tsx"),
-  record: read("src/app/trainers/[id]/page.tsx"),
-  edit: read("src/app/trainers/[id]/edit/page.tsx"),
+  list: read("src/app/(app)/trainers/page.tsx"),
+  create: read("src/app/(app)/trainers/new/page.tsx"),
+  record: read("src/app/(app)/trainers/[id]/page.tsx"),
+  edit: read("src/app/(app)/trainers/[id]/edit/page.tsx"),
   drawer: read("src/components/trainer/v2/trainer-section-drawer.tsx"),
   access: read("src/components/trainer/v2/trainer-access-panel.tsx"),
   payments: read("src/components/trainer/v2/trainer-payments-panel.tsx"),
@@ -462,7 +462,7 @@ test("la V1 specifica di queste pagine non resta in parallelo", () => {
 
 test("la rotta di modifica resta un rimando alla scheda, dove la modifica avviene nei cassetti", () => {
   assert.match(sources.edit, /redirect\(/);
-  assert.equal(existsSync(path.join(process.cwd(), "src/app/trainers/[id]/contracts")), false);
+  assert.equal(existsSync(path.join(process.cwd(), "src/app/(app)/trainers/[id]/contracts")), false);
 });
 
 test("le persone: stesse etichette di stato del sistema", () => {

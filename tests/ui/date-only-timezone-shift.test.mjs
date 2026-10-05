@@ -27,7 +27,7 @@ const read = (relative) =>
   );
 
 test("MatchFormDrawer.tsx e matches/page.tsx: la data della gara passa da formatLocalDateOnly, non piu da .toISOString()", () => {
-  const paginaGare = read("app/matches/page.tsx");
+  const paginaGare = read("app/(app)/matches/page.tsx");
 
   assert.match(
     paginaGare,
@@ -129,7 +129,7 @@ test("AddCertificateForm.tsx: la scadenza a +1 anno e il default \"oggi\" usano 
 });
 
 test("calendar/page.tsx: \"oggi\" e \"fra 30 giorni\" usano il giorno civile locale, non un istante UTC troncato", () => {
-  const calendario = read("app/calendar/page.tsx");
+  const calendario = read("app/(app)/calendar/page.tsx");
 
   assert.match(calendario, /todayLocalDateOnly\(\)/);
   assert.match(calendario, /formatLocalDateOnly\(/);
@@ -215,7 +215,7 @@ test("getTodayDateString (src/lib/athlete-profile-fields.ts) legge il giorno civ
     "getTodayDateString deve leggere il giorno civile locale, non l'istante UTC troncato",
   );
 
-  const pagina = read("app/athletes/[id]/page.tsx");
+  const pagina = read("app/(app)/athletes/[id]/page.tsx");
   assert.doesNotMatch(
     pagina,
     /new Date\(\)\.toISOString\(\)\.split\("T"\)\[0\]/,

@@ -47,7 +47,7 @@ const senzaCommenti = (sorgente) =>
   sorgente.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 const CAMPO = "components/forms/document-extraction-field.tsx";
-const SCHEDA = "app/athletes/[id]/page.tsx";
+const SCHEDA = "app/(app)/athletes/[id]/page.tsx";
 
 test("§16 · la regola del dominio e una sola, ed e scritta", () => {
   const dominio = leggi("lib/document-extraction.ts");
@@ -89,7 +89,7 @@ test("PP-01 §H · toglierla dalla scheda non l'ha tolta dalle altre cinque", ()
   const consumatori = [
     "components/soci/v2/member-form.tsx",
     "components/staff/v2/staff-form.tsx",
-    "app/trainers/new/page.tsx",
+    "app/(app)/trainers/new/page.tsx",
     "components/forms/AthleteCreateForm.tsx",
     /* Il tutore vive **dentro** la scheda atleta: dal Web V2 nel cassetto del tutore. */
     "components/athletes/profile/v2/AthleteProfileDrawers.tsx",

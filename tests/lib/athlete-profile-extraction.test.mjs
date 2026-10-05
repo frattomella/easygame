@@ -31,7 +31,7 @@ import {
 /**
  * Scomposizione della scheda atleta (WP-19, Blocco 8).
  *
- * `src/app/athletes/[id]/page.tsx` superava le 8.700 righe, e le regole di
+ * `src/app/(app)/athletes/[id]/page.tsx` superava le 8.700 righe, e le regole di
  * dominio ci vivevano in mezzo: quando scade un token genitore, che eta ha un
  * atleta, cosa conta come «si» in un campo booleano. Nessuna era verificata,
  * perche verificarle voleva dire montare una pagina da 340 kB.
@@ -348,7 +348,7 @@ const MAX_ATHLETE_PAGE_LINES = 7365;
 
 test("la scheda atleta non torna a crescere", () => {
   const source = readFileSync(
-    path.join(process.cwd(), "src", "app", "athletes", "[id]", "page.tsx"),
+    path.join(process.cwd(), "src", "app", "(app)", "athletes", "[id]", "page.tsx"),
     "utf8",
   );
   const lines = source.split(/\r?\n/).length;

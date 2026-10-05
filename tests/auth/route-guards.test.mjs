@@ -6,7 +6,12 @@ import test from "node:test";
 import { canAccessPath, getPathAccessArea } from "../../src/lib/access-roles.ts";
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, "..", "..");
-const APP_DIR = path.join(PROJECT_ROOT, "src", "app");
+/*
+  Dal WS-01 il gestionale vive nel gruppo di rotte `(app)` e il sito pubblico
+  in `(site)`: le aree di ruolo si contano dentro `(app)`, l unico albero che
+  monta i provider del gestionale. Vedi `tests/web/app-site-separation.test.mjs`.
+*/
+const APP_DIR = path.join(PROJECT_ROOT, "src", "app", "(app)");
 
 /**
  * Aree di gestione: ogni prefisso deve avere un layout che monta

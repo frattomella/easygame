@@ -159,12 +159,12 @@ const TABELLA = {
     catalogo: true,
     canonico: true,
   },
-  "src/app/training/page.tsx": {
+  "src/app/(app)/training/page.tsx": {
     decide: "chi compare nell'appello",
     catalogo: true,
     canonico: true,
   },
-  "src/app/matches/page.tsx": {
+  "src/app/(app)/matches/page.tsx": {
     decide: "chi e convocabile",
     catalogo: true,
     canonico: false /* passa dai nomi storici, che delegano */,
@@ -185,7 +185,7 @@ const TABELLA = {
     canonico: false,
   },
 
-  "src/app/categories/page.tsx": {
+  "src/app/(app)/categories/page.tsx": {
     decide: "l'organico mostrato sulla scheda di una categoria",
     catalogo: true,
     canonico: false,

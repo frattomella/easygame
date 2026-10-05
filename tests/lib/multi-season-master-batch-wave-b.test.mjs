@@ -138,7 +138,7 @@ test("B10: il cassetto del numero maglia non ha piu un selettore di gruppo", () 
 });
 
 test("B9: la pagina deriva il gruppo di default dalla categoria primaria, non dal primo gruppo del club", () => {
-  const source = readFileSync("src/app/athletes/[id]/page.tsx", "utf8");
+  const source = readFileSync("src/app/(app)/athletes/[id]/page.tsx", "utf8");
   assert.doesNotMatch(
     source,
     /clothingState\.numberingGroups\[0\]\?\.id \|\|\s*\n\s*"";/,
@@ -152,7 +152,7 @@ test("B9: la pagina deriva il gruppo di default dalla categoria primaria, non da
  * prova, non dalla copia incassata nella proiezione.
  */
 test("B3/B4: la scheda atleta legge le presenze vere e la storia da prova", () => {
-  const source = readFileSync("src/app/athletes/[id]/page.tsx", "utf8");
+  const source = readFileSync("src/app/(app)/athletes/[id]/page.tsx", "utf8");
   assert.match(source, /\/api\/v1\/club_event_participants\?athlete_id=/);
   assert.match(source, /\/trial-history/);
   assert.match(source, /const activityStartAt = trialHistory\?\.activityStartAt \|\| null;/);
@@ -165,7 +165,7 @@ test("B3/B4: la scheda atleta legge le presenze vere e la storia da prova", () =
  * presenze vere gia migrate con la loro data reale.
  */
 test("B1/B2 (revisione ostile Wave F): senza una prova, activityStartAt non usa la creazione della riga", () => {
-  const source = readFileSync("src/app/athletes/[id]/page.tsx", "utf8");
+  const source = readFileSync("src/app/(app)/athletes/[id]/page.tsx", "utf8");
   assert.doesNotMatch(source, /activityStartAt.*athleteRecord\.created_at/);
 });
 

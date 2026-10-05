@@ -63,7 +63,7 @@ const readCode = (...segments) =>
     .replace(/^\s*\/\/.*$/gm, "");
 
 /* Dal Web V2 (Wave E) l'azione «Genera per piu atleti» vive nella griglia dei modelli. */
-const PAGE = readCode("app", "modulistica", "page.tsx");
+const PAGE = readCode("app", "(app)", "modulistica", "page.tsx");
 const GRID = readCode("components", "modulistica", "v2", "templates-grid.tsx");
 const MODEL = readCode("components", "modulistica", "v2", "modulistica-model.ts");
 const DIALOG = readCode("components", "documents", "BulkGenerationDialog.tsx");
@@ -856,7 +856,7 @@ test("il fascicolo non introduce nessun motore PDF, e lo dice", () => {
   for (const [nome, sorgente] of [
     ["il fascicolo", BUNDLE_RAW],
     ["il dialogo", readRaw("components", "documents", "BulkGenerationDialog.tsx")],
-    ["la pagina", readRaw("app", "modulistica", "page.tsx")],
+    ["la pagina", readRaw("app", "(app)", "modulistica", "page.tsx")],
   ]) {
     assert.ok(
       !librerie.test(sorgente),

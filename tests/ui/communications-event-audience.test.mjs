@@ -46,12 +46,12 @@ const leggiFile = (relativo) =>
   va a capo stanno nel selettore.
 */
 const COMPOSIZIONE = {
-  "app/communications/page.tsx": [
-    "app/communications/page.tsx",
+  "app/(app)/communications/page.tsx": [
+    "app/(app)/communications/page.tsx",
     "components/communications/v2/audience-picker.tsx",
   ],
-  "app/communications/bacheca/page.tsx": [
-    "app/communications/bacheca/page.tsx",
+  "app/(app)/communications/bacheca/page.tsx": [
+    "app/(app)/communications/bacheca/page.tsx",
     "components/communications/v2/announcement-drawer.tsx",
     "components/communications/v2/audience-picker.tsx",
   ],

@@ -35,7 +35,7 @@ const readCode = (relative) =>
     .filter((line) => !line.trimStart().startsWith("//"))
     .join("\n");
 
-const PAGE = "src/app/movements/page.tsx";
+const PAGE = "src/app/(app)/movements/page.tsx";
 const SCHEDA = "src/components/accounting/ExpectedEntries.tsx";
 const SERVIZIO = "src/lib/server/expected-entries.ts";
 const ROTTA = "src/app/api/v1/accounting/expected/route.ts";

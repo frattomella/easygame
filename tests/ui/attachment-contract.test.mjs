@@ -50,7 +50,7 @@ const READ_ONLY_SURFACES = new Set([
  * seconda implementazione di storage, dichiarata in ADR-0034 e ancora aperta.
  */
 const LEGACY_ASSET_SURFACES = new Set([
-  "app/athletes/[id]/page.tsx",
+  "app/(app)/athletes/[id]/page.tsx",
   "components/forms/OnlinePublicForm.tsx",
 ]);
 

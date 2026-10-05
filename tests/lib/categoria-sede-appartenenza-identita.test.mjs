@@ -476,9 +476,9 @@ test("Web corrente e Web V2 leggono la stessa etichetta dallo stesso indice", ()
     "src/components/athletes/profile/v2/AthleteActivitySections.tsx",
     "src/components/athletes/v2/AthleteCategoryMembershipEditor.tsx",
     "src/components/trainer/trainer-dashboard-context.tsx",
-    "src/app/athletes/page.tsx",
-    "src/app/matches/page.tsx",
-    "src/app/calendar/page.tsx",
+    "src/app/(app)/athletes/page.tsx",
+    "src/app/(app)/matches/page.tsx",
+    "src/app/(app)/calendar/page.tsx",
   ];
   for (const file of consumer) {
     const codice = senzaCommenti(readFileSync(file, "utf8"));

@@ -22,7 +22,7 @@ const strip = (source) =>
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
-const PAGINA = "app/medical/page.tsx";
+const PAGINA = "app/(app)/medical/page.tsx";
 const MODELLO = "components/medical/v2/certificate-grid-model.ts";
 const COLONNE = "components/medical/v2/certificate-grid-columns.tsx";
 const CASSETTO_PROMEMORIA = "components/medical/v2/reminder-bulk-drawer.tsx";

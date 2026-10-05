@@ -24,7 +24,7 @@ const SRC = path.join(process.cwd(), "src");
 const read = (relative) =>
   readFileSync(path.join(SRC, ...relative.split("/")), "utf8");
 
-const CLOTHING_PAGE = "app/clothing/page.tsx";
+const CLOTHING_PAGE = "app/(app)/clothing/page.tsx";
 const ASSIGNMENT_DRAWER = "components/clothing/v2/assignment-drawer.tsx";
 const DELIVERY_DRAWER = "components/clothing/v2/kit-delivery-drawer.tsx";
 const ASSIGNMENTS_GRID = "components/clothing/v2/assignments-grid.tsx";

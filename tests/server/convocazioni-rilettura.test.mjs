@@ -189,7 +189,7 @@ test("le due schermate leggono la rosa dalle righe", () => {
     correggerne una sola avrebbe lasciato l'altra a cancellare la rosa.
   */
   for (const file of [
-    "src/app/matches/page.tsx",
+    "src/app/(app)/matches/page.tsx",
     "src/components/trainer/trainer-matches-dashboard-page.tsx",
   ]) {
     const sorgente = readFileSync(file, "utf8");
@@ -214,7 +214,7 @@ test("la pagina Gare salva dallo scrittore del dominio, non sulla proiezione", (
     quindi da quella schermata la convocazione non si salvava **da nessuna
     parte**, e usciva solo un errore generico.
   */
-  const sorgente = readFileSync("src/app/matches/page.tsx", "utf8");
+  const sorgente = readFileSync("src/app/(app)/matches/page.tsx", "utf8");
   const inizio = sorgente.indexOf("const handleSaveConvocations");
   assert.ok(inizio > 0, "la funzione deve esistere");
 

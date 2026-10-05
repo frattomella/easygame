@@ -165,7 +165,7 @@ test("la console di piattaforma non ha le funzioni di club", () => {
 });
 
 test("la console di piattaforma non monta la chrome del club", () => {
-  const page = read("app/private/easygame-platform-admin-0c7a/page.tsx");
+  const page = read("app/(app)/private/easygame-platform-admin-0c7a/page.tsx");
 
   assert.equal(/dashboard\/Sidebar|dashboard\/Header/.test(page), false);
   assert.match(page, /PlatformAdminShell/);
@@ -230,7 +230,7 @@ test("la targhetta stagione e neutra, non ambra", () => {
     "nessuna classe ambra nella targhetta stagione",
   );
 
-  const css = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
+  const css = readFileSync(path.join(process.cwd(), "src/app/(app)/globals.css"), "utf8");
   const token = /--eg-season:\s*([^;]+);/.exec(css);
   assert.ok(token, "il token della stagione deve esistere");
   assert.equal(
@@ -248,9 +248,9 @@ test("la targhetta stagione e neutra, non ambra", () => {
  * l'unica scelta possibile.
  */
 const DOCUMENT_GENERATORS = new Set([
-  "app/modulistica/page.tsx",
-  "app/movements/page.tsx",
-  "app/private/api-docs/api-docs-client.tsx",
+  "app/(app)/modulistica/page.tsx",
+  "app/(app)/movements/page.tsx",
+  "app/(app)/private/api-docs/api-docs-client.tsx",
   "components/forms/FormShareDialog.tsx",
   "lib/people-pdf-export.ts",
   "lib/clothing-supplier-order-pdf.ts",
@@ -333,7 +333,7 @@ test("nessun font dichiarato fuori dai token, salvo stampa e email", () => {
 });
 
 test("nessun font nuovo importato da next/font", () => {
-  const layout = read("app/layout.tsx");
+  const layout = read("app/(app)/layout.tsx");
   const imported = [...layout.matchAll(/import\s*\{([^}]*)\}\s*from\s*"next\/font\/google"/g)]
     .flatMap((match) => match[1].split(","))
     .map((name) => name.trim())
@@ -346,8 +346,17 @@ test("nessun font nuovo importato da next/font", () => {
     "Inter per testo e dati, Archivo per i titoli, Poppins per il Web V2 (EGDS v3.1.0): non se ne aggiungono altri",
   );
 
+  /*
+    Il sito pubblico di un club (ADR-0200) non e il gestionale: ha il suo root
+    layout e un catalogo chiuso di caratteri scelti dal tema del club, caricati
+    in un posto solo (`components/website/render/fonts.ts`). La regola «due
+    font e basta» resta vera per l'applicazione.
+  */
   const others = APP_FILES.filter(
-    (file) => file !== "app/layout.tsx" && /next\/font/.test(read(file)),
+    (file) =>
+      file !== "app/(app)/layout.tsx" &&
+      file !== "components/website/render/fonts.ts" &&
+      /next\/font/.test(read(file)),
   );
   assert.deepEqual(others, [], "i font si dichiarano solo nel layout radice");
 });
@@ -383,7 +392,7 @@ test("le superfici dell'identita non inventano taglie di testo", () => {
 });
 
 test("le taglie di occhiello sono due, definite in un posto solo", () => {
-  const css = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
+  const css = readFileSync(path.join(process.cwd(), "src/app/(app)/globals.css"), "utf8");
 
   assert.match(css, /\.eg-eyebrow\s*\{/);
   assert.match(css, /\.eg-eyebrow-sm\s*\{/);

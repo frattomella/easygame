@@ -33,7 +33,7 @@ const read = (relative) =>
     "\n",
   );
 
-const MATCHES_PAGE = "app/matches/page.tsx";
+const MATCHES_PAGE = "app/(app)/matches/page.tsx";
 
 /**
  * Il corpo di una funzione `const <nome> = async (...) => { ... };` dichiarata

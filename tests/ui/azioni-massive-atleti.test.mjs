@@ -37,7 +37,7 @@ import path from "node:path";
  * esattamente cosi che il difetto era nato.
  */
 
-const PAGINA = path.join(process.cwd(), "src", "app", "athletes", "page.tsx");
+const PAGINA = path.join(process.cwd(), "src", "app", "(app)", "athletes", "page.tsx");
 const sorgente = () => readFileSync(PAGINA, "utf8");
 
 test("il bersaglio di un’azione massiva non e piu la pagina caricata", () => {
@@ -226,7 +226,7 @@ test("le superfici che mostrano lo stato chiedono anche gli annullati", () => {
     irraggiungibile. Si annullava e non si tornava piu indietro.
   */
   const calendario = readFileSync(
-    path.join(process.cwd(), "src", "app", "calendar", "page.tsx"),
+    path.join(process.cwd(), "src", "app", "(app)", "calendar", "page.tsx"),
     "utf8",
   );
   assert.match(

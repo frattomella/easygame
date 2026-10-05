@@ -24,7 +24,7 @@ const read = (relative) =>
   );
 
 const TAB = "components/athletes/enrollment/AthleteEnrollmentTab.tsx";
-const PAGE = "app/athletes/[id]/page.tsx";
+const PAGE = "app/(app)/athletes/[id]/page.tsx";
 const LEDGER_HOOK = "components/payments/use-athlete-payment-ledger.ts";
 const LIST = "components/payments/InstallmentLedgerList.tsx";
 

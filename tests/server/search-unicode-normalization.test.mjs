@@ -128,7 +128,7 @@ test("la normalizzazione non allenta il confine del club", async () => {
  */
 test("anche la ricerca nel browser normalizza la chiave", () => {
   const source = readFileSync(
-    path.join(process.cwd(), "src/app/athletes/page.tsx"),
+    path.join(process.cwd(), "src/app/(app)/athletes/page.tsx"),
     "utf8",
   );
 

@@ -33,7 +33,7 @@ const read = (relative) =>
 
 /* La forma V2 di `AddMatchForm` (Wave D): stesso selettore, stesso campo nel payload. */
 const ADD_MATCH_FORM = "components/matches/v2/MatchFormDrawer.tsx";
-const MATCHES_PAGE = "app/matches/page.tsx";
+const MATCHES_PAGE = "app/(app)/matches/page.tsx";
 
 test("MatchFormDrawer assegna la gara a un gruppo, non solo a una categoria", () => {
   const source = read(ADD_MATCH_FORM);

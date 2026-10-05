@@ -6,8 +6,18 @@ Runtime Node `22.x`. Hosting Vercel, regione `fra1`.
 
 ## Struttura di rendering
 
-- `src/app/layout.tsx` — root layout server component. Monta
+**Due alberi, due root layout** (ADR-0200 §4, dal 2026-10-05). Le pagine del
+gestionale vivono nel gruppo di rotte `src/app/(app)/`, il sito pubblico di un
+club in `src/app/(site)/`; `src/app/api/` resta fuori da entrambi. I gruppi non
+cambiano gli URL: `/athletes` e sempre `/athletes`. La separazione esiste
+perche il visitatore del dominio di un club non scarichi sessione, guscio,
+toast ed editor del gestionale: la presidia `tests/web/app-site-separation.test.mjs`.
+
+- `src/app/(app)/layout.tsx` — root layout del gestionale. Monta
   `AppClientProviders`, forza `lang="it"` e tema chiaro.
+- `src/app/(site)/layout.tsx` — root layout del sito pubblico: nessun provider,
+  CSS proprio (`src/styles/website/site.css` con `tailwind.website.config.ts`),
+  caratteri del catalogo del tema (`src/components/website/render/fonts.ts`).
 - `AppClientProviders` (`src/components/providers/AppClientProviders.tsx`)
   incapsula, nell'ordine: `ToastProvider` → `AuthProvider` → `ThemeProvider`
   (`forcedTheme="light"`) → `GlobalLoadingProvider` + `Toaster`.
@@ -23,13 +33,14 @@ Runtime Node `22.x`. Hosting Vercel, regione `fra1`.
 
 | Layout | Percorso | Contenuto |
 |--------|----------|-----------|
-| Root | `src/app/layout.tsx` | Provider globali |
-| Dashboard | `src/app/dashboard/layout.tsx` | `AccessAreaGuard` + `Sidebar` + `Header` desktop, `MobileTopBar` mobile |
-| Trainer | `src/app/trainer-dashboard/layout.tsx` | `AccessAreaGuard` |
-| Parent | `src/app/parent-view/[id]/layout.tsx` | `AccessAreaGuard` |
-| Athlete | `src/app/athletes/[id]/profile/layout.tsx` | `AccessAreaGuard` |
-| Organization | `src/app/organization/layout.tsx` | `AccessAreaGuard` + `ToastProvider` |
-| Aree di gestione (22) | `src/app/<area>/layout.tsx` | Re-export di `management-area-layout` (= `AccessAreaGuard`) |
+| Root gestionale | `src/app/(app)/layout.tsx` | Provider globali |
+| Root sito pubblico | `src/app/(site)/layout.tsx` | Nessun provider: solo CSS e caratteri del sito |
+| Dashboard | `src/app/(app)/dashboard/layout.tsx` | `AccessAreaGuard` + `Sidebar` + `Header` desktop, `MobileTopBar` mobile |
+| Trainer | `src/app/(app)/trainer-dashboard/layout.tsx` | `AccessAreaGuard` |
+| Parent | `src/app/(app)/parent-view/[id]/layout.tsx` | `AccessAreaGuard` |
+| Athlete | `src/app/(app)/athletes/[id]/profile/layout.tsx` | `AccessAreaGuard` |
+| Organization | `src/app/(app)/organization/layout.tsx` | `AccessAreaGuard` + `ToastProvider` |
+| Aree di gestione (22) | `src/app/(app)/<area>/layout.tsx` | Re-export di `management-area-layout` (= `AccessAreaGuard`) |
 
 Dal 2026-08-22 **tutte** le aree hanno un guard. La protezione e a due livelli:
 

@@ -14,11 +14,11 @@ const leggi = (p) => readFileSync(path.join(process.cwd(), p), "utf8");
 const senzaCommenti = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
 const editor = senzaCommenti(leggi("src/components/athletes/v2/AthleteCategoryMembershipEditor.tsx"));
-const scheda = senzaCommenti(leggi("src/app/athletes/[id]/page.tsx"));
+const scheda = senzaCommenti(leggi("src/app/(app)/athletes/[id]/page.tsx"));
 const cassetti = senzaCommenti(leggi("src/components/athletes/profile/v2/AthleteProfileDrawers.tsx"));
 const creazione = senzaCommenti(leggi("src/components/forms/AthleteCreateForm.tsx"));
-const nuovo = senzaCommenti(leggi("src/app/athletes/new/page.tsx"));
-const elenco = senzaCommenti(leggi("src/app/athletes/page.tsx"));
+const nuovo = senzaCommenti(leggi("src/app/(app)/athletes/new/page.tsx"));
+const elenco = senzaCommenti(leggi("src/app/(app)/athletes/page.tsx"));
 const blocco = senzaCommenti(leggi("src/components/athletes/v2/bulk-category-drawer.tsx"));
 const colonne = senzaCommenti(leggi("src/components/athletes/v2/athletes-grid-columns.tsx"));
 const provaForm = senzaCommenti(leggi("src/components/trials/v2/TrialFormDrawer.tsx"));

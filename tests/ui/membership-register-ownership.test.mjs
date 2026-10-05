@@ -23,10 +23,10 @@ const read = (relative) =>
   fs.readFileSync(path.join(process.cwd(), relative), "utf8");
 
 const SOCI_PAGES = [
-  "src/app/soci/page.tsx",
-  "src/app/soci/new/page.tsx",
-  "src/app/soci/[id]/page.tsx",
-  "src/app/soci/[id]/edit/page.tsx",
+  "src/app/(app)/soci/page.tsx",
+  "src/app/(app)/soci/new/page.tsx",
+  "src/app/(app)/soci/[id]/page.tsx",
+  "src/app/(app)/soci/[id]/edit/page.tsx",
   /* Dal Web V2 il pannello del libro e diviso in sezione (lettura) e cassetto (scrittura). */
   "src/components/soci/v2/membership-register-section.tsx",
   "src/components/soci/v2/membership-event-drawer.tsx",
@@ -36,7 +36,7 @@ const SOCI_PAGES = [
 ];
 
 test("la creazione di un socio non riscrive piu la colonna dal browser", () => {
-  const source = read("src/app/soci/new/page.tsx") + read("src/components/soci/v2/member-form-model.ts");
+  const source = read("src/app/(app)/soci/new/page.tsx") + read("src/components/soci/v2/member-form-model.ts");
 
   assert.equal(
     /\.update\(\s*\{\s*members/.test(source),

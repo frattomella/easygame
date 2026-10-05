@@ -31,7 +31,7 @@ const readCode = (relative) =>
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
-const PAGE = "app/modulistica/page.tsx";
+const PAGE = "app/(app)/modulistica/page.tsx";
 /* Dal Web V2 (Wave E) il cruscotto dei moduli online e la sezione `online-forms-section.tsx`. */
 const DASHBOARD = "components/modulistica/v2/online-forms-section.tsx";
 const PUBLIC_FORM = "components/forms/public-form-page.tsx";

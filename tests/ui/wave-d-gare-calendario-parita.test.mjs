@@ -19,7 +19,7 @@ const read = (relative) =>
 /** La sorgente senza i commenti: le parole di un commento non sono un cablaggio. */
 const senzaCommenti = (source) => source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
-const PAGE = "app/matches/page.tsx";
+const PAGE = "app/(app)/matches/page.tsx";
 const MODEL = "components/matches/v2/match-page-model.ts";
 const DAY = "components/matches/v2/DayMatches.tsx";
 const GRID = "components/matches/v2/match-grid.tsx";
@@ -27,7 +27,7 @@ const RAIL = "components/matches/v2/MatchWeekRail.tsx";
 const CONVOCATIONS = "components/matches/v2/ConvocationsDrawer.tsx";
 const FORM = "components/matches/v2/MatchFormDrawer.tsx";
 const MULTI = "components/matches/v2/MultipleMatchesDrawer.tsx";
-const CALENDAR = "app/calendar/page.tsx";
+const CALENDAR = "app/(app)/calendar/page.tsx";
 const CALENDAR_MODEL = "components/calendar/v2/calendar-model.ts";
 const MONTH = "components/calendar/v2/MonthGrid.tsx";
 
@@ -99,7 +99,7 @@ test("/matches: le capacità dell'audit §1.2 hanno un posto", () => {
   assert.match(page, /getMatchConvocationDeadlineDays\(clubSettings\)/);
   assert.match(page, /router\.push\("\/settings\?tab=gare"\)/);
   assert.doesNotMatch(page, /saveClubSettings/, "la pagina Gare non scrive piu la regola del club");
-  const settings = readFileSync(path.join(process.cwd(), "src/app/settings/page.tsx"), "utf8");
+  const settings = readFileSync(path.join(process.cwd(), "src/app/(app)/settings/page.tsx"), "utf8");
   assert.match(settings, /saveClubSettings\(clubId, matchSettingsPayload\(preferences\.matches\)\)/);
   assert.match(settings, /Impostazioni convocazioni salvate/);
   assert.match(page, /Rosa convocabile per categoria/);

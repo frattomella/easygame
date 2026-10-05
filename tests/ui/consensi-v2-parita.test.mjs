@@ -31,7 +31,7 @@ import { CONSENT_SOURCES, CONSENT_SUBJECT_KINDS } from "@/lib/consents/model";
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/consensi/v2";
 const sources = {
-  page: read("src/app/consensi/page.tsx"),
+  page: read("src/app/(app)/consensi/page.tsx"),
   model: read(`${V2}/consensi-model.ts`),
   drawers: read(`${V2}/consent-drawers.tsx`),
 };

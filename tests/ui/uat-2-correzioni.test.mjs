@@ -83,10 +83,10 @@ test("«In prova» e una vista accanto ad «Atleti», con il conteggio, e non st
   assert.ok(selettore.includes('aria-current={attiva ? "page" : undefined}'), "la voce attiva e la pagina corrente");
   assert.match(selettore, /listTrialAthletes\(\{ status: "in_trial" \}\)/, "conta le persone in prova");
   assert.match(selettore, /roleHasPermission\(role, "trials\.read"\)/, "solo a chi puo leggerle");
-  const atleti = senzaCommenti(leggi("src/app/athletes/page.tsx"));
+  const atleti = senzaCommenti(leggi("src/app/(app)/athletes/page.tsx"));
   assert.match(atleti, /<AthletesViewSwitch\s+value="athletes"/, "la pagina Atleti la monta");
   assert.doesNotMatch(atleti, /<MenuItem[^>]*>\s*<UserRoundSearch \/>\s*Atleti in prova/, "non e piu una voce del menu");
-  const prova = senzaCommenti(leggi("src/app/athletes/in-prova/page.tsx"));
+  const prova = senzaCommenti(leggi("src/app/(app)/athletes/in-prova/page.tsx"));
   assert.match(prova, /<AthletesViewSwitch value="trials"/, "e la pagina In prova pure, con il conteggio che gia sa");
 });
 

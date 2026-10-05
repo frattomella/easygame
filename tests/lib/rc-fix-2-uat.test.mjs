@@ -241,9 +241,9 @@ test("il generatore condiviso non nomina gli atleti", () => {
  */
 test("le pagine non riscrivono a mano l'intestazione del PDF", () => {
   for (const file of [
-    "src/app/trainers/page.tsx",
-    "src/app/staff/page.tsx",
-    "src/app/soci/page.tsx",
+    "src/app/(app)/trainers/page.tsx",
+    "src/app/(app)/staff/page.tsx",
+    "src/app/(app)/soci/page.tsx",
   ]) {
     const source = read(file);
 
@@ -256,7 +256,7 @@ test("le pagine non riscrivono a mano l'intestazione del PDF", () => {
   }
 
   assert.match(
-    read("src/app/athletes/page.tsx"),
+    read("src/app/(app)/athletes/page.tsx"),
     /countLabel: "Atleti esportati"/,
     "l'elenco Atleti dichiara il nome delle sue righe",
   );
@@ -270,7 +270,7 @@ test("le pagine non riscrivono a mano l'intestazione del PDF", () => {
  * visibili e indistinguibile da una che non e avvenuta.
  */
 test("l'elenco Allenatori mostra i gruppi assegnati, non solo le categorie", () => {
-  const source = read("src/app/trainers/page.tsx");
+  const source = read("src/app/(app)/trainers/page.tsx");
 
   /* Da ADR-0197 le assegnazioni si spaccano per stagione e la colonna legge `labelsOf(split.current)`: i gruppi vincono ancora. */
   assert.match(

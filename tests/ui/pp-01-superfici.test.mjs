@@ -28,7 +28,7 @@ const senzaCommenti = (sorgente) =>
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
-const SCHEDA = "app/athletes/[id]/page.tsx";
+const SCHEDA = "app/(app)/athletes/[id]/page.tsx";
 /* Dal Web V2 l'intestazione della scheda e il `RecordHeader` avvolto per l'atleta. */
 const INTESTAZIONE = "components/athletes/profile/v2/AthleteRecordHeader.tsx";
 const ACCESSO = "components/athletes/profile/athlete-account-section.tsx";
@@ -347,7 +347,7 @@ test("§J · «Profilo» porta all'unica superficie che funziona per ogni ruolo"
 });
 
 test("§J · il vecchio indirizzo resta una porta, non un 404", () => {
-  const pagina = leggi("app/profile/[userId]/page.tsx");
+  const pagina = leggi("app/(app)/profile/[userId]/page.tsx");
   assert.ok(
     pagina.includes('redirect("/account?profile=1")'),
     "un segnalibro o un messaggio di primo accesso deve continuare ad arrivare da qualche parte",

@@ -18,7 +18,7 @@ easygame/
 
 | Percorso | Contenuto | Note |
 |----------|-----------|------|
-| `src/app/` | 131 file. Route App Router: 72 `page.tsx`, 42 `route.ts` API, 6 `layout.tsx` | Vedi [04](04-web-architecture.md) |
+| `src/app/` | Route App Router in due gruppi: `(app)/` il gestionale, `(site)/` il sito pubblico dei club (ADR-0200); `api/` fuori dai gruppi. I gruppi non cambiano gli URL | Vedi [04](04-web-architecture.md) |
 | `src/app/api/v1/` | API versionata: auth, admin, registry, risorse generiche | Superficie usata anche dal mobile |
 | `src/app/api/` (fuori `v1`) | Endpoint di dominio non versionati: parent-dashboard, payments, athletes/documents, clothing, forms/assets, medical-certificate-reminders, **public/forms** | Incoerenza nota, vedi [09](09-api-conventions.md). `public/forms` sta fuori da `v1` di proposito: non e la superficie ufficiale, e l'unico endpoint senza sessione |
 | `src/components/web/` | **Il sistema Web V2** (EGDS v3.1.0, ADR-0184): `shell/` (barra laterale, topbar, navigazione, cassetti globali), `primitives/`, `overlays/`, `forms/`, `datagrid/` (l'unica griglia), `page/` (intestazione, card, avvisi, barra azioni), `record/` (scheda), `hooks/` (`usePreference`, `useRouteClubId`) | Le regole in [10](10-ui-ux-conventions.md) §Web V2; i test in `tests/web/` |
@@ -33,7 +33,7 @@ easygame/
 | `src/lib/guardians/` | Le **regole** del dominio genitori e tutori ([ADR-0153](18-decision-log.md#adr-0153--le-regole-di-un-dominio-stanno-in-una-primitiva-non-in-ogni-consumatore)): `exclusion` (il predicato, un OR), `identity` (le grafie), `projection` (da righe a voci), `documents` (chi un documento nuovo puo nominare), `notifications` (chi riceve un avviso) | Puro. **Nessuna primitiva ha parametri che ne cambino la semantica.** Chi tocca il dominio va classificato in `scripts/pp-02-censimento.mjs` prima di essere scritto |
 | `src/components/forms/` | 25 file. Builder e modulo pubblico della Modulistica V2 (`form-builder`, `form-renderer`, `forms-dashboard`, `public-form-page`, `submission-review-dialog`, `compile-form-dialog`), editor documenti, form di dominio | |
 | `src/components/dashboard/` | 15 file. Sidebar, Header, widget dashboard club | |
-| `src/components/providers/` | `AuthProvider`, `ThemeProvider`, `GlobalLoadingProvider`, `AppClientProviders` | Montati in `src/app/layout.tsx` |
+| `src/components/providers/` | `AuthProvider`, `ThemeProvider`, `GlobalLoadingProvider`, `AppClientProviders` | Montati in `src/app/(app)/layout.tsx` (mai nel sito pubblico) |
 | `src/components/auth/` | `auth-shell.tsx` (login+registrazione), `access-area-guard.tsx` | |
 | `src/components/account/` | Home account e le sue dialog (crea club, profilo, riscatta accesso) | Ridisegnata nel Blocco 4 |
 | `src/components/brand/` | Marchio SVG e identita di club | |

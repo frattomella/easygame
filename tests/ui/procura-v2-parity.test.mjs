@@ -30,7 +30,7 @@ import {
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/procura/v2";
 const sources = {
-  page: read("src/app/procura/page.tsx"),
+  page: read("src/app/(app)/procura/page.tsx"),
   drawer: read(`${V2}/procura-drawer.tsx`),
   inspector: read(`${V2}/procura-inspector.tsx`),
   del: read(`${V2}/delete-procura-dialog.tsx`),

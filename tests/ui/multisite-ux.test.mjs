@@ -45,10 +45,10 @@ test("le pagine che filtrano per sede usano il componente, non una tendina propr
     pagina che si e spostata sul V2 non deve tornare a una tendina propria.
   */
   for (const file of [
-    "app/athletes/page.tsx",
-    "app/categories/page.tsx",
-    "app/structures/page.tsx",
-    "app/training/page.tsx",
+    "app/(app)/athletes/page.tsx",
+    "app/(app)/categories/page.tsx",
+    "app/(app)/structures/page.tsx",
+    "app/(app)/training/page.tsx",
   ]) {
     const source = read(file);
     assert.match(
@@ -76,7 +76,7 @@ test("la struttura porta la sede, e senza sede resta visibile", () => {
   const utils = read("lib/structures-utils.ts");
   assert.match(utils, /siteId: firstText\(raw\?\.siteId, raw\?\.site_id\)/);
 
-  const page = read("app/structures/page.tsx");
+  const page = read("app/(app)/structures/page.tsx");
   assert.match(
     page,
     /filterStructuresBySite\(structures, siteFilter\)/,
@@ -111,7 +111,7 @@ test("nessuna griglia delle schermate sede resta a due colonne a 375 px", () => 
  * primo allenamento in trasferta — ed e l'alternativa scartata da ADR-0038.
  */
 test("la sede di un allenamento viene dalla sua struttura", () => {
-  const source = read("app/training/page.tsx");
+  const source = read("app/(app)/training/page.tsx");
 
   assert.match(
     source,
@@ -172,7 +172,7 @@ test("non esiste una seconda superficie per i gruppi operativi", () => {
 });
 
 test("il salvataggio di una categoria scrive i gruppi delle sedi spuntate", () => {
-  const source = read("app/categories/page.tsx");
+  const source = read("app/(app)/categories/page.tsx");
 
   assert.match(source, /buildCategoryGroupsForSites\(\{/);
   assert.match(
@@ -201,7 +201,7 @@ test("togliere una sede archivia il gruppo, non lo cancella", () => {
  * nessuno puo usare per stampare un appello o contare una squadra.
  */
 test("la pagina Atleti raggruppa per gruppo operativo", () => {
-  const source = read("app/athletes/page.tsx");
+  const source = read("app/(app)/athletes/page.tsx");
 
   assert.match(source, /const athleteGroups = useMemo\(/);
   assert.match(
@@ -218,7 +218,7 @@ test("la pagina Atleti raggruppa per gruppo operativo", () => {
 });
 
 test("l'etichetta porta la sede solo quando ci sono piu squadre", () => {
-  const source = read("app/athletes/page.tsx");
+  const source = read("app/(app)/athletes/page.tsx");
 
   /*
     ADR-0185: la regola — la sede quando il nome che si legge compare piu di
@@ -250,7 +250,7 @@ test("un allenamento si assegna ai gruppi, non alla categoria", () => {
 });
 
 test("l'appello mostra la squadra dell'allenamento, non tutta la categoria", () => {
-  const source = read("app/training/page.tsx");
+  const source = read("app/(app)/training/page.tsx");
 
   assert.match(source, /const trainingGroupIds = readTrainingGroupIds\(training\)/);
   assert.match(
@@ -260,7 +260,7 @@ test("l'appello mostra la squadra dell'allenamento, non tutta la categoria", () 
 });
 
 test("un allenamento senza gruppi dichiarati ricade sulla categoria", () => {
-  const source = read("app/training/page.tsx");
+  const source = read("app/(app)/training/page.tsx");
 
   assert.match(
     source,
@@ -302,7 +302,7 @@ test("un allenatore puo seguire piu squadre senza duplicare l'anagrafica", () =>
     "senza gruppi dichiarati vale la categoria, come prima",
   );
 
-  const page = read("app/trainers/[id]/page.tsx");
+  const page = read("app/(app)/trainers/[id]/page.tsx");
   assert.match(page, /Gruppi seguiti/);
   assert.match(page, /assignableGroups/);
   /* La scelta dei gruppi vive nel cassetto «Informazioni societarie». */
@@ -322,7 +322,7 @@ test("il dato senza sede si colloca in blocco, non scheda per scheda", () => {
     `src/components/athletes/v2/bulk-category-drawer.tsx`, montato
     dall'elenco: stessi due campi, stessa regola sulla sede.
   */
-  const page = read("app/athletes/page.tsx");
+  const page = read("app/(app)/athletes/page.tsx");
   assert.match(page, /<BulkCategoryDrawer/, "l'elenco monta il cassetto");
 
   /*
@@ -361,7 +361,7 @@ test("cambiare categoria non scollega l'atleta dalla sua sede", () => {
  */
 test("si puo scegliere una squadra, non solo una sede", () => {
   const filter = read("components/sites/site-filter.tsx");
-  const page = read("app/athletes/page.tsx");
+  const page = read("app/(app)/athletes/page.tsx");
 
   assert.match(
     filter,
@@ -394,7 +394,7 @@ test("si puo scegliere una squadra, non solo una sede", () => {
  * due strade sono la stessa, percorsa in due modi.
  */
 test("scegliere la sede restringe le squadre offerte", () => {
-  const page = read("app/athletes/page.tsx");
+  const page = read("app/(app)/athletes/page.tsx");
 
   assert.match(
     page,
@@ -416,7 +416,7 @@ test("scegliere la sede restringe le squadre offerte", () => {
  * su duemila.
  */
 test("il filtro gruppo restringe anche la query, non solo cio che e a schermo", () => {
-  const page = read("app/athletes/page.tsx");
+  const page = read("app/(app)/athletes/page.tsx");
 
   assert.match(page, /siteId: selectedGroup\?\.siteId \|\| siteFilter/);
   assert.match(page, /categoryId: selectedGroup\?\.categoryId \|\| ""/);
@@ -433,7 +433,7 @@ test("il filtro gruppo restringe anche la query, non solo cio che e a schermo", 
  */
 test("i gruppi impliciti non compaiono fra le squadre selezionabili", () => {
   assert.match(
-    read("app/athletes/page.tsx"),
+    read("app/(app)/athletes/page.tsx"),
     /\.filter\(\(group\) => !group\.implicit\)/,
   );
 });

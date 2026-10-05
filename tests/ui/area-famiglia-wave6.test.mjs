@@ -72,7 +72,7 @@ test("W6-12 · la schermata di scelta e raggiungibile, quella di un figlio altru
 
 test("W6-12 · la scelta si fa in un posto solo, non in ogni pagina", () => {
   assert.ok(
-    existsSync(path.join(SRC, "app", "parent-view", "page.tsx")),
+    existsSync(path.join(SRC, "app", "(app)", "parent-view", "page.tsx")),
     "manca la schermata di scelta",
   );
 

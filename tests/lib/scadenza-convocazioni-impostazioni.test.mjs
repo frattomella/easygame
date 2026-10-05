@@ -72,7 +72,7 @@ test("la sezione «Gare e convocazioni» esiste e si raggiunge da ?tab=gare", ()
 
 test("la pagina Gare non scrive piu la regola e non ha un secondo default", () => {
   const radice = process.cwd();
-  const gare = readFileSync(path.join(radice, "src/app/matches/page.tsx"), "utf8");
+  const gare = readFileSync(path.join(radice, "src/app/(app)/matches/page.tsx"), "utf8");
   assert.doesNotMatch(gare, /saveClubSettings/);
   assert.doesNotMatch(gare, /useState\(2\)/, "il default vive in un posto solo");
   assert.match(gare, /getMatchConvocationDeadlineDays/);

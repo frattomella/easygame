@@ -113,7 +113,7 @@ test("il controllo porta alla scheda del primo dato mancante", () => {
  * ma li chiedeva anche in un ordine suo.
  */
 test("l'inserimento rapido dell'onboarding chiede Nome prima di Cognome", () => {
-  const source = read("src/app/onboarding/page.tsx");
+  const source = read("src/app/(app)/onboarding/page.tsx");
 
   const first = source.indexOf("onboarding-athlete-first-${index}");
   const last = source.indexOf("onboarding-athlete-last-${index}");
@@ -147,7 +147,7 @@ test("l'inserimento rapido dell'onboarding chiede Nome prima di Cognome", () => 
  * lungo una riga intera.
  */
 test("l'onboarding non scrive descrizioni piu lunghe del badge", () => {
-  const source = read("src/app/onboarding/page.tsx");
+  const source = read("src/app/(app)/onboarding/page.tsx");
 
   assert.equal(
     /Categoria creata durante la configurazione iniziale/.test(source),

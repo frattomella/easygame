@@ -168,9 +168,9 @@ const read = (file) => readFileSync(path.join(SRC, file), "utf8");
  */
 test("ogni schermata che salva un membro persiste il suo reparto", () => {
   for (const file of [
-    "app/staff/new/page.tsx",
-    "app/staff/[id]/page.tsx",
-    "app/staff/[id]/edit/page.tsx",
+    "app/(app)/staff/new/page.tsx",
+    "app/(app)/staff/[id]/page.tsx",
+    "app/(app)/staff/[id]/edit/page.tsx",
   ]) {
     assert.match(
       read(file),
@@ -185,7 +185,7 @@ test("ogni schermata che salva un membro persiste il suo reparto", () => {
  * montaggio della pagina riportava indietro stagioni, listini e onboarding.
  */
 test("le schermate staff non riscrivono l'intero blob settings", () => {
-  for (const file of ["app/staff/page.tsx", "app/staff/[id]/page.tsx"]) {
+  for (const file of ["app/(app)/staff/page.tsx", "app/(app)/staff/[id]/page.tsx"]) {
     const source = read(file);
     assert.equal(
       /settings:\s*(clubSettings|nextSettings)/.test(source),
@@ -197,10 +197,10 @@ test("le schermate staff non riscrivono l'intero blob settings", () => {
 
 test("il modello dei reparti e definito in un posto solo", () => {
   for (const file of [
-    "app/staff/page.tsx",
-    "app/staff/[id]/page.tsx",
-    "app/staff/new/page.tsx",
-    "app/staff/[id]/edit/page.tsx",
+    "app/(app)/staff/page.tsx",
+    "app/(app)/staff/[id]/page.tsx",
+    "app/(app)/staff/new/page.tsx",
+    "app/(app)/staff/[id]/edit/page.tsx",
     "components/staff/v2/departments-drawer.tsx",
     "components/staff/v2/staff-form.tsx",
   ]) {

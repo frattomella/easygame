@@ -38,7 +38,7 @@ const RISOLUTORE = path.join("lib", "server", "document-placeholders.ts");
 */
 const MODULISTICA = path.join(SRC, "components", "modulistica", "v2", "modulistica-model.ts");
 const GENERATE_DRAWER = path.join(SRC, "components", "modulistica", "v2", "generate-document-drawer.tsx");
-const MODULISTICA_PAGE = path.join(SRC, "app", "modulistica", "page.tsx");
+const MODULISTICA_PAGE = path.join(SRC, "app", "(app)", "modulistica", "page.tsx");
 
 const walk = (dir) => {
   const out = [];

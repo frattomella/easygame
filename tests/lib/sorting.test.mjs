@@ -180,9 +180,9 @@ test("gli elenchi nominali passano dai comparatori condivisi", () => {
   const missing = [];
 
   const superfici = [
-    ["app/athletes/page.tsx", /compareCategoryGroups\(/],
-    ["app/trainers/[id]/page.tsx", /compareCategoryGroups\)/],
-    ["app/athletes/new/page.tsx", /sortByName\(/],
+    ["app/(app)/athletes/page.tsx", /compareCategoryGroups\(/],
+    ["app/(app)/trainers/[id]/page.tsx", /compareCategoryGroups\)/],
+    ["app/(app)/athletes/new/page.tsx", /sortByName\(/],
   ];
 
   for (const [file, pattern] of superfici) {

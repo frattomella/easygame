@@ -157,7 +157,7 @@ test("la rotta di dettaglio risolve lo scope dalla sessione, non dalla query", (
  */
 test("la scheda atleta non pretende piu il clubId nell'URL", () => {
   const page = readFileSync(
-    path.join(process.cwd(), "src", "app", "athletes", "[id]", "page.tsx"),
+    path.join(process.cwd(), "src", "app", "(app)", "athletes", "[id]", "page.tsx"),
     "utf8",
   );
 

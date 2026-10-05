@@ -230,7 +230,7 @@ test("le opzioni gruppo si scrivono con una regola sola: la sede dove il nome si
 
   const senzaCommenti = (testo) => testo.replace(/\/\*[\s\S]*?\*\//g, " ");
   for (const file of [
-    "src/app/athletes/page.tsx",
+    "src/app/(app)/athletes/page.tsx",
     "src/components/training/TrainingGroupSelector.tsx",
     "src/components/dashboard/WeeklyTrainingSchedulePanel.tsx",
   ]) {
@@ -241,7 +241,7 @@ test("le opzioni gruppo si scrivono con una regola sola: la sede dove il nome si
 });
 
 test("la scheda atleta manda le appartenenze solo dal cassetto che le modifica, e conserva il nome storico", () => {
-  const pagina = readFileSync("src/app/athletes/[id]/page.tsx", "utf8");
+  const pagina = readFileSync("src/app/(app)/athletes/[id]/page.tsx", "utf8");
   assert.match(pagina, /editingSection === "general" \? editFormData : fuoriDalleCategorie/);
   assert.match(pagina, /stored_category_name: membership\.storedCategoryName/);
 
@@ -262,7 +262,7 @@ test("l'area famiglia e l'area atleta leggono l'etichetta canonica scritta dal s
   assert.match(server, /normalizeAthleteCategoryMemberships\(athlete, catalogo\)/);
   assert.match(server, /buildCategoryDisplayIndex\(\{/);
   for (const file of [
-    "src/app/parent-view/page.tsx",
+    "src/app/(app)/parent-view/page.tsx",
     "src/components/parent-dashboard/parent-dashboard-pages.tsx",
     "src/components/athlete/athlete-area-pages.tsx",
   ]) {
@@ -274,10 +274,10 @@ test("l'area famiglia e l'area atleta leggono l'etichetta canonica scritta dal s
 
 test("i selettori che offrono categorie passano dalle configurate e dall'indice", () => {
   const casi = [
-    ["src/app/trainers/[id]/page.tsx", /categoryLabel=\{\(categoryId\) => categoryDisplay\.label\(categoryId\)\}/],
-    ["src/app/trainers/new/page.tsx", /label: categoryDisplay\.label\(category\.id\)/],
-    ["src/app/trainers/page.tsx", /label: categoryDisplay\.label\(category\.id\)/],
-    ["src/app/training/page.tsx", /selectableCategoryOptions\(categories\)\.map/],
+    ["src/app/(app)/trainers/[id]/page.tsx", /categoryLabel=\{\(categoryId\) => categoryDisplay\.label\(categoryId\)\}/],
+    ["src/app/(app)/trainers/new/page.tsx", /label: categoryDisplay\.label\(category\.id\)/],
+    ["src/app/(app)/trainers/page.tsx", /label: categoryDisplay\.label\(category\.id\)/],
+    ["src/app/(app)/training/page.tsx", /selectableCategoryOptions\(categories\)\.map/],
     ["src/components/medical/v2/certificate-grid-model.ts", /selectableCategoryOptions\(categoryOptions\)\.map/],
     ["src/components/clothing/v2/group-drawer.tsx", /selectableCategoryOptions\(categoryOptions\)\.map/],
     ["src/components/clothing/v2/assignments-grid.tsx", /getAthletePrimaryCategoryId\(athleteOf\(row\), categories\) === value/],

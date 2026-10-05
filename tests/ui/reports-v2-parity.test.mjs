@@ -24,9 +24,9 @@ const readCode = (relative) =>
     .filter((line) => !line.trimStart().startsWith("//"))
     .join("\n");
 
-const PAGINA = "src/app/reports/page.tsx";
-const RIEPILOGO = "src/app/reports/management-summary.tsx";
-const BOTTONE = "src/app/reports/accounting-export-button.tsx";
+const PAGINA = "src/app/(app)/reports/page.tsx";
+const RIEPILOGO = "src/app/(app)/reports/management-summary.tsx";
+const BOTTONE = "src/app/(app)/reports/accounting-export-button.tsx";
 const PANNELLI = "src/components/reports/v2/activity-report-panels.tsx";
 const GRIGLIA_GRUPPI = "src/components/reports/v2/management-group-grid.tsx";
 const CONTESTO = "src/components/reports/v2/report-context-controls.tsx";

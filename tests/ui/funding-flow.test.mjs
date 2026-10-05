@@ -27,9 +27,9 @@ const ATHLETE_SUMMARY = "components/funding/AthleteFundingSummary.tsx";
 const PERIODS_TABLE = "components/funding/FundingPeriodsTable.tsx";
 const CONFIRM_DIALOG = "components/funding/ConfirmAccrualDialog.tsx";
 const PROGRAMS_PANEL = "components/funding/FundingProgramsPanel.tsx";
-const ATHLETE_PAGE = "app/athletes/[id]/page.tsx";
+const ATHLETE_PAGE = "app/(app)/athletes/[id]/page.tsx";
 const ENROLLMENT_TAB = "components/athletes/enrollment/AthleteEnrollmentTab.tsx";
-const REGISTRATION_PAGE = "app/registration-management/page.tsx";
+const REGISTRATION_PAGE = "app/(app)/registration-management/page.tsx";
 const PAYMENT_LEDGER = "components/payments/AthletePaymentLedger.tsx";
 
 // --- nessuna regola di un singolo bando nel codice ---------------------------

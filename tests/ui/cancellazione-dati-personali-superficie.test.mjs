@@ -34,7 +34,7 @@ const SEZIONE = path.join(
   PROJECT_ROOT,
   "src/components/athletes/profile/athlete-data-subject-section.tsx",
 );
-const SCHEDA = path.join(PROJECT_ROOT, "src/app/athletes/[id]/page.tsx");
+const SCHEDA = path.join(PROJECT_ROOT, "src/app/(app)/athletes/[id]/page.tsx");
 
 // I commenti si tolgono: nessuna asserzione deve poter essere soddisfatta da
 // una parola che vive dentro una spiegazione.

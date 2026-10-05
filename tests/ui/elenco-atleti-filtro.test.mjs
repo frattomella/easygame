@@ -42,8 +42,8 @@ const SRC = path.join(process.cwd(), "src");
 const leggi = (relativo) =>
   readFileSync(path.join(SRC, ...relativo.split("/")), "utf8");
 
-const ELENCO = "app/athletes/page.tsx";
-const SCHEDA = "app/athletes/[id]/page.tsx";
+const ELENCO = "app/(app)/athletes/page.tsx";
+const SCHEDA = "app/(app)/athletes/[id]/page.tsx";
 
 test("W6-01 · la dimensione dell'archivio non si legge da una risposta filtrata", () => {
   const sorgente = leggi(ELENCO);

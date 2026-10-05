@@ -28,8 +28,8 @@ import path from "node:path";
  */
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, "..", "..");
-const STAFF = path.join(PROJECT_ROOT, "src/app/staff/[id]/page.tsx");
-const SOCI = path.join(PROJECT_ROOT, "src/app/soci/[id]/page.tsx");
+const STAFF = path.join(PROJECT_ROOT, "src/app/(app)/staff/[id]/page.tsx");
+const SOCI = path.join(PROJECT_ROOT, "src/app/(app)/soci/[id]/page.tsx");
 const CARD = path.join(
   PROJECT_ROOT,
   "src/components/club/club-person-access-card.tsx",

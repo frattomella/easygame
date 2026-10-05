@@ -93,7 +93,7 @@ const raccogliTsx = (relativo) => {
 
 const SUPERFICI = [
   ...raccogliTsx("src/components/trainer"),
-  ...raccogliTsx("src/app/trainer-dashboard"),
+  ...raccogliTsx("src/app/(app)/trainer-dashboard"),
 ].map((file) => ({ file, sorgente: senzaCommenti(readFileSync(file, "utf8")) }));
 
 /**
@@ -290,7 +290,7 @@ test("le tre sezioni restano leggibili a 375, 768 e 1280 px", () => {
  * **`notifications` non e esposta, ed e una misura non una dimenticanza.**
  *
  * La chiave esiste, la barra laterale ci appende la voce «Notifiche», ma la
- * schermata `app/trainer-dashboard/notifications/page.tsx` si difende con
+ * schermata `app/(app)/trainer-dashboard/notifications/page.tsx` si difende con
  * `permissions.navigation.home`: spegnere `notifications` toglierebbe il
  * collegamento dal menu e lascerebbe la pagina raggiungibile. Mostrarla oggi
  * sarebbe un interruttore che mantiene meta della promessa.

@@ -26,7 +26,7 @@ import { REVIEW_QUEUE_FILTERS, getReviewQueueStateLabel } from "@/lib/documents/
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/documents/v2";
 const sources = {
-  page: read("src/app/documenti/page.tsx"),
+  page: read("src/app/(app)/documenti/page.tsx"),
   model: read(`${V2}/review-queue-model.ts`),
   drawer: read(`${V2}/document-decision-drawer.tsx`),
 };

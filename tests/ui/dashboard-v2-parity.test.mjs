@@ -32,7 +32,7 @@ const sources = {
   rail: read(`${V2}/DayRail.tsx`),
   onboarding: read("src/components/dashboard/onboarding-resume-card.tsx"),
   chrome: read(`${V2}/DashboardChrome.tsx`),
-  layout: read("src/app/dashboard/layout.tsx"),
+  layout: read("src/app/(app)/dashboard/layout.tsx"),
 };
 const everything = Object.values(sources).join("\n");
 
@@ -191,7 +191,7 @@ test("la V1 specifica della Dashboard e stata rimossa, e nessuno la importa piu"
       `${name}.tsx doveva sparire con la V2`,
     );
   }
-  for (const route of ["src/app/dashboard/page.tsx", "src/app/dashboard/[dashboardId]/page.tsx"]) {
+  for (const route of ["src/app/(app)/dashboard/page.tsx", "src/app/(app)/dashboard/[dashboardId]/page.tsx"]) {
     const source = read(route);
     assert.match(source, /<ClubDashboard \/>/);
     for (const name of removed) {

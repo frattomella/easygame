@@ -149,7 +149,7 @@ test("la rotta passa la stagione della richiesta al dominio, per movimento e gir
 });
 
 test("la prima nota si apre sulla stagione attiva del club, non su «Tutte»", () => {
-  const pagina = fs.readFileSync("src/app/movements/page.tsx", "utf8");
+  const pagina = fs.readFileSync("src/app/(app)/movements/page.tsx", "utf8");
   assert.match(pagina, /seasonPerimeterReady/);
   assert.match(pagina, /!seasonState\.isFallback && seasonState\.activeSeasonId/);
   /* La lettura aspetta il perimetro: niente elenco su «tutte» seguito da uno su «una». */

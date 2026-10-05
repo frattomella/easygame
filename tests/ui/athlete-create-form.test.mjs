@@ -25,8 +25,8 @@ const readCode = (file) =>
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
 const DIALOG = "components/forms/AthleteCreateForm.tsx";
-const LIST = "app/athletes/new/page.tsx";
-const INDEX = "app/athletes/page.tsx";
+const LIST = "app/(app)/athletes/new/page.tsx";
+const INDEX = "app/(app)/athletes/page.tsx";
 
 test("gli obbligatori restano nome, cognome e data di nascita", () => {
   const source = readCode(DIALOG);
@@ -167,7 +167,7 @@ test("l'iscrizione ha una pagina, come allenatori e soci", () => {
  */
 test("le chiavi scritte sono quelle che la scheda atleta legge", () => {
   const dialog = readCode(DIALOG);
-  const detail = read("app/athletes/[id]/page.tsx");
+  const detail = read("app/(app)/athletes/[id]/page.tsx");
 
   for (const key of [
     "fiscalCode",

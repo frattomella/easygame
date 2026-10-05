@@ -26,17 +26,17 @@ const read = (relative) =>
 
 /** Le pagine e i componenti che il Blocco 8 ha toccato. */
 const TOUCHED = [
-  "app/athletes/[id]/page.tsx",
-  "app/trainers/[id]/page.tsx",
-  "app/trainers/page.tsx",
-  "app/trainers/new/page.tsx",
+  "app/(app)/athletes/[id]/page.tsx",
+  "app/(app)/trainers/[id]/page.tsx",
+  "app/(app)/trainers/page.tsx",
+  "app/(app)/trainers/new/page.tsx",
   "components/trainer/v2/trainer-section-drawer.tsx",
   "components/trainer/v2/trainer-access-panel.tsx",
   "components/trainer/v2/trainer-payments-panel.tsx",
   "components/trainer/trainer-documents-panel.tsx",
-  "app/staff/[id]/page.tsx",
-  "app/soci/[id]/page.tsx",
-  "app/organization/page.tsx",
+  "app/(app)/staff/[id]/page.tsx",
+  "app/(app)/soci/[id]/page.tsx",
+  "app/(app)/organization/page.tsx",
   "components/forms/AthleteCreateForm.tsx",
   "components/forms/phone-field.tsx",
   "components/forms/certificate-attachment-field.tsx",
@@ -70,16 +70,16 @@ const TOUCHED = [
   "components/organization/v2/club-federations-section.tsx",
   "components/organization/v2/fiscal-profile-panel.tsx",
   "components/organization/v2/operation-types-panel.tsx",
-  "app/settings/page.tsx",
+  "app/(app)/settings/page.tsx",
   "components/settings/v2/settings-sections.tsx",
-  "app/reports/page.tsx",
+  "app/(app)/reports/page.tsx",
   /*
     Dal Web V2 `/reports` e composta dai pannelli in `components/reports/v2/`
     e dal riepilogo gestionale: dieci filtri, quattro riquadri di cassa e
     cinque griglie che a 375 px devono restare una colonna e scorrere in se.
   */
-  "app/reports/management-summary.tsx",
-  "app/reports/accounting-export-button.tsx",
+  "app/(app)/reports/management-summary.tsx",
+  "app/(app)/reports/accounting-export-button.tsx",
   "components/reports/v2/activity-report-panels.tsx",
   "components/reports/v2/management-group-grid.tsx",
   "components/reports/v2/report-stat-tile.tsx",
@@ -89,7 +89,7 @@ const TOUCHED = [
     pubblico e testo del messaggio — cioe la superficie che una segreteria
     apre per spegnere una regola, spesso di corsa e spesso dal telefono.
   */
-  "app/communications/automazioni/page.tsx",
+  "app/(app)/communications/automazioni/page.tsx",
   /*
     **PP-02 §N: le superfici dell'area famiglia.** E la parte del prodotto che
     si apre piu spesso da un telefono — in palestra, in macchina, la sera — e
@@ -97,12 +97,12 @@ const TOUCHED = [
     nel guscio, la riga delle ricevute, l'elenco dei moduli online e la scelta
     del motivo di un appuntamento.
   */
-  "app/parent-view/page.tsx",
+  "app/(app)/parent-view/page.tsx",
   "components/parent-dashboard/parent-dashboard-pages.tsx",
   "components/parent-dashboard/parent-family-pages.tsx",
   "components/parent-dashboard/parent-dashboard-shell.tsx",
   "components/web/shell/AreaShell.tsx",
-  "app/appuntamenti/page.tsx",
+  "app/(app)/appuntamenti/page.tsx",
 ];
 
 test("nessuna griglia resta a due colonne a 375 px", () => {
@@ -206,9 +206,9 @@ test("i dialoghi non superano l'altezza dello schermo", () => {
     l'applicazione usa gia.
   */
   for (const file of [
-    "app/trainers/[id]/page.tsx",
-    "app/staff/[id]/page.tsx",
-    "app/soci/[id]/page.tsx",
+    "app/(app)/trainers/[id]/page.tsx",
+    "app/(app)/staff/[id]/page.tsx",
+    "app/(app)/soci/[id]/page.tsx",
   ]) {
     const source = read(file);
     if (!source.includes("max-h-[90vh]")) continue;
@@ -245,10 +245,10 @@ test("i dialoghi non superano l'altezza dello schermo", () => {
  */
 test("il guscio del club non cresce con il proprio contenuto", () => {
   const shells = [
-    "app/dashboard/layout.tsx",
-    "app/organization/page.tsx",
-    "app/sponsors/page.tsx",
-    "app/staff/page.tsx",
+    "app/(app)/dashboard/layout.tsx",
+    "app/(app)/organization/page.tsx",
+    "app/(app)/sponsors/page.tsx",
+    "app/(app)/staff/page.tsx",
   ];
 
   for (const file of shells) {
@@ -279,8 +279,8 @@ test("le righe di comandi degli elenchi vanno a capo su schermo stretto", () => 
     Allenatori e soci sono passati alla `PageHeader` del Web V2: la riga di
     titolo e azioni va a capo dentro il componente condiviso, non nella pagina.
   */
-  assert.match(read("app/trainers/page.tsx"), /<PageHeader/);
-  assert.match(read("app/soci/page.tsx"), /<PageHeader/);
+  assert.match(read("app/(app)/trainers/page.tsx"), /<PageHeader/);
+  assert.match(read("app/(app)/soci/page.tsx"), /<PageHeader/);
   assert.match(
     read("components/web/page/PageHeader.tsx"),
     /flex flex-wrap items-end justify-between/,
@@ -437,7 +437,7 @@ test("le griglie a una colonna dichiarano una traccia che puo restringersi", () 
       "components/dashboard/v2/ClubDashboard.tsx",
       /grid-cols-\[minmax\(0,1fr\)\][\s\S]{0,80}laptop:grid-cols-\[minmax\(0,2fr\)_minmax\(0,1fr\)\]/,
     ],
-    ["app/onboarding/page.tsx", /grid-cols-\[minmax\(0,1fr\)\][\s\S]{0,120}lg:grid-cols-\[240px,minmax\(0,1fr\)\]/],
+    ["app/(app)/onboarding/page.tsx", /grid-cols-\[minmax\(0,1fr\)\][\s\S]{0,120}lg:grid-cols-\[240px,minmax\(0,1fr\)\]/],
   ];
 
   for (const [file, pattern] of casi) {
@@ -451,7 +451,7 @@ test("le griglie a una colonna dichiarano una traccia che puo restringersi", () 
 
 test("le colonne che contengono elenchi scorrevoli possono restringersi", () => {
   assert.match(
-    read("app/onboarding/page.tsx"),
+    read("app/(app)/onboarding/page.tsx"),
     /aria-label="Passi della configurazione"[\s\S]{0,120}min-w-0/,
     "l'elenco dei passi scorre gia; era la colonna a non potersi stringere",
   );
@@ -478,8 +478,8 @@ test("le barre di schede non escono dallo schermo stretto", () => {
       proprio contenitore invece di allargare la pagina, cosi «Contributi e
       bandi» resta raggiungibile da un telefono.
     */
-    ["app/registration-management/page.tsx", /<SegmentedControl<RegistrationTab>[\s\S]{0,400}?className="max-w-full overflow-x-auto"/],
-    ["app/modulistica/page.tsx", /<SegmentedControl<ModulisticaTab>[\s\S]{0,400}?className="max-w-full overflow-x-auto"/],
+    ["app/(app)/registration-management/page.tsx", /<SegmentedControl<RegistrationTab>[\s\S]{0,400}?className="max-w-full overflow-x-auto"/],
+    ["app/(app)/modulistica/page.tsx", /<SegmentedControl<ModulisticaTab>[\s\S]{0,400}?className="max-w-full overflow-x-auto"/],
   ];
 
   for (const [file, pattern] of casi) {
@@ -497,11 +497,11 @@ test("le barre di schede non escono dallo schermo stretto", () => {
     raggiungibile a 375 px: la barra delle viste va a capo invece di tagliare.
   */
   assert.match(
-    read("app/medical/page.tsx"),
+    read("app/(app)/medical/page.tsx"),
     /views=\{CERTIFICATE_VIEWS\}/,
-    "app/medical/page.tsx: le schede di stato sono le viste della griglia",
+    "app/(app)/medical/page.tsx: le schede di stato sono le viste della griglia",
   );
-  assert.doesNotMatch(read("app/medical/page.tsx"), /<TabsList/);
+  assert.doesNotMatch(read("app/(app)/medical/page.tsx"), /<TabsList/);
   assert.match(
     read("components/web/datagrid/DataGrid.tsx"),
     /flex min-h-\[52px\] flex-wrap items-center gap-2 border-b border-egw-hairline[^"]*"[\s\S]{0,200}<Eyebrow className="mr-1">Viste<\/Eyebrow>/,
@@ -527,7 +527,7 @@ test("i comandi di intestazione vanno a capo prima di uscire", () => {
 });
 
 test("esiste un guscio solo, e Modulistica usa quello", () => {
-  const modulistica = read("app/modulistica/page.tsx");
+  const modulistica = read("app/(app)/modulistica/page.tsx");
 
   /* Dal Web V2 (Wave E) la barra mobile arriva da `Header`: montarne una seconda impilava due intestazioni. */
   assert.match(modulistica, /<Header title="Modulistica" \/>/);
@@ -540,7 +540,7 @@ test("esiste un guscio solo, e Modulistica usa quello", () => {
   );
 
   for (const orfano of [
-    "app/layout-with-mobile-nav.tsx",
+    "app/(app)/layout-with-mobile-nav.tsx",
     "components/ui/mobile-navigation.tsx",
   ]) {
     assert.equal(
@@ -655,7 +655,7 @@ test("la riga di intestazione degli Atleti va a capo invece di tagliare le azion
     pagine. Qui si verifica che l'elenco la usi e che le fondamenta la
     mantengano.
   */
-  const source = read("app/athletes/page.tsx");
+  const source = read("app/(app)/athletes/page.tsx");
   assert.match(source, /<PageHeader/, "l'elenco usa l'intestazione di pagina del sistema");
   assert.match(source, /context=\{/, "sede e gruppo sono controlli di contesto dell'intestazione");
   assert.match(source, /actions=\{/, "l'azione principale sta nell'intestazione");
@@ -700,7 +700,7 @@ const TRAINER_DASHBOARD = [
   "components/trainer/trainer-board-dashboard-page.tsx",
   "components/trainer/trainer-documents-dashboard-page.tsx",
   "components/trainer/trainer-appointments-dashboard-page.tsx",
-  "app/trainer-dashboard/notifications/page.tsx",
+  "app/(app)/trainer-dashboard/notifications/page.tsx",
 ];
 
 test("le pagine trainer-dashboard non restano a due colonne a 375 px", () => {
@@ -909,7 +909,7 @@ test("le sezioni nuove della famiglia sono raggiungibili anche sotto i 768 px", 
       `${voce}: manca dalla fonte unica, quindi la sezione non si raggiunge`,
     );
     assert.equal(
-      existsSync(path.join(SRC, "app", "parent-view", "[id]", voce, "page.tsx")),
+      existsSync(path.join(SRC, "app", "(app)", "parent-view", "[id]", voce, "page.tsx")),
       true,
       `${voce}: la voce di menu punta a una rotta che non esiste`,
     );

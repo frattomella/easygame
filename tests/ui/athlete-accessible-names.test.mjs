@@ -102,8 +102,8 @@ test("un indirizzo con una sezione sconosciuta atterra su Generale", () => {
  * duecento pulsanti indistinguibili su una pagina sola.
  */
 
-const SCHEDA = path.join(process.cwd(), "src/app/athletes/[id]/page.tsx");
-const ELENCO = path.join(process.cwd(), "src/app/athletes/page.tsx");
+const SCHEDA = path.join(process.cwd(), "src/app/(app)/athletes/[id]/page.tsx");
+const ELENCO = path.join(process.cwd(), "src/app/(app)/athletes/page.tsx");
 
 test("le matite della scheda atleta dicono cosa modificano", () => {
   /*
@@ -182,7 +182,7 @@ test("la riga di una categoria dice di quale categoria sono le azioni", () => {
     quello dell'elenco atleti e ugualmente muto.
   */
   const source = readFileSync(
-    path.join(process.cwd(), "src/app/categories/page.tsx"),
+    path.join(process.cwd(), "src/app/(app)/categories/page.tsx"),
     "utf8",
   );
 

@@ -35,13 +35,13 @@ test("WeeklyTrainingSchedulePanel · usa resolveRecommendedStructures in entramb
 });
 
 test("training/page.tsx · richiede conferma cross-site prima di salvare un allenamento", () => {
-  const sorgente = read("src/app/training/page.tsx");
+  const sorgente = read("src/app/(app)/training/page.tsx");
   assert.match(sorgente, /isCrossSiteEvent/);
   assert.match(sorgente, /La struttura appartiene a un'altra sede/);
 });
 
 test("matches/page.tsx · richiede conferma cross-site prima di salvare una gara, non per le trasferte", () => {
-  const sorgente = read("src/app/matches/page.tsx");
+  const sorgente = read("src/app/(app)/matches/page.tsx");
   assert.match(sorgente, /isCrossSiteEvent/);
   assert.match(sorgente, /matchData\.venueMode !== "away"/);
 });

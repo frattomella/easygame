@@ -481,7 +481,7 @@ const TABELLA = {
   },
 
   /* ---------------- le schermate ---------------- */
-  "src/app/athletes/[id]/page.tsx": {
+  "src/app/(app)/athletes/[id]/page.tsx": {
     azione: "scheda atleta: mostra e conia inviti",
     verso: "read",
     autorita: "proiezione",
@@ -515,7 +515,7 @@ const TABELLA = {
     canonico: false,
     impatto: "presentazione",
   },
-  "src/app/trainers/[id]/page.tsx": {
+  "src/app/(app)/trainers/[id]/page.tsx": {
     azione: "scheda allenatore: conia inviti",
     verso: "read",
     autorita: "proiezione",
@@ -548,7 +548,7 @@ const TABELLA = {
     canonico: false,
     impatto: "conio",
   },
-  "src/app/dashboard/access-management/page.tsx": {
+  "src/app/(app)/dashboard/access-management/page.tsx": {
     azione: "gestione accessi",
     verso: "read",
     autorita: "proiezione",

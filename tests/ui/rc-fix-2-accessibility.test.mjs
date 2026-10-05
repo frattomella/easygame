@@ -53,7 +53,7 @@ test("ogni casella di selezione dice cosa sta selezionando", () => {
     della riga da `rowLabel`: le loro tabelle V1 non ci sono piu.
   */
   for (const [file, label] of [
-    ["app/trainers/page.tsx", "allenatori"],
+    ["app/(app)/trainers/page.tsx", "allenatori"],
   ]) {
     assert.equal(
       /<SelectRowCheckbox[\s\S]{0,200}?label=\{String\(/.test(read(file)),
@@ -134,7 +134,7 @@ test("i menu delle azioni si aprono da tastiera perche sono quelli condivisi", (
     di massa ed export vivono nei menu del `DataGrid`, che sono quelli delle
     primitive. La pagina deve montare la griglia e non fare menu a mano.
   */
-  for (const file of ["app/soci/page.tsx"]) {
+  for (const file of ["app/(app)/soci/page.tsx"]) {
     const source = read(file);
 
     assert.match(source, /<DataGrid/);
@@ -151,7 +151,7 @@ test("i menu delle azioni si aprono da tastiera perche sono quelli condivisi", (
     (`Menu`/`MenuTrigger`/`MenuItem` su Radix): stessa navigazione da
     tastiera, altro nome.
   */
-  for (const file of ["app/staff/page.tsx"]) {
+  for (const file of ["app/(app)/staff/page.tsx"]) {
     const source = read(file);
 
     assert.match(source, /<MenuTrigger asChild>/);
@@ -166,7 +166,7 @@ test("i menu delle azioni si aprono da tastiera perche sono quelli condivisi", (
     L'elenco Allenatori non monta un menu proprio: azioni di riga, azioni di
     massa e ambiti di export sono i menu del `DataGrid` condiviso.
   */
-  for (const file of ["app/trainers/page.tsx"]) {
+  for (const file of ["app/(app)/trainers/page.tsx"]) {
     const source = read(file);
 
     assert.match(source, /<DataGrid/);

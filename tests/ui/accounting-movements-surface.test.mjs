@@ -43,7 +43,7 @@ const readCode = (relative) =>
     .filter((line) => !line.trimStart().startsWith("//"))
     .join("\n");
 
-const PAGE = "src/app/movements/page.tsx";
+const PAGE = "src/app/(app)/movements/page.tsx";
 
 /*
   Dal Web V2 la barra dei filtri e la tabella (`AccountingFilters`,

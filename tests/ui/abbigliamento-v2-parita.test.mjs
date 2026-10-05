@@ -44,7 +44,7 @@ import { CLOTHING_ITEM_STATE_LABELS, KIT_DELIVERY_STATE_LABELS } from "@/lib/clo
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/clothing/v2";
 const sources = {
-  page: read("src/app/clothing/page.tsx"),
+  page: read("src/app/(app)/clothing/page.tsx"),
   model: read(`${V2}/clothing-model.ts`),
   item: read(`${V2}/item-drawer.tsx`),
   kit: read(`${V2}/kit-drawer.tsx`),

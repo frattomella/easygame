@@ -24,7 +24,7 @@ const leggi = (relativo) => readFileSync(path.join(SRC, ...relativo.split("/")),
 const senzaCommenti = (sorgente) => sorgente.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 test("PP-03 §13 · l'intestazione mobile legacy e il suo wrapper non esistono piu", () => {
-  for (const file of ["components/ui/mobile-header.tsx", "app/mobile-layout-wrapper.tsx"]) {
+  for (const file of ["components/ui/mobile-header.tsx", "app/(app)/mobile-layout-wrapper.tsx"]) {
     assert.equal(existsSync(path.join(SRC, ...file.split("/"))), false, `${file} e stato tolto`);
   }
 });

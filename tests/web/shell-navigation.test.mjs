@@ -45,7 +45,7 @@ test("ogni voce ha una pagina reale", () => {
   const root = process.cwd();
   for (const item of NAV_GROUPS.flatMap((g) => g.items)) {
     const segments = item.href.replace(/^\//, "").split("/");
-    const page = path.join(root, "src", "app", ...segments, "page.tsx");
+    const page = path.join(root, "src", "app", "(app)", ...segments, "page.tsx");
     assert.doesNotThrow(() => readFileSync(page), `${item.href}: nessuna pagina`);
   }
 });

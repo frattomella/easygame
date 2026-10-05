@@ -24,7 +24,7 @@ import path from "node:path";
  * con un filtro vecchio, e la riga che torna due volte.
  */
 
-const ELENCO = path.join(process.cwd(), "src/app/athletes/page.tsx");
+const ELENCO = path.join(process.cwd(), "src/app/(app)/athletes/page.tsx");
 const sorgente = fs.readFileSync(ELENCO, "utf8");
 
 /** Il corpo del componente, senza i commenti: cio che il browser esegue. */

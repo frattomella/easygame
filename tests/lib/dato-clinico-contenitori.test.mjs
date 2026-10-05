@@ -43,7 +43,7 @@ import {
   Documento» scrive quando qualcuno sceglie «Certificato Medico» dalla tendina.
 
   Le nove sono quelle che `persistAthleteCollections` salva davvero
-  (`src/app/athletes/[id]/page.tsx`): il presidio le enumera da li, e il
+  (`src/app/(app)/athletes/[id]/page.tsx`): il presidio le enumera da li, e il
   controllo qui sotto pretende che l'elenco resti allineato — cosi una raccolta
   nuova non puo nascere senza che qualcuno decida se e clinica.
 */
@@ -374,7 +374,7 @@ test("la categoria dell'allegato segue il tipo dichiarato, o il gate non si acce
   */
   const { normalizeDocumentKind, isMedicalCertificateDocumentKind } =
     await import("../../src/lib/documents/request-model.ts");
-  const sorgente = await readFile("src/app/athletes/[id]/page.tsx", "utf8");
+  const sorgente = await readFile("src/app/(app)/athletes/[id]/page.tsx", "utf8");
 
   assert.ok(
     isMedicalCertificateDocumentKind(normalizeDocumentKind("Certificato Medico")),

@@ -194,7 +194,7 @@ test("19 · la ricerca per data esatta nello storico usa il campo data, non il t
 
 test("16 · le superfici usano il presentatore: Allenamenti, Dashboard, Calendario, bacheca allenatore, generatore", () => {
   const leggi = (p) => readFileSync(path.resolve(p), "utf8");
-  assert.match(leggi("src/app/training/page.tsx"), /title: trainingDisplayTitle\(training\)/);
+  assert.match(leggi("src/app/(app)/training/page.tsx"), /title: trainingDisplayTitle\(training\)/);
   assert.match(leggi("src/components/dashboard/v2/today-trainings.ts"), /title: trainingDisplayTitle\(training\)/);
   assert.match(leggi("src/components/calendar/v2/calendar-model.ts"), /trainingDisplayTitle\(evento\)/);
   assert.match(leggi("src/components/trainer/trainer-dashboard-home-v2-page.tsx"), /trainingDisplayTitle\(training\)/);

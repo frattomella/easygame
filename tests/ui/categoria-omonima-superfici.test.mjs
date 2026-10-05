@@ -39,13 +39,13 @@ const SUPERFICI = [
   },
   {
     nome: "gare: convocazioni, filtri e statistiche",
-    file: "src/app/matches/page.tsx",
+    file: "src/app/(app)/matches/page.tsx",
     usa: /categoryDisplay\.label\(/,
     gruppi: /buildCategoryGroups\(\{/,
   },
   {
     nome: "elenco atleti: l'azione massiva che cambia categoria",
-    file: "src/app/athletes/page.tsx",
+    file: "src/app/(app)/athletes/page.tsx",
     usa: /categoryDisplay\.label\(category\.id\)/,
     gruppi: /buildCategoryDisplayIndex\(\{ categories, groups: categoryGroups \}\)/,
   },
@@ -63,7 +63,7 @@ const SUPERFICI = [
   },
   {
     nome: "calendario: filtro per categoria",
-    file: "src/app/calendar/page.tsx",
+    file: "src/app/(app)/calendar/page.tsx",
     usa: /categoryDisplay\.label\(voce\.id\)/,
     gruppi: /groups: gruppi/,
   },
@@ -92,7 +92,7 @@ for (const superficie of SUPERFICI) {
 /* ------------------------------------------------------------------ */
 
 test("la scheda atleta legge i gruppi del club e li passa ai pannelli", () => {
-  const codice = senzaCommenti(leggi("src/app/athletes/[id]/page.tsx"));
+  const codice = senzaCommenti(leggi("src/app/(app)/athletes/[id]/page.tsx"));
 
   assert.match(
     codice,

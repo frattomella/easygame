@@ -135,7 +135,7 @@ test("il periodo non altera la ripartizione fra residuo e scaduto dentro la fine
 */
 test("la pagina passa il periodo al report pagamenti, e il useMemo ne dipende", () => {
   const sorgente = readFileSync(
-    path.resolve(process.cwd(), "src/app/reports/page.tsx"),
+    path.resolve(process.cwd(), "src/app/(app)/reports/page.tsx"),
     "utf8",
   );
 

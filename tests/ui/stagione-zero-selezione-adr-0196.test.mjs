@@ -9,7 +9,7 @@ import fs from "node:fs";
  */
 
 const manager = fs.readFileSync("src/components/organization/v2/season-manager.tsx", "utf8");
-const atleti = fs.readFileSync("src/app/athletes/page.tsx", "utf8");
+const atleti = fs.readFileSync("src/app/(app)/athletes/page.tsx", "utf8");
 const gridState = fs.readFileSync("src/components/web/datagrid/useGridState.ts", "utf8");
 const gridTypes = fs.readFileSync("src/components/web/datagrid/types.ts", "utf8");
 
@@ -91,7 +91,7 @@ test("con il solo catalogo della stagione nuova l'appartenenza vecchia si traves
 /* ───────────────────── chiusure della revisione ostile ─────────────────── */
 
 test("la scheda atleta riconosce le appartenenze sul catalogo di tutte le stagioni (C3): nessun riporto scritto per sbaglio", () => {
-  const scheda = fs.readFileSync("src/app/athletes/[id]/page.tsx", "utf8");
+  const scheda = fs.readFileSync("src/app/(app)/athletes/[id]/page.tsx", "utf8");
   assert.match(scheda, /headers: \{ "x-active-season-id": "" \}/);
   assert.equal((scheda.match(/normalizeAthleteCategoryMemberships\(\s*(athlete|editFormData),\s*categoryCatalogForIdentity,/g) || []).length, 2);
 });

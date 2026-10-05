@@ -131,7 +131,7 @@ test("nessuna schermata monta il proprio contenuto due volte", () => {
 
 test("la chrome della Dashboard monta i figli una volta sola", () => {
   const layout = readFileSync(
-    path.join(process.cwd(), "src/app/dashboard/layout.tsx"),
+    path.join(process.cwd(), "src/app/(app)/dashboard/layout.tsx"),
     "utf8",
   );
 

@@ -146,7 +146,7 @@ test("il form non dichiara lo stato del certificato", () => {
 });
 
 test("la scheda atleta ha una strada per correggere un certificato", () => {
-  const codice = senzaCommenti(sorgente("src/app/athletes/[id]/page.tsx"));
+  const codice = senzaCommenti(sorgente("src/app/(app)/athletes/[id]/page.tsx"));
 
   assert.match(codice, /handleUpdateMedicalCertificate/);
   assert.match(

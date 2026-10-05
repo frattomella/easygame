@@ -22,7 +22,7 @@ import {
  */
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const sources = {
-  page: read("src/app/notifications/page.tsx"),
+  page: read("src/app/(app)/notifications/page.tsx"),
   data: read("src/components/notifications/v2/notification-data.ts"),
   grid: read("src/components/notifications/v2/notification-grid.tsx"),
   drawer: read("src/components/web/shell/NotificationDrawer.tsx"),

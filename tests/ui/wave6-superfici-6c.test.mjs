@@ -79,7 +79,7 @@ test("W6-30 · le notifiche sono nel menu e nel registro delle rotte", () => {
 /* ------------------------------------------------------------------ W6-31 */
 
 test("W6-31 · la pagina delle squadre non rimanda piu alla home", () => {
-  const pagina = leggi("app/trainer-dashboard/categories/page.tsx");
+  const pagina = leggi("app/(app)/trainer-dashboard/categories/page.tsx");
 
   assert.equal(
     /redirect\(/.test(senzaCommenti(pagina)),
@@ -106,7 +106,7 @@ test("W6-31 · la chiave categories non e piu forzata a false", () => {
 /* ------------------------------------------------------------------ W6-32 */
 
 test("W6-32 · «I miei compensi» ha rotta, pagina e voce di menu", () => {
-  assert.ok(esiste("app/trainer-dashboard/compensi/page.tsx"));
+  assert.ok(esiste("app/(app)/trainer-dashboard/compensi/page.tsx"));
   assert.ok(esiste("app/api/v1/sport-work/me/route.ts"));
 
   const rotta = leggi("app/api/v1/sport-work/me/route.ts");
@@ -167,7 +167,7 @@ test("ogni voce di navigazione dell'allenatore e raggiungibile dal menu", () => 
   for (const [, , rotta] of rotte) {
     const relativa = rotta.replace(/^\//, "").split("/");
     assert.ok(
-      esiste(path.join("app", ...relativa, "page.tsx")),
+      esiste(path.join("app", "(app)", ...relativa, "page.tsx")),
       `${rotta} e nel registro e non ha una pagina`,
     );
   }

@@ -17,7 +17,7 @@ import path from "node:path";
  */
 
 const source = readFileSync(
-  path.join(process.cwd(), "src/app/athletes/page.tsx"),
+  path.join(process.cwd(), "src/app/(app)/athletes/page.tsx"),
   "utf8",
 );
 

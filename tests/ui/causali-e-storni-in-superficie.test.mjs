@@ -70,8 +70,8 @@ test("uno storno si dichiara in tutte e due le schermate di uno sponsor", () => 
     passare da chi lo dichiara.
   */
   for (const percorso of [
-    "src/app/sponsors/[id]/page.tsx",
-    "src/app/sponsors/page.tsx",
+    "src/app/(app)/sponsors/[id]/page.tsx",
+    "src/app/(app)/sponsors/page.tsx",
   ]) {
     const sorgente = leggi(percorso);
     assert.ok(
@@ -101,7 +101,7 @@ test("uno storno si dichiara in tutte e due le schermate di uno sponsor", () => 
 });
 
 test("l'elenco degli sponsor legge gli incassi dalla stessa fonte del residuo", () => {
-  const sorgente = leggi("src/app/sponsors/page.tsx");
+  const sorgente = leggi("src/app/(app)/sponsors/page.tsx");
   assert.ok(
     !/getClubData\([^)]*"sponsor_payments"/.test(sorgente),
     "la vecchia collezione JSON non riceve piu niente: leggerla mostrava una scheda ferma",
@@ -117,7 +117,7 @@ test("l'elenco degli sponsor legge gli incassi dalla stessa fonte del residuo", 
 });
 
 test("una tendina non offre un movimento che il gestore non registra", () => {
-  const sorgente = leggi("src/app/sponsors/page.tsx");
+  const sorgente = leggi("src/app/(app)/sponsors/page.tsx");
   assert.ok(
     !/<option value="uscita">/.test(sorgente),
     'scegliendo «Uscita» il totale incassato dallo sponsor **saliva**: il gestore registrava sempre un incasso',
@@ -126,9 +126,9 @@ test("una tendina non offre un movimento che il gestore non registra", () => {
 
 test("nessuna schermata promette credenziali che nessuno invia", () => {
   for (const percorso of [
-    "src/app/athletes/[id]/page.tsx",
-    "src/app/staff/[id]/page.tsx",
-    "src/app/soci/[id]/page.tsx",
+    "src/app/(app)/athletes/[id]/page.tsx",
+    "src/app/(app)/staff/[id]/page.tsx",
+    "src/app/(app)/soci/[id]/page.tsx",
   ]) {
     const sorgente = leggi(percorso);
     assert.ok(

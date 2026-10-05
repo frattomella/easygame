@@ -41,11 +41,11 @@ test("un nome che finisce in .csv e gia il nome del file", () => {
 
 test("nessuna pagina riscrive l'esportazione in casa", () => {
   const files = [
-    "src/app/registration-management/page.tsx",
-    "src/app/sport-work/relationships/page.tsx",
-    "src/app/sport-work/compensations/page.tsx",
-    "src/app/sport-work/deadlines/page.tsx",
-    "src/app/sport-work/obligations/page.tsx",
+    "src/app/(app)/registration-management/page.tsx",
+    "src/app/(app)/sport-work/relationships/page.tsx",
+    "src/app/(app)/sport-work/compensations/page.tsx",
+    "src/app/(app)/sport-work/deadlines/page.tsx",
+    "src/app/(app)/sport-work/obligations/page.tsx",
     "src/components/sport-work/v2/installments-grid.tsx",
     "src/components/sport-work/v2/payouts-grid.tsx",
   ];

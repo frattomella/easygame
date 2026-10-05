@@ -31,7 +31,7 @@ const PHONE_SURFACES = [
   /* Il modulo socio V2 e uno solo: creazione, modifica e cassetti della scheda montano le stesse sezioni. */
   ["components/soci/v2/member-form.tsx", "scheda socio (cassetti di modifica) e nuovo socio"],
   ["components/organization/v2/club-profile-sections.tsx", "scheda club"],
-  ["app/trainers/new/page.tsx", "nuovo allenatore"],
+  ["app/(app)/trainers/new/page.tsx", "nuovo allenatore"],
   ["components/forms/AthleteCreateForm.tsx", "nuovo atleta"],
 ];
 
@@ -86,7 +86,7 @@ const PERSON_IDENTITY_SURFACES = [
     (Blocco A, punto 10).
   */
   ["components/soci/v2/member-form.tsx", "scheda socio (cassetti di modifica) e nuovo socio"],
-  ["app/trainers/new/page.tsx", "nuovo allenatore"],
+  ["app/(app)/trainers/new/page.tsx", "nuovo allenatore"],
   ["components/forms/AthleteCreateForm.tsx", "nuovo atleta e genitore/tutore"],
 ];
 
@@ -198,7 +198,7 @@ test("la scheda club verifica il codice fiscale del rappresentante senza calcola
 test("il sesso e una scelta, non testo libero, dove serve al codice fiscale", () => {
   for (const file of [
     "components/trainer/v2/trainer-section-drawer.tsx",
-    "app/staff/[id]/page.tsx",
+    "app/(app)/staff/[id]/page.tsx",
     "components/soci/v2/member-section-drawer.tsx",
   ]) {
     const source = read(file);
@@ -221,7 +221,7 @@ test("il sesso e una scelta, non testo libero, dove serve al codice fiscale", ()
  */
 const DOCUMENT_READER_SURFACES = [
   ["components/forms/AthleteCreateForm.tsx", "nuovo atleta"],
-  ["app/trainers/new/page.tsx", "nuovo allenatore"],
+  ["app/(app)/trainers/new/page.tsx", "nuovo allenatore"],
   ["components/staff/v2/staff-form.tsx", "nuovo staff"],
   ["components/soci/v2/member-form.tsx", "nuovo socio"],
   ["components/athletes/profile/v2/AthleteProfileDrawers.tsx", "genitore/tutore"],
@@ -294,15 +294,15 @@ test("nessuna superficie applica i dati letti senza passare dalla conferma", () 
  * quarta anagrafica con le taglie deve passare di qui.
  */
 const CLOTHING_SIZE_SURFACES = [
-  ["app/trainers/new/page.tsx", "nuovo allenatore", "create"],
+  ["app/(app)/trainers/new/page.tsx", "nuovo allenatore", "create"],
   ["components/staff/v2/staff-form.tsx", "nuovo staff e cassetti della scheda staff", "create"],
   ["components/soci/v2/member-form.tsx", "nuovo socio e cassetti della scheda socio", "create"],
   /* La scheda allenatore V2 corregge le taglie in un cassetto: i campi vivono li. */
-  ["app/trainers/[id]/page.tsx", "scheda allenatore", "detail", "components/trainer/v2/trainer-section-drawer.tsx"],
+  ["app/(app)/trainers/[id]/page.tsx", "scheda allenatore", "detail", "components/trainer/v2/trainer-section-drawer.tsx"],
   /* La scheda staff V2 corregge le taglie in un cassetto, i cui campi vivono nel modulo condiviso. */
-  ["app/staff/[id]/page.tsx", "scheda staff", "detail", "components/staff/v2/staff-form.tsx"],
+  ["app/(app)/staff/[id]/page.tsx", "scheda staff", "detail", "components/staff/v2/staff-form.tsx"],
   /* La scheda socio V2 corregge le taglie in un cassetto, i cui campi vivono nel modulo condiviso. */
-  ["app/soci/[id]/page.tsx", "scheda socio", "detail", "components/soci/v2/member-form.tsx"],
+  ["app/(app)/soci/[id]/page.tsx", "scheda socio", "detail", "components/soci/v2/member-form.tsx"],
 ];
 
 test("le taglie si raccolgono alla creazione e si correggono dalla scheda", () => {
@@ -366,10 +366,10 @@ test("il sesso si normalizza in un posto solo", () => {
     restino zero.
   */
   for (const file of [
-    "app/trainers/[id]/page.tsx",
+    "app/(app)/trainers/[id]/page.tsx",
     "components/trainer/v2/trainer-section-drawer.tsx",
-    "app/staff/[id]/page.tsx",
-    "app/soci/[id]/page.tsx",
+    "app/(app)/staff/[id]/page.tsx",
+    "app/(app)/soci/[id]/page.tsx",
     "components/forms/person-identity-fields.tsx",
   ]) {
     const source = read(file);
@@ -494,7 +494,7 @@ test("la scheda socio carica tutti i campi che la creazione scrive", () => {
  * era gia complesso e mancava dove era semplice, cioe dove si digita di piu.
  */
 const RESIDENCE_SURFACES = [
-  ["app/trainers/new/page.tsx", "nuovo allenatore"],
+  ["app/(app)/trainers/new/page.tsx", "nuovo allenatore"],
   ["components/staff/v2/staff-form.tsx", "nuovo staff e cassetti della scheda staff"],
   /* Il modulo socio V2 e uno solo: nuovo socio, modifica e cassetti della scheda. */
   ["components/soci/v2/member-form.tsx", "nuovo socio e cassetti della scheda socio"],

@@ -116,7 +116,7 @@ test("la creazione non porta nel database la stagione sintetizzata", () => {
  * un proprietario (CLAUDE.md §2) e passa dalla sua rotta.
  */
 test("l'onboarding crea la stagione dal suo dominio", () => {
-  const source = read("src/app/onboarding/page.tsx");
+  const source = read("src/app/(app)/onboarding/page.tsx");
 
   assert.match(
     source,
@@ -141,7 +141,7 @@ test("l'onboarding crea la stagione dal suo dominio", () => {
  * l'aveva, e continuava a dirlo dopo un ricaricamento.
  */
 test("la stagione creata aggiorna il club attivo memorizzato", () => {
-  const onboarding = read("src/app/onboarding/page.tsx");
+  const onboarding = read("src/app/(app)/onboarding/page.tsx");
   const client = read("src/lib/api/client.ts");
 
   assert.match(onboarding, /rememberActiveSeason\(season\.id, season\.label, clubId\)/);
@@ -156,7 +156,7 @@ test("la stagione creata aggiorna il club attivo memorizzato", () => {
     E resta **una** implementazione: la pagina Organizzazione aveva la sua
     copia della stessa scrittura su `localStorage`.
   */
-  const organization = read("src/app/organization/page.tsx");
+  const organization = read("src/app/(app)/organization/page.tsx");
   assert.match(organization, /rememberActiveSeason\(season\.id, season\.label, clubId\)/);
   assert.equal(
     /const syncActiveSeasonLocally =/.test(organization),
@@ -256,8 +256,8 @@ test("la stagione si scrive solo sulle voci del club a cui appartiene", () => {
   );
 
   for (const file of [
-    "src/app/onboarding/page.tsx",
-    "src/app/organization/page.tsx",
+    "src/app/(app)/onboarding/page.tsx",
+    "src/app/(app)/organization/page.tsx",
   ]) {
     assert.match(
       read(file),
@@ -285,7 +285,7 @@ test("la stagione si scrive solo sulle voci del club a cui appartiene", () => {
  * non scrivere affatto.
  */
 test("l'avvio guidato distingue la stagione sintetizzata da una salvata", () => {
-  const source = read("src/app/onboarding/page.tsx");
+  const source = read("src/app/(app)/onboarding/page.tsx");
 
   assert.match(
     source,
@@ -304,7 +304,7 @@ test("l'avvio guidato distingue la stagione sintetizzata da una salvata", () => 
  * di saltarla, che e il comportamento che il difetto 1 dava per scontato.
  */
 test("le date proposte sono quelle dell'annata sportiva corrente", () => {
-  const source = read("src/app/onboarding/page.tsx");
+  const source = read("src/app/(app)/onboarding/page.tsx");
 
   assert.match(
     source,

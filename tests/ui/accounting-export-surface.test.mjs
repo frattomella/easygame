@@ -34,8 +34,8 @@ const readCode = (relative) =>
     .filter((line) => !line.trimStart().startsWith("//"))
     .join("\n");
 
-const BOTTONE = "src/app/reports/accounting-export-button.tsx";
-const RIEPILOGO = "src/app/reports/management-summary.tsx";
+const BOTTONE = "src/app/(app)/reports/accounting-export-button.tsx";
+const RIEPILOGO = "src/app/(app)/reports/management-summary.tsx";
 
 test("il pulsante di export si mostra solo a chi ha accounting.export", () => {
   const source = read(BOTTONE);

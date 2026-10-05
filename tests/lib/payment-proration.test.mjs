@@ -262,7 +262,7 @@ const read = (relative) =>
 
 test("nessuna schermata scrive piu «Non applicato» a mano", () => {
   for (const file of [
-    "src/app/athletes/[id]/page.tsx",
+    "src/app/(app)/athletes/[id]/page.tsx",
     "src/components/payments/EnrollmentPaymentBreakdown.tsx",
   ]) {
     assert.equal(
@@ -274,7 +274,7 @@ test("nessuna schermata scrive piu «Non applicato» a mano", () => {
 });
 
 test("la scheda atleta legge il periodo della stagione attiva", () => {
-  const page = read("src/app/athletes/[id]/page.tsx");
+  const page = read("src/app/(app)/athletes/[id]/page.tsx");
   assert.match(page, /loadActiveSeasonPeriod\(effectiveClubId\)/);
   assert.match(page, /seasonPeriod: activeSeasonPeriod/);
   assert.equal(

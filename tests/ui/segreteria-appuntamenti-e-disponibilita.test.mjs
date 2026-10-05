@@ -27,8 +27,8 @@ const read = (relative) =>
   readFileSync(path.join(process.cwd(), relative), "utf8");
 
 const CLIENT = read("src/lib/api/appointments-client.ts");
-const SEGRETERIA = read("src/app/secretariat/page.tsx");
-const DISPONIBILITA = read("src/app/appuntamenti/page.tsx");
+const SEGRETERIA = read("src/app/(app)/secretariat/page.tsx");
+const DISPONIBILITA = read("src/app/(app)/appuntamenti/page.tsx");
 
 /* ============================ W6-53: la configurazione ha una schermata === */
 

@@ -44,7 +44,7 @@ import { FORM_STATUS_LABELS, FORM_SUBMISSION_STATUS_LABELS } from "@/lib/forms/m
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/modulistica/v2";
 const sources = {
-  page: read("src/app/modulistica/page.tsx"),
+  page: read("src/app/(app)/modulistica/page.tsx"),
   model: read(`${V2}/modulistica-model.ts`),
   templates: read(`${V2}/templates-grid.tsx`),
   catalog: read(`${V2}/catalog-grid.tsx`),

@@ -18,7 +18,7 @@ const readCode = (file) =>
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
-const PAGE = "app/settings/page.tsx";
+const PAGE = "app/(app)/settings/page.tsx";
 const MODEL = "components/settings/v2/settings-model.ts";
 const SECTIONS = "components/settings/v2/settings-sections.tsx";
 

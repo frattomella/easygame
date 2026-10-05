@@ -25,8 +25,8 @@ import { createProfileDefaults } from "@/components/account/account-shared";
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/account/v2";
 const sources = {
-  route: read("src/app/account/page.tsx"),
-  createClubRoute: read("src/app/create-club/page.tsx"),
+  route: read("src/app/(app)/account/page.tsx"),
+  createClubRoute: read("src/app/(app)/create-club/page.tsx"),
   redirect: read("src/components/account/create-club-redirect.tsx"),
   screen: read(`${V2}/account-home-screen.tsx`),
   profile: read(`${V2}/account-profile-drawer.tsx`),

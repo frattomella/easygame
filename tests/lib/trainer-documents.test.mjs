@@ -207,7 +207,7 @@ test("nessuno scrive piu sulla colonna inesistente `trainer_contracts`", () => {
 
 test("le due pagine dedicate ai contratti non esistono piu", () => {
   assert.equal(
-    existsSync(path.join(SRC, "app/trainers/[id]/contracts")),
+    existsSync(path.join(SRC, "app/(app)/trainers/[id]/contracts")),
     false,
     "cercavano l'allenatore in clubs.members[].staff_data e rimandavano all'elenco",
   );

@@ -33,9 +33,9 @@ const SELECTION_SURFACES = [];
  * configurazione della griglia, non in una copia per pagina.
  */
 const GRID_SURFACES = [
-  ["app/trainers/page.tsx", "elenco allenatori"],
-  ["app/staff/page.tsx", "elenco staff"],
-  ["app/soci/page.tsx", "elenco soci"],
+  ["app/(app)/trainers/page.tsx", "elenco allenatori"],
+  ["app/(app)/staff/page.tsx", "elenco staff"],
+  ["app/(app)/soci/page.tsx", "elenco soci"],
 ];
 
 test("i tre elenchi usano la selezione condivisa, non una copia per pagina", () => {
@@ -234,7 +234,7 @@ test("nessun elenco di persone ha preso l'eliminazione di massa dagli atleti", (
  * esattamente cio che il modello dei gruppi esiste per evitare.
  */
 test("l'assegnazione di massa degli allenatori non attraversa le sedi", () => {
-  const source = read("app/trainers/page.tsx");
+  const source = read("app/(app)/trainers/page.tsx");
 
   assert.match(
     source,

@@ -20,9 +20,9 @@ test("accesso, registrazione, recupero e conferma stanno su OutsideShell e non s
   for (const file of [
     "src/components/auth/auth-shell.tsx",
     "src/components/auth/password-reset-shell.tsx",
-    "src/app/auth/complete/page.tsx",
+    "src/app/(app)/auth/complete/page.tsx",
     "src/components/athlete/athlete-invite-redeem-screen.tsx",
-    "src/app/parent-view/page.tsx",
+    "src/app/(app)/parent-view/page.tsx",
     "src/components/forms/public-form-page.tsx",
     "src/components/enrollment/PublicEnrollmentStatusPage.tsx",
     "src/components/payments/PublicPaymentLinkPage.tsx",
@@ -43,7 +43,7 @@ test("la logica dell'accesso non e cambiata: OTP email e SMS, OAuth e rinvii res
 });
 
 test("il ripiego di Suspense delle pagine fuori dal club e sui token", () => {
-  for (const file of ["src/app/page.tsx", "src/app/login/page.tsx", "src/app/register/page.tsx", "src/app/auth/forgot-password/page.tsx", "src/app/auth/reset-password/page.tsx"]) {
+  for (const file of ["src/app/(app)/page.tsx", "src/app/(app)/login/page.tsx", "src/app/(app)/register/page.tsx", "src/app/(app)/auth/forgot-password/page.tsx", "src/app/(app)/auth/reset-password/page.tsx"]) {
     const s = leggi(file);
     assert.doesNotMatch(s, /bg-slate-50/, `${file} non usa bg-slate-50`);
     assert.match(s, /bg-egw-page/, `${file} usa il fondo del sistema`);
@@ -72,7 +72,7 @@ test("famiglia, allenatore e atleta montano AreaShell e nessun guscio proprio", 
 });
 
 test("la scelta del figlio legge la categoria dall'indice, il ruolo in un elemento suo e lo stato in una pillola", () => {
-  const s = leggi("src/app/parent-view/page.tsx");
+  const s = leggi("src/app/(app)/parent-view/page.tsx");
   assert.match(s, /MembershipRoleBadge/, "il ruolo dell'appartenenza ha il suo elemento");
   assert.match(s, /StatusPill/, "lo stato e una pillola");
   assert.match(s, /DataChip/, "la categoria e un chip di dato");
@@ -111,7 +111,7 @@ test("la scadenza delle convocazioni vive in Impostazioni → Gare e convocazion
   const sezioni = leggi("src/components/settings/v2/settings-sections.tsx");
   assert.match(sezioni, /export function MatchesPanel/, "il pannello esiste");
   assert.match(sezioni, /Scadenza convocazioni/, "l'etichetta e quella del mandato");
-  const gare = leggi("src/app/matches/page.tsx");
+  const gare = leggi("src/app/(app)/matches/page.tsx");
   assert.match(gare, /getMatchConvocationDeadlineDays/, "la pagina Gare legge dall'autorita");
   assert.doesNotMatch(gare, /matchConvocationDeadlineDays:\s*[a-zA-Z]/, "la pagina Gare non scrive la scadenza");
   assert.match(gare, /\/settings\?tab=gare/, "e rimanda a Impostazioni");
@@ -133,9 +133,9 @@ test("il registro presenze porta la sezione «Atleta in prova» e la salva prima
 });
 
 test("la vista «Atleti in prova» sta nell'area Atleti, con scheda, stati e conversione che mostra i candidati", () => {
-  assert.ok(existsSync("src/app/athletes/in-prova/page.tsx"), "la pagina esiste");
-  assert.ok(existsSync("src/app/athletes/in-prova/[id]/page.tsx"), "la scheda esiste");
-  const atleti = leggi("src/app/athletes/page.tsx");
+  assert.ok(existsSync("src/app/(app)/athletes/in-prova/page.tsx"), "la pagina esiste");
+  assert.ok(existsSync("src/app/(app)/athletes/in-prova/[id]/page.tsx"), "la scheda esiste");
+  const atleti = leggi("src/app/(app)/athletes/page.tsx");
   assert.match(atleti, /<AthletesViewSwitch/, "l'area Atleti la apre con il selettore di vista");
   const selettore = leggi("src/components/athletes/v2/AthletesViewSwitch.tsx");
   assert.match(selettore, /withClubId\("\/athletes\/in-prova", clubId\)/, "e porta il club");

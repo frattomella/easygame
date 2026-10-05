@@ -248,7 +248,7 @@ test("il carico da scrivere contiene solo le righe valide", () => {
  * millisecondi.
  */
 test("l'import passa dal writer del server a scaglioni, non da un ciclo nella pagina (ADR-0195)", () => {
-  const page = readSource("src/app/athletes/page.tsx");
+  const page = readSource("src/app/(app)/athletes/page.tsx");
   const dialogo = readSource("src/components/forms/AthleteImportDialog.tsx");
 
   assert.doesNotMatch(page, /addClubAthletesBatch\(/, "la pagina non scrive piu le schede dal client");

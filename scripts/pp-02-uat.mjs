@@ -8350,7 +8350,7 @@ const sezioneW = async () => {
     dalla pagina.
   */
   const paginaScheda = await import("node:fs").then((fs) =>
-    fs.readFileSync("src/app/athletes/[id]/page.tsx", "utf8"),
+    fs.readFileSync("src/app/(app)/athletes/[id]/page.tsx", "utf8"),
   );
 
   prova(

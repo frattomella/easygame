@@ -38,7 +38,7 @@ test("PP-03 §8.1 · la bacheca dell'allenatore legge il campo che la segreteria
     chiedendo di allineare il lettore, invece di restare verde su una costante
     che non corrisponde piu a niente.
   */
-  const segreteria = senzaCommenti(leggi("app/secretariat/page.tsx"));
+  const segreteria = senzaCommenti(leggi("app/(app)/secretariat/page.tsx"));
   const nota = segreteria.match(
     /const note = \{\s*id: `note-\$\{Date\.now\(\)\}`,\s*([a-zA-Z_]+):/,
   );

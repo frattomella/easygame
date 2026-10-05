@@ -18,7 +18,7 @@ const documento = senzaCommenti(leggi("src/components/forms/DocumentEditor.tsx")
 const card = senzaCommenti(leggi("src/components/forms/form-field-card.tsx"));
 const builder = senzaCommenti(leggi("src/components/forms/form-builder.tsx"));
 const renderer = senzaCommenti(leggi("src/components/forms/form-renderer.tsx"));
-const anteprima = senzaCommenti(leggi("src/app/modulistica/moduli/[id]/anteprima/page.tsx"));
+const anteprima = senzaCommenti(leggi("src/app/(app)/modulistica/moduli/[id]/anteprima/page.tsx"));
 const css = leggi("src/styles/egw-base.css");
 
 test("l'editor e uno solo, su ProseMirror (TipTap), e lo montano sia il blocco di contenuto sia il modello di documento", () => {

@@ -14124,3 +14124,151 @@ mensili oltre 12 mesi).
 (le sette correzioni Critical/High), piu le estensioni a
 `tests/lib/multi-season-master-batch-wave-b.test.mjs` e
 `tests/lib/multi-season-master-batch-wave-d.test.mjs`/`-wave-e-docx.test.mjs`.
+
+---
+
+## ADR-0200 — EasyGame Website: il sito pubblico del club e un modulo premium del gestionale, non un CMS accanto
+
+**Data:** 2026-10-05. **Supera:** la posizione N-10 di
+[30 — Gap audit](30-golee-easygame-gap-audit.md) («Sito web della societa come
+add-on: fuori perimetro, si integra un CMS, non lo si costruisce»). N-10 resta
+scritta dov'era, con il rimando a questo ADR: era una decisione corretta per il
+perimetro di allora, e la storia di una scelta vale quanto la scelta.
+
+**Contesto.** Un club che usa EasyGame tiene gia nel gestionale squadre,
+rose, gare, sponsor, moduli di iscrizione e consensi. Un CMS esterno gli
+chiederebbe di ricopiare tutto, e il sito invecchierebbe il giorno dopo. La
+direzione ha deciso di offrire il sito come **servizio aggiuntivo**: il sito e
+il frontend pubblico nativo dei dati del gestionale. La reference
+implementation e il Website Builder di Gest Park Web
+(`cedi-platform-product`), che resta **solo un riferimento**: nessun import,
+nessuna dipendenza a runtime, nessun file copiato senza adattamento (stack
+diverso — Next 16, React 19, backend .NET — e licenza proprietaria Cedi Soft).
+Il report di discovery e in `docs/website/discovery-report.md`.
+
+### §1 — Modulo, entitlement e stati
+
+Il sito e l'extra Hub `website` con l'entitlement omonimo
+(`src/lib/entitlements/catalog.ts`): nessun secondo sistema di billing. Lo
+stato del modulo si **ricava** in `src/lib/website/access-state.ts` da servizio
+aggiuntivo, eccezioni di piattaforma e date: `unavailable` (non acquistato o
+revocato), `trial`, `active`, `suspended` (sospeso, scaduto o prova finita).
+La prova **puo pubblicare**. Sospeso: il gestionale mostra il sito in sola
+lettura e il pubblico vede «sito non disponibile» (`noindex`); i dati restano.
+Ogni rotta passa da `requireWebsiteAccess`: nessun bypass via API.
+
+### §2 — Domini: solo quelli del club
+
+Nessun sottodominio EasyGame pubblico, nemmeno temporaneo: il sito si pubblica
+**solo** su un dominio o sottodominio del club. Prima del dominio esiste una
+sola superficie, l'anteprima privata (§5). Il dominio vive in
+`website_domains` (hostname unico globale, un primario per sito, gli altri
+reindirizzano con 301), si verifica con un record TXT di proprieta
+(`_easygame-verify.<host>`) piu il record di instradamento, e il certificato lo
+chiede un `DomainProvider` (`src/lib/server/website/domain-providers/`):
+`mock` per sviluppo e test, `vercel` e `cloudflare` completi e attivi quando
+le credenziali sono in ambiente. **La gestione del dominio e del solo
+proprietario e non si delega**: `website.domain.manage` ha `roles: ["owner"]`,
+quindi nessun ruolo personalizzato la puo contenere.
+
+### §3 — Modello: SITE → PAGE → SECTION → BLOCK
+
+Una sezione e un contenitore con colonne; ogni colonna una lista di blocchi.
+Set di blocchi **chiuso**, un registry solo (`src/lib/website/registry/`):
+ogni definizione dichiara tipo, categoria, etichetta, icona, versione, props
+predefinite, schema (zod), controlli dell'inspector, token di stile ammessi,
+sorgente dati e migrazione di versione. Il renderer e una mappa tipizzata
+contro lo stesso registry (`Record<BlockType, …>`), separata perche i
+controlli dell'editor non devono finire nel bundle pubblico. Gli override per
+dispositivo esistono **solo sui token di stile** (spaziature, allineamento,
+colonne, dimensione testo, visibilita): contenuto e sorgente dati sono uno.
+
+### §4 — Due alberi: `(app)` e `(site)`
+
+Il gestionale vive in `src/app/(app)/` con il suo root layout e i suoi
+provider; il sito pubblico in `src/app/(site)/` con un root layout senza
+provider, un CSS proprio (`tailwind.website.config.ts`) e un catalogo chiuso
+di caratteri caricati in un punto solo. Gli URL del gestionale non cambiano.
+Presidio: `tests/web/app-site-separation.test.mjs`.
+
+### §5 — Bozza, anteprima, pubblicazione, rollback
+
+Il club modifica una **bozza** (configurazione su `website_sites`, documenti
+su `website_pages`) con concorrenza ottimistica: ogni scrittura porta la
+versione letta, e una versione superata risponde 409 senza sovrascrivere.
+L'anteprima e una rotta protetta da sessione e permesso
+(`/website-preview/...`), `noindex`, che rende la bozza con lo stesso renderer
+del pubblico. Pubblicare congela tema, navigazione, intestazione, piede, SEO e
+pagine in una riga di `website_revisions`, **immutabile** (vincolo nel
+database). Il pubblico legge solo la revisione corrente. Rollback = una
+revisione nuova copiata da una vecchia (pattern ADR-0030 di Cedi Platform).
+Dati sportivi, sponsor, articoli e persone **non** stanno nello snapshot: si
+leggono vivi, con le loro regole.
+
+### §6 — Dati: un layer di datasource, mai una query da un blocco
+
+Un blocco dichiara di quale datasource ha bisogno; il risolutore di pagina
+(`src/lib/server/website/page-data.ts`) raccoglie le richieste, le valida, le
+deduplica e le raggruppa per caricatore (una lettura delle gare per tutte le
+richieste di gare della pagina, una del club, una delle persone…), e
+restituisce **DTO pubblici** (`src/lib/website/public-dto.ts`). L'organizzazione
+arriva sempre dal dominio risolto, mai dalla richiesta.
+
+### §7 — Privacy: entita interna → policy → DTO
+
+Nessuna entita interna arriva a un componente pubblico. Una persona compare
+sul sito solo con una riga di `website_person_publications` con `published`
+vero, e solo con i campi che il club ha scelto: nome di visualizzazione, foto,
+numero, ruolo, anno di nascita, altezza, biografia, statistiche. Mai: codice
+fiscale, indirizzo, telefono o email personali, documenti, certificati, dati
+sanitari, pagamenti, tutori, consensi. Per un **minore** (data mancante =
+minore): nome abbreviato di default, nessun anno di nascita, foto solo con il
+consenso `images` **accettato** nel registro dei consensi — l'assenza di un
+rifiuto non e un consenso. La regola ha una funzione sola
+(`src/lib/website/people/policy.ts`) e la tabella e nel perimetro di
+`data-subject.ts` (si cancella).
+
+### §8 — Sport core: risultati, competizioni, avversari, squadre stabili
+
+Risultati e periodi sono dati della **gara**, non del sito: colonne nuove su
+`club_events` scritte solo da `src/lib/server/events.ts`, periodi come elenco
+generico `{number, label, home, away}` per ogni sport. `competitions` e
+`opponents` sono tabelle core minime; `opponent` testo resta come etichetta e
+nessun dato esistente cambia. L'identita pubblica di una squadra e
+`club_teams` (stabile fra stagioni, con lo storico degli slug): una squadra si
+collega per stagione a categoria e gruppo, cosi `/squadre/serie-c` resta lo
+stesso indirizzo quando cambia la stagione. La classifica e quella che il club
+inserisce per la competizione: nessuna classifica calcolata da dati che
+EasyGame non ha, nessuna integrazione esterna.
+
+### §9 — Sponsor, media, news, iscrizioni
+
+- **Sponsor**: nessuna `WebsiteSponsor`. Lo sponsor resta nella collezione di
+  club (owner `src/lib/server/sponsors.ts`) e guadagna un sotto-oggetto
+  `showcase` (visibile, livello, logo, URL, descrizione, ordine, periodo). Il
+  logo storico in data URL resta leggibile.
+- **Media**: la libreria del sito e il servizio allegati (owner type
+  `website`), con i metadati del sito in `website_media_meta` (alt, titolo,
+  punto focale). I byte non si duplicano. `StorageDriver` guadagna
+  l'adattatore S3/R2, attivo con le variabili d'ambiente.
+- **News**: la bacheca e interna e per pubblico; gli articoli del sito sono
+  `website_articles`, con stato proprio (bozza, programmato, pubblicato).
+- **Iscrizioni**: il sito non raccoglie iscrizioni da solo. I blocchi di
+  iscrizione, prova, open day, camp e rinnovo puntano ai moduli online
+  pubblicati (ADR-0189): la pratica entra nel flusso che esiste. Il modulo
+  contatti scrive `website_inquiries` (non esiste un dominio lead) con rate
+  limit, honeypot e consenso.
+
+### §10 — Permessi
+
+Dominio `website` nel catalogo, nessun ruolo nuovo. Gestore: tutto tranne il
+dominio. Collaboratore: contenuti, configurabile con un ruolo personalizzato.
+Staff, allenatore, genitore, atleta: nessun accesso. L'elenco completo delle
+chiavi e in [08](08-roles-and-permissions.md).
+
+### Cosa non e in questo ADR
+
+Multilingua, piu siti per club, pubblicazione programmata, statistiche
+calcolate oltre a quelle registrate, classifiche automatiche, un tipo di
+evento societario generico nel calendario (open day e camp passano dai
+moduli online).

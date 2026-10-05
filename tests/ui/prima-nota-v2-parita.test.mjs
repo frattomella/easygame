@@ -23,8 +23,8 @@ const readCode = (relative) =>
 
 const V2 = "src/components/accounting/v2";
 const SOURCE_PATHS = {
-  page: "src/app/movements/page.tsx",
-  redirect: "src/app/payments/page.tsx",
+  page: "src/app/(app)/movements/page.tsx",
+  redirect: "src/app/(app)/payments/page.tsx",
   summary: "src/components/accounting/AccountingSummary.tsx",
   dialogs: "src/components/accounting/AccountingEntryDialogs.tsx",
   expected: "src/components/accounting/ExpectedEntries.tsx",

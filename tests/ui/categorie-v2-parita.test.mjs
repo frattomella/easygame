@@ -15,7 +15,7 @@ import path from "node:path";
 const SRC = path.join(process.cwd(), "src");
 const read = (relative) => readFileSync(path.join(SRC, ...relative.split("/")), "utf8");
 
-const page = read("app/categories/page.tsx");
+const page = read("app/(app)/categories/page.tsx");
 const drawer = read("components/categories/v2/category-editor-drawer.tsx");
 const inspector = read("components/categories/v2/category-inspector-drawer.tsx");
 const columns = read("components/categories/v2/category-grid-columns.tsx");
@@ -233,7 +233,7 @@ test("il codice morto della V1 e sparito, non tradotto", () => {
   assert.equal(existsSync(path.join(SRC, "components", "dialogs", "CategoryAthletesDialog.tsx")), false);
   assert.equal(existsSync(path.join(SRC, "components", "forms", "CategoryEditorDialog.tsx")), false);
   assert.equal(existsSync(path.join(SRC, "components", "categories", "CategoryDetailsDialog.tsx")), false);
-  for (const file of ["app/categories/page.tsx", "components/categories/v2/category-editor-drawer.tsx", "components/categories/v2/category-inspector-drawer.tsx", "components/categories/v2/category-grid-columns.tsx"]) {
+  for (const file of ["app/(app)/categories/page.tsx", "components/categories/v2/category-editor-drawer.tsx", "components/categories/v2/category-inspector-drawer.tsx", "components/categories/v2/category-grid-columns.tsx"]) {
     const source = read(file);
     assert.doesNotMatch(source, /from "@\/components\/ui\/(card|dialog|dropdown-menu|badge|modal|input|label|button)"/, `${file} non usa piu la libreria V1`);
     assert.doesNotMatch(source, /@\/lib\/server/, `${file} non importa il server`);

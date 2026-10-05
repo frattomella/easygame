@@ -15,9 +15,9 @@ const read = (relativePath) =>
   readFileSync(path.join(process.cwd(), relativePath), "utf8");
 
 const ACCOUNT_SCREEN = "src/components/account/v2/account-home-screen.tsx";
-const ONBOARDING_PAGE = "src/app/onboarding/page.tsx";
+const ONBOARDING_PAGE = "src/app/(app)/onboarding/page.tsx";
 const IMPORT_DIALOG = "src/components/forms/AthleteImportDialog.tsx";
-const PLATFORM_ADMIN = "src/app/private/easygame-platform-admin-0c7a/page.tsx";
+const PLATFORM_ADMIN = "src/app/(app)/private/easygame-platform-admin-0c7a/page.tsx";
 
 test("la home account non ha piu una tavolozza tutta sua in esadecimale", () => {
   const source = read(ACCOUNT_SCREEN);

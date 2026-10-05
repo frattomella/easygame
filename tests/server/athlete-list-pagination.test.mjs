@@ -149,7 +149,7 @@ const readFile = (relative) =>
   fs.readFileSync(path.join(PROJECT_ROOT, relative), "utf8");
 
 test("la pagina Atleti chiede una pagina, non l'archivio", () => {
-  const page = readFile("src/app/athletes/page.tsx");
+  const page = readFile("src/app/(app)/athletes/page.tsx");
 
   assert.match(
     page,
@@ -176,7 +176,7 @@ test("le appartenenze si chiedono per gli atleti della pagina", () => {
 });
 
 test("l'export non si accontenta della pagina che si vede", () => {
-  const page = readFile("src/app/athletes/page.tsx");
+  const page = readFile("src/app/(app)/athletes/page.tsx");
 
   assert.match(
     page,

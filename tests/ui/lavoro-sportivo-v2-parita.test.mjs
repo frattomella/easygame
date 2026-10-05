@@ -56,12 +56,12 @@ import {
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/sport-work/v2";
 const sources = {
-  dashboard: read("src/app/sport-work/page.tsx"),
-  relationships: read("src/app/sport-work/relationships/page.tsx"),
-  detail: read("src/app/sport-work/relationships/[id]/page.tsx"),
-  compensations: read("src/app/sport-work/compensations/page.tsx"),
-  deadlines: read("src/app/sport-work/deadlines/page.tsx"),
-  obligations: read("src/app/sport-work/obligations/page.tsx"),
+  dashboard: read("src/app/(app)/sport-work/page.tsx"),
+  relationships: read("src/app/(app)/sport-work/relationships/page.tsx"),
+  detail: read("src/app/(app)/sport-work/relationships/[id]/page.tsx"),
+  compensations: read("src/app/(app)/sport-work/compensations/page.tsx"),
+  deadlines: read("src/app/(app)/sport-work/deadlines/page.tsx"),
+  obligations: read("src/app/(app)/sport-work/obligations/page.tsx"),
   shell: read(`${V2}/sport-work-shell.tsx`),
   role: read(`${V2}/use-sport-work-role.ts`),
   status: read(`${V2}/sport-work-status.ts`),

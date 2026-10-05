@@ -18,7 +18,7 @@ const readCode = (file) =>
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
 
-const PAGE = "app/organization/page.tsx";
+const PAGE = "app/(app)/organization/page.tsx";
 const V2 = "components/organization/v2";
 const FILES = {
   page: PAGE,
@@ -192,7 +192,7 @@ test("la V1 specifica della rotta non esiste piu", () => {
     "components/fiscal/FiscalProfilePanel.tsx",
     "components/fiscal/OperationTypesPanel.tsx",
     "components/club/capability-gate.tsx",
-    "app/organization/payment-methods-config.tsx",
+    "app/(app)/organization/payment-methods-config.tsx",
   ]) {
     assert.equal(existsSync(path.join(SRC, removed)), false, `${removed} doveva sparire`);
   }

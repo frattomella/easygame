@@ -29,7 +29,7 @@ import {
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/appuntamenti/v2";
 const sources = {
-  page: read("src/app/appuntamenti/page.tsx"),
+  page: read("src/app/(app)/appuntamenti/page.tsx"),
   model: read(`${V2}/slot-model.ts`),
   grid: read(`${V2}/slots-grid.tsx`),
   drawer: read(`${V2}/slot-drawer.tsx`),

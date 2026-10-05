@@ -43,7 +43,7 @@ const senzaCommenti = (sorgente) =>
   file dei dialoghi. Si legge l'insieme, cosi il vaglio resta quello di prima.
 */
 const PAGINA = senzaCommenti(
-  leggi("app/dashboard/access-management/page.tsx"),
+  leggi("app/(app)/dashboard/access-management/page.tsx"),
 );
 const MODELLO = senzaCommenti(
   leggi("components/access-management/v2/access-model.ts"),
@@ -52,7 +52,7 @@ const DIALOGHI = senzaCommenti(
   leggi("components/access-management/v2/access-dialogs.tsx"),
 );
 const GESTIONE_ACCESSI = [PAGINA, MODELLO, DIALOGHI].join("\n");
-const REGISTRO = leggi("app/audit/page.tsx");
+const REGISTRO = leggi("app/(app)/audit/page.tsx");
 const RUOLI = leggi("lib/access-roles.ts");
 const MIDDLEWARE = leggi("middleware.ts");
 

@@ -17,8 +17,8 @@ const SRC = path.join(process.cwd(), "src");
 const read = (relative) =>
   readFileSync(path.join(SRC, ...relative.split("/")), "utf8");
 
-const ATHLETE_PAGE = "app/athletes/[id]/page.tsx";
-const MOVEMENTS_PAGE = "app/movements/page.tsx";
+const ATHLETE_PAGE = "app/(app)/athletes/[id]/page.tsx";
+const MOVEMENTS_PAGE = "app/(app)/movements/page.tsx";
 const DIALOG = "components/payments/RegisterPaymentDialog.tsx";
 const LEDGER = "components/payments/AthletePaymentLedger.tsx";
 const LEDGER_HOOK = "components/payments/use-athlete-payment-ledger.ts";

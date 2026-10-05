@@ -35,8 +35,8 @@ import { MONEY_STATUS } from "@/lib/web/status";
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/sponsors/v2";
 const sources = {
-  list: read("src/app/sponsors/page.tsx"),
-  record: read("src/app/sponsors/[id]/page.tsx"),
+  list: read("src/app/(app)/sponsors/page.tsx"),
+  record: read("src/app/(app)/sponsors/[id]/page.tsx"),
   drawer: read(`${V2}/sponsor-drawer.tsx`),
   contract: read(`${V2}/contract-drawer.tsx`),
   collection: read(`${V2}/collection-drawer.tsx`),

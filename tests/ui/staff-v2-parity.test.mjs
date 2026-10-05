@@ -26,10 +26,10 @@ import { staffSectionPayload, staffFormValuesFrom, validateStaffForm } from "@/c
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/staff/v2";
 const sources = {
-  list: read("src/app/staff/page.tsx"),
-  create: read("src/app/staff/new/page.tsx"),
-  detail: read("src/app/staff/[id]/page.tsx"),
-  edit: read("src/app/staff/[id]/edit/page.tsx"),
+  list: read("src/app/(app)/staff/page.tsx"),
+  create: read("src/app/(app)/staff/new/page.tsx"),
+  detail: read("src/app/(app)/staff/[id]/page.tsx"),
+  edit: read("src/app/(app)/staff/[id]/edit/page.tsx"),
   form: read(`${V2}/staff-form.tsx`),
   drawer: read(`${V2}/staff-section-drawer.tsx`),
   formModel: read(`${V2}/staff-form-model.ts`),

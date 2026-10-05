@@ -85,7 +85,7 @@ test("(b) la data di nascita non sceglie fra due categorie con la stessa fascia"
 });
 
 test("(b) l'import atleti segnala la riga ambigua invece di assegnarla, e la riga della modulistica non prende la prima", () => {
-  const pagina = readFileSync("src/app/athletes/page.tsx", "utf8");
+  const pagina = readFileSync("src/app/(app)/athletes/page.tsx", "utf8");
   assert.doesNotMatch(pagina, /categoryIdByKey\.get\(normalizeCategoryKey\(row\.categoryLabel/, "niente mappa per nome a ultimo-vince");
   /* ADR-0195: la riga ambigua la ferma il piano dell'import, e la decisione e del club nel wizard. */
   assert.doesNotMatch(pagina, /from\("categories"\)\.upsert/, "la pagina non crea categorie dal file");
@@ -271,14 +271,14 @@ test("revisione · il writer non cancella cio che il catalogo non conosce e non 
   */
   assert.match(writer, /for \(const riga of discese\)[\s\S]*?for \(const riga of cancellazioni\)[\s\S]*?for \(const voluta of inserimenti\)[\s\S]*?for \(const voluta of salite\)/, "prima si scende la primaria, poi si cancella, poi si inserisce, per ultimo si sale");
 
-  const paginaAllenamenti = readFileSync("src/app/training/page.tsx", "utf8");
+  const paginaAllenamenti = readFileSync("src/app/(app)/training/page.tsx", "utf8");
   assert.match(paginaAllenamenti, /editingTraining\.categoryName \|\|\n\s*"Categoria",/, "in archivio torna il nome salvato, non l'etichetta a schermo (N2)");
   assert.doesNotMatch(paginaAllenamenti, /\.join\(", "\) \|\| editingTraining\.category,/);
   assert.doesNotMatch(db, /console\.warn\("Error syncing athlete memberships:"/, "un rifiuto non si inghiotte");
   assert.match(db, /giaInArchivio: ReadonlySet<string> = new Set\(\)/, "le righe gia in archivio passano");
   assert.match(db, /const nextCategoryId = !membershipsDeclared\s*\?\s*currentAthlete\.category_id \?\? null/);
   assert.match(db, /Catalogo delle categorie non leggibile/, "un catalogo non letto ferma il salvataggio, non lo lascia passare");
-  const scheda = readFileSync("src/app/athletes/[id]/page.tsx", "utf8");
+  const scheda = readFileSync("src/app/(app)/athletes/[id]/page.tsx", "utf8");
   assert.match(scheda, /\.\.\.atletaSenzaCategorie,\n\s*\.\.\.athleteOverrides,/, "le raccolte della scheda non dichiarano le appartenenze");
 });
 
@@ -304,5 +304,5 @@ test("revisione · l'anteprima dell'import dice la stessa cosa dell'import", () 
   assert.match(codice, /può indicare più squadre/);
   const dialogo = readFileSync("src/components/forms/AthleteImportDialog.tsx", "utf8");
   assert.match(dialogo, /buildAthleteImportRequest\(piano, id\)/, "si importa il piano mostrato, non un secondo calcolo");
-  assert.doesNotMatch(readFileSync("src/app/athletes/page.tsx", "utf8"), /categoryIdByKey\./, "la mappa per nome non esiste piu");
+  assert.doesNotMatch(readFileSync("src/app/(app)/athletes/page.tsx", "utf8"), /categoryIdByKey\./, "la mappa per nome non esiste piu");
 });

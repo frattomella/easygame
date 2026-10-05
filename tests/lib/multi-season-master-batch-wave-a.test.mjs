@@ -82,13 +82,13 @@ test("buildMembershipTargetIndex: optionLabel con sede e annate insieme, label i
  * dal registro con perimetro di stagione, non piu dalla tabella grezza.
  */
 test("A3: New Athlete filtra le categorie sulla stagione attiva prima di offrirle", () => {
-  const source = readFileSync("src/app/athletes/new/page.tsx", "utf8");
+  const source = readFileSync("src/app/(app)/athletes/new/page.tsx", "utf8");
   assert.match(source, /normalizeClubSeasons\(settings \|\| \{\}\)/);
   assert.match(source, /filterCollectionBySeason\("categories", tutte, stagioni\.activeSeasonId,/);
 });
 
 test("A3: la pagina Atleti legge le categorie dal registro con perimetro di stagione, non dalla tabella grezza", () => {
-  const source = readFileSync("src/app/athletes/page.tsx", "utf8");
+  const source = readFileSync("src/app/(app)/athletes/page.tsx", "utf8");
   assert.doesNotMatch(
     source,
     /supabase\s*\.from\("categories"\)/,
@@ -102,13 +102,13 @@ test("A3: la pagina Atleti legge le categorie dal registro con perimetro di stag
  * pagina Categorie (`sortOrder`), non l'ordine di creazione.
  */
 test("A1/A2 (trovato in UAT dal vivo): Nuovo atleta legge le categorie dal registro, non da getClubCategories che perde le annate", () => {
-  const source = readFileSync("src/app/athletes/new/page.tsx", "utf8");
+  const source = readFileSync("src/app/(app)/athletes/new/page.tsx", "utf8");
   assert.doesNotMatch(source, /getClubCategories\(/, "getClubCategories (NormalizedCategoryOption) non porta birthYearFrom/To: le annate sparivano dal selettore");
   assert.match(source, /apiRequest<any\[\]>\(`\/api\/v1\/categories\?organization_id=\$\{encodeURIComponent\(clubId\)\}`\)/);
 });
 
 test("A1/A2 (trovato in UAT dal vivo): la scheda atleta arricchisce le categorie con le annate del catalogo intero", () => {
-  const source = readFileSync("src/app/athletes/[id]/page.tsx", "utf8");
+  const source = readFileSync("src/app/(app)/athletes/[id]/page.tsx", "utf8");
   assert.match(source, /annatePerCategoria/);
   assert.match(
     source,
@@ -117,7 +117,7 @@ test("A1/A2 (trovato in UAT dal vivo): la scheda atleta arricchisce le categorie
 });
 
 test("A9/A10: la pagina Atleti ordina le categorie per il posto deciso dal club", () => {
-  const source = readFileSync("src/app/athletes/page.tsx", "utf8");
+  const source = readFileSync("src/app/(app)/athletes/page.tsx", "utf8");
   assert.match(source, /readCategorySortOrder\(sinistra\.category\)/);
   assert.match(source, /const buildCategoryList = \(rawCategories: any\[\]\) =>\s*\n\s*ordinaPerPostoDelClub/);
 });
@@ -146,6 +146,6 @@ test("A7: il modulo e la scheda atleta dicono «Contatti Atleta»", () => {
  * A8 — la griglia Atleti si apre in ordine alfabetico, come Trainer/Guardians/Staff.
  */
 test("A8: la griglia Atleti ha un ordine alfabetico di default", () => {
-  const source = readFileSync("src/app/athletes/page.tsx", "utf8");
+  const source = readFileSync("src/app/(app)/athletes/page.tsx", "utf8");
   assert.match(source, /defaultSort=\{\{ columnId: "atleta", direction: "asc" \}\}/);
 });

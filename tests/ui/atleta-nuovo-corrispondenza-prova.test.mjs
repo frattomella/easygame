@@ -14,7 +14,7 @@ const leggi = (p) => readFileSync(path.join(process.cwd(), p), "utf8");
 const senzaCommenti = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 const notice = senzaCommenti(leggi("src/components/trials/v2/TrialMatchNotice.tsx"));
-const pagina = senzaCommenti(leggi("src/app/athletes/new/page.tsx"));
+const pagina = senzaCommenti(leggi("src/app/(app)/athletes/new/page.tsx"));
 const modulo = senzaCommenti(leggi("src/components/forms/AthleteCreateForm.tsx"));
 
 test("il modulo espone il blocco sotto l'identita e la pagina lo disegna con nome, cognome e data", () => {

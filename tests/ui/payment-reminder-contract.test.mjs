@@ -165,7 +165,7 @@ test("il pulsante di invio si disabilita mentre l'invio e in corso", () => {
 });
 
 test("l'elenco pagamenti offre la selezione multipla e l'azione «Sollecita»", () => {
-  const source = read("app/movements/page.tsx");
+  const source = read("app/(app)/movements/page.tsx");
 
   /*
     Dal Web V2 la selezione multipla e la barra di massa sono quelle del

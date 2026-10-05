@@ -51,7 +51,7 @@ const hrefDi = (testo) =>
 
 const paginaEsiste = (href) => {
   const segmenti = href.split("?")[0].replace(/^\//, "").split("/");
-  return existsSync(path.join(RADICE, "src", "app", ...segmenti, "page.tsx"));
+  return existsSync(path.join(RADICE, "src", "app", "(app)", ...segmenti, "page.tsx"));
 };
 
 /* ======================================================================== */
@@ -189,7 +189,7 @@ test("ogni voce dell'atleta e della famiglia punta a una pagina che esiste", () 
   assert.ok(segmenti.length >= 12, "la famiglia ha almeno dodici voci oltre la home");
   for (const segmento of segmenti) {
     assert.equal(
-      existsSync(path.join(RADICE, "src", "app", "parent-view", "[id]", segmento.slice(1), "page.tsx")),
+      existsSync(path.join(RADICE, "src", "app", "(app)", "parent-view", "[id]", segmento.slice(1), "page.tsx")),
       true,
       `${segmento}: voce della famiglia senza pagina`,
     );
@@ -237,7 +237,7 @@ test("nessuna pagina impila due barre mobili", () => {
 });
 
 test("«Documenti» non impila piu due barre", () => {
-  const sorgente = senzaCommenti(leggi("src/app/documenti/page.tsx"));
+  const sorgente = senzaCommenti(leggi("src/app/(app)/documenti/page.tsx"));
 
   assert.equal(sorgente.includes("<Header"), true);
   assert.equal(

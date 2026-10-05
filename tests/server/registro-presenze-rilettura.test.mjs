@@ -204,7 +204,7 @@ test("le due schermate che aprono il registro leggono lo stesso archivio", () =>
     con meta della sua superficie. Il lettore e uno.
   */
   for (const [file, lettore] of [
-    ["src/app/training/page.tsx", "listEventParticipants"],
+    ["src/app/(app)/training/page.tsx", "listEventParticipants"],
     [
       "src/components/trainer/trainer-trainings-dashboard-page.tsx",
       "readEventAttendanceRoll",
@@ -233,7 +233,7 @@ test("«l'appello e stato fatto?» ha un lettore solo", () => {
     «Presenze salvate» e quella accanto «Presenze mancanti» sullo stesso
     allenamento.
   */
-  const sorgente = readFileSync("src/app/training/page.tsx", "utf8");
+  const sorgente = readFileSync("src/app/(app)/training/page.tsx", "utf8");
 
   assert.match(
     sorgente,

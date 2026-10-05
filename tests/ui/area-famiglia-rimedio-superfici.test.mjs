@@ -38,7 +38,7 @@ const leggi = (relativo) =>
 
 const PAGINE = "components/parent-dashboard/parent-dashboard-pages.tsx";
 const RIEPILOGO = "components/payments/EnrollmentPaymentBreakdown.tsx";
-const SCELTA_FIGLIO = "app/parent-view/page.tsx";
+const SCELTA_FIGLIO = "app/(app)/parent-view/page.tsx";
 
 const senzaCommenti = (sorgente) =>
   sorgente.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");

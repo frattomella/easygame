@@ -189,11 +189,11 @@ test("senza SMTP il reset non e disponibile e lo dichiara", () => {
 test("il link di reset punta al percorso applicativo corretto", () => {
   assert.ok(WORKFLOWS.includes("/auth/reset-password?uid="));
   assert.ok(
-    fs.existsSync(path.join(PROJECT_ROOT, "src/app/auth/reset-password/page.tsx")),
+    fs.existsSync(path.join(PROJECT_ROOT, "src/app/(app)/auth/reset-password/page.tsx")),
     "manca la pagina /auth/reset-password",
   );
   assert.ok(
-    fs.existsSync(path.join(PROJECT_ROOT, "src/app/auth/forgot-password/page.tsx")),
+    fs.existsSync(path.join(PROJECT_ROOT, "src/app/(app)/auth/forgot-password/page.tsx")),
     "manca la pagina /auth/forgot-password",
   );
 });

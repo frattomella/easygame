@@ -1,0 +1,315 @@
+/*
+  Il CSS del sito pubblico (ADR-0200 §4). Non importa niente del gestionale:
+  ne i token EGDS, ne `globals.css`. Le classi vengono dalla configurazione
+  Tailwind dedicata, che guarda soltanto il renderer del sito.
+*/
+@config "../../../tailwind.website.config.ts";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  I valori di ripiego del tema. Il layout di ogni sito li sovrascrive con lo
+  stile del documento pubblicato (`themeToCssVariables`): questi servono solo
+  a una pagina che non ha ancora un tema, come l'errore «sito non disponibile».
+*/
+:root {
+  --ws-primary-rgb: 29 78 216;
+  --ws-primary-ink-rgb: 255 255 255;
+  --ws-secondary-rgb: 15 23 42;
+  --ws-secondary-ink-rgb: 255 255 255;
+  --ws-accent-rgb: 245 158 11;
+  --ws-accent-ink-rgb: 17 24 39;
+  --ws-background-rgb: 255 255 255;
+  --ws-foreground-rgb: 17 24 39;
+  --ws-muted-rgb: 243 244 246;
+  --ws-muted-foreground-rgb: 75 85 99;
+  --ws-border-rgb: 229 231 235;
+  --ws-success-rgb: 22 163 74;
+  --ws-warning-rgb: 217 119 6;
+  --ws-danger-rgb: 220 38 38;
+  --ws-dark-rgb: 15 23 42;
+  --ws-dark-foreground-rgb: 248 250 252;
+  --ws-font-heading: ui-sans-serif, system-ui, sans-serif;
+  --ws-font-body: ui-sans-serif, system-ui, sans-serif;
+  --ws-radius: 0.75rem;
+  --ws-container: 72rem;
+  --ws-space-scale: 1;
+  --ws-link-decoration: underline;
+}
+
+.ws-body {
+  margin: 0;
+  background: rgb(var(--ws-background-rgb));
+  color: rgb(var(--ws-foreground-rgb));
+  font-family: var(--ws-font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.ws-body h1,
+.ws-body h2,
+.ws-body h3,
+.ws-body h4 {
+  font-family: var(--ws-font-heading);
+  line-height: 1.15;
+}
+
+/* Il collegamento a salto: il primo elemento focalizzabile della pagina. */
+.ws-skip-link {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  z-index: 100;
+  padding: 0.75rem 1rem;
+  border-radius: var(--ws-radius);
+  background: rgb(var(--ws-foreground-rgb));
+  color: rgb(var(--ws-background-rgb));
+  transition: top 0.15s ease;
+}
+.ws-skip-link:focus {
+  top: 1rem;
+}
+
+.ws-body :focus-visible {
+  outline: 3px solid rgb(var(--ws-accent-rgb));
+  outline-offset: 2px;
+}
+
+/* Testo ricco sanificato sul server: solo i tag dell'allowlist arrivano qui. */
+.ws-prose {
+  line-height: 1.7;
+}
+.ws-prose > * + * {
+  margin-top: 1em;
+}
+.ws-prose h2 {
+  font-size: 1.6em;
+  font-weight: 700;
+  margin-top: 1.6em;
+}
+.ws-prose h3 {
+  font-size: 1.3em;
+  font-weight: 700;
+  margin-top: 1.4em;
+}
+.ws-prose a {
+  color: rgb(var(--ws-primary-rgb));
+  text-decoration: var(--ws-link-decoration);
+  text-underline-offset: 3px;
+}
+.ws-prose ul {
+  list-style: disc;
+  padding-left: 1.4em;
+}
+.ws-prose ol {
+  list-style: decimal;
+  padding-left: 1.4em;
+}
+.ws-prose blockquote {
+  border-left: 4px solid rgb(var(--ws-primary-rgb));
+  padding-left: 1em;
+  font-style: italic;
+  color: rgb(var(--ws-muted-foreground-rgb));
+}
+.ws-prose img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--ws-radius);
+}
+.ws-prose table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.ws-prose th,
+.ws-prose td {
+  border: 1px solid rgb(var(--ws-border-rgb));
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+
+/* Collegamenti di testo secondo lo stile del tema. */
+.ws-link {
+  color: rgb(var(--ws-primary-rgb));
+  text-decoration: var(--ws-link-decoration);
+  text-underline-offset: 3px;
+}
+.ws-link:hover {
+  text-decoration: underline;
+}
+
+/* --------------------------------------------------------------- bottoni */
+
+.ws-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 0.8rem 1.4rem;
+  border: 2px solid transparent;
+  border-radius: var(--ws-button-radius, var(--ws-radius));
+  text-transform: var(--ws-button-transform, none);
+  letter-spacing: var(--ws-button-tracking, 0);
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease,
+    transform 0.15s ease;
+  text-decoration: none;
+  cursor: pointer;
+}
+.ws-btn:hover {
+  transform: translateY(-1px);
+}
+.ws-btn-primary {
+  background: rgb(var(--ws-primary-rgb));
+  color: rgb(var(--ws-primary-ink-rgb));
+}
+.ws-btn-secondary {
+  background: rgb(var(--ws-secondary-rgb));
+  color: rgb(var(--ws-secondary-ink-rgb));
+}
+.ws-btn-accent {
+  background: rgb(var(--ws-accent-rgb));
+  color: rgb(var(--ws-accent-ink-rgb));
+}
+.ws-btn-outline {
+  background: transparent;
+  border-color: currentColor;
+}
+.ws-btn-ghost {
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.ws-btn-sm {
+  padding: 0.5rem 0.9rem;
+  font-size: 0.875rem;
+}
+.ws-btn-lg {
+  padding: 1rem 1.8rem;
+  font-size: 1.1rem;
+}
+
+/* ------------------------------------------------------------ animazioni */
+
+/*
+  Un insieme chiuso, solo CSS. L'isola `RevealObserver` aggiunge `is-visible`
+  quando l'elemento entra nella finestra; senza JavaScript, o con
+  `prefers-reduced-motion`, il contenuto resta visibile e fermo.
+*/
+.ws-js [data-ws-anim]:not(.is-visible) {
+  opacity: 0;
+}
+.ws-js [data-ws-anim="slide"]:not(.is-visible) {
+  transform: translateY(24px);
+}
+.ws-js [data-ws-anim="scale"]:not(.is-visible) {
+  transform: scale(0.96);
+}
+.ws-js [data-ws-anim="reveal"]:not(.is-visible) {
+  clip-path: inset(0 0 100% 0);
+}
+[data-ws-anim].is-visible {
+  opacity: 1;
+  transform: none;
+  clip-path: inset(0 0 0 0);
+  transition: opacity 0.6s ease, transform 0.6s ease, clip-path 0.8s ease;
+}
+
+/* ------------------------------------------------------- loghi scorrevoli */
+
+.ws-marquee {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+}
+.ws-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: ws-marquee var(--ws-marquee-duration, 40s) linear infinite;
+  animation-direction: var(--ws-marquee-direction, normal);
+}
+.ws-marquee[data-pause-on-hover="true"]:hover .ws-marquee-track,
+.ws-marquee[data-pause-on-hover="true"]:focus-within .ws-marquee-track,
+.ws-marquee[data-paused="true"] .ws-marquee-track {
+  animation-play-state: paused;
+}
+.ws-marquee-group {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--ws-marquee-gap, 3rem);
+  padding-right: var(--ws-marquee-gap, 3rem);
+}
+.ws-monochrome img {
+  filter: grayscale(1);
+  opacity: 0.75;
+  transition: filter 0.2s ease, opacity 0.2s ease;
+}
+.ws-monochrome a:hover img,
+.ws-monochrome a:focus-visible img {
+  filter: none;
+  opacity: 1;
+}
+@keyframes ws-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* ------------------------------------------------------------- carosello */
+
+.ws-carousel-track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--ws-carousel-item, 85%);
+  gap: 1rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+.ws-carousel-track::-webkit-scrollbar {
+  display: none;
+}
+.ws-carousel-track > * {
+  scroll-snap-align: start;
+}
+@media (min-width: 768px) {
+  .ws-carousel-track {
+    grid-auto-columns: var(--ws-carousel-item-md, 45%);
+  }
+}
+@media (min-width: 1024px) {
+  .ws-carousel-track {
+    grid-auto-columns: var(--ws-carousel-item-lg, 31%);
+  }
+}
+
+/* ------------------------------------------------------------ movimento */
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-marquee-track {
+    animation: none;
+    flex-wrap: wrap;
+    width: auto;
+  }
+  .ws-marquee-group[aria-hidden="true"] {
+    display: none;
+  }
+  .ws-js [data-ws-anim] {
+    opacity: 1 !important;
+    transform: none !important;
+    clip-path: none !important;
+    transition: none !important;
+  }
+  .ws-btn,
+  .ws-carousel-track {
+    transition: none;
+    scroll-behavior: auto;
+  }
+}

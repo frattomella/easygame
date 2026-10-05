@@ -165,7 +165,7 @@ const main = async () => {
       documento.text.includes("<script>") &&
         (() => {
           const pagina = readFileSync(
-            "src/app/private/email-preview/page.tsx",
+            "src/app/(app)/private/email-preview/page.tsx",
             "utf8",
           );
           return (
@@ -376,7 +376,7 @@ const main = async () => {
     );
 
     /* E la pagina si chiude a chi non e amministratore di piattaforma. */
-    const pagina = readFileSync("src/app/private/email-preview/page.tsx", "utf8");
+    const pagina = readFileSync("src/app/(app)/private/email-preview/page.tsx", "utf8");
     segna(
       "C5-e la pagina pretende una sessione e il ruolo di piattaforma",
       /if\s*\(!session\)/.test(pagina) &&

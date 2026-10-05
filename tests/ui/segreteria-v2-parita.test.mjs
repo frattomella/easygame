@@ -42,7 +42,7 @@ import { APPOINTMENT_STATUSES } from "@/lib/appointments/model";
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/secretariat/v2";
 const sources = {
-  page: read("src/app/secretariat/page.tsx"),
+  page: read("src/app/(app)/secretariat/page.tsx"),
   model: read(`${V2}/secretariat-model.ts`),
   grids: read(`${V2}/secretariat-grids.tsx`),
   rail: read(`${V2}/agenda-rail.tsx`),

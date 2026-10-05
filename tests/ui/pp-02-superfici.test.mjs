@@ -30,7 +30,7 @@ const senzaCommenti = (sorgente) =>
 const GUSCIO = "components/parent-dashboard/parent-dashboard-shell.tsx";
 /* Redesign: la famiglia non ha piu una barra propria; il figlio sta nel blocco d'identita della `Sidebar` condivisa, dichiarato dal guscio. */
 const BARRA = "components/parent-dashboard/parent-dashboard-shell.tsx";
-const SCELTA = "app/parent-view/page.tsx";
+const SCELTA = "app/(app)/parent-view/page.tsx";
 const PAGINE = "components/parent-dashboard/parent-dashboard-pages.tsx";
 /* Dal Web V2 la barra superiore e `web/shell/Topbar.tsx`. */
 const HEADER = "components/web/shell/Topbar.tsx";
@@ -179,7 +179,7 @@ test("§F · il vocabolario del certificato ha un solo proprietario", () => {
 /*  §O — i due residui di PP-01                                         */
 /* ==================================================================== */
 
-const ALLENAMENTI = "app/training/page.tsx";
+const ALLENAMENTI = "app/(app)/training/page.tsx";
 
 test("§O · la pulizia degli allenamenti orfani passa dal dominio degli eventi", () => {
   const dominio = senzaCommenti(leggi("lib/simplified-db.ts"));
@@ -312,7 +312,7 @@ test("§J · il catalogo dice cosa chiede un modello, prima di adottarlo", () =>
 /* ==================================================================== */
 
 test("§K · il club puo dire se riceve, e per cosa", () => {
-  const pagina = senzaCommenti(leggi("app/appuntamenti/page.tsx"));
+  const pagina = senzaCommenti(leggi("app/(app)/appuntamenti/page.tsx"));
 
   assert.ok(
     pagina.includes("Le famiglie possono prenotare"),
@@ -587,7 +587,7 @@ test("§V · «cosa manca» legge il nome che il server manda", () => {
 });
 
 test("§V · la schermata del club dice quando ha chiuso la porta senza volerlo", () => {
-  const club = senzaCommenti(leggi("app/appuntamenti/page.tsx"));
+  const club = senzaCommenti(leggi("app/(app)/appuntamenti/page.tsx"));
 
   /*
     `familyCanRequestAppointment` e falsa anche con l'interruttore acceso,

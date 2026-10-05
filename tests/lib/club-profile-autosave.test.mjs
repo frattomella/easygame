@@ -352,7 +352,7 @@ test("le scritture ravvicinate vengono accorpate, l'ultima vince", async () => {
 // --- la pagina -----------------------------------------------------------------
 
 const PAGE = readFileSync(
-  path.join(process.cwd(), "src/app/organization/page.tsx"),
+  path.join(process.cwd(), "src/app/(app)/organization/page.tsx"),
   "utf8",
 );
 const SAVE_STATUS = readFileSync(
@@ -463,7 +463,7 @@ test("a riposo l'indicatore non disegna niente", () => {
  */
 test("le superfici in autosave non hanno anche un pulsante Salva in pagina", () => {
   const AUTOSAVE_SURFACES = [
-    ["app/organization/page.tsx", "scheda club"],
+    ["app/(app)/organization/page.tsx", "scheda club"],
     ["components/forms/form-builder.tsx", "costruttore moduli"],
   ];
 

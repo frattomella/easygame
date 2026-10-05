@@ -46,7 +46,7 @@ const readCode = (...segments) =>
   I reperti si cercano nell'insieme, salvo dove conta **in quale** file stanno.
 */
 const V2 = ["components", "modulistica", "v2"];
-const PAGE_ONLY = readCode("app", "modulistica", "page.tsx");
+const PAGE_ONLY = readCode("app", "(app)", "modulistica", "page.tsx");
 const MODEL = readCode(...V2, "modulistica-model.ts");
 const GRID = readCode(...V2, "templates-grid.tsx");
 const CATALOG = readCode(...V2, "catalog-grid.tsx");

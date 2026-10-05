@@ -20,7 +20,7 @@ import path from "node:path";
  */
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
-const PAGE = path.join(ROOT, "src/app/athletes/[id]/page.tsx");
+const PAGE = path.join(ROOT, "src/app/(app)/athletes/[id]/page.tsx");
 const PROFILE = path.join(ROOT, "src/components/athletes/profile");
 const V2 = path.join(PROFILE, "v2");
 

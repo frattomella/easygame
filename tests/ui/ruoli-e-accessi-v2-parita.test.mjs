@@ -38,7 +38,7 @@ import { listGrantablePermissions } from "@/lib/roles/custom-role";
 const read = (relative) => readFileSync(path.join(process.cwd(), relative), "utf8");
 const V2 = "src/components/access-management/v2";
 const sources = {
-  page: read("src/app/dashboard/access-management/page.tsx"),
+  page: read("src/app/(app)/dashboard/access-management/page.tsx"),
   model: read(`${V2}/access-model.ts`),
   roleDrawer: read(`${V2}/role-drawer.tsx`),
   inspector: read(`${V2}/role-inspector.tsx`),

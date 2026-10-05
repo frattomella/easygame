@@ -31,7 +31,7 @@ const SELECT = read("src/components/ui/select.tsx");
 const COMMAND = read("src/components/ui/command.tsx");
 const DROPDOWN = read("src/components/ui/dropdown-menu.tsx");
 const POPOVER = read("src/components/ui/popover.tsx");
-const GLOBALS = read("src/app/globals.css");
+const GLOBALS = read("src/app/(app)/globals.css");
 
 test("la tendina di scelta ha un'altezza massima legata allo spazio disponibile", () => {
   assert.match(
