@@ -319,3 +319,154 @@ test("la tessera del fondatore e owner: un ruolo a scelta sulla propria tessera 
   assert.equal(fake.rows("club").length, 1);
   assert.equal(fake.rows("organizationUser").some((riga) => riga.user_id === NUOVO), false);
 });
+
+/*
+  **Una transazione vera, nel doppio** (D-AC-02).
+
+  Il doppio di Prisma esegue `$transaction(fn)` passando se stesso e non annulla
+  niente: da solo non puo provare l'atomicita. Qui la transazione fotografa le
+  tabelle della fondazione e le rimette com'erano se `fn` solleva, e passa un
+  client **distinto**: ogni scrittura su quelle tabelle fatta durante la
+  fondazione senza passare dal client della transazione viene registrata in
+  `fuori`. Un'unica lista vuota dice due cose: il rollback c'e, e niente lo
+  aggira.
+*/
+const TABELLE = ["club", "organizationUser", "dashboard", "clubResourceItem"];
+const SCRITTURE = ["create", "createMany", "update", "updateMany", "upsert", "delete", "deleteMany"];
+
+const conTransazioneVera = ({ falliscePer = null } = {}) => {
+  const client = fake.client;
+  const fuori = [];
+  let dentro = 0;
+  let viaTx = 0;
+  for (const tabella of TABELLE) {
+    const delegate = client[tabella];
+    for (const metodo of SCRITTURE) {
+      const originale = delegate[metodo];
+      if (typeof originale !== "function") continue;
+      delegate[metodo] = async (...args) => {
+        if (dentro && !viaTx) fuori.push(`${tabella}.${metodo}`);
+        if (falliscePer === `${tabella}.${metodo}`) throw new Error("errore simulato durante la scrittura");
+        return originale.apply(delegate, args);
+      };
+    }
+  }
+  const clientDellaTransazione = new Proxy(client, {
+    get(target, proprieta) {
+      const valore = target[proprieta];
+      if (!TABELLE.includes(proprieta)) return valore;
+      return new Proxy(valore, {
+        get(delegate, metodo) {
+          const funzione = delegate[metodo];
+          if (typeof funzione !== "function") return funzione;
+          return async (...args) => {
+            viaTx += 1;
+            try {
+              return await funzione.apply(delegate, args);
+            } finally {
+              viaTx -= 1;
+            }
+          };
+        },
+      });
+    },
+  });
+  client.$transaction = async (fn) => {
+    const foto = Object.fromEntries(TABELLE.map((tabella) => [tabella, structuredClone(fake.rows(tabella))]));
+    dentro += 1;
+    try {
+      return await fn(clientDellaTransazione);
+    } catch (errore) {
+      for (const tabella of TABELLE) {
+        const righe = fake.rows(tabella);
+        righe.splice(0, righe.length, ...foto[tabella]);
+      }
+      throw errore;
+    } finally {
+      dentro -= 1;
+    }
+  };
+  return { fuori };
+};
+
+const fotografia = () => Object.fromEntries(TABELLE.map((tabella) => [tabella, fake.rows(tabella).length]));
+
+test("successo: club, tessera owner e dashboard nascono insieme, tutto dal client della transazione", async () => {
+  const { fuori } = conTransazioneVera();
+  const response = await crea("tok-nuovo", corpoDiCreazione(NUOVO));
+  const json = await response.json();
+  assert.equal(response.status, 200, JSON.stringify(json));
+  const club = fake.rows("club").find((riga) => riga.id === json.data.id);
+  assert.equal(club.creator_id, NUOVO, "creator_id e la sessione");
+  assert.equal(fake.rows("organizationUser").filter((riga) => riga.organization_id === club.id && riga.user_id === NUOVO && riga.role === "owner").length, 1);
+  assert.equal(fake.rows("dashboard").filter((riga) => riga.organization_id === club.id).length, 1);
+  assert.deepEqual(fuori, [], "nessuna scrittura della fondazione aggira la transazione");
+});
+
+test("errore durante la tessera: nessun club residuo, nessuna dashboard", async () => {
+  const prima = fotografia();
+  const { fuori } = conTransazioneVera({ falliscePer: "organizationUser.create" });
+  const response = await crea("tok-nuovo", corpoDiCreazione(NUOVO));
+  assert.equal(response.status >= 400, true);
+  assert.deepEqual(fotografia(), prima, "il club scritto prima della tessera e stato annullato");
+  assert.deepEqual(fuori, []);
+});
+
+test("errore dopo la tessera (dashboard, o un campo rifiutato dentro la transazione): nessuna scrittura parziale", async () => {
+  const prima = fotografia();
+  conTransazioneVera({ falliscePer: "dashboard.create" });
+  assert.equal((await crea("tok-nuovo", corpoDiCreazione(NUOVO))).status >= 400, true);
+  assert.deepEqual(fotografia(), prima);
+
+  /*
+    `access_tokens` e riservata: oggi la ferma gia il vaglio del corpo (400),
+    prima di aprire la transazione; se un giorno arrivasse al ciclo sulle
+    collezioni, dopo club e tessera, il rollback la coprirebbe come la
+    dashboard qui sopra.
+  */
+  const rifiutata = await crea("tok-nuovo", corpoDiCreazione(NUOVO, { access_tokens: [] }));
+  assert.equal(rifiutata.status >= 400, true);
+  assert.deepEqual(fotografia(), prima);
+});
+
+test("membership invalida (per un altro o con un ruolo diverso da owner): rifiutata prima di scrivere", async () => {
+  const prima = fotografia();
+  const { fuori } = conTransazioneVera();
+  const altrui = await crea("tok-nuovo", corpoDiCreazione(NUOVO, { memberships: [{ user_id: ALLENATORE, role: "owner" }] }));
+  const ruolo = await crea("tok-nuovo", corpoDiCreazione(NUOVO, { memberships: [{ user_id: NUOVO, role: "club_manager" }] }));
+  assert.equal(altrui.status, 403);
+  assert.equal(ruolo.status, 403);
+  assert.deepEqual(fotografia(), prima);
+  assert.deepEqual(fuori, []);
+});
+
+test("il tetto non dipende dal club attivo: con un club attivo nell'intestazione vale lo stesso", async () => {
+  const allenatore = fake.rows("user").find((riga) => riga.id === ALLENATORE);
+  allenatore.user_metadata = { clubSlotLimit: 1 };
+  const intestazioni = { "x-active-club-id": CLUB_ESISTENTE, "x-active-access-role": "trainer" };
+  assert.equal((await crea("tok-allenatore", corpoDiCreazione(ALLENATORE), intestazioni)).status, 200);
+  const seconda = await crea("tok-allenatore", corpoDiCreazione(ALLENATORE, { name: "ASD Seconda" }), intestazioni);
+  assert.equal(seconda.status, 403);
+  assert.match((await seconda.json()).error.message, /slot/);
+  /* Senza intestazioni, stesso esito: la conta e sui club fondati dalla persona. */
+  assert.equal((await crea("tok-allenatore", corpoDiCreazione(ALLENATORE, { name: "ASD Terza" }))).status, 403);
+  /* Il club esistente in cui allena non conta: non l'ha fondato lui. */
+  assert.equal(fake.rows("club").filter((riga) => riga.creator_id === ALLENATORE).length, 1);
+});
+
+test("la chiamata API diretta si comporta come l'area account: stesso corpo, stesso esito, stesso tetto", async () => {
+  const nuovo = fake.rows("user").find((riga) => riga.id === NUOVO);
+  nuovo.user_metadata = { clubSlotLimit: 1 };
+  /* Il corpo che manda `createOwnedClub` (buildClubPayload) e quello di un client che salta la UI sono la stessa rotta. */
+  assert.equal((await crea("tok-nuovo", corpoDiCreazione(NUOVO))).status, 200);
+  const diretta = await route.POST(
+    new Request("https://local/api/v1/clubs", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: "easygame_session=tok-nuovo" },
+      body: JSON.stringify({ mode: "create", data: { name: "Fatto a mano", creator_id: NUOVO } }),
+    }),
+    { params: { resource: "clubs" } },
+  );
+  assert.equal(diretta.status, 403);
+  assert.equal(fake.rows("club").filter((riga) => riga.creator_id === NUOVO).length, 1);
+});
